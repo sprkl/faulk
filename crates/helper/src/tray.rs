@@ -91,12 +91,14 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     }
 }
 
-/// Whether the helper starts with the user's session.
-pub fn start_at_login() -> bool {
+/// Whether this helper, started this way, starts with the user's session. A value
+/// left by a moved executable or other arguments counts as off, so checking the box
+/// rewrites it.
+pub fn start_at_login(command: &str) -> bool {
     RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(RUN_KEY)
         .and_then(|key| key.get_value::<String, _>(RUN_VALUE))
-        .is_ok()
+        .is_ok_and(|stored| stored == command)
 }
 
 /// Stores `command` under the Run key, or removes the value when `None`.
@@ -153,7 +155,7 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
     let login = CheckMenuItem::new(
         label(lang, Label::StartAtLogin),
         true,
-        start_at_login(),
+        start_at_login(&config.run_command),
         None,
     );
     let quit = MenuItem::new(label(lang, Label::Quit), true, None);
@@ -248,7 +250,7 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
                     crate::log!("cannot change the start at login setting: {e}");
                 }
                 // Show what the registry holds, whatever happened.
-                login.set_checked(start_at_login());
+                login.set_checked(start_at_login(&config.run_command));
                 crate::log!("start at login: {}", login.is_checked());
             }
         }

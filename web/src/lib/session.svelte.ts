@@ -112,14 +112,22 @@ export class Session {
       this.notice = null
       this.replayParams(this.web)
       await this.enableWebMidi()
-      const code = this.pendingPairCode
-      this.pendingPairCode = null
-      if (code) await this.pair(code)
     } catch (error) {
       console.error(error)
       this.notice = 'start.failed'
+      return
     } finally {
       this.starting = false
+    }
+    // Outside the try: a pairing problem is not an audio start failure.
+    const code = this.pendingPairCode
+    this.pendingPairCode = null
+    if (!code) return
+    try {
+      await this.pair(code)
+    } catch (error) {
+      console.error(error)
+      this.pairingMessage = { key: 'helper.failed' }
     }
   }
 

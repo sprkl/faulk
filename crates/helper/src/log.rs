@@ -22,12 +22,14 @@ static FILE: OnceLock<Mutex<File>> = OnceLock::new();
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 static WRITTEN: AtomicU64 = AtomicU64::new(0);
 
-/// Opens `<dir>/helper.log` for appending (after rotating it if too large) and logs
-/// panics. Without it, lines only go to stderr.
-pub fn init(dir: &Path) -> std::io::Result<()> {
+/// Opens `<dir>/helper.log` for appending (after rotating it if too large, when
+/// `rotate_first` is set) and logs panics. Without it, lines only go to stderr.
+pub fn init(dir: &Path, rotate_first: bool) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join("helper.log");
-    rotate(&path, MAX_LOG_BYTES)?;
+    if rotate_first {
+        rotate(&path, MAX_LOG_BYTES)?;
+    }
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
     let _ = FILE.set(Mutex::new(file));
     let _ = PATH.set(path);

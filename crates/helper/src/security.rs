@@ -133,6 +133,17 @@ impl Pairing {
         &self.code
     }
 
+    /// Replaces the code once it has expired, so the code on screen is always one that
+    /// works. Returns true when it did.
+    pub fn renew_if_expired(&mut self, now: Instant) -> bool {
+        if now.duration_since(self.issued) > CODE_LIFETIME {
+            *self = Self::new(now);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Checks a code typed in the page. A correct code is used once: a new one replaces
     /// it. An expired code, or the last wrong attempt, also replaces it.
     pub fn attempt(&mut self, code: &str, now: Instant) -> PairResult {
@@ -333,5 +344,22 @@ mod tests {
         assert_ne!(replaced, first);
         assert_eq!(replaced.len(), 32);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_expired_code_is_renewed_and_a_fresh_one_kept() {
+        let start = Instant::now();
+        let mut pairing = Pairing::new(start);
+        let first = pairing.code().to_owned();
+        assert!(!pairing.renew_if_expired(start + CODE_LIFETIME));
+        assert_eq!(pairing.code(), first);
+        let later = start + CODE_LIFETIME + Duration::from_secs(1);
+        assert!(pairing.renew_if_expired(later));
+        let renewed = pairing.code().to_owned();
+        assert!(
+            !pairing.renew_if_expired(later),
+            "the new code starts its own lifetime"
+        );
+        assert_eq!(pairing.attempt(&renewed, later), PairResult::Accepted);
     }
 }

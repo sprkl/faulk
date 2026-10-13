@@ -172,6 +172,13 @@ async fn ticker(shared: Arc<Shared>) {
             shared.to_session(ServerMessage::MidiActivity { note, velocity });
         }
         if ticks.is_multiple_of(30) {
+            let renewed = shared
+                .pairing
+                .lock()
+                .is_ok_and(|mut p| p.renew_if_expired(Instant::now()));
+            if renewed {
+                shared.notify_code();
+            }
             let changed = shared.midi.lock().is_ok_and(|mut m| m.refresh());
             if changed {
                 shared.to_session(shared.midi_inputs());
@@ -297,8 +304,9 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
             });
         }
         *current = Some(Session { id, tx: tx.clone() });
+        // Under the lock, so it can never be overtaken by an older session's end.
+        (shared.notify)(HelperEvent::Session(true));
     }
-    (shared.notify)(HelperEvent::Session(true));
     // A new session starts from silence.
     shared.send_event(EngineEvent::AllNotesOff);
     let _ = tx.send(shared.hello());
@@ -345,10 +353,9 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
-        drop(current);
+        // Under the lock, so a newer session's start always comes after it.
         (shared.notify)(HelperEvent::Session(false));
-    } else {
-        drop(current);
     }
+    drop(current);
     writer.abort();
 }

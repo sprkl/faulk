@@ -114,20 +114,43 @@ pub fn pairing_url(app_url: &str, code: &str) -> String {
 }
 
 /// The command line stored in the Run key: the executable, quoted, then the arguments
-/// the helper was started with (each quoted when it holds a space or is empty).
+/// the helper was started with, each quoted as Windows splits a command line.
 pub fn run_command(exe: &str, args: &[String]) -> String {
     let mut line = format!("\"{exe}\"");
     for arg in args {
         line.push(' ');
-        if arg.is_empty() || arg.contains([' ', '\t']) {
-            line.push('"');
-            line.push_str(arg);
-            line.push('"');
-        } else {
-            line.push_str(arg);
-        }
+        line.push_str(&quote_arg(arg));
     }
     line
+}
+
+/// Quotes one argument the way Windows programs split their command line
+/// (`CommandLineToArgvW`, the C runtime): backslashes are literal except before a
+/// quote, where they are doubled, and quotes are escaped.
+fn quote_arg(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.to_owned();
+    }
+    let mut out = String::from("\"");
+    let mut backslashes = 0;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                out.extend(std::iter::repeat_n('\\', backslashes));
+                out.push(c);
+                backslashes = 0;
+            }
+        }
+    }
+    out.extend(std::iter::repeat_n('\\', backslashes * 2));
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -238,6 +261,15 @@ mod tests {
     #[test]
     fn default_app_url_is_origin_plus_path() {
         assert_eq!(default_app_url(), "http://localhost:5173/");
+    }
+
+    #[test]
+    fn arguments_with_quotes_or_trailing_backslashes_survive_the_split() {
+        assert_eq!(quote_arg(r"C:\my dir\"), r#""C:\my dir\\""#);
+        assert_eq!(quote_arg(r#"say "hi""#), r#""say \"hi\"""#);
+        assert_eq!(quote_arg(r#"a\"b"#), r#""a\\\"b""#);
+        assert_eq!(quote_arg(r"C:\no\space"), r"C:\no\space");
+        assert_eq!(quote_arg(r"C:\a b\c"), r#""C:\a b\c""#);
     }
 
     #[test]

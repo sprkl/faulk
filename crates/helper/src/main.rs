@@ -130,10 +130,17 @@ fn main() {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("faulk");
-    if let Err(e) = log::init(&config_dir.join("logs")) {
-        eprintln!("cannot open the log file: {e}");
-    }
-    let args = parse_args(&raw_args).unwrap_or_else(|e| fatal(lang, &format!("{e}\n{USAGE}")));
+    // Only the helper that serves rotates the log: another instance must not move the
+    // file the running one writes to.
+    let open_log = |rotate: bool| {
+        if let Err(e) = log::init(&config_dir.join("logs"), rotate) {
+            eprintln!("cannot open the log file: {e}");
+        }
+    };
+    let args = parse_args(&raw_args).unwrap_or_else(|e| {
+        open_log(false);
+        fatal(lang, &format!("{e}\n{USAGE}"))
+    });
 
     // One helper per port: bind before anything else. A port taken by a Faulk helper
     // means it already runs: show the page and leave.
@@ -144,8 +151,12 @@ fn main() {
         }
     }
     let std_listener = match instance::claim(args.port, &probe_origins, instance::PROBE_PATIENCE) {
-        Startup::Serve(listener) => listener,
+        Startup::Serve(listener) => {
+            open_log(true);
+            listener
+        }
         Startup::AlreadyRunning => {
+            open_log(false);
             log!(
                 "a Faulk helper already runs on port {}: opening Faulk",
                 args.port
@@ -153,9 +164,16 @@ fn main() {
             open_in_browser(&args.app_url);
             std::process::exit(0);
         }
-        Startup::Blocked(reason) => fatal(lang, &reason),
+        Startup::Blocked(reason) => {
+            open_log(false);
+            fatal(lang, &reason)
+        }
     };
-    if !args.origins.iter().any(|o| origin_of(&args.app_url) == o) {
+    if !args
+        .origins
+        .iter()
+        .any(|o| origin_of(&args.app_url).eq_ignore_ascii_case(o))
+    {
         log!(
             "warning: the page {} is not among the allowed origins; it will not be able to pair",
             args.app_url
@@ -300,8 +318,10 @@ fn main() {
             events: tray_events,
         });
         if let Err(e) = tray {
-            log!("{e}; running without a tray icon");
-            runtime.block_on(std::future::pending::<()>());
+            // Without an icon a release build could be neither seen nor quit: stop.
+            runtime.shutdown_timeout(Duration::from_secs(1));
+            drop(stream);
+            fatal(lang, &e);
         }
     }
     #[cfg(not(windows))]
