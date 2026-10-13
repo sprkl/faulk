@@ -48,12 +48,21 @@ pub type Hash = [u8; 32];     // SHA-256 of a blob
 
 pub struct Project {
     pub format: u32,                     // on-disk format version, for migrations
+    pub id: Id,                          // stable project identity, created once (see 1.3)
     pub name: String,
     pub tempo: Vec<TempoPoint>,          // sorted by tick; a single point in the MVP
     pub meter: Vec<MeterPoint>,          // time signatures, sorted by tick
+    pub transport: TransportSettings,    // saved transport settings (see 1.3)
     pub scenes: BTreeMap<Id, Scene>,
     pub master: Mixer,                   // master bus (no sends)
     pub tracks: BTreeMap<Id, Track>,
+}
+
+pub struct TransportSettings {
+    pub launch_quantize: Quantize,       // None | 1/16 .. 4 bars
+    pub loop_region: Option<LoopRegion>, // [start, end) in ticks
+    pub loop_enabled: bool,
+    pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
 }
 
 pub struct Scene { pub name: String, pub order: OrderKey, pub tempo: Option<f64> }
@@ -86,15 +95,26 @@ pub struct Clip {
     pub name: String,
     pub color: Option<Rgb>,
     pub slot: Option<Id>,                // scene id when the clip sits in the launch grid
-    pub length: Tick,
-    pub looping: Option<Loop>,
-    pub content: ClipContent,            // Midi { notes: BTreeSet<Note> } | Audio { media: Hash, start: Frame, frames: Frame, gain_db: f64 }
+    pub content: ClipContent,
 }
 
-#[derive(Ord)] // ordering = (start, pitch, length, velocity)
+pub enum ClipContent {
+    // Musical time: length and loop in ticks.
+    Midi { length: Tick, looping: Option<Loop>, notes: BTreeSet<Note> },
+    // Source time: a range of the audio file in frames; no length in ticks is stored.
+    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64 },
+}
+
+// Ord compares fields in declaration order: (start, pitch, length, velocity).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Note { pub start: Tick, pub pitch: u8, pub length: Tick, pub velocity: u8 }
 
-pub struct Placement { pub clip: Id, pub start: Tick, pub length: Tick, pub offset: Tick }
+pub struct Placement { pub clip: Id, pub start: Tick, pub span: Span }
+
+pub enum Span {
+    Ticks { length: Tick, offset: Tick },   // MIDI clip: trim in musical time
+    Frames { length: Frame, offset: Frame }, // audio clip: trim in source time
+}
 
 pub struct AutomationLane {
     pub target: AutomationTarget,        // Device { device: Id, param: String } | Mixer(MixerParam)
@@ -105,10 +125,16 @@ pub struct AutomationLane {
 Choix et limites pour le MVP :
 
 - **Clips et placements.** Le clip est le contenu ; la grille de lancement le met dans une case (`slot`), l'arrangement le pose dans le temps avec un `Placement`. Plusieurs placements d'un même clip sont des clips liés. Copier-coller dans l'arrangement crée par défaut un nouveau clip indépendant (c'est aussi ce que prévoit la tâche AR-5 du découpage) ; **à confirmer**.
+- **Deux longueurs distinctes.** Un clip MIDI a une longueur en ticks ; un clip audio n'a qu'une plage source en frames, et aucune longueur en ticks n'est enregistrée (elle deviendrait fausse au premier changement de tempo). Ses ticks de fin se **calculent** : on convertit le tick de début en secondes par la carte de tempo, on ajoute `frames / sample_rate`, et on reconvertit en ticks. Un placement suit la même règle (`Span::Ticks` ou `Span::Frames`). Le calcul exact (arrondi au tick, tempo variable) est à figer avec le modèle de temps (CT-2).
 - **Clips audio non élastiques** : début en ticks, durée en frames ; un changement de tempo déplace le début, pas la vitesse. Le recalage temporel viendra plus tard comme une liste de points `(tick, frame)`.
 - **Automation d'arrangement uniquement** (par piste) ; les enveloppes propres aux clips sont reportées.
 - **Notes sans identifiant sur disque.** Une note est une *valeur* : la modifier, c'est retirer l'ancienne et ajouter la nouvelle, ce qui rend la fusion des notes triviale (§ 4.3). Le découpage du MVP prévoit pourtant un `NoteId` dans les commandes : **à trancher** dans le contrat de commande (CT-4) ; une voie possible est un identifiant de session, tenu en mémoire et jamais écrit sur disque. L'expression par note (MPE) exigera plus tard un identifiant durable, ajouté comme colonne optionnelle.
 - **Plugins tiers** : leur état est un blob opaque ; seuls les paramètres que l'hôte peut lire sont recopiés en clair dans `params`. En conflit, un état opaque ne se fusionne pas : on choisit un côté.
+
+### 1.3 Identité du projet et réglages du transport
+
+- **Identifiant de projet.** `project.json` porte un `id` (ULID) obligatoire, créé à la création du projet et jamais modifié ensuite ; la validation refuse un projet sans `id`. C'est lui que la page et le helper utilisent pour se rapprocher en mode Boost ([stockage](03-stockage-local.md) § 4). « Enregistrer sous » crée un nouvel `id`. Une copie du dossier faite hors de Faulk garde le même `id` : le helper vérifie donc aussi le chemin, et signale deux dossiers de même `id`. Le format commence à la version 1 avec ce champ : aucune migration n'est nécessaire.
+- **Réglages du transport.** La quantification de lancement, la région de boucle et son activation, et le métronome (activation, niveau, décompte) sont dans `project.json`, ce qui correspond aux commandes `edit` de TR-3 et GR-2 dans le [découpage du MVP](../specs/02-decoupage-mvp.md) : ils survivent à la réouverture. La lecture, la position de la tête et les clips en cours de lecture restent éphémères (`live`). Mettre plutôt le métronome et la boucle dans l'état de session est possible (question 1 de la fin) ; les commandes changeraient alors de `x-kind`.
 
 ## 2. Le format sur disque
 
@@ -124,7 +150,7 @@ Pourquoi un dossier plutôt qu'un fichier : le chemin dit déjà *quoi* a chang�
 
 ```
 Mon morceau/
-├── project.json                      # format version, name, tempo, time signature, scenes, master mixer
+├── project.json                      # format version, project id, name, tempo, time signature, transport settings, scenes, master mixer
 ├── tracks/
 │   └── <track>/                      # folder named by the track ULID, never by its name
 │       ├── track.json                # name, colour, mixer, routing, order key
@@ -309,13 +335,22 @@ C'est aussi le terrain de l'IA : **un agent travaille dans une variante** (« Fa
 
 **L'état est la vérité ; git est l'histoire ; les commandes sont le seul moyen de changer l'état.**
 
-1. **Modèle immuable à partage structurel.** Chaque commande prend un `Project` et rend un nouveau `Project` qui partage tout ce qui n'a pas changé (`Arc` sur les pistes, clips, couloirs, ou la crate `im`). Coût proportionnel à ce qui change.
+1. **Modèle immuable à partage structurel** (option (b) ci-dessous). Chaque commande prend un `Project` et rend un nouveau `Project` qui partage tout ce qui n'a pas changé (`Arc` sur les pistes, clips, couloirs, ou la crate `im`). Coût proportionnel à ce qui change.
 2. **Annuler = revenir à la racine précédente.** La pile d'annulation est une liste de racines, bon marché grâce au partage structurel. Une commande structurelle (« supprimer une piste ») n'a plus à savoir écrire son inverse : `x-undo` prend la valeur `snapshot` pour les commandes du projet. L'inverse explicite reste utile pour les réglages temps réel que le moteur applique directement ; `none` pour les notes jouées en direct. Un tour d'agent = une seule entrée.
 3. **Fichiers sales** : chaque commande marque les entités touchées ; l'enregistrement réécrit seulement leurs fichiers (§ 7).
 4. **Journal léger, non vérité** : les commandes d'une session sont gardées (en mémoire et dans `.faulk/`) pour l'attribution et pour **rédiger le message de la version** (« Agent : 1 piste ajoutée, 42 notes posées », avec des lignes de fin `Faulk-Author: agent:<nom>`).
 5. **Les gestes de version sont des commandes** : `version.save { message }`, `version.list`, `variant.create { name }`, `variant.switch { name }`, `variant.compare { a, b }`, `variant.merge { from } → { conflicts }`, `conflict.resolve { id, choice }`, `version.restore { id }`. `version.restore` et l'abandon d'une variante sont destructeurs.
 
-Le découpage du MVP prévoit des inverses explicites dans `Outcome` (CT-4) : la valeur `snapshot` de `x-undo` est à ajouter au contrat de commande.
+**Choix ouvert, à trancher dans CT-4.** Ce document et le [découpage du MVP](../specs/02-decoupage-mvp.md) proposent deux contrats de commande différents, et l'un exclut l'autre comme base de PR-2 :
+
+| | (a) Modèle mutable, inverses explicites (découpage, § 2.1) | (b) Modèle persistant, annulation par instantané (ce document) |
+| --- | --- | --- |
+| Signature | `apply(&mut Project, Command) -> Result<Outcome, CommandError>` | `apply(&Project, Command) -> Result<(Project, Outcome), CommandError>` |
+| Annulation | `Outcome` porte l'inverse ; chaque commande sait le calculer | La pile garde les racines précédentes ; `x-undo: snapshot` |
+| Coût | Écrire et tester un inverse par commande | Partage structurel obligatoire (`Arc`, `im`) dans tout le modèle |
+| Risque | Un inverse faux corrompt l'historique | Une mémoire qui croît si la pile n'est pas bornée |
+
+Une variante hybride existe (signature mutable sur un modèle copié à l'écriture, `Arc::make_mut`, où cloner la racine avant la commande donne l'instantané), mais elle reste un choix de CT-4. Tant que CT-4 n'a pas tranché, aucun des deux documents ne fait foi pour l'API de PR-2 ; les deux sont alignés sur ce renvoi.
 
 ### 5.3 Ce qu'on reporte
 
@@ -369,7 +404,7 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 - **Le texte est lu à l'ouverture et écrit à l'enregistrement, jamais entre les deux.** En mémoire, le modèle est fait de structures Rust compactes (une note = 12 à 16 octets) ; le texte n'est pas la représentation de travail.
 - **Risque 1 : le nombre de fichiers dans le navigateur.** Ouvrir des milliers de petits fichiers par les API asynchrones du navigateur coûte cher. Parade : un **instantané binaire de tout le projet dans `.faulk/cache/`**, écrit à l'enregistrement ; à l'ouverture, Faulk charge l'instantané puis ne relit que les fichiers modifiés depuis (date et taille, ou empreinte). Le cache est régénérable : s'il manque ou ne correspond plus, on relit tout.
 - **Risque 2 : l'enregistrement.** Suivi des fichiers sales : éditer une note réécrit un seul petit fichier (le `.notes.tsv` du clip), jamais tout le projet.
-- **Annulation** : les instantanés sont bon marché grâce au partage structurel (§ 5.2), même sur un gros projet.
+- **Annulation** : si CT-4 retient le modèle persistant (§ 5.2), les instantanés sont bon marché grâce au partage structurel, même sur un gros projet ; avec le modèle mutable, chaque entrée garde seulement son inverse.
 - **Automation dense** : au-delà d'environ 1 000 points, un couloir passe en blob pour ne pas produire des fichiers texte énormes et des diffs illisibles.
 
 **Banc de charge** (tâche QA-7 du [découpage du MVP](../specs/02-decoupage-mvp.md), phase 1) : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) et mesurer l'ouverture, l'enregistrement, la mémoire et les opérations git, dans le navigateur et en natif. Ses chiffres fixent les seuils du format (densité d'automation qui bascule en blob, utilité de l'instantané de cache, éventuelle subdivision de `blobs/`).
@@ -378,7 +413,7 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 
 1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, fusion à trois points, migrations.
 2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7.
-3. Commandes de projet en modèle immuable, annulation par instantané.
+3. Commandes de projet selon le contrat que CT-4 retient (§ 5.2 : modèle mutable avec inverses, ou persistant avec annulation par instantané).
 4. Binaire `faulk` : pilotes git `merge` et `diff`, `git setup`.
 5. Tests : aller-retour octet pour octet, une fusion de référence par ligne du tableau § 4.4, propriétés de la fusion, un dépôt git réel où deux branches sont fusionnées par le pilote ; banc de charge.
 

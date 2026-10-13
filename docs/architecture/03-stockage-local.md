@@ -159,7 +159,7 @@ La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffe
 - Le helper lit et écrit **directement sur le disque** : pas de permission navigateur, pas de quota, streaming natif. Le son ne traverse jamais le lien page ↔ helper : seul le moteur du helper lit les fichiers audio.
 - **La page et le helper doivent désigner le même dossier**, or un `FileSystemDirectoryHandle` ne révèle pas son chemin absolu. Options :
   1. l'utilisateur ouvre le projet par un sélecteur natif du helper (ou en collant un chemin) ; la page reçoit les données du projet par le WebSocket. Simple et fiable ;
-  2. **rapprochement par identité** : `project.json` porte un identifiant de projet ; la page l'envoie au helper, qui le cherche parmi ses projets récents. Utile pour basculer à chaud.
+  2. **rapprochement par identité** : `project.json` porte l'`id` stable du projet (ULID obligatoire, défini dans le [modèle de projet](02-modele-projet.md) § 1.3) ; la page l'envoie au helper, qui le cherche parmi ses projets récents. Deux dossiers de même `id` (une copie faite hors de Faulk) ne sont jamais choisis au hasard : le helper demande lequel ouvrir. Utile pour basculer à chaud.
 - **Identité des fichiers audio** : l'empreinte SHA-256 du blob. La page (poignées) et le helper (chemins natifs) résolvent le même blob par `blobs/<sha256>`, chemins relatifs à la racine et en `/`.
 - **Écritures concurrentes** : en mode Boost, une seule autorité écrit le dossier, le helper ; la page reste propriétaire du modèle (voir [modèle de projet](02-modele-projet.md) § 5.4) et lui envoie les fichiers sales à écrire.
 - **Projets en OPFS** : le helper n'y a pas accès. Passer en Boost depuis un projet OPFS impose un export vers un dossier réel, ou un transfert des fichiers par le WebSocket (des données de fichier, jamais du son en temps réel).
@@ -208,6 +208,13 @@ Les études divergent ; la proposition à trancher :
 | Les modules (WASM compilé) | |
 
 Budget visé (24 pistes, 5 min) : moins de 300 Mo de mémoire audio, quelle que soit la durée totale des fichiers.
+
+Le seuil par clip ne suffit pas à tenir ce budget : beaucoup de clips courts peuvent le dépasser à eux seuls. Le PCM décodé a donc un **budget global** (proposition : 300 Mo, réglable), tenu par le Worker disque :
+
+- les clips courts, les débuts préchargés et les tampons de lecture anticipée puisent dans ce même budget ;
+- au-delà, le Worker **évince** en priorité le PCM des clips qui ne jouent pas et ne sont pas proches de la tête de lecture (LRU), puis le préchargement des clips inactifs ; un clip évincé repasse en streaming ou est redécodé à la demande ;
+- les tampons des voix en lecture ne sont jamais évincés ; si eux seuls dépassent le budget, l'interface l'affiche plutôt que de couper le son ;
+- le compteur d'occupation est visible dans l'état du moteur et mesuré par le banc de charge (QA-7).
 
 **Étape intermédiaire acceptable** : livrer d'abord « tout décodé en mémoire » avec une limite affichée (par exemple 1 Go de PCM par projet), puis le streaming. L'architecture (Worker disque + anneau vers le worklet) doit cependant être posée dès le départ, sinon la bascule touchera le moteur.
 

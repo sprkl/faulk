@@ -47,7 +47,7 @@ Ces décisions sont l'objet des tâches de la phase 0 (une ADR chacune dans `doc
 ### 2.1 Qui possède l'état du projet
 
 - Nouvelle crate **`crates/project`** : le document (projet, pistes, devices, scènes, emplacements de clips, clips, notes, arrangement, réglages du transport), pur Rust, `serde`, sans I/O ; son format sur disque est celui du [modèle de projet](../architecture/02-modele-projet.md). Elle modifie la table « Stack and layout » de `CLAUDE.md`.
-- `crates/commands` applique les commandes **au projet** : `apply(&mut Project, Command) -> Result<Outcome, CommandError>`, où `Outcome` contient la sortie typée, l'annulation, les `ProjectEvent` (pour l'interface) et les `ControlMsg` (pour le moteur).
+- `crates/commands` applique les commandes **au projet**. L'étude propose `apply(&mut Project, Command) -> Result<Outcome, CommandError>`, où `Outcome` contient la sortie typée, l'inverse (annulation), les `ProjectEvent` (pour l'interface) et les `ControlMsg` (pour le moteur). Le [modèle de projet](../architecture/02-modele-projet.md) § 5.2 propose au contraire un modèle persistant (`apply(&Project, Command) -> Result<(Project, Outcome), CommandError>`, annulation par instantané). Les deux contrats s'excluent comme base de PR-2 : **CT-4 choisit** l'un d'eux (ou la variante hybride décrite dans le modèle de projet), et les deux documents seront alignés sur ce choix.
 - **La page possède le projet** : le cœur projet + commandes est compilé en WASM (`crates/project-wasm`, `wasm-bindgen` permis car il tourne sur le thread principal, pas dans le worklet). En mode Boost, la page envoie au helper les `ControlMsg`, pas les commandes ; le helper reste un pont sans logique produit, et son serveur MCP relaie les appels d'outils vers la page.
 - Conséquence : basculer Web ↔ Boost = rejouer un **instantané** du projet vers l'autre moteur ; ouvrir un projet = même mécanisme.
 
@@ -70,7 +70,10 @@ Un seul code pour les deux cibles :
 Par cible :
 
 - **Natif (helper)** : `prepare` sur un thread de contrôle, `RtMsg` vers le callback audio par `rtrb`, déchets en retour par un second `rtrb`.
-- **WASM** : la mémoire du module n'est pas partagée au MVP (pas de `SharedArrayBuffer`, qui exige l'isolation cross-origin : décision ouverte, voir [stockage local](../architecture/03-stockage-local.md) § 3.4), donc `prepare` s'exécute dans le `onmessage` du worklet, **hors de `process`**. La page envoie des octets (`fk_push(ptr, len)`). Le module réserve sa mémoire au démarrage pour éviter un `memory.grow` en cours de session.
+- **WASM** : le `onmessage` d'un `AudioWorklet` s'exécute **sur le thread de rendu**, comme `process` ; y appeler un `prepare` qui alloue violerait la règle « hors chemin audio ». Et sans mémoire partagée, la page ne peut pas passer un pointeur : les octets arrivent dans un `ArrayBuffer` transféré et doivent être **copiés** dans la mémoire WASM du worklet (dans une boîte de réception préallouée dont le module exporte l'adresse) avant `fk_push(ptr, len)`. Deux voies, à trancher dans CT-3 :
+  - (a) **sans `SharedArrayBuffer`** : tout ce que `prepare` construirait est **préalloué au démarrage** aux capacités fixes (emplacements de pistes et de devices, tampons de délai à leur taille maximale, tables de notes, pools) ; le `onmessage` ne fait que copier des octets bornés dans la boîte de réception, et `apply` ne fait que des opérations bornées sans allocation dans la mémoire WASM. Reste un coût que Faulk ne contrôle pas : l'objet `MessageEvent` créé par le navigateur sur le thread de rendu (ramasse-miettes JS), à mesurer ;
+  - (b) **avec `SharedArrayBuffer`** (isolation cross-origin, décision ouverte, voir [stockage local](../architecture/03-stockage-local.md) § 3.4) : `prepare` tourne dans un Worker dédié qui écrit dans une mémoire partagée avec le moteur, et le worklet ne lit qu'un anneau lock-free, comme dans le helper.
+  Le module réserve sa mémoire au démarrage pour éviter un `memory.grow` en cours de session.
 - **Capacités fixes** décidées dans l'ADR (proposition : 32 pistes, 8 devices par piste, 64 scènes, 65 536 notes au total, 256 événements par bloc). Le projet refuse la commande avant qu'elle n'atteigne le moteur : le moteur n'échoue jamais en temps réel. Ces capacités portent sur ce que le moteur joue, pas sur le format : le banc de charge (QA-7) dépasse volontairement ces chiffres, et ses mesures aident à les fixer.
 - Le mappage commande → messages vit en Rust (`crates/commands`), jamais en TypeScript.
 
@@ -121,12 +124,12 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 
 **CT-3 — ADR : synchronisation projet → moteur (prepare/apply, capacités, feedback)**
 - But : figer § 2.3.
-- Critères : énumérations `ControlMsg`, `RtMsg`, `Feedback` déclarées (variantes du MVP listées, même vides), capacités chiffrées, format binaire décrit (en-tête, version, endianness), attaque écrite : file pleine, message inconnu, capacité dépassée, bascule de moteur en cours de message.
+- Critères : énumérations `ControlMsg`, `RtMsg`, `Feedback` déclarées (variantes du MVP listées, même vides), capacités chiffrées, format binaire décrit (en-tête, version, endianness) ; choix entre les voies (a) et (b) du § 2.3 pour la cible WASM, avec le chemin des octets jusqu'à la mémoire du worklet ; attaque écrite : file pleine, message inconnu, capacité dépassée, bascule de moteur en cours de message.
 - Touche : `docs/adr/`, `crates/engine/src/msg.rs` (types seulement).
 - Dépend de : CT-1. Phase 0.
 
 **CT-4 — ADR : contrat de commande v2**
-- But : figer § 2.4 et trancher l'état de vue et le `NoteId`.
+- But : figer § 2.4 ; choisir entre le modèle mutable à inverses et le modèle persistant à instantanés (§ 2.1) ; trancher l'état de vue, l'existence et la **largeur** du `NoteId` (l'ABI des modules de l'Atelier n'a que 24 bits pour l'identifiant de note, voir la [spec de l'Atelier](01-atelier-modules.md) § 1.3).
 - Critères : signature `apply` figée en code ; domaines du MVP figés (`project`, `track`, `device`, `clip`, `note`, `scene`, `launch`, `arrangement`, `transport`, `mixer`, `record`, `midi`, `live`, `history`, `view`) ; règle de test « chaque commande a description, schéma d'entrée et de sortie, undo testé ».
 - Touche : `docs/adr/`, `crates/commands` (squelettes des modules).
 - Dépend de : CT-1. Phase 0.
@@ -173,13 +176,13 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 - But : chaque `Outcome` porte les `ControlMsg` du changement ; `snapshot(&Project) -> Vec<ControlMsg>` rejoue un projet entier sur un moteur vide (bascule de mode, ouverture).
 - Critères : « appliquer N commandes en direct » et « instantané du projet final » produisent le **même rendu** hors ligne (harnais QA-1) ; table identifiant → emplacement moteur tenue par le projet, réutilisation des emplacements libérés testée.
 - Touche : `crates/commands`, `crates/project`.
-- Dépend de : PR-2, MO-1. Phase 1.
+- Dépend de : PR-2, MO-1, QA-1. Phase 1.
 
 **PR-4 — `project-wasm` : le cœur projet dans la page**
 - But : compiler `project` + `commands` en WASM pour le thread principal ; API `run(json) -> json` (sortie, événements, octets moteur), `snapshot()`, `load(files)`, `save() -> fichiers sales`.
 - Critères : test Vitest qui crée un projet, des pistes et des notes par commandes ; types TypeScript générés depuis le schéma ; taille du `.wasm` mesurée et notée.
 - Touche : `crates/project-wasm`, `web/scripts/`, `web/src/lib/project/`.
-- Dépend de : PR-2. Phase 1.
+- Dépend de : PR-2, PR-3. Phase 1.
 
 **PR-5 — Dispatcher web générique et stores**
 - But : remplacer le `switch` de `Session.run` par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur ; supprimer `wasm-ops.ts`.
@@ -600,16 +603,16 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 - Dépend de : PR-2. Phase 1.
 
 **QA-5 — Banc de performance audio**
-- But : coût processeur par bloc avec 16 pistes × (instrument + 3 effets), en natif et en WASM ; budget fixé ; suivi en CI (non bloquant au début).
+- But : coût processeur par bloc avec 16 pistes × (instrument + 3 effets), en natif et en WASM ; budget fixé ; suivi en CI (non bloquant au début). Instruments : synthé (DV-1) et batterie (DV-6) en alternance ; les trois effets mesurés sont le delay (DV-3), la réverbération (DV-4) et le compresseur (DV-5).
 - Critères : résultats publiés dans la sortie CI ; budget noté dans `docs/constraints/`.
 - Touche : `crates/engine/benches/`, `.github/workflows/`.
-- Dépend de : MO-3, DV-2, DV-6. Phase 4.
+- Dépend de : MO-3, DV-6, DV-3, DV-4, DV-5. Phase 4.
 
 **QA-6 — Scénario MVP de bout en bout**
 - But : le parcours complet dans l'interface : créer un projet, 4 pistes de 2 instruments, effets, clips dans la grille, enregistrement MIDI, scène lancée, arrangement, mixage, enregistrement, réouverture, même rendu ; dans les deux modes quand le helper est disponible.
 - Critères : test Playwright en CI (mode Web) ; parcours Boost vérifié et noté.
 - Touche : `web/tests/e2e/mvp/`.
-- Dépend de : toutes les tâches des phases 1 à 4, SV-3. Phase 5.
+- Dépend de : RE-4, RE-5, AR-5, MX-3, SV-3, BO-2, DV-9, UI-3, PN-1, QA-1, QA-3. Ce sont les fonctions qu'exerce le scénario et ses harnais (le graphe en déduit le reste par transitivité) ; le scénario ne requiert pas les autres tâches des phases 1 à 4, qui ont leurs propres tests. Phase 5.
 
 **QA-7 — Banc de charge du format de projet** (ajout de la synthèse)
 - But : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) au format dossier, et mesurer l'ouverture, l'enregistrement (une note modifiée, le projet entier), la mémoire et les opérations git (status, commit, diff, fusion), dans le navigateur (OPFS et dossier réel) et en natif.
@@ -627,19 +630,37 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 
 ### 4.1 La colonne vertébrale (en série, d'abord)
 
-**CT-1, CT-3, CT-4, CT-5 → PR-1 → PR-2 → MO-1 → MO-3 → DV-1 → MO-2 → PR-3 → PR-4 → PR-5**, plus **TR-1** et **MO-4**.
+Deux branches se rejoignent en QA-1, puis le socle est en série jusqu'à PR-5 :
 
-Après PR-5 (« la page envoie n'importe quelle commande, le projet produit les messages, les deux moteurs jouent N pistes »), les domaines deviennent des feuilles parallèles.
+- branche projet : **CT-1 → CT-2 ou CT-4 → PR-1 → PR-2** ;
+- branche moteur : **CT-1 → CT-3 → MO-1 → MO-2** ;
+- puis **QA-1 → PR-3 → PR-4 → PR-5**.
+
+Après PR-5 (« la page envoie n'importe quelle commande, le projet produit les messages, les deux moteurs jouent N pistes »), les domaines deviennent des feuilles parallèles. Les autres tâches du socle (CT-5, MO-3, DV-1, TR-1, MO-4…) ont de la marge.
 
 ### 4.2 Chemin critique jusqu'au MVP
 
+Calculé sur le graphe complet des dépendances (§ 4.3) : plus long chemin en nombre de tâches, chaque tâche comptant pour une pull request. Une tâche est critique si sa profondeur (plus long chemin depuis une tâche sans prérequis) plus sa hauteur (plus long chemin jusqu'à une tâche terminale) moins un égale cette longueur. Les dépendances de la liste des tâches et les arêtes du graphe Mermaid ont été comparées par le même calcul : 153 arêtes de chaque côté, identiques. (BO-0 dépend aussi du merge de l'issue #2, hors graphe.)
+
+**Longueur : 13 tâches en série.** Plusieurs chemins ont cette longueur ; les tâches sans marge, par profondeur :
+
 ```
-CT-1 → CT-3 → MO-1 → MO-3 → MO-4 → CL-2 → GR-1 → RE-3 ─┐
-CT-4 → PR-1 → PR-2 → PR-3 → PR-4 → PR-5 → UI-2 → GR-3 ──┼→ AR-2 → RE-4 → QA-6 → DOC-1
-                                       └→ CL-1 → AR-1 → AR-4 ┘
+1  CT-1
+2  CT-2 | CT-3 | CT-4
+3  PR-1 | MO-1
+4  PR-2 | MO-2
+5  QA-1
+6  PR-3
+7  PR-4
+8  PR-5
+9  UI-2              | SV-4
+10 GR-3 | AR-4       | SV-2
+11 AR-5              | SV-3
+12 QA-6
+13 DOC-1
 ```
 
-Environ 13 pull requests en série (CT-1, CT-3, MO-1, MO-3, MO-4, CL-2, GR-1, AR-2, RE-4, SV-3, QA-6, DOC-1, plus la branche projet qui court en parallèle et rejoint à PR-5). QA-7 est hors du chemin critique tant qu'il précède SV-1 (phase 3). Tout le reste tourne en parallèle.
+Les chemins critiques sont donc : CT-1 → (CT-3 → MO-1 → MO-2, ou CT-2/CT-4 → PR-1 → PR-2) → QA-1 → PR-3 → PR-4 → PR-5 → (UI-2 → GR-3 ou AR-4 → AR-5, ou SV-4 → SV-2 → SV-3) → QA-6 → DOC-1. Toute autre tâche a au moins une tâche de marge : la branche de l'enregistrement (RE-1 à RE-5), celle de la lecture des clips (MO-3, MO-4, CL-2, GR-1, AR-2) et le banc de charge QA-7 tournent en parallèle sans allonger le MVP, tant qu'ils ne prennent pas de retard. Ce chiffre est à recalculer à chaque changement de dépendance.
 
 ### 4.3 Graphe des dépendances
 
@@ -663,8 +684,8 @@ graph LR
   MO1 & CT5 --> MO3[MO-3 graphe pistes]
   MO3 & CT5 --> DV1[DV-1 registre + synthé]
   MO1 & CT2 --> TR1[TR-1 horloge]
-  PR2 & MO1 --> PR3[PR-3 compilateur + instantané]
-  PR2 --> PR4[PR-4 project-wasm]
+  PR2 & MO1 & QA1 --> PR3[PR-3 compilateur + instantané]
+  PR2 & PR3 --> PR4[PR-4 project-wasm]
   MO2 & BO0 --> BO1[BO-1 helper v2]
   MO2 & PR2 --> QA1[QA-1 rendu hors ligne]
   MO1 --> QA2[QA-2 détecteur alloc]
@@ -722,7 +743,7 @@ graph LR
   DV1 & TR1 --> DV3[DV-3 delay]
   DV1 --> DV4[DV-4 réverb]
   DV1 --> DV5[DV-5 compresseur]
-  MO3 & DV2 & DV6 --> QA5[QA-5 perf]
+  MO3 & DV6 & DV3 & DV4 & DV5 --> QA5[QA-5 perf]
   RE2 & BO1 --> BO3[BO-3 MIDI natif horodaté]
   PN1 & AR4 --> PN3[PN-3 piano roll depuis timeline]
 
@@ -734,7 +755,7 @@ graph LR
   BO1 & MO5 --> BO4[BO-4 latence]
   PR5 --> UI4[UI-4 palette]
   UI1 & UI4 --> UI5[UI-5 raccourcis]
-  RE4 & RE5 & AR5 & MX3 & SV3 & BO2 --> QA6[QA-6 scénario MVP]
+  RE4 & RE5 & AR5 & MX3 & SV3 & BO2 & DV9 & UI3 & PN1 & QA1 & QA3 --> QA6[QA-6 scénario MVP]
   QA6 --> DOC1[DOC-1 docs MVP]
 ```
 

@@ -67,6 +67,8 @@ fk_state_size() / fk_state_save(ptr) / fk_state_load(ptr, len)   // optional, af
 
 Événement (16 octets, aligné) : `offset: u32, kind: u16, flags: u16, a: u32, b: f32`, où `kind` ∈ `NoteOn` (a = note_id << 8 | key, b = vélocité 0–1), `NoteOff`, `ParamValue` (a = id, b = valeur), `ParamMod` (réservé), `Choke`.
 
+**Limite à trancher avant de figer l'ABI v0 : `note_id` n'a que 24 bits** dans cet encodage, puisque les 8 bits faibles de `a` portent `key`. Un identifiant au-delà de `0xFFFFFF` serait tronqué et pourrait désigner une autre note. Deux voies, à choisir avec la largeur de `NoteId` dans le contrat de commande (CT-4 du [découpage du MVP](02-decoupage-mvp.md)) : (a) borner `NoteId` à 24 bits, validé par la commande et par l'hôte avant l'encodage (l'hôte peut aussi renuméroter les notes actives en identifiants de voix courts, qui ne dépassent jamais le nombre de notes tenues) ; (b) donner des champs séparés à l'identifiant et à la touche (par exemple la touche dans `flags`, ou un événement de 20 ou 24 octets). Tant que ce choix n'est pas fait, l'ABI v0 n'est pas figé.
+
 Un module Faust n'implémente pas cet ABI : le backend WASM de Faust a ses propres exports (`init`, `compute`, paramètres à des adresses données par son JSON). L'hôte a donc **deux saveurs** derrière un même trait `ModuleInstance` : `faust-wasm` (adaptateur qui lit le JSON de Faust) et `fk-abi` (Rust et autres langages). Les deux tournent dans les deux runtimes. Côté moteur, `ModuleInstance` s'adapte au contrat `Device` que fige la tâche CT-5 du découpage.
 
 ### 1.4 Le manifeste
@@ -293,7 +295,10 @@ Si les deux runtimes exécutent les mêmes octets sans relaxed SIMD, les résult
 
 ### 5.5 Allocation pendant `process`
 
-Un module alloue dans `fk_init`, jamais dans `process`. L'hôte le vérifie : taille de la mémoire avant et après chaque `process` en développement (une croissance fait échouer le test) ; en natif, refus de `memory.grow` pendant `process`. Faust n'alloue pas pendant `compute` (mémoire dimensionnée à la compilation, délais compris).
+Un module alloue dans `fk_init`, jamais dans `process`. Comparer la taille de la mémoire avant et après `process` ne détecte que `memory.grow` : un allocateur peut allouer et libérer dans des pages déjà réservées sans que cette taille change. Ce contrôle ne prouve donc pas l'absence d'allocation ; il n'est qu'un filet bon marché, avec le refus de `memory.grow` pendant `process` (`ResourceLimiter` en natif, `maximum` dans le navigateur). Le contrôle effectif est fait dans les tests :
+
+- **modules Rust** : le SDK `faulk-module` installe, dans ses builds de test, un allocateur global instrumenté qui compte les allocations et les libérations ; le test de l'Atelier exécute la batterie de rendu et échoue si un compteur bouge pendant `fk_process` (même principe que le détecteur d'allocation du moteur) ;
+- **modules Faust** : le code généré n'a pas d'allocateur (sa mémoire est dimensionnée à la compilation, délais compris) ; le test vérifie que le module n'exporte ni n'importe de fonction d'allocation, en plus du contrôle de taille.
 
 ## 6. Proposition de MVP pour l'Atelier
 
