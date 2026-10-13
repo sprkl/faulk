@@ -1,0 +1,357 @@
+name: release-helper
+
+# Builds, packages and publishes the native helper with Velopack.
+# See docs/architecture/04-distribution-helper.md.
+#
+# Ways in, and only the first two publish:
+#
+#  - push of a tag `helper-v<version>`: the normal way to release. Builds, creates the release in
+#    this repository, then recreates it in the public sprkl/faulk-release when RELEASES_TOKEN exists;
+#  - workflow_dispatch with a `version`: the same without typing a tag (the release creates the tag
+#    `helper-v<version>` on the built commit). Stable versions only from `main`, pre-releases from
+#    `main` or `develop`. `draft` keeps both releases as drafts;
+#  - workflow_dispatch without a version, or a pull request that touches this workflow or the
+#    updater: a trial build. Artifacts only (installer, packages, feed), no release.
+on:
+  push:
+    tags: ['helper-v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release-helper.yml'
+      - 'crates/helper/src/updater.rs'
+      - 'crates/helper/src/updater/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the prefix (e.g. 0.2.0, 0.2.0-beta.1). Empty: trial build.'
+        required: false
+        default: ''
+      draft:
+        description: 'Keep the releases as drafts'
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-helper-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  PACK_ID: FaulkHelper
+  VPK_VERSION: '1.2.161' # must match the `velopack` crate pinned in crates/helper/Cargo.toml
+  PUBLIC_REPO: sprkl/faulk-release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # The version, decided once for every job.
+  # ---------------------------------------------------------------------------
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.resolve.outputs.value }}
+      pack: ${{ steps.resolve.outputs.pack }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - name: version from the tag or the input
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT: ${{ inputs.version }}
+          RUN: ${{ github.run_number }}
+        run: |
+          case "$REF" in
+            refs/tags/helper-v*) value="${REF#refs/tags/helper-v}" ;;
+            *) if [ "$EVENT" = workflow_dispatch ]; then value="${INPUT#v}"; else value=""; fi ;;
+          esac
+          # A malformed version would make a tag and packages no client can compare: refused here.
+          # Each suffix part starts and ends with an alphanumeric character.
+          part='[0-9A-Za-z]([0-9A-Za-z-]*[0-9A-Za-z])?'
+          if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+(-$part(\.$part)*)?\$"; then
+            echo "::error::version '$value': expected X.Y.Z or X.Y.Z-suffix"
+            exit 1
+          fi
+          case "$value" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          # A dispatched version is published from the release branches only: a stable version
+          # from an unmerged branch would become the stable feed of every installed helper.
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "$value" ]; then
+            if [ "$prerelease" = false ] && [ "$REF" != refs/heads/main ]; then
+              echo "::error::a stable version is dispatched from main only (ref: $REF)"
+              exit 1
+            fi
+            if [ "$prerelease" = true ] && [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/develop ]; then
+              echo "::error::a pre-release is dispatched from main or develop only (ref: $REF)"
+              exit 1
+            fi
+          fi
+          # A trial build still needs a version for the packages; it is never published.
+          pack="${value:-0.0.0-trial.$RUN}"
+          {
+            echo "value=$value"
+            echo "pack=$pack"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "version='$value' pack='$pack' prerelease=$prerelease"
+
+  # ---------------------------------------------------------------------------
+  # Windows x64: the only published platform for now.
+  # ---------------------------------------------------------------------------
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      wired: ${{ steps.wired.outputs.wired }}
+    env:
+      VERSION: ${{ needs.version.outputs.pack }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install vpk
+        shell: bash
+        run: dotnet tool install -g vpk --version "$VPK_VERSION"
+
+      # The installer launches the helper with `--veloapp-*` arguments, and only a main() that
+      # calls `helper::updater::startup()` first answers them and applies updates. vpk does not
+      # check it: the release job refuses to publish without it.
+      - name: Is the updater wired into main.rs?
+        id: wired
+        shell: bash
+        run: |
+          if grep -q 'updater::startup()' crates/helper/src/main.rs && grep -q 'Updater::start' crates/helper/src/main.rs; then
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::crates/helper/src/main.rs does not call helper::updater::startup() and Updater::start: this build cannot install cleanly nor update itself, and cannot be published."
+          fi
+
+      - name: Test
+        run: cargo test -p helper
+
+      - name: Build
+        run: cargo build -p helper --release
+
+      # Deltas: vpk builds the delta of this version against the newest full package in the
+      # output folder, so it needs the latest STABLE release. Pre-releases get no delta: the
+      # beta channel installs full packages (see `filter_feed` in updater.rs).
+      - name: Previous stable release, for the delta
+        if: needs.version.outputs.prerelease != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! vpk download github --repoUrl "https://github.com/$PUBLIC_REPO" --channel win --token "$GH_TOKEN" --outputDir releases; then
+            echo "::warning::no previous stable release could be downloaded from $PUBLIC_REPO: this version has no delta package (expected for the first release)"
+          fi
+          ls -la releases || true
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p pack
+          cp target/release/faulk-helper.exe pack/
+          # SIGNING (Windows) - Azure Artifact Signing, once the account exists: log in with
+          # azure/login, write the metadata.json (Endpoint, CodeSigningAccountName,
+          # CertificateProfileName) and add:  --azureTrustedSignFile metadata.json
+          vpk pack \
+            --packId "$PACK_ID" \
+            --packVersion "$VERSION" \
+            --packDir pack \
+            --mainExe faulk-helper.exe \
+            --packTitle "Faulk Helper" \
+            --packAuthors "Sparkle" \
+            --runtime win-x64 \
+            --outputDir releases
+          ls -la releases
+
+      # Only this version's files: the previous full package downloaded for the delta stays in
+      # its own release, where the feed's redirect finds it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-win-${{ needs.version.outputs.pack }}
+          path: |
+            releases/${{ env.PACK_ID }}-${{ needs.version.outputs.pack }}-full.nupkg
+            releases/${{ env.PACK_ID }}-${{ needs.version.outputs.pack }}-delta.nupkg
+            releases/${{ env.PACK_ID }}-win-Setup.exe
+            releases/${{ env.PACK_ID }}-win-Portable.zip
+            releases/releases.win.json
+            releases/assets.win.json
+            releases/RELEASES
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # macOS and Linux: built and packaged for the record, NOT published, NOT signed, NOT tested.
+  # macOS updates need a signed and notarized app; see the distribution doc.
+  # ---------------------------------------------------------------------------
+  unix:
+    needs: version
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            channel: osx
+            runtime: osx-arm64
+          - os: ubuntu-latest
+            channel: linux
+            runtime: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.version.outputs.pack }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install audio headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet tool install -g vpk --version "$VPK_VERSION"
+      - run: cargo build -p helper --release
+      - name: Package
+        run: |
+          mkdir -p pack
+          cp target/release/faulk-helper pack/
+          vpk pack --packId "$PACK_ID" --packVersion "$VERSION" --packDir pack \
+            --mainExe faulk-helper --packTitle "Faulk Helper" --packAuthors "Sparkle" \
+            --runtime "${{ matrix.runtime }}" --outputDir releases
+          ls -la releases
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-${{ matrix.channel }}-${{ needs.version.outputs.pack }}-unpublished
+          path: releases/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # The releases: here (private, the team's download point), then the public copy that
+  # get.faulk.app redirects to.
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [version, windows]
+    if: needs.version.outputs.value != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.value }}
+      TAG: helper-v${{ needs.version.outputs.value }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      DRAFT: ${{ inputs.draft }}
+      # A secret cannot be tested in an `if`: expose whether it exists, not its value.
+      HAS_PUBLIC_TOKEN: ${{ secrets.RELEASES_TOKEN != '' }}
+    steps:
+      - name: Refuse an unwired helper
+        if: needs.windows.outputs.wired != 'true'
+        run: |
+          echo "::error::main.rs does not start the updater (helper::updater::startup() and Updater::start): publishing it would ship a helper that never updates. See docs/architecture/04-distribution-helper.md."
+          exit 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: helper-win-${{ needs.version.outputs.value }}
+          path: dist
+
+      # Shared by both releases: the flags, and whether this version may become "latest".
+      # GitHub makes every new non-prerelease "latest" by default; re-running an older tag
+      # would then move the stable feed backwards. Only a version newer than the current
+      # latest takes it.
+      - name: Release flags
+        id: flags
+        shell: bash
+        run: |
+          cat > flags.sh <<'EOF'
+          # usage: flags <repo>  -> prints the gh release flags, one per line
+          flags() {
+            [ "$PRERELEASE" = true ] && echo "--prerelease"
+            [ "$DRAFT" = true ] && echo "--draft"
+            if [ "$PRERELEASE" = true ]; then echo "--latest=false"; return; fi
+            current=$(gh release view --repo "$1" --json tagName -q .tagName 2>/dev/null || true)
+            current="${current#helper-v}"
+            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ] && [ "$current" != "$VERSION" ]; then
+              echo "--latest"
+            else
+              echo "::warning::$VERSION is not newer than the latest release $current of $1: it does not become latest" >&2
+              echo "--latest=false"
+            fi
+          }
+          EOF
+          ls -la dist
+
+      - name: Create the release here
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . ./flags.sh
+          mapfile -t f < <(flags "$GITHUB_REPOSITORY")
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Faulk Helper $VERSION" \
+            --generate-notes \
+            "${f[@]}"
+
+      - name: Public copy skipped (no RELEASES_TOKEN)
+        if: env.HAS_PUBLIC_TOKEN != 'true'
+        run: |
+          echo "::notice title=Public copy skipped::The secret RELEASES_TOKEN does not exist, so $TAG was NOT copied to $PUBLIC_REPO and no installed helper will see it. Create a fine-grained token with Contents: write on $PUBLIC_REPO, store it as the RELEASES_TOKEN secret of this repository, then re-run this job."
+
+      # Same files, same tag, same flags. The notes are fixed text: the generated ones list the
+      # titles and authors of the private pull requests. `gh` creates the release as a draft,
+      # uploads, then publishes: a feed is never visible before its packages.
+      - name: Publish the public copy
+        if: env.HAS_PUBLIC_TOKEN == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          . ./flags.sh
+          mapfile -t f < <(flags "$PUBLIC_REPO")
+          printf 'Faulk Helper %s.\n\nWindows installer: https://get.faulk.app/helper/windows\n' "$VERSION" > notes.md
+          gh release create "$TAG" dist/* \
+            --repo "$PUBLIC_REPO" \
+            --target main \
+            --title "Faulk Helper $VERSION" \
+            --notes-file notes.md \
+            "${f[@]}"
+
+      # The beta feed: get.faulk.app/helper/beta/releases.win.json redirects to the rolling
+      # pre-release `helper-beta` of the public repository, never "latest". A draft is skipped:
+      # its packages are not downloadable, every beta helper would fail on them.
+      - name: Update the beta feed
+        if: env.HAS_PUBLIC_TOKEN == 'true' && needs.version.outputs.prerelease == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ "$DRAFT" = true ]; then
+            echo "::notice::draft pre-release: the beta feed is not updated"
+            exit 0
+          fi
+          if ! gh release view helper-beta --repo "$PUBLIC_REPO" >/dev/null 2>&1; then
+            gh release create helper-beta \
+              --repo "$PUBLIC_REPO" \
+              --target main \
+              --prerelease \
+              --latest=false \
+              --title "Faulk Helper - beta channel feed" \
+              --notes "Update feed of the beta channel. The packages are in the helper-v* releases."
+          fi
+          gh release upload helper-beta dist/releases.win.json dist/assets.win.json dist/RELEASES \
+            --repo "$PUBLIC_REPO" --clobber

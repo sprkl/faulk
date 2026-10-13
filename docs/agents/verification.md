@@ -37,6 +37,12 @@ cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 2. Start the dev server (`pnpm dev`, port 5173) and open the app with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
 3. Explore beyond the scripted flow: double clicks, reload during playback, helper connected then disconnected, tab in the background.
 
+## Helper packaging and updates (changes to `crates/helper/src/updater.rs`, `release-helper.yml`, `web/vercel.json`)
+
+- `cargo test -p helper updater` covers channels, feed filtering, URL building, error classification against a loopback server, the update thread on a fake backend, and the `get.faulk.app` redirects read from `web/vercel.json`.
+- Lint the workflow with `actionlint`.
+- End to end on Windows (procedure in `docs/architecture/04-distribution-helper.md` > Éprouver la chaîne en local): pack two versions with `vpk` (same version as the `velopack` crate), install the older one, serve the feed on loopback, run the installed helper with `FAULK_UPDATE_URL=http://127.0.0.1:<port>`, check the update is downloaded, applied and the helper restarted; uninstall afterwards.
+
 ## Latency (changes to audio I/O, the worklet, the helper or the protocol)
 
 Measure the output latency (and the round trip when input is involved) in both modes, on the user's machine, and report the numbers with how they were measured. Never state a latency you did not measure.

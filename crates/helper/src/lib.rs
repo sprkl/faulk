@@ -4,3 +4,4 @@ pub mod audio;
 pub mod midi;
 pub mod security;
 pub mod server;
+pub mod updater;
