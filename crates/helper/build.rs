@@ -19,4 +19,9 @@ fn embed() {
 }
 
 #[cfg(not(windows))]
-fn embed() {}
+fn embed() {
+    // Without the resources the tray icon cannot load and the helper stops at start.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        panic!("build the Windows helper on Windows: its icon resource cannot be embedded here");
+    }
+}

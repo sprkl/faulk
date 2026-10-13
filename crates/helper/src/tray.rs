@@ -95,18 +95,26 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 /// left by a moved executable or other arguments counts as off, so checking the box
 /// rewrites it.
 pub fn start_at_login(command: &str) -> bool {
-    RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey(RUN_KEY)
-        .and_then(|key| key.get_value::<String, _>(RUN_VALUE))
-        .is_ok_and(|stored| stored == command)
+    run_value_is(RUN_VALUE, command)
 }
 
 /// Stores `command` under the Run key, or removes the value when `None`.
 pub fn set_start_at_login(command: Option<&str>) -> std::io::Result<()> {
+    set_run_value(RUN_VALUE, command)
+}
+
+fn run_value_is(name: &str, command: &str) -> bool {
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(RUN_KEY)
+        .and_then(|key| key.get_value::<String, _>(name))
+        .is_ok_and(|stored| stored == command)
+}
+
+fn set_run_value(name: &str, command: Option<&str>) -> std::io::Result<()> {
     let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY)?;
     match command {
-        Some(command) => key.set_value(RUN_VALUE, &command),
-        None => match key.delete_value(RUN_VALUE) {
+        Some(command) => key.set_value(name, &command),
+        None => match key.delete_value(name) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             other => other,
         },
@@ -256,4 +264,26 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_run_value_is_written_compared_and_removed() {
+        // A throwaway value next to the real one, removed at the end.
+        let name = format!("FaulkHelperTest{}", std::process::id());
+        let command = r#""C:\Faulk\faulk-helper.exe" --port 47801"#;
+        assert!(!run_value_is(&name, command), "absent reads as off");
+        set_run_value(&name, Some(command)).unwrap();
+        assert!(run_value_is(&name, command), "the same command reads as on");
+        assert!(
+            !run_value_is(&name, r#""C:\Elsewhere\faulk-helper.exe""#),
+            "another command reads as off"
+        );
+        set_run_value(&name, None).unwrap();
+        assert!(!run_value_is(&name, command), "removed reads as off");
+        set_run_value(&name, None).expect("removing an absent value is fine");
+    }
 }

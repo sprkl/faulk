@@ -1,9 +1,11 @@
 //! One helper per port. The listening socket is the lock: a second helper cannot bind
 //! the port. It then asks whoever holds the port whether it is a Faulk helper.
 
+use crate::server::HELPER_HEADER;
 use futures_util::StreamExt;
 use protocol::{HELPER_NAME, ServerMessage, paths};
 use std::time::{Duration, Instant};
+use tokio_tungstenite::tungstenite::Error;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 /// What a new helper does about the port.
@@ -68,7 +70,15 @@ async fn probe(port: u16, origin: &str) -> Option<bool> {
         .into_client_request()
         .ok()?;
     request.headers_mut().insert("origin", origin.parse().ok()?);
-    let (mut ws, _) = tokio_tungstenite::connect_async(request).await.ok()?;
+    let mut ws = match tokio_tungstenite::connect_async(request).await {
+        Ok((ws, _)) => ws,
+        // A helper that does not allow this origin still says who it is.
+        Err(Error::Http(response)) => {
+            let name = response.headers().get(HELPER_HEADER)?.to_str().ok()?;
+            return Some(name == HELPER_NAME);
+        }
+        Err(_) => return None,
+    };
     let text = ws.next().await?.ok()?.into_text().ok()?;
     match serde_json::from_str::<ServerMessage>(&text).ok()? {
         ServerMessage::Probe { helper, .. } => Some(helper == HELPER_NAME),

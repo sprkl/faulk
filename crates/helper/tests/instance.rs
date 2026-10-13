@@ -98,6 +98,40 @@ fn a_faulk_helper_with_other_origins_is_found_through_the_next_origin() {
 }
 
 #[test]
+fn a_faulk_helper_that_allows_none_of_the_origins_is_still_found_at_once() {
+    let port = faulk_helper("http://localhost:4173", Duration::ZERO);
+    let start = Instant::now();
+    let startup = claim(port, &origins(&[ORIGIN]), Duration::from_secs(5));
+    assert!(matches!(startup, Startup::AlreadyRunning), "{startup:?}");
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "no wait for the patience"
+    );
+}
+
+#[test]
+fn another_server_that_refuses_without_the_helper_header_blocks() {
+    use std::io::{Read, Write};
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = other.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in other.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                b"HTTP/1.1 403 Forbidden
+content-length: 0
+
+",
+            );
+        }
+    });
+    let startup = claim(port, &origins(&[ORIGIN]), Duration::from_secs(1));
+    assert!(matches!(startup, Startup::Blocked(_)), "{startup:?}");
+}
+
+#[test]
 fn another_program_on_the_port_blocks_after_the_patience() {
     // Accepts connections (the OS backlog does) but never answers.
     let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

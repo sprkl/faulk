@@ -14,7 +14,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use helper::audio::{EngineEvent, Meter, audio_core};
+use helper::audio::{EngineEvent, EventSender, Meter, audio_core};
 use helper::instance::{self, Startup};
 use helper::log;
 use helper::midi::MidiManager;
@@ -121,6 +121,25 @@ fn origin_of(url: &str) -> &str {
 fn open_in_browser(url: &str) {
     if let Err(e) = webbrowser::open(url) {
         log!("cannot open the browser: {e}");
+    }
+}
+
+/// Ends every note, then waits up to `limit` for the voices to finish their release.
+/// Returns whether they did. A lock poisoned by a panic does not skip the note off.
+fn release_all_voices(sender: &Mutex<EventSender>, meter: &Meter, limit: Duration) -> bool {
+    sender
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .send(EngineEvent::AllNotesOff);
+    let deadline = Instant::now() + limit;
+    loop {
+        if meter.take().1 == 0 {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -330,12 +349,8 @@ fn main() {
     // Quit: close the pages' sessions first (they go back to Web mode and stop sending
     // notes), then let every voice finish its release, then stop the audio.
     runtime.shutdown_timeout(Duration::from_secs(1));
-    if let Ok(mut sender) = sender.lock() {
-        sender.send(EngineEvent::AllNotesOff);
-    }
-    let deadline = Instant::now() + QUIT_RELEASE_LIMIT;
-    while meter.take().1 > 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
+    if !release_all_voices(&sender, &meter, QUIT_RELEASE_LIMIT) {
+        log!("voices still sounding when the audio stops");
     }
     drop(stream);
     log!("stopped");
@@ -385,6 +400,79 @@ mod tests {
             origin_of("http://127.0.0.1:5173#a"),
             "http://127.0.0.1:5173"
         );
+    }
+
+    /// A core with one note sounding, its sender and its meter.
+    fn sounding_core() -> (
+        helper::audio::AudioCore,
+        Arc<Mutex<EventSender>>,
+        Arc<Meter>,
+    ) {
+        let meter = Arc::new(Meter::default());
+        let (mut core, mut sender) = audio_core(48_000.0, meter.clone());
+        sender.send(EngineEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        });
+        let mut block = vec![0.0; 480 * 2];
+        core.process(&mut block, 2);
+        assert_eq!(meter.take().1, 1);
+        (core, Arc::new(Mutex::new(sender)), meter)
+    }
+
+    /// Runs audio callbacks of 10 ms on a thread until `stop` is set.
+    fn callbacks(
+        mut core: helper::audio::AudioCore,
+        stop: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let mut block = vec![0.0; 480 * 2];
+            while !stop.load(Ordering::Relaxed) {
+                core.process(&mut block, 2);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })
+    }
+
+    #[test]
+    fn quit_ends_the_notes_and_waits_for_the_release() {
+        let (core, sender, meter) = sounding_core();
+        let stop = Arc::new(AtomicBool::new(false));
+        let audio = callbacks(core, stop.clone());
+        assert!(release_all_voices(&sender, &meter, Duration::from_secs(5)));
+        assert_eq!(meter.take().1, 0);
+        stop.store(true, Ordering::Relaxed);
+        audio.join().unwrap();
+    }
+
+    #[test]
+    fn quit_gives_up_on_a_stream_that_no_longer_runs() {
+        let (_core, sender, meter) = sounding_core();
+        let start = Instant::now();
+        assert!(!release_all_voices(
+            &sender,
+            &meter,
+            Duration::from_millis(100)
+        ));
+        let waited = start.elapsed();
+        assert!(waited >= Duration::from_millis(100) && waited < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn quit_ends_the_notes_even_with_a_poisoned_lock() {
+        let (core, sender, meter) = sounding_core();
+        let poison = sender.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.lock().unwrap();
+            panic!("poison the sender lock");
+        })
+        .join();
+        assert!(sender.is_poisoned());
+        let stop = Arc::new(AtomicBool::new(false));
+        let audio = callbacks(core, stop.clone());
+        assert!(release_all_voices(&sender, &meter, Duration::from_secs(5)));
+        stop.store(true, Ordering::Relaxed);
+        audio.join().unwrap();
     }
 
     #[test]

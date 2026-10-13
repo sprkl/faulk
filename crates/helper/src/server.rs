@@ -194,6 +194,9 @@ async fn ticker(shared: Arc<Shared>) {
     }
 }
 
+/// Header of every refused handshake, valued [`HELPER_NAME`].
+pub const HELPER_HEADER: &str = "x-faulk-helper";
+
 // The error type of the handshake callback is fixed by tungstenite (an HTTP response).
 #[allow(clippy::result_large_err)]
 async fn connection(stream: TcpStream, shared: Arc<Shared>) {
@@ -215,6 +218,12 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
                 crate::log!("refused a connection: {refusal:?}");
                 let mut refused = ErrorResponse::new(None);
                 *refused.status_mut() = StatusCode::FORBIDDEN;
+                // Lets a second helper recognise this one even when it presents an
+                // origin this helper does not allow. A page cannot read it.
+                refused.headers_mut().insert(
+                    HELPER_HEADER,
+                    tokio_tungstenite::tungstenite::http::HeaderValue::from_static(HELPER_NAME),
+                );
                 Err(refused)
             }
         }

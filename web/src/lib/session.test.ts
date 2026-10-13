@@ -63,6 +63,17 @@ describe('pairing link in the session', () => {
   })
 
   it('reports a pairing failure as such, not as an audio start failure', async () => {
+    pairHelper.mockResolvedValue({ status: 'failed' })
+    const session = new Session()
+    const { location, history } = address('#pair=12345678')
+    session.takePairLink(location, history)
+    await session.start()
+    expect(session.started).toBe(true)
+    expect(session.notice).toBeNull()
+    expect(session.pairingMessage).toEqual({ key: 'helper.failed' })
+  })
+
+  it('keeps the audio started when pairing throws unexpectedly', async () => {
     pairHelper.mockRejectedValue(new Error('boom'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const session = new Session()
