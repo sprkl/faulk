@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use helper::audio::{AudioCore, Meter, audio_core};
 use helper::midi::MidiManager;
 use helper::security::Policy;
-use helper::server::{Shared, serve};
+use helper::server::{HelperEvent, Shared, serve};
 use protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
@@ -23,6 +23,8 @@ type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 struct Harness {
     port: u16,
     code: Arc<Mutex<String>>,
+    events: Arc<Mutex<Vec<HelperEvent>>>,
+    audio_error: Arc<AtomicBool>,
     core: AudioCore,
 }
 
@@ -35,7 +37,9 @@ async fn start() -> Harness {
     let (activity_tx, activity_rx) = mpsc::channel();
     let midi = MidiManager::new(sender.clone(), activity_tx);
     let code = Arc::new(Mutex::new(String::new()));
-    let shown = code.clone();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let audio_error = Arc::new(AtomicBool::new(false));
+    let (shown, seen) = (code.clone(), events.clone());
     let shared = Arc::new(Shared::new(
         Policy {
             port,
@@ -47,11 +51,22 @@ async fn start() -> Harness {
         activity_rx,
         meter,
         48_000.0,
-        Arc::new(AtomicBool::new(false)),
-        Box::new(move |c| *shown.lock().unwrap() = c.to_owned()),
+        audio_error.clone(),
+        Box::new(move |event| {
+            if let HelperEvent::Code(c) = &event {
+                *shown.lock().unwrap() = c.clone();
+            }
+            seen.lock().unwrap().push(event);
+        }),
     ));
     tokio::spawn(serve(listener, shared));
-    Harness { port, code, core }
+    Harness {
+        port,
+        code,
+        events,
+        audio_error,
+        core,
+    }
 }
 
 async fn connect(port: u16, path: &str, origin: Option<&str>) -> Result<Ws, Error> {
@@ -235,4 +250,85 @@ async fn a_new_session_replaces_the_previous_one() {
             other => panic!("unexpected {other:?}"),
         }
     }
+}
+
+/// Waits until the events seen so far end with `expected`, or fails after 2 s.
+async fn wait_events(h: &Harness, expected: &[HelperEvent]) {
+    for _ in 0..200 {
+        if h.events.lock().unwrap().ends_with(expected) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!(
+        "expected the events to end with {expected:?}, got {:?}",
+        h.events.lock().unwrap()
+    );
+}
+
+#[tokio::test]
+async fn reports_the_first_code_and_each_new_one() {
+    let h = start().await;
+    let first = h.code.lock().unwrap().clone();
+    assert_eq!(
+        h.events.lock().unwrap().as_slice(),
+        [HelperEvent::Code(first.clone())]
+    );
+    let mut ws = connect(h.port, "/pair", Some(ORIGIN)).await.unwrap();
+    send(
+        &mut ws,
+        &ClientMessage::Pair {
+            code: first.clone(),
+        },
+    )
+    .await;
+    assert!(matches!(next(&mut ws).await, ServerMessage::Paired { .. }));
+    let second = h.code.lock().unwrap().clone();
+    assert_ne!(second, first, "a used code is replaced");
+    wait_events(&h, &[HelperEvent::Code(second)]).await;
+
+    // Five wrong codes also replace it.
+    let mut ws = connect(h.port, "/pair", Some(ORIGIN)).await.unwrap();
+    for _ in 0..5 {
+        send(&mut ws, &ClientMessage::Pair { code: "x".into() }).await;
+        let _ = next(&mut ws).await;
+    }
+    let third = h.code.lock().unwrap().clone();
+    wait_events(&h, &[HelperEvent::Code(third)]).await;
+}
+
+#[tokio::test]
+async fn reports_sessions_and_ignores_the_end_of_a_replaced_one() {
+    let h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut first = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(
+        next(&mut first).await,
+        ServerMessage::Hello { .. }
+    ));
+    wait_events(&h, &[HelperEvent::Session(true)]).await;
+
+    let mut second = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(
+        next(&mut second).await,
+        ServerMessage::Hello { .. }
+    ));
+    first.close(None).await.ok();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        h.events.lock().unwrap().last(),
+        Some(&HelperEvent::Session(true)),
+        "the replaced session ending does not mean no page is connected"
+    );
+
+    second.close(None).await.unwrap();
+    wait_events(&h, &[HelperEvent::Session(false)]).await;
+}
+
+#[tokio::test]
+async fn reports_an_audio_error() {
+    let h = start().await;
+    h.audio_error
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    wait_events(&h, &[HelperEvent::AudioError]).await;
 }

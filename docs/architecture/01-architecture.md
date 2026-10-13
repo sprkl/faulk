@@ -47,7 +47,7 @@ Un seul moteur audio en Rust, compilé pour deux cibles, et une seule couche de 
 1. **AI first : toute action est une commande.** L'interface n'a aucun accès privilégié : elle appelle les mêmes commandes qu'un agent. Une action disponible dans l'interface mais absente de `crates/commands` est un bug, détecté par un test qui compare la liste des commandes aux outils MCP exposés.
 2. **Un seul moteur.** Toute fonctionnalité du moteur compile et se comporte pareil en WASM et en natif, vérifié par un rendu comparé.
 3. **Le son ne traverse jamais le lien page ↔ helper.** Seuls passent les commandes, l'état et les retours visuels.
-4. **Le helper est un pont, pas une application.** Il n'a pas d'interface propre ni de logique produit : il exécute le moteur, expose les commandes en MCP et relaie les agents vers la page. La logique des commandes vit dans `crates/commands`, partagée avec le build web.
+4. **Le helper est un pont, pas une application.** Il n'a pas d'interface propre ni de logique produit (sous Windows, une icône de zone de notification pilote le processus lui-même : état, code d'appairage, ouverture de la page, lancement au démarrage, arrêt ; ces réglages du helper ne sont pas des commandes du projet et restent hors de `crates/commands` ; une boîte d'erreur s'affiche si le démarrage échoue) : il exécute le moteur, expose les commandes en MCP et relaie les agents vers la page. La logique des commandes vit dans `crates/commands`, partagée avec le build web.
 5. **Des projets portables.** Un projet utilisant un plugin tiers reste ouvrable sans helper : la piste est gelée (rendue en audio) et rejouée telle quelle.
 6. **Modules isolés.** Un module en WASM s'exécute isolé : un module bogué ne fait pas planter la session.
 

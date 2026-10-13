@@ -5,6 +5,7 @@ import { WebEngine } from './engine/web-engine'
 import type { Command, MidiInput, SynthParam } from './generated/protocol'
 import { defaultLang, type Lang, type MessageKey, translate } from './i18n'
 import { WebMidiHost } from './midi/web-midi'
+import { takePairLink } from './pair-link'
 import { DEFAULT_PARAMS } from './params'
 
 
@@ -44,6 +45,8 @@ export class Session {
   mode = $state<'web' | 'native'>('web')
   notice = $state<MessageKey | null>(null)
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
+  /** Code from a `#pair=` link, used once audio has started (browsers need a click). */
+  pendingPairCode = $state<string | null>(null)
 
   /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
   private lastWebInput: string | null = null
@@ -109,6 +112,9 @@ export class Session {
       this.notice = null
       this.replayParams(this.web)
       await this.enableWebMidi()
+      const code = this.pendingPairCode
+      this.pendingPairCode = null
+      if (code) await this.pair(code)
     } catch (error) {
       console.error(error)
       this.notice = 'start.failed'
@@ -189,6 +195,17 @@ export class Session {
       this.helperProtocol = result.protocol
     } else this.helper = 'absent'
     return this.helper
+  }
+
+  /**
+   * Reads a `#pair=<code>` link from the address and clears it from the address bar.
+   * A started page pairs at once; otherwise the code waits for `start`.
+   */
+  takePairLink(location: Location = globalThis.location, history: History = globalThis.history) {
+    const code = takePairLink(location, history)
+    if (code === null) return
+    if (this.started) void this.pair(code)
+    else this.pendingPairCode = code
   }
 
   async pair(code: string) {

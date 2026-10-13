@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-14
+* **Update** (#12): `architecture/01-architecture.md` principle 4 records the helper's tray icon on Windows (status, pairing code, open the page, start at login, quit) and the startup error box, as controls of the helper process kept outside `crates/commands`.
+
 ## 2026-10-13
 * **Update** (#7): third Copilot pass on PR #8: native/WASM bit-exact parity is a goal to test (identical math imports required); PR-1 needs both CT-2 and CT-4; phase-0 contract tasks freeze contracts in code and record decisions in the task plan and PR, with ADRs written only after the code (per `agents/domain.md`).
 * **Update** (#7): second Copilot pass on PR #8: the note merge pairs base notes with their versions (by id or a stable key, to settle in CT-4) so a deletion is not lost against a modification; the `MessagePort` path to the worklet is a prototype to measure, the `SharedArrayBuffer` choice stays with CT-3.

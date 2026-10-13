@@ -18,6 +18,17 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
 
+/// What the helper reports to its host (the tray, or the console).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HelperEvent {
+    /// The pairing code changed (also sent once at start).
+    Code(String),
+    /// A page opened a session (`true`) or the last session ended (`false`).
+    Session(bool),
+    /// The audio output stream reported an error.
+    AudioError,
+}
+
 struct Session {
     id: u64,
     tx: mpsc::UnboundedSender<ServerMessage>,
@@ -32,8 +43,8 @@ pub struct Shared {
     pub meter: Arc<Meter>,
     pub sample_rate: f32,
     pub audio_error: Arc<AtomicBool>,
-    /// Called with the new pairing code whenever it changes.
-    pub show_code: Box<dyn Fn(&str) + Send + Sync>,
+    /// Told about new pairing codes, sessions and audio errors.
+    pub notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     session: Mutex<Option<Session>>,
     next_id: AtomicU64,
 }
@@ -48,10 +59,10 @@ impl Shared {
         meter: Arc<Meter>,
         sample_rate: f32,
         audio_error: Arc<AtomicBool>,
-        show_code: Box<dyn Fn(&str) + Send + Sync>,
+        notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     ) -> Self {
         let pairing = Pairing::new(Instant::now());
-        show_code(pairing.code());
+        notify(HelperEvent::Code(pairing.code().to_owned()));
         Self {
             policy,
             pairing: Mutex::new(pairing),
@@ -61,10 +72,15 @@ impl Shared {
             meter,
             sample_rate,
             audio_error,
-            show_code,
+            notify,
             session: Mutex::new(None),
             next_id: AtomicU64::new(1),
         }
+    }
+
+    fn notify_code(&self) {
+        let code = self.pairing.lock().expect("pairing lock").code().to_owned();
+        (self.notify)(HelperEvent::Code(code));
     }
 
     fn send_event(&self, event: EngineEvent) {
@@ -162,6 +178,7 @@ async fn ticker(shared: Arc<Shared>) {
             }
         }
         if shared.audio_error.swap(false, Ordering::Relaxed) {
+            (shared.notify)(HelperEvent::AudioError);
             shared.to_session(ServerMessage::Error {
                 code: "audio.stream".into(),
                 message: "the audio output stream reported an error".into(),
@@ -188,7 +205,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
                 Ok(response)
             }
             Err(refusal) => {
-                eprintln!("refused a connection: {refusal:?}");
+                crate::log!("refused a connection: {refusal:?}");
                 let mut refused = ErrorResponse::new(None);
                 *refused.status_mut() = StatusCode::FORBIDDEN;
                 Err(refused)
@@ -236,7 +253,7 @@ async fn pair(mut ws: Ws, shared: &Shared) {
                     .attempt(&code, Instant::now());
                 match result {
                     PairResult::Accepted => {
-                        (shared.show_code)(shared.pairing.lock().expect("pairing lock").code());
+                        shared.notify_code();
                         ServerMessage::Paired {
                             token: shared.policy.token.clone(),
                         }
@@ -246,7 +263,7 @@ async fn pair(mut ws: Ws, shared: &Shared) {
                         new_code,
                     } => {
                         if new_code {
-                            (shared.show_code)(shared.pairing.lock().expect("pairing lock").code());
+                            shared.notify_code();
                         }
                         ServerMessage::PairingRefused { attempts_left }
                     }
@@ -281,6 +298,7 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         }
         *current = Some(Session { id, tx: tx.clone() });
     }
+    (shared.notify)(HelperEvent::Session(true));
     // A new session starts from silence.
     shared.send_event(EngineEvent::AllNotesOff);
     let _ = tx.send(shared.hello());
@@ -327,7 +345,10 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
+        drop(current);
+        (shared.notify)(HelperEvent::Session(false));
+    } else {
+        drop(current);
     }
-    drop(current);
     writer.abort();
 }
