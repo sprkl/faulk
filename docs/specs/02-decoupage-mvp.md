@@ -42,7 +42,7 @@ Hors MVP (proposé, à confirmer) : l'Atelier et la compilation Faust à la vol�
 
 ## 2. Décisions d'architecture proposées pour le socle
 
-Ces décisions sont l'objet des tâches de la phase 0 (une ADR chacune dans `docs/adr/`). Le fondateur les valide.
+Ces décisions sont l'objet des tâches de contrat de la phase 0. Le fondateur les valide dans la pull request de chaque tâche.
 
 ### 2.1 Qui possède l'état du projet
 
@@ -74,7 +74,7 @@ Par cible :
   - (a) **sans `SharedArrayBuffer`** : tout ce que `prepare` construirait est **préalloué au démarrage** aux capacités fixes (emplacements de pistes et de devices, tampons de délai à leur taille maximale, tables de notes, pools) ; le `onmessage` ne fait que copier des octets bornés dans la boîte de réception, et `apply` ne fait que des opérations bornées sans allocation dans la mémoire WASM. Reste un coût que Faulk ne contrôle pas : l'objet `MessageEvent` créé par le navigateur sur le thread de rendu (ramasse-miettes JS), à mesurer ;
   - (b) **avec `SharedArrayBuffer`** (isolation cross-origin, décision ouverte, voir [stockage local](../architecture/03-stockage-local.md) § 3.4) : `prepare` tourne dans un Worker dédié qui écrit dans une mémoire partagée avec le moteur, et le worklet ne lit qu'un anneau lock-free, comme dans le helper.
   Le module réserve sa mémoire au démarrage pour éviter un `memory.grow` en cours de session.
-- **Capacités fixes** décidées dans l'ADR (proposition : 32 pistes, 8 devices par piste, 64 scènes, 65 536 notes au total, 256 événements par bloc). Le projet refuse la commande avant qu'elle n'atteigne le moteur : le moteur n'échoue jamais en temps réel. Ces capacités portent sur ce que le moteur joue, pas sur le format : le banc de charge (QA-7) dépasse volontairement ces chiffres, et ses mesures aident à les fixer.
+- **Capacités fixes** décidées dans le contrat CT-3 (proposition : 32 pistes, 8 devices par piste, 64 scènes, 65 536 notes au total, 256 événements par bloc). Le projet refuse la commande avant qu'elle n'atteigne le moteur : le moteur n'échoue jamais en temps réel. Ces capacités portent sur ce que le moteur joue, pas sur le format : le banc de charge (QA-7) dépasse volontairement ces chiffres, et ses mesures aident à les fixer.
 - Le mappage commande → messages vit en Rust (`crates/commands`), jamais en TypeScript.
 
 ### 2.4 Contrat de commande v2
@@ -108,33 +108,33 @@ Préfixes : `CT` contrats, `PR` projet et commandes, `MO` moteur, `TR` transport
 
 ### Épopée 0 — Contrats et décisions (CT)
 
-Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs](../agents/domain.md)), en français, frontmatter OKF, `status: draft`. Chaque ADR se termine par l'API Rust ou le schéma figé, en code.
+Chaque contrat est figé **en code** (types, traits, schémas) dans la pull request de sa tâche ; la décision et ses raisons sont écrites dans le plan de la tâche, la description de la pull request et une section de spec. Conformément à [domain docs](../agents/domain.md), l'ADR ne s'écrit qu'**après** le code qui la met en œuvre, jamais en préalable.
 
-**CT-1 — ADR : propriété de l'état et nouvelle crate `project`**
+**CT-1 — Contrat : propriété de l'état et nouvelle crate `project`**
 - But : figer § 2.1.
-- Critères : ADR acceptée par le fondateur ; `CLAUDE.md` (table Stack) et l'[architecture](../architecture/01-architecture.md) mis à jour ; squelettes vides de `crates/project` et `crates/project-wasm` dans le workspace (compilent, aucun code métier).
+- Critères : décision validée par le fondateur dans la pull request ; `CLAUDE.md` (table Stack) et l'[architecture](../architecture/01-architecture.md) mis à jour ; squelettes vides de `crates/project` et `crates/project-wasm` dans le workspace (compilent, aucun code métier).
 - Touche : `docs/adr/`, `docs/architecture/`, `CLAUDE.md`, `Cargo.toml`, `crates/project*`.
 - Dépend de : aucune. Phase 0.
 
-**CT-2 — ADR : modèle de temps musical**
+**CT-2 — Contrat : modèle de temps musical**
 - But : figer § 2.2.
 - Critères : types `Tick`, `Tempo`, `TimeSignature`, `Quantize`, `LoopRegion` avec conversions et tests (aller-retour ticks ↔ échantillons à 44,1/48/96 kHz, arrondis documentés).
-- Touche : `docs/adr/`, module `time` (probablement dans `engine`, réexporté, puisque moteur et projet en ont besoin ; à décider dans l'ADR).
+- Touche : `docs/adr/`, module `time` (probablement dans `engine`, réexporté, puisque moteur et projet en ont besoin ; à décider dans le contrat).
 - Dépend de : CT-1. Phase 0.
 
-**CT-3 — ADR : synchronisation projet → moteur (prepare/apply, capacités, feedback)**
+**CT-3 — Contrat : synchronisation projet → moteur (prepare/apply, capacités, feedback)**
 - But : figer § 2.3.
 - Critères : énumérations `ControlMsg`, `RtMsg`, `Feedback` déclarées (variantes du MVP listées, même vides), capacités chiffrées, format binaire décrit (en-tête, version, endianness) ; choix entre les voies (a) et (b) du § 2.3 pour la cible WASM, avec le chemin des octets jusqu'à la mémoire du worklet ; attaque écrite : file pleine, message inconnu, capacité dépassée, bascule de moteur en cours de message.
 - Touche : `docs/adr/`, `crates/engine/src/msg.rs` (types seulement).
 - Dépend de : CT-1. Phase 0.
 
-**CT-4 — ADR : contrat de commande v2**
+**CT-4 — Contrat : contrat de commande v2**
 - But : figer § 2.4 ; choisir entre le modèle mutable à inverses et le modèle persistant à instantanés (§ 2.1) ; trancher l'état de vue, l'existence et la **largeur** du `NoteId` (l'ABI des modules de l'Atelier n'a que 24 bits pour l'identifiant de note, voir la [spec de l'Atelier](01-atelier-modules.md) § 1.3).
 - Critères : signature `apply` figée en code ; domaines du MVP figés (`project`, `track`, `device`, `clip`, `note`, `scene`, `launch`, `arrangement`, `transport`, `mixer`, `record`, `midi`, `live`, `history`, `view`) ; règle de test « chaque commande a description, schéma d'entrée et de sortie, undo testé ».
 - Touche : `docs/adr/`, `crates/commands` (squelettes des modules).
 - Dépend de : CT-1. Phase 0.
 
-**CT-5 — ADR : contrat de device**
+**CT-5 — Contrat : contrat de device**
 - But : figer § 2.5.
 - Critères : trait et descripteurs écrits dans `crates/engine/src/device.rs` ; le schéma exporté contient les descripteurs (exemple avec le synthé actuel).
 - Touche : `docs/adr/`, `crates/engine`.
@@ -320,7 +320,7 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 
 **CL-1 — Modèle et commandes de clips MIDI**
 - But : `clip.create { slot | arrangement }`, `clip.delete`, `clip.duplicate`, `clip.rename`, `clip.set_length`, `clip.set_loop`, `clip.notes.add` (lot), `clip.notes.remove`, `clip.notes.update` (position, durée, hauteur, vélocité, en lot).
-- Critères : un lot = une entrée d'historique ; notes hors longueur refusées ou tronquées selon l'ADR ; capacité de notes respectée.
+- Critères : un lot = une entrée d'historique ; notes hors longueur refusées ou tronquées selon le contrat ; capacité de notes respectée.
 - Touche : `crates/commands/src/clip.rs`, `crates/project`.
 - Dépend de : PR-2. Phase 3.
 
@@ -360,7 +360,7 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 
 **AR-1 — Modèle et commandes d'arrangement**
 - But : placements par piste (début, durée, décalage dans la source, boucle), écrits dans l'`arrangement.tsv` de chaque piste ; `arrangement.place`, `arrangement.move`, `arrangement.resize`, `arrangement.split`, `arrangement.delete`, `arrangement.duplicate`.
-- Critères : chevauchements résolus selon une règle écrite dans l'ADR (le dernier posé gagne, l'autre est rogné) et testés.
+- Critères : chevauchements résolus selon une règle écrite dans le contrat (le dernier posé gagne, l'autre est rogné) et testés.
 - Touche : `crates/commands/src/arrangement.rs`, `crates/project`.
 - Dépend de : CL-1. Phase 4.
 
@@ -443,14 +443,14 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 ### Épopée 10 — Mixeur (MX)
 
 **MX-1 — Mixage dans le moteur**
-- But : volume et panoramique par piste et master (lissés), mute, solo (exclusif ou cumulatif selon l'ADR), loi de panoramique documentée.
+- But : volume et panoramique par piste et master (lissés), mute, solo (exclusif ou cumulatif selon le contrat), loi de panoramique documentée.
 - Critères : −6 dB demandé = −6 dB mesuré ; mute et solo sans clic ; vu-mètres après fader.
 - Touche : `crates/engine/src/mixer.rs`.
 - Dépend de : MO-3, MO-5. Phase 2.
 
 **MX-2 — Commandes de mixage**
 - But : `mixer.set_volume`, `mixer.set_pan`, `mixer.set_mute`, `mixer.set_solo`, `mixer.set_master_volume`.
-- Critères : un geste de fader = un groupe d'annulation ; valeurs hors bornes refusées ou bornées selon l'ADR ; solo versionné ou non selon la décision du [modèle de projet](../architecture/02-modele-projet.md).
+- Critères : un geste de fader = un groupe d'annulation ; valeurs hors bornes refusées ou bornées selon le contrat ; solo versionné ou non selon la décision du [modèle de projet](../architecture/02-modele-projet.md).
 - Touche : `crates/commands/src/mixer.rs`.
 - Dépend de : PR-2. Phase 2.
 
@@ -632,7 +632,7 @@ Une ADR par décision dans `docs/adr/` (créé à la demande, voir [domain docs]
 
 Deux branches se rejoignent en QA-1, puis le socle est en série jusqu'à PR-5 :
 
-- branche projet : **CT-1 → CT-2 ou CT-4 → PR-1 → PR-2** ;
+- branche projet : **CT-1 → CT-2 et CT-4 (les deux, en parallèle) → PR-1 → PR-2** ;
 - branche moteur : **CT-1 → CT-3 → MO-1 → MO-2** ;
 - puis **QA-1 → PR-3 → PR-4 → PR-5**.
 
@@ -765,7 +765,7 @@ graph LR
 
 | Contrat | Où | Figé par | Qui en dépend |
 | --- | --- | --- | --- |
-| Propriété de l'état (la page possède le projet) | ADR CT-1 | Phase 0 | Tout |
+| Propriété de l'état (la page possède le projet) | Contrat CT-1 | Phase 0 | Tout |
 | Types de temps (`Tick`, `Tempo`, `Quantize`, `LoopRegion`) | `engine::time` | CT-2 | Transport, clips, grille, timeline, piano roll, enregistrement |
 | `ControlMsg` / `RtMsg` / `Feedback`, capacités, encodage binaire | `engine::msg` | CT-3, MO-1 | Moteur, helper, worklet, compilateur projet |
 | Signature `apply`, `Outcome`, `x-undo` / `x-destructive` / `x-kind`, domaines | `commands` | CT-4, PR-2 | Toutes les commandes, MCP, palette |
