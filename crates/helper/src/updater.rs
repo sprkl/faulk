@@ -19,6 +19,7 @@
 
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -50,25 +51,25 @@ const PACKAGE_TIMEOUT_MS: u64 = 10 * 60_000;
 /// parsed: the installer and the updater launch the executable with `--veloapp-*` arguments and
 /// expect it to exit at once. It also applies an update downloaded during a previous run (and
 /// restarts the helper on the new version), but only when no other helper is running: applying
-/// replaces the files of the installation and would stop that other helper's audio. The first
-/// helper keeps an instance lock for its whole life to make that check possible. Does nothing
-/// when the helper is not installed.
+/// replaces the files of the installation and would stop that other helper's audio. Every
+/// helper holds a shared [`InstanceLock`] for its whole life to make that check possible, at
+/// start here and before a manual apply ([`Updater::apply_and_restart`]). Does nothing when the
+/// helper is not installed.
 pub fn startup() {
     install_logger();
-    let alone = match hold_instance_lock(&instance_lock_path()) {
-        Ok(Some(file)) => {
-            let _ = INSTANCE_LOCK.set(file);
-            true
-        }
-        Ok(None) => {
-            eprintln!(
-                "update: another helper is running, a downloaded update waits for it to stop"
-            );
-            false
+    let alone = match InstanceLock::take(&instance_lock_path()) {
+        Ok((lock, alone)) => {
+            let _ = INSTANCE_LOCK.set(Arc::new(lock));
+            if !alone {
+                eprintln!(
+                    "update: another helper is running, a downloaded update waits for it to stop"
+                );
+            }
+            alone
         }
         Err(e) => {
             eprintln!(
-                "update: cannot take the instance lock ({e}), a downloaded update is not applied at start"
+                "update: cannot take the instance lock ({e}), a downloaded update is not applied"
             );
             false
         }
@@ -76,7 +77,7 @@ pub fn startup() {
     VelopackApp::build().set_auto_apply_on_startup(alone).run();
 }
 
-static INSTANCE_LOCK: OnceLock<File> = OnceLock::new();
+static INSTANCE_LOCK: OnceLock<Arc<InstanceLock>> = OnceLock::new();
 
 fn instance_lock_path() -> PathBuf {
     dirs::config_dir()
@@ -85,31 +86,75 @@ fn instance_lock_path() -> PathBuf {
         .join("helper.lock")
 }
 
-/// Takes the exclusive lock at `path` without waiting. `Ok(None)`: another process holds it.
-/// The lock lasts as long as the returned file is open.
-pub fn hold_instance_lock(path: &Path) -> std::io::Result<Option<File>> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+/// The lock file every running helper holds in shared mode. A helper is alone when it can take
+/// the lock exclusively: no other helper holds it, whatever its port and whichever started first.
+pub struct InstanceLock {
+    file: File,
+}
+
+impl InstanceLock {
+    /// Opens the lock at `path`, tells whether this process is alone, and keeps a shared hold
+    /// on it for as long as the returned value lives. When another process holds the lock
+    /// exclusively (it is applying an update and about to exit), no hold is kept: that process
+    /// is gone a moment later.
+    pub fn take(path: &Path) -> std::io::Result<(InstanceLock, bool)> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)?;
+        let alone = match file.try_lock() {
+            Ok(()) => {
+                file.unlock()?;
+                true
+            }
+            Err(TryLockError::WouldBlock) => false,
+            Err(TryLockError::Error(e)) => return Err(e),
+        };
+        match file.try_lock_shared() {
+            Ok(()) | Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+        Ok((InstanceLock { file }, alone))
     }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path)?;
-    match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
-        Err(TryLockError::WouldBlock) => Ok(None),
-        Err(TryLockError::Error(e)) => Err(e),
+
+    /// Whether this process is the only helper. When it is, the lock stays exclusive, so that
+    /// no helper starting meanwhile believes itself alone; [`InstanceLock::share`] gives it back.
+    /// When it is not, the shared hold is restored.
+    pub fn claim_alone(&self) -> std::io::Result<bool> {
+        // Unlocking a handle that holds no lock fails on Windows: nothing to undo then.
+        let _ = self.file.unlock();
+        match self.file.try_lock() {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                self.share();
+                match e {
+                    TryLockError::WouldBlock => Ok(false),
+                    TryLockError::Error(e) => Err(e),
+                }
+            }
+        }
+    }
+
+    /// Back to a shared hold, after [`InstanceLock::claim_alone`] (for instance a failed apply).
+    pub fn share(&self) {
+        let _ = self.file.unlock();
+        let _ = self.file.try_lock_shared();
     }
 }
 
 /// Velopack reports through the `log` crate; without a logger a failed apply or delta patch
-/// would leave no trace. Warnings and errors go to stderr, like the rest of the helper.
+/// would leave no trace. Velopack's warnings and errors go to stderr, like the rest of the
+/// helper. Records of other crates are left out: they are not about updates. The logger is
+/// process-wide; if one is already installed, this one is not, and nothing fails.
 struct StderrLog;
 
 impl log::Log for StderrLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Warn
+        metadata.level() <= log::Level::Warn && metadata.target().starts_with("velopack")
     }
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
@@ -554,6 +599,18 @@ pub struct Updater {
     commands: Option<SyncSender<Command>>,
     thread: Option<JoinHandle<()>>,
     restart_args: Vec<String>,
+    instance: InstanceCheck,
+    stopping: Arc<AtomicBool>,
+}
+
+/// How [`Updater::apply_and_restart`] makes sure no other helper is running.
+enum InstanceCheck {
+    /// Through the instance lock taken by [`startup`].
+    Lock(Arc<InstanceLock>),
+    /// The lock could not be taken: a manual apply is refused, as the apply at start is.
+    Unavailable(String),
+    /// No check: an updater started with [`Updater::start_with`] on a test backend.
+    None,
 }
 
 impl Updater {
@@ -579,7 +636,19 @@ impl Updater {
                     channel.dir(),
                     urls.feed_dir(channel)
                 );
-                Updater::start_with(manager, config.interval)
+                let mut updater = Updater::start_with(manager, config.interval);
+                updater.instance = match INSTANCE_LOCK.get() {
+                    Some(lock) => InstanceCheck::Lock(lock.clone()),
+                    None => match InstanceLock::take(&instance_lock_path()) {
+                        Ok((lock, _)) => InstanceCheck::Lock(
+                            INSTANCE_LOCK.get_or_init(|| Arc::new(lock)).clone(),
+                        ),
+                        Err(e) => InstanceCheck::Unavailable(format!(
+                            "cannot take the instance lock ({e})"
+                        )),
+                    },
+                };
+                updater
             }
             Err(e) => Updater::disabled(format!("not installed: {e}")),
         }
@@ -593,6 +662,8 @@ impl Updater {
             commands: None,
             thread: None,
             restart_args: Vec::new(),
+            instance: InstanceCheck::None,
+            stopping: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -602,12 +673,14 @@ impl Updater {
         let status = Arc::new(Mutex::new(UpdateStatus::Idle));
         // Capacity 1: clicks on "Check for updates" during a check coalesce into one more check.
         let (tx, rx) = mpsc::sync_channel(1);
+        let stopping = Arc::new(AtomicBool::new(false));
         let thread = {
             let backend = backend.clone();
             let status = status.clone();
+            let stopping = stopping.clone();
             std::thread::Builder::new()
                 .name("faulk-updater".into())
-                .spawn(move || run_loop(backend.as_ref(), &status, &rx, interval))
+                .spawn(move || run_loop(backend.as_ref(), &status, &rx, interval, &stopping))
         };
         match thread {
             Ok(thread) => Updater {
@@ -616,6 +689,8 @@ impl Updater {
                 commands: Some(tx),
                 thread: Some(thread),
                 restart_args: std::env::args().skip(1).collect(),
+                instance: InstanceCheck::None,
+                stopping,
             },
             Err(e) => Updater::disabled(format!("cannot start the update thread: {e}")),
         }
@@ -637,8 +712,17 @@ impl Updater {
         }
     }
 
+    /// Makes [`Updater::apply_and_restart`] check `lock` first. [`Updater::start`] does it with
+    /// the lock taken by [`startup`]; this is for an updater started with
+    /// [`Updater::start_with`].
+    pub fn with_instance_lock(mut self, lock: Arc<InstanceLock>) -> Updater {
+        self.instance = InstanceCheck::Lock(lock);
+        self
+    }
+
     /// Applies the downloaded update and restarts the helper on it, with the same arguments.
-    /// On success the process exits and this never returns.
+    /// Refused while another helper is running: applying replaces the installation's files
+    /// under it. On success the process exits and this never returns.
     pub fn apply_and_restart(&self) -> Result<(), UpdateError> {
         let backend = self
             .backend
@@ -647,12 +731,35 @@ impl Updater {
         let asset = backend
             .pending()
             .ok_or_else(|| UpdateError::Other("no downloaded update to apply".into()))?;
-        backend
+        let lock = match &self.instance {
+            InstanceCheck::Lock(lock) => match lock.claim_alone() {
+                Ok(true) => Some(lock),
+                Ok(false) => {
+                    return Err(UpdateError::Other(
+                        "another helper is running: close it, then restart to update".into(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(UpdateError::Other(format!(
+                        "cannot check for another helper ({e})"
+                    )));
+                }
+            },
+            InstanceCheck::Unavailable(reason) => return Err(UpdateError::Other(reason.clone())),
+            InstanceCheck::None => None,
+        };
+        let result = backend
             .apply_and_restart(&asset, &self.restart_args)
-            .map_err(|e| classify(&e))
+            .map_err(|e| classify(&e));
+        if let Some(lock) = lock {
+            // Still running: the apply failed (or a test backend returned).
+            lock.share();
+        }
+        result
     }
 
-    /// Stops the thread and waits for it (at most the end of a running check or download).
+    /// Stops the thread and waits for it (at most the end of a running check or download; a
+    /// check queued meanwhile is skipped).
     pub fn shutdown(mut self) {
         self.stop();
         if let Some(thread) = self.thread.take() {
@@ -661,8 +768,10 @@ impl Updater {
     }
 
     fn stop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
         if let Some(tx) = self.commands.take() {
-            // A full queue means a check is already queued; dropping `tx` then ends the loop.
+            // A full queue means a check is already queued: the loop sees `stopping` before
+            // running it, and dropping `tx` wakes a loop that waits.
             let _ = tx.try_send(Command::Shutdown);
         }
     }
@@ -690,8 +799,12 @@ fn run_loop(
     status: &Mutex<UpdateStatus>,
     commands: &Receiver<Command>,
     interval: Duration,
+    stopping: &AtomicBool,
 ) {
     loop {
+        if stopping.load(Ordering::Acquire) {
+            return;
+        }
         run_check(backend, status);
         match commands.recv_timeout(interval) {
             Ok(Command::CheckNow) | Err(RecvTimeoutError::Timeout) => continue,

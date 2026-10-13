@@ -371,17 +371,72 @@ fn a_real_server_error_or_closed_port_is_a_network_error() {
 // Instance lock
 // ---------------------------------------------------------------------------
 
+fn lock_path(name: &str) -> PathBuf {
+    std::env::temp_dir()
+        .join(format!("faulk-lock-test-{}-{name}", std::process::id()))
+        .join("helper.lock")
+}
+
+// Each `InstanceLock` opens its own handle, which the OS treats as another process would be.
+
 #[test]
-fn the_instance_lock_admits_one_holder_at_a_time() {
-    let path = std::env::temp_dir()
-        .join(format!("faulk-lock-test-{}", std::process::id()))
-        .join("helper.lock");
-    let first = hold_instance_lock(&path).unwrap();
-    assert!(first.is_some());
-    assert!(hold_instance_lock(&path).unwrap().is_none());
+fn only_the_first_helper_is_alone() {
+    let path = lock_path("first");
+    let (first, alone) = InstanceLock::take(&path).unwrap();
+    assert!(alone);
+    let (second, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
     drop(first);
-    assert!(hold_instance_lock(&path).unwrap().is_some());
+    drop(second);
+    let (_third, alone) = InstanceLock::take(&path).unwrap();
+    assert!(alone);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_helper_started_while_another_runs_is_not_alone_after_the_first_quits() {
+    // A starts, B starts next to it, A quits: C must still see B.
+    let path = lock_path("order");
+    let (a, _) = InstanceLock::take(&path).unwrap();
+    let (b, _) = InstanceLock::take(&path).unwrap();
+    drop(a);
+    let (c, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
+    assert!(!c.claim_alone().unwrap());
+    drop(b);
+    assert!(c.claim_alone().unwrap());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn claiming_keeps_others_out_until_shared_again() {
+    let path = lock_path("claim");
+    let (a, _) = InstanceLock::take(&path).unwrap();
+    assert!(a.claim_alone().unwrap());
+    // A helper starting while A applies is not alone.
+    let (b, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
+    drop(b);
+    a.share();
+    let (b, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
+    // A's failed claim restores its shared hold: B is still not alone.
+    assert!(!a.claim_alone().unwrap());
+    assert!(!b.claim_alone().unwrap());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn the_logger_keeps_velopack_warnings_only() {
+    let meta =
+        |target: &'static str, level| log::Metadata::builder().target(target).level(level).build();
+    let logger = StderrLog;
+    use log::Log;
+    assert!(logger.enabled(&meta("velopack::manager", log::Level::Warn)));
+    assert!(logger.enabled(&meta("velopack", log::Level::Error)));
+    assert!(!logger.enabled(&meta("velopack::manager", log::Level::Info)));
+    assert!(!logger.enabled(&meta("tungstenite::protocol", log::Level::Warn)));
+    assert!(!logger.enabled(&meta("midir", log::Level::Error)));
 }
 
 // ---------------------------------------------------------------------------
@@ -879,6 +934,49 @@ fn apply_needs_a_downloaded_update_and_keeps_the_arguments() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     assert_eq!(applied, [("0.2.0".to_owned(), args)]);
     updater.shutdown();
+}
+
+#[test]
+fn apply_is_refused_while_another_helper_runs() {
+    let path = lock_path("apply");
+    let (mine, _) = InstanceLock::take(&path).unwrap();
+    let (other, _) = InstanceLock::take(&path).unwrap();
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some("0.2.0".into());
+    let updater = Updater::start_with(backend.clone(), NEVER).with_instance_lock(Arc::new(mine));
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    assert!(updater.apply_and_restart().is_err());
+    assert!(backend.applied.lock().unwrap().is_empty());
+    // The other helper is still counted after the refusal.
+    let (probe, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
+    drop(probe);
+    drop(other);
+    updater.apply_and_restart().unwrap();
+    assert_eq!(backend.applied.lock().unwrap().len(), 1);
+    // The apply returned (a failed apply would too): the hold is shared again.
+    let (_probe, alone) = InstanceLock::take(&path).unwrap();
+    assert!(!alone);
+    updater.shutdown();
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn shutdown_skips_a_queued_check() {
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some("0.2.0".into());
+    let (open, gate) = mpsc::channel();
+    *backend.gate.lock().unwrap() = Some(gate);
+    let updater = Updater::start_with(backend.clone(), NEVER);
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Downloading { .. }));
+    assert!(updater.check_now());
+    let opener = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        let _ = open.send(());
+    });
+    updater.shutdown();
+    opener.join().unwrap();
+    assert_eq!(backend.checks.load(Ordering::SeqCst), 1);
 }
 
 #[test]

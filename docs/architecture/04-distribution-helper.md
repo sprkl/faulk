@@ -64,15 +64,16 @@ Le test `crates/helper/src/updater/tests.rs` lit `web/vercel.json` et vérifie q
 
 ## Côté helper : `crates/helper/src/updater.rs`
 
-- `updater::startup()` : premier appel de `main`, avant la lecture des arguments. L'installeur et l'outil de mise à jour lancent l'exécutable avec des arguments `--veloapp-*` et attendent qu'il quitte aussitôt. Il applique aussi une mise à jour téléchargée lors d'une exécution précédente, puis relance le helper sur la nouvelle version, **sauf si un autre helper tourne déjà** : appliquer remplace les fichiers de l'installation et couperait le son de l'autre helper. Le premier helper garde pour cela un verrou (`<config>/faulk/helper.lock`) toute sa vie.
+- `updater::startup()` : premier appel de `main`, avant la lecture des arguments. L'installeur et l'outil de mise à jour lancent l'exécutable avec des arguments `--veloapp-*` et attendent qu'il quitte aussitôt. Il applique aussi une mise à jour téléchargée lors d'une exécution précédente, puis relance le helper sur la nouvelle version, **sauf si un autre helper tourne déjà** : appliquer remplace les fichiers de l'installation et couperait le son de l'autre helper. Pour le savoir, chaque helper tient toute sa vie un verrou partagé sur `<config>/faulk/helper.lock` ; un helper est seul s'il peut prendre ce verrou en exclusif, quel que soit l'ordre de démarrage des autres.
 - `Updater::start(Config::from_env())` : lance un thread `faulk-updater`. Vérification au démarrage, puis toutes les six heures. Une version trouvée est téléchargée en arrière-plan. Hors installation (`cargo run`), l'updater est désactivé et ne touche pas le réseau.
 - `Updater::check_now()` : vérification immédiate, sans attendre ; les demandes répétées pendant une vérification se fondent en une seule.
+- `Updater::shutdown()` : arrête le thread et attend au plus la fin de la vérification ou du téléchargement en cours ; une vérification demandée entre-temps est abandonnée.
 - `Updater::status()` : `Disabled`, `Idle`, `Checking`, `UpToDate`, `Downloading { percent }`, `Ready`, `Failed { error }`. Les erreurs sont classées : réseau, flux absent (404), flux invalide, paquet corrompu, autre. Un échec est retenté à la vérification suivante. Une version déjà téléchargée reste applicable après un échec.
-- `Updater::apply_and_restart()` : applique la version téléchargée et relance le helper avec les mêmes arguments. Le processus quitte : la sortie audio s'arrête le temps de la relance, c'est voulu et c'est l'utilisateur qui le demande.
+- `Updater::apply_and_restart()` : applique la version téléchargée et relance le helper avec les mêmes arguments. Refusé, avec une erreur explicite, tant qu'un autre helper tourne (même verrou qu'au démarrage, pris en exclusif le temps de l'application). Le processus quitte : la sortie audio s'arrête le temps de la relance, c'est voulu et c'est l'utilisateur qui le demande.
 - **Audio** : l'updater ne s'exécute jamais sur le thread audio et ne partage aucun état avec lui. Ses seuls effets sur le son sont les deux sorties de processus ci-dessus.
-- **Journal** : les lignes `update: ...` sur la sortie d'erreur, et les avertissements de Velopack, qui passent par un petit journal installé par `startup()`.
+- **Journal** : les lignes `update: ...` sur la sortie d'erreur, et les avertissements et erreurs de Velopack (cible `velopack*` seulement), qui passent par un petit journal `log` installé par `startup()`. Ce journal vaut pour tout le processus : si un autre journal `log` est installé avant, celui-ci ne l'est pas, sans erreur ; s'il l'est après, l'autre doit tolérer l'échec de `set_logger` (`env_logger::init()` paniquerait, `try_init()` non).
 - **Vie privée** : chaque lecture du flux porte `?localVersion=<version>&id=FaulkHelper&stagingId=<identifiant>`. Ce paramètre est ajouté par Velopack ; `stagingId` est un identifiant aléatoire propre à l'installation, prévu pour les déploiements progressifs. Il arrive à Vercel et, par la redirection, à GitHub.
-- **Tests de pointage** : la variable `FAULK_UPDATE_URL` remplace `https://get.faulk.app/helper`, uniquement par une adresse `https://` ou `http://` vers la boucle locale (`127.0.0.1`, `localhost`, `[::1]`).
+- **Tests de pointage** : la variable `FAULK_UPDATE_URL` remplace `https://get.faulk.app/helper` par une adresse `https://` (n'importe quel hôte) ou `http://` vers la boucle locale seulement (`127.0.0.1`, `localhost`, `[::1]`). Les paquets ne sont vérifiés que contre le flux servi par cette même adresse : qui peut écrire l'environnement de l'utilisateur choisit le code installé. C'est accepté, car qui peut écrire cet environnement peut déjà exécuter du code sous ce compte ; la signature de code (plus bas) fermera ce point.
 
 ### Le câblage dans `main.rs`
 
@@ -96,10 +97,10 @@ Ces actions de la zone de notification concernent le helper lui-même, pas le pr
 
 `.github/workflows/release-helper.yml`, en quatre jobs :
 
-1. **version** : depuis le tag `helper-v<version>` ou la saisie d'un lancement manuel. Format vérifié (`X.Y.Z` ou `X.Y.Z-suffixe`), un suffixe fait une pré-version. Un lancement manuel avec version ne publie que depuis `main` (stable) ou `main`/`develop` (pré-version).
-2. **windows** (obligatoire) : tests du helper, build `--release`, téléchargement de la dernière release stable publique (pour le différentiel, sauf pré-version), `vpk pack --runtime win-x64`, artefacts téléchargeables quatorze jours.
+1. **version** : depuis le tag `helper-v<version>` ou la saisie d'un lancement manuel. Format vérifié (`X.Y.Z` ou `X.Y.Z-suffixe`), un suffixe fait une pré-version. Un lancement manuel avec version ne publie que depuis `main` (stable) ou `main`/`develop` (pré-version). Même règle pour un tag poussé : un tag stable doit être sur un commit de `main`, un tag de pré-version sur `main` ou `develop`, sinon le run échoue avant de construire.
+2. **windows** (obligatoire) : tests du helper, build `--release`, téléchargement de la dernière release stable publique (pour le différentiel, sauf pré-version et build d'essai), `vpk pack --runtime win-x64`, artefacts téléchargeables quatorze jours.
 3. **unix** (macOS arm64 et Linux x64, facultatifs, `continue-on-error`) : build et empaquetage pour mémoire, **jamais publiés**, ni signés ni testés.
-4. **release** (seulement avec une version) : refuse un helper non câblé, crée la release dans `sprkl/faulk` (notes générées), puis la copie publique dans `sprkl/faulk-release` avec des notes fixes (les notes générées citent les pull requests privées). Sans `RELEASES_TOKEN`, la copie est sautée avec un avis explicite dans le résumé du run. Une pré-version met aussi à jour le flux de la release `helper-beta`, sauf en brouillon (ses paquets ne seraient pas téléchargeables).
+4. **release** (seulement avec une version) : refuse un helper non câblé, crée la release dans `sprkl/faulk` (notes générées), puis la copie publique dans `sprkl/faulk-release` avec des notes fixes (les notes générées citent les pull requests privées). Sans `RELEASES_TOKEN`, la copie est sautée avec un avis explicite dans le résumé du run ; une fois le secret créé, relancer le job suffit : une release qui existe déjà voit ses fichiers remplacés au lieu de faire échouer le run. Une pré-version met aussi à jour le flux de la release `helper-beta`, sauf en brouillon (ses paquets ne seraient pas téléchargeables).
 
 Une version ne devient `latest` que si elle est plus récente que l'actuelle : relancer un ancien tag ne fait pas reculer le canal stable.
 
@@ -143,6 +144,14 @@ Ce qui a été fait le 14 octobre 2026 sur Windows 11, avec un `main.rs` tempora
 6. `FAULK_UPDATE_CHANNEL=beta` : la `0.2.0-beta.1` est téléchargée en paquet complet ; un second helper lancé pendant ce temps **n'applique pas** la mise à jour (le premier continue de jouer) ;
 7. une `0.2.0-beta.2` ajoutée au flux bêta : appliquée sur demande (`apply_and_restart`), le helper relancé en `0.2.0-beta.2` ;
 8. désinstallation : `%LocalAppData%\FaulkHelper\Update.exe --uninstall --silent` retire le dossier et les raccourcis.
+
+Après la revue de livraison, le verrou est devenu partagé (chaque helper le tient) et l'application sur demande le vérifie aussi. Ce nouveau verrou a été éprouvé le même jour avec un petit exécutable de test hors dépôt, qui fait les mêmes appels que `main.rs` devra faire (`startup()`, `Updater::start`, `apply_and_restart`), sans audio, empaqueté sous le même identifiant `FaulkHelper` :
+
+1. A (0.1.0) télécharge la 0.1.1 ; B démarre à côté (« another helper is running ») ; A quitte ; C démarre pendant que B tourne : C **n'applique pas** la 0.1.1 (version installée toujours 0.1.0) ;
+2. D, lancé pendant que B tourne, demande l'application : refusée (« another helper is running: close it, then restart to update »), version toujours 0.1.0 ;
+3. tous arrêtés, E démarre seul : la 0.1.1 est appliquée au démarrage et E relancé ;
+4. une 0.1.2 publiée dans le flux ; F, seul, la télécharge (différentiel) et l'applique sur demande : relancé en 0.1.2 ;
+5. désinstallation : dossier et raccourcis retirés.
 
 ## Ce que le fondateur doit faire
 

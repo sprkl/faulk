@@ -1,7 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-14
-* **Addition** (#13): `architecture/04-distribution-helper.md` describes the helper's distribution chain: Velopack chosen over cargo-dist + axoupdater and self_update, release CI (`.github/workflows/release-helper.yml`), public copy in `sprkl/faulk-release` with `RELEASES_TOKEN`, `get.faulk.app` redirects in `web/vercel.json`, stable and beta channels, deltas on stable only, the instance lock that keeps an update from cutting a running helper, protocol compatibility as an open question, signing to come, and the founder's setup steps. `agents/verification.md` gains the helper packaging check.
+* **Addition** (#13): `architecture/04-distribution-helper.md` describes the helper's distribution chain: Velopack chosen over cargo-dist + axoupdater and self_update, release CI (`.github/workflows/release-helper.yml`), public copy in `sprkl/faulk-release` with `RELEASES_TOKEN`, `get.faulk.app` redirects in `web/vercel.json`, stable and beta channels, deltas on stable only, the shared instance lock that keeps an update (at start or on request) from cutting another running helper, protocol compatibility as an open question, signing to come, and the founder's setup steps. `agents/verification.md` gains the helper packaging check.
 
 ## 2026-10-13
 * **Update** (#7): third Copilot pass on PR #8: native/WASM bit-exact parity is a goal to test (identical math imports required); PR-1 needs both CT-2 and CT-4; phase-0 contract tasks freeze contracts in code and record decisions in the task plan and PR, with ADRs written only after the code (per `agents/domain.md`).

@@ -51,6 +51,11 @@ jobs:
       pack: ${{ steps.resolve.outputs.pack }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
+      # Full history: a tagged commit is checked against main and develop below.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: version from the tag or the input
         id: resolve
         shell: bash
@@ -81,6 +86,19 @@ jobs:
             fi
             if [ "$prerelease" = true ] && [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/develop ]; then
               echo "::error::a pre-release is dispatched from main or develop only (ref: $REF)"
+              exit 1
+            fi
+          fi
+          # The same rule for a pushed tag, which may sit on any commit: a stable tag must be on
+          # main, a pre-release tag on main or develop.
+          if [ "$EVENT" = push ] && [ -n "$value" ]; then
+            on() { git merge-base --is-ancestor "$GITHUB_SHA" "origin/$1" 2>/dev/null; }
+            if [ "$prerelease" = false ] && ! on main; then
+              echo "::error::stable tag $REF is not on main: delete the tag and tag a commit of main"
+              exit 1
+            fi
+            if [ "$prerelease" = true ] && ! on main && ! on develop; then
+              echo "::error::pre-release tag $REF is on neither main nor develop"
               exit 1
             fi
           fi
@@ -144,8 +162,10 @@ jobs:
       # Deltas: vpk builds the delta of this version against the newest full package in the
       # output folder, so it needs the latest STABLE release. Pre-releases get no delta: the
       # beta channel installs full packages (see `filter_feed` in updater.rs).
+      # Releases only: a trial build (version 0.0.0-trial.N) would otherwise be packed next to
+      # a newer stable package, which is not what a release produces.
       - name: Previous stable release, for the delta
-        if: needs.version.outputs.prerelease != 'true'
+        if: needs.version.outputs.value != '' && needs.version.outputs.prerelease != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -298,6 +318,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Idempotent: a re-run (after adding RELEASES_TOKEN, or after a failed public copy)
+          # finds the release and refreshes its files instead of failing.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::$TAG already exists here: its files are replaced"
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
           . ./flags.sh
           mapfile -t f < <(flags "$GITHUB_REPOSITORY")
           gh release create "$TAG" dist/* \
@@ -321,6 +348,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
+          # Idempotent, like the private release: a re-run completes a partial upload.
+          if gh release view "$TAG" --repo "$PUBLIC_REPO" >/dev/null 2>&1; then
+            echo "::notice::$TAG already exists in $PUBLIC_REPO: its files are replaced"
+            gh release upload "$TAG" dist/* --repo "$PUBLIC_REPO" --clobber
+            exit 0
+          fi
           . ./flags.sh
           mapfile -t f < <(flags "$PUBLIC_REPO")
           printf 'Faulk Helper %s.\n\nWindows installer: https://get.faulk.app/helper/windows\n' "$VERSION" > notes.md
