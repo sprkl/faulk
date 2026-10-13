@@ -175,6 +175,13 @@ describe("messages", () => {
     assert.match(command, /^node scripts\/agent-qa\/record\.mjs verified --rust "<.+>" --render "<.+>"$/);
   });
 
+  it("gives a command that can be pasted: no double quote inside an argument", () => {
+    const command = verifiedCommand(["crates/helper/src/a.rs", "web/src/worklet.ts", "modules/x.dsp", "scripts/a.mjs"]);
+    const args = [...command.matchAll(/ --(\w+) "<[^"]+>"/g)].map((m) => m[1]);
+    assert.deepEqual(args, ["rust", "render", "commands", "web", "browser", "exploration", "scripts", "latency"]);
+    assert.equal(command.replace(/ --\w+ "<[^"]+>"/g, ""), "node scripts/agent-qa/record.mjs verified");
+  });
+
   it("tells the agent what to run for each missing record and how to defer", () => {
     const reason = blockReason({ root: "/repo", fingerprint: "f1", files: ["web/src/a.ts"], missing: ["verification", "review"] });
     assert.match(reason, /\/repo/);

@@ -51,12 +51,12 @@ export const EVIDENCE = [
   },
   {
     flag: "scripts",
-    what: 'node --test "scripts/**/*.test.mjs" with its result, and how the changed hooks or scripts were tried',
+    what: "the result of node --test 'scripts/**/*.test.mjs', and how the changed hooks or scripts were tried",
     applies: (file) => file.startsWith("scripts/") || file.startsWith(".claude/"),
   },
   {
     flag: "latency",
-    what: "the output latency (and round trip with input) measured in both modes with the method, or \"not measured: <why>\"; never a number you did not measure",
+    what: "the output latency (and round trip with input) measured in both modes with the method, or 'not measured: <why>'; never a number you did not measure",
     applies: (file) =>
       /^crates\/(helper|protocol|engine-wasm)\//.test(file) || (file.startsWith("web/") && /worklet/i.test(file)),
   },
