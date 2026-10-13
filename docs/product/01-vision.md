@@ -26,10 +26,15 @@ Les DAW actuels sont d'excellents outils, mais fermés et liés à une machine. 
 
 Le passage en Boost est un changement d'état visible, pas une autre application.
 
+## AI first
+
+Toute fonction de Faulk est pilotable par un agent. Un agent compatible MCP (Claude Code, Cursor…) pilote le projet ouvert ; un agent compatible ACP choisi par l'utilisateur (Claude Code, Codex, Gemini CLI…) se connecte à l'Atelier pour discuter et agir sur le projet. Les deux passent par le helper ; dans le navigateur seul, WebMCP prendra le relais quand il sera stable.
+
 ## Vocabulaire
 
 - **Moteur** : le cœur audio (graphe, transport, DSP), un seul code pour les deux modes.
-- **Helper** : le petit programme natif du mode Boost, sans interface propre.
+- **Helper** : le petit programme natif du mode Boost, sans interface propre. C'est le pont local : audio basse latence, plugins tiers, serveur MCP et lancement des agents ACP.
+- **Commande** : une action de Faulk (créer une piste, poser une note, régler un paramètre), utilisable de la même façon par l'interface et par un agent.
 - **Module** : un instrument ou un effet propre à Faulk, écrit en Faust ou en Rust compilé en WASM, qui tourne dans les deux modes.
 - **Plugin tiers** : un VST3 ou CLAP de la communauté, disponible seulement en mode Boost.
 - **Objet sonore** : la texture visuelle granuleuse propre à chaque module, générée à partir de ses paramètres.

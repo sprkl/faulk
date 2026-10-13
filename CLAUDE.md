@@ -21,13 +21,17 @@ The repository is a monorepo. Nothing below exists until the first spike (`docs/
 | Path | What | Tech |
 |---|---|---|
 | `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
+| `crates/commands` | Every user action as a typed command: name, input and output schema, description for agents, undo. The single source for MCP tools and TypeScript types. | Rust (`serde`, `schemars`) |
 | `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. | Rust → WASM (`wasm-bindgen`) |
-| `crates/helper` | Native helper ("Boost" mode): runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, driven by the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3) |
+| `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |
 | `crates/protocol` | Messages exchanged between the UI and an engine (web or native). One definition, both targets. | Rust + generated TypeScript types |
 | `web/` | The UI: one web app for both modes. | TypeScript, Vite (UI framework: open decision) |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
 
-Core rule: **one engine, two targets**. Any engine feature must build and behave the same in `engine-wasm` and in `helper`. Audio never crosses the UI ↔ helper link: only commands and visual feedback do.
+Core rules:
+
+- **AI first: every action is a command.** Anything a user can do goes through `crates/commands`; the UI has no private path to the engine or the project. A feature that adds a UI action without its command, schema, description and undo is not done. MCP tools are generated from the commands, never written by hand.
+- **One engine, two targets.** Any engine feature must build and behave the same in `engine-wasm` and in `helper`. Audio never crosses the UI ↔ helper link: only commands and visual feedback do.
 
 ## Real-time audio rules
 
@@ -82,6 +86,7 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and the WASM build of the engine.
 - **Engine and modules**: offline render tests that assert on the signal (level, spectrum, silence, no NaN/denormals), the allocation detector on the audio path, and parity between the native and WASM builds on the same render.
 - **Web**: typecheck, lint, tests, then a check in a real browser with Playwright (audio context started, no console error, the changed screens exercised).
+- **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
 - **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
 
 Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.

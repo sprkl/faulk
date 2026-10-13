@@ -43,6 +43,8 @@ Work through these steps in order; each one produces blocks in your answer. Neve
 - callers, targets (WASM, native) and screens the change should have reached but did not;
 - tests that pass by construction, test the wrong layer, or leave a changed branch untested;
 - a side effect the report does not state, or states more narrowly than the code allows;
+- a user action added to the UI without its command in `crates/commands` (schema, description, undo), or an MCP tool written by hand instead of generated;
+- a helper endpoint (WebSocket, MCP over HTTP) reachable without the pairing token, from another origin, or on another interface than `127.0.0.1`;
 - a latency or performance figure claimed without a measurement;
 - project rules: language of comments and test names, `unsafe` without `// SAFETY:`, links, secrets, licences of new dependencies (GPL code in a non-GPL crate).
 

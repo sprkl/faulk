@@ -1,7 +1,7 @@
 ---
 type: Agent Configuration
 title: "Verification before ending a task"
-description: "Checks required before a task is done, by area: Rust, engine and modules, web UI, latency."
+description: "Checks required before a task is done, by area: Rust, engine and modules, commands and agents, web UI, latency."
 status: draft
 ---
 
@@ -24,6 +24,12 @@ cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 - **Real-time safety**: the audio path runs under the allocation detector in debug; a test renders several seconds of audio with parameter changes and MIDI events and must not trigger it.
 - **Parity**: the same render through the native build and the WASM build gives the same output within a stated tolerance.
 - **Listening**: when a change affects the sound, write the render to a WAV file under `.qa/renders/` and tell the user where it is. Never claim something "sounds right": only the user judges by ear.
+
+## Commands and agents (any change under `crates/commands` or to the MCP and ACP bridges)
+
+- Each new or changed command: schema, description and undo covered by tests.
+- The parity test passes: every command is exposed as an MCP tool, and no MCP tool exists without its command.
+- Drive the change from a real agent: connect Claude Code to the helper's MCP server and run the command, then check the result in the page and in the history (author shown, undo works).
 
 ## Web UI (any change under `web/`)
 

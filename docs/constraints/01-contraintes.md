@@ -1,7 +1,7 @@
 ---
 type: Constraints
 title: "Contraintes transverses"
-description: "Real-time audio, latency targets, browser limits, licences (VST3, ASIO, GPL), and the legal stance on recreating existing plugins."
+description: "Real-time audio, latency targets, browser limits, security of the local bridge, licences (VST3, ASIO, GPL), and the legal stance on recreating existing plugins."
 status: draft
 ---
 
@@ -25,6 +25,17 @@ Une latence n'est jamais annoncée sans mesure.
 - Web MIDI : Chrome, Edge, Firefox ; pas Safari.
 - `SharedArrayBuffer` exige l'isolation cross-origin (en-têtes COOP et COEP).
 - Le helper sur `localhost` déclenche une demande d'autorisation d'accès au réseau local dans Chrome : l'interface doit l'expliquer.
+
+## Sécurité du pont local
+
+N'importe quel site ouvert dans le navigateur peut tenter de joindre un serveur sur `localhost`. Le helper :
+
+- n'écoute que sur `127.0.0.1` ;
+- exige un jeton d'appairage, créé lors d'une confirmation de l'utilisateur, sur chaque connexion de la page et du serveur MCP en HTTP ;
+- vérifie l'en-tête `Origin` (seules les origines de Faulk sont acceptées) et l'en-tête `Host` (contre le DNS rebinding) ;
+- ne lance que les agents ACP que l'utilisateur a configurés, jamais une commande reçue de la page.
+
+Les commandes destructrices demandent une confirmation de l'utilisateur, quel que soit l'appelant.
 
 ## Licences
 
