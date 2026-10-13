@@ -15,7 +15,13 @@ use std::sync::{Arc, Mutex, mpsc};
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 const DEFAULT_PORT: u16 = 47800;
-const DEFAULT_ORIGINS: [&str; 2] = ["http://localhost:5173", "http://127.0.0.1:5173"];
+/// The web app's dev server (`pnpm dev`, 5173) and its static preview (`pnpm preview`, 4173).
+const DEFAULT_ORIGINS: [&str; 4] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+];
 
 struct Args {
     port: u16,
@@ -152,4 +158,21 @@ async fn main() {
     ));
     serve(listener, shared).await;
     drop(stream);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DEFAULT_ORIGINS;
+
+    #[test]
+    fn default_origins_cover_dev_and_preview_servers() {
+        for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ] {
+            assert!(DEFAULT_ORIGINS.contains(&origin), "{origin}");
+        }
+    }
 }
