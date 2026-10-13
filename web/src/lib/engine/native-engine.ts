@@ -1,11 +1,14 @@
 import type { ClientMessage, Command } from '../generated/protocol'
-import type { Engine, EngineEvents } from './engine'
+import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 
 /** The engine running natively in the helper, driven over the local WebSocket. */
 export class NativeEngine implements Engine {
   readonly kind = 'native' as const
   private closing = false
+  /** Last status the helper announced; read it after `connect` resolves, since the
+   * first one arrives before the page has made this engine the current one. */
+  status: EngineStatus | null = null
 
   private constructor(private readonly ws: WebSocket) {}
 
@@ -26,16 +29,17 @@ export class NativeEngine implements Engine {
         if (!message) return
         switch (message.type) {
           case 'hello':
+            engine.status = {
+              kind: 'native',
+              sampleRate: message.sample_rate,
+              estimatedLatencyMs: message.estimated_latency_ms ?? null,
+            }
             if (!opened) {
               opened = true
               clearTimeout(timer)
               resolve(engine)
             }
-            events.onStatus({
-              kind: 'native',
-              sampleRate: message.sample_rate,
-              estimatedLatencyMs: message.estimated_latency_ms ?? null,
-            })
+            events.onStatus(engine.status)
             break
           case 'meter':
             events.onMeter(message.peak, message.voices)

@@ -209,8 +209,11 @@ export class Session {
       const native = await NativeEngine.connect(token, this.events('native'))
       this.native = native
       this.mode = 'native'
+      this.status = native.status
       this.helper = 'connected'
       this.replayParams(native)
+      // The helper's first MIDI list may arrive before this engine became current.
+      native.run({ type: 'midi.list_inputs' })
       await this.web?.suspend()
     } catch {
       // The token is no longer valid (helper reinstalled) or the helper vanished.

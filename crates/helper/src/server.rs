@@ -156,7 +156,7 @@ async fn ticker(shared: Arc<Shared>) {
         for (note, velocity) in lights {
             shared.to_session(ServerMessage::MidiActivity { note, velocity });
         }
-        if ticks % 30 == 0 {
+        if ticks.is_multiple_of(30) {
             let changed = shared.midi.lock().is_ok_and(|mut m| m.refresh());
             if changed {
                 shared.to_session(shared.midi_inputs());
@@ -171,6 +171,8 @@ async fn ticker(shared: Arc<Shared>) {
     }
 }
 
+// The error type of the handshake callback is fixed by tungstenite (an HTTP response).
+#[allow(clippy::result_large_err)]
 async fn connection(stream: TcpStream, shared: Arc<Shared>) {
     let route: Mutex<Option<Route>> = Mutex::new(None);
     let callback = |req: &Request, response: Response| -> Result<Response, ErrorResponse> {

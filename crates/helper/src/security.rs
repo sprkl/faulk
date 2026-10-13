@@ -8,8 +8,9 @@
 use protocol::paths;
 use std::time::{Duration, Instant};
 
-/// Pairing codes stay valid this long.
-pub const CODE_LIFETIME: Duration = Duration::from_secs(120);
+/// Pairing codes stay valid this long. The limit of attempts per code, not the
+/// lifetime, is what stops guessing; the lifetime only bounds a code left on screen.
+pub const CODE_LIFETIME: Duration = Duration::from_secs(600);
 /// Wrong codes accepted before the code is replaced.
 pub const CODE_ATTEMPTS: u32 = 5;
 

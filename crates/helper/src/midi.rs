@@ -90,7 +90,7 @@ impl MidiManager {
         let Some(id) = id else { return Ok(()) };
         let input = MidiInput::new("faulk-helper").map_err(|e| e.to_string())?;
         let port = input
-            .find_port_by_id(id.to_owned())
+            .find_port_by_id(id)
             .ok_or_else(|| format!("no MIDI input with id {id}"))?;
         let sender = self.sender.clone();
         let activity = self.activity.clone();
