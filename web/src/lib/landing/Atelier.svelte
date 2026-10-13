@@ -10,13 +10,13 @@
 <section class="atelier" aria-labelledby="atelier-title">
   <div class="lp-wrap lp-section inner">
     <div class="copy">
-      <span class="lp-mono">{t('atelier.eyebrow')}</span>
-      <h2 id="atelier-title" class="lp-display">
+      <span class="lp-mono lp-reveal">{t('atelier.eyebrow')}</span>
+      <h2 id="atelier-title" class="lp-display lp-reveal">
         {t('atelier.title1')}<br />{t('atelier.title2')}<br />{t('atelier.title3')}
       </h2>
-      <p>{t('atelier.body')}</p>
+      <p class="lp-reveal">{t('atelier.body')}</p>
     </div>
-    <figure class="card">
+    <figure class="card lp-reveal">
       <figcaption class="lp-mono tag">{t('atelier.example')}</figcaption>
       <blockquote>{t('atelier.prompt')}</blockquote>
       <div class="module">
@@ -99,6 +99,27 @@
     flex-shrink: 0;
     border-radius: 50%;
     background: radial-gradient(circle at 42% 40%, #ffb27a 0%, #ff6a3d 30%, #c2185b 62%, #2a0e5c 100%);
+  }
+  /* The example kick thumps like the DRY KICK card: a quick swell every 1.2 s. */
+  @keyframes thump {
+    0%,
+    100% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+    6% {
+      transform: scale(1.09);
+      filter: brightness(1.22);
+    }
+    35% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .object {
+      animation: thump 1.2s var(--lp-ease) infinite;
+    }
   }
   .specs {
     display: flex;

@@ -20,7 +20,7 @@
       <span class="lp-mono site">{t('footer.site')}</span>
     </div>
   </div>
-  <div class="lp-display wordmark" aria-hidden="true">FAULK</div>
+  <div class="lp-display wordmark lp-reveal" aria-hidden="true">FAULK</div>
 </footer>
 
 <style>

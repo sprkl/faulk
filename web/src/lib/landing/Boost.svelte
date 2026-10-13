@@ -6,17 +6,17 @@
 
 <section id="boost" class="boost" aria-labelledby="boost-title">
   <div class="lp-wrap lp-section inner">
-    <div class="lp-meta lp-mono meta">
+    <div class="lp-meta lp-mono meta lp-reveal">
       <span>{t('boost.metaLeft')}</span><span>{t('boost.metaRight')}</span>
     </div>
-    <h2 id="boost-title" class="lp-display">{t('boost.title')}</h2>
+    <h2 id="boost-title" class="lp-display lp-reveal">{t('boost.title')}</h2>
     <div class="grid">
-      <p>{t('boost.body')}</p>
-      <div class="figure">
+      <p class="lp-reveal">{t('boost.body')}</p>
+      <div class="figure lp-reveal">
         <span class="value">{t('boost.figure')}</span>
         <span class="caption">{t('boost.figureCaption')}</span>
       </div>
-      <div class="downloads" role="group" aria-label={t('boost.downloads')}>
+      <div class="downloads lp-reveal" role="group" aria-label={t('boost.downloads')}>
         <button class="lp-pill dl" type="button" disabled>{t('boost.windows')}</button>
         <button class="lp-pill dl" type="button" disabled>{t('boost.macos')}</button>
       </div>

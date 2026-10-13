@@ -18,21 +18,21 @@
 </script>
 
 <section class="lp-wrap hero" aria-labelledby="hero-title">
-  <div class="lp-meta lp-mono">
+  <div class="lp-meta lp-mono lp-enter">
     <span>{t('hero.metaLeft')}</span><span>{t('hero.metaRight')}</span>
   </div>
-  <h1 id="hero-title" class="lp-display">{t('hero.title')}</h1>
+  <h1 id="hero-title" class="lp-display lp-enter" style="--lp-delay: 80ms">{t('hero.title')}</h1>
   <div class="intro">
-    <div class="copy">
+    <div class="copy lp-enter" style="--lp-delay: 200ms">
       <p class="lead">{t('hero.lead')}</p>
       <p class="status">{t('hero.status')}</p>
     </div>
-    <div class="ctas">
+    <div class="ctas lp-enter" style="--lp-delay: 300ms">
       <a class="lp-pill lp-pill-accent" href={resolve('/app')} data-sveltekit-reload>{t('hero.cta')}</a>
       <a class="lp-pill lp-pill-outline" href="#boost">{t('hero.secondary')}</a>
     </div>
   </div>
-  <div class="stage lp-grain">
+  <div class="stage lp-grain lp-grain-live lp-enter" style="--lp-delay: 420ms">
     <div class="glow" aria-hidden="true"></div>
     <figure class="screen">
       <svg viewBox="0 0 800 180" preserveAspectRatio="none" aria-hidden="true">
@@ -101,6 +101,41 @@
       radial-gradient(40% 45% at 28% 60%, #00c1d5 0%, rgb(0 193 213 / 0) 70%),
       radial-gradient(42% 48% at 55% 46%, #b060f0 0%, rgb(176 96 240 / 0) 72%),
       radial-gradient(28% 32% at 72% 30%, #ff7a3d 0%, rgb(255 122 61 / 0) 75%);
+  }
+  /* The colour foci drift slowly, like a sound that keeps sounding. */
+  @keyframes drift {
+    0% {
+      transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+    50% {
+      transform: translate(4%, -3%) rotate(6deg) scale(1.06);
+    }
+    100% {
+      transform: translate(-3%, 2%) rotate(-4deg) scale(1.02);
+    }
+  }
+  /* The waveform swells and settles, slowly. */
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scaleY(1);
+      opacity: 0.85;
+    }
+    50% {
+      transform: scaleY(1.18);
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .glow {
+      will-change: transform;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    polyline {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      animation: breathe 4.8s ease-in-out infinite;
+    }
   }
   .screen {
     position: absolute;

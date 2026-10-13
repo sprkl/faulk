@@ -10,10 +10,10 @@
 </script>
 
 <section id="modes" class="lp-wrap lp-section modes" aria-labelledby="modes-title">
-  <h2 id="modes-title" class="lp-display lp-h2">{t('modes.title1')}<br />{t('modes.title2')}</h2>
+  <h2 id="modes-title" class="lp-display lp-h2 lp-reveal">{t('modes.title1')}<br />{t('modes.title2')}</h2>
   <!-- Explicit roles keep the table semantics when the phone layout changes its display (WebKit). -->
   <!-- svelte-ignore a11y_no_redundant_roles -->
-  <table role="table">
+  <table role="table" class="lp-reveal">
     <caption class="visually-hidden">{t('modes.caption')}</caption>
     <!-- svelte-ignore a11y_no_redundant_roles -->
     <thead role="rowgroup">

@@ -163,3 +163,63 @@ main:focus {
   opacity: 0.5;
   z-index: 3;
 }
+
+/*
+ * Motion (site, DS-0.1): 480 to 900 ms, cubic-bezier(.2, .7, 0, 1); loops slow and calm.
+ * Everything below is opt-in: with `prefers-reduced-motion: reduce` nothing moves and every
+ * element keeps its final, visible state. Only transform, opacity and filter are animated.
+ */
+.landing {
+  --lp-ease: cubic-bezier(0.2, 0.7, 0, 1);
+}
+
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Grain shimmer: the noise layer jumps by a few pixels, like film grain (under 3 changes/s). */
+@keyframes lp-grain-shift {
+  0% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(-11px, 7px);
+  }
+  66% {
+    transform: translate(9px, -13px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Hero: on load, staggered with `--lp-delay`. */
+  .lp-enter {
+    animation: lp-rise 800ms var(--lp-ease) var(--lp-delay, 0ms) both;
+  }
+
+  .lp-grain-live::after {
+    inset: -24px;
+    animation: lp-grain-shift 1.2s steps(1, end) infinite;
+  }
+
+  /*
+   * Other sections: as they scroll into view. Browsers without scroll-driven animations skip
+   * this block, so their content is simply visible, never left hidden.
+   */
+  @supports (animation-timeline: view()) {
+    .lp-reveal {
+      animation: lp-rise var(--lp-ease) both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 70%;
+    }
+  }
+}
