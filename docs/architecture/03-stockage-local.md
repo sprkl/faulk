@@ -138,7 +138,7 @@ Le worklet ne peut pas lire le disque (pas d'API de stockage dans `AudioWorkletG
 - `COOP: same-origin` casse la relation avec les fenêtres d'autres origines (fenêtres d'authentification OAuth) : à prévoir si Faulk ajoute un compte en ligne.
 - **Document-Isolation-Policy** (Chrome 137+) isole un document sans COOP/COEP sur tout le site ; Chromium seulement.
 
-La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffer` exige cette isolation ; le [découpage du MVP](../specs/02-decoupage-mvp.md) fait sans au MVP (pas de pistes audio), mais le streaming propre l'exige : **décision à prendre** avant les pistes audio.
+La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffer` exige cette isolation ; le [découpage du MVP](../specs/02-decoupage-mvp.md) laisse le choix à CT-3. Même sans pistes audio, commandes et notes arrivent au worklet : par `MessagePort`, chaque message crée ses objets sur le thread de rendu, un coût qui n'est pas encore mesuré. La voie `MessagePort` reste donc un **prototype à mesurer**, pas une solution temps réel validée ; le streaming audio propre exige `SharedArrayBuffer`. **Décision à prendre dans CT-3**, au plus tard avant les pistes audio.
 
 ### 3.5 Formats compressés : WebCodecs `AudioDecoder`
 
