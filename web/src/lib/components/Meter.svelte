@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Peak meter in dBFS; turns to the clip style (red + hatching + label) at 0 dBFS. */
-  let { peak, label }: { peak: number; label: string } = $props()
+  let { peak, label, clipLabel }: { peak: number; label: string; clipLabel: string } = $props()
 
   const FLOOR_DB = -60
   const db = $derived(peak > 0 ? 20 * Math.log10(peak) : -Infinity)
@@ -10,7 +10,7 @@
 
 <div class="meter" role="meter" aria-label={label} aria-valuemin={FLOOR_DB} aria-valuemax={0} aria-valuenow={Number.isFinite(db) ? Math.round(db) : FLOOR_DB}>
   <div class="bar" class:clip style:height={`${fill * 100}%`}></div>
-  {#if clip}<span class="clip-label">CLIP</span>{/if}
+  {#if clip}<span class="clip-label">{clipLabel}</span>{/if}
 </div>
 <span class="value db">{Number.isFinite(db) ? db.toFixed(1) : '−∞'} dB</span>
 

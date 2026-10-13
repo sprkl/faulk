@@ -320,8 +320,13 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
     let mut current = shared.session.lock().expect("session lock");
     if current.as_ref().is_some_and(|s| s.id == id) {
         *current = None;
-        // The page is gone: release every note so nothing hangs.
+        // The page is gone: release every note so nothing hangs, and let go of the MIDI
+        // input so the page (Web mode) can open it again: on Windows an input can be
+        // open in one application only.
         shared.send_event(EngineEvent::AllNotesOff);
+        if let Ok(mut midi) = shared.midi.lock() {
+            midi.disconnect();
+        }
     }
     drop(current);
     writer.abort();

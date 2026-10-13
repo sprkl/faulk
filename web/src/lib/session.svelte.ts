@@ -82,7 +82,11 @@ export class Session {
       onError: (code) => {
         if (code === 'session.replaced') this.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.notice = 'midi.connectError'
-        else if (code === 'audio.stream') this.notice = 'audio.error'
+        else if (code === 'audio.stream' && kind === 'native') {
+          // The helper's output stopped (device unplugged or changed): play in the page.
+          this.notice = 'audio.error'
+          void this.enterWeb()
+        }
       },
       onClosed: () => {
         if (kind !== 'native' || !this.native) return

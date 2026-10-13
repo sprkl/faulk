@@ -47,8 +47,9 @@ const en = {
   'keys.help': 'A W S E D F T G Y H U J K play notes (by key position). Z / X change octave.',
   'keys.octave': 'Octave {n}',
   'meter.label': 'Output level',
+  'meter.clip': 'CLIP',
   'panic': 'All notes off',
-  'audio.error': 'The audio output reported an error.',
+  'audio.error': 'The helper’s audio output stopped: back to Web mode.',
   'lang.switch': 'Français',
 } as const
 
@@ -101,8 +102,9 @@ const fr: Record<MessageKey, string> = {
   'keys.help': 'Les touches de la rangée du milieu jouent les notes (par position : Q Z S E D F T G Y H U J K en AZERTY). W / X changent d’octave.',
   'keys.octave': 'Octave {n}',
   'meter.label': 'Niveau de sortie',
+  'meter.clip': 'SATURE',
   'panic': 'Couper toutes les notes',
-  'audio.error': 'La sortie audio a signalé une erreur.',
+  'audio.error': 'La sortie audio du helper s’est arrêtée : retour en mode Web.',
   'lang.switch': 'English',
 }
 

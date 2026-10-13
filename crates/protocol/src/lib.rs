@@ -1,8 +1,8 @@
 //! Messages between the Faulk web UI and the native helper.
 //!
 //! The page sends [`ClientMessage`]s and receives [`ServerMessage`]s, as JSON text
-//! frames over a local WebSocket. Every exchange starts with a message carrying
-//! [`PROTOCOL_VERSION`]; a page and a helper of different versions refuse each other.
+//! frames over a local WebSocket. The probe and the session's first message carry
+//! [`PROTOCOL_VERSION`]; the page refuses a helper of another version at both points.
 
 use commands::Command;
 use schemars::JsonSchema;

@@ -1,4 +1,4 @@
-import type { ClientMessage, Command } from '../generated/protocol'
+import { PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 
@@ -29,6 +29,11 @@ export class NativeEngine implements Engine {
         if (!message) return
         switch (message.type) {
           case 'hello':
+            if (message.protocol !== PROTOCOL_VERSION) {
+              ws.close()
+              if (!opened) reject(new Error(`helper protocol ${message.protocol}, page ${PROTOCOL_VERSION}`))
+              return
+            }
             engine.status = {
               kind: 'native',
               sampleRate: message.sample_rate,
@@ -72,6 +77,8 @@ export class NativeEngine implements Engine {
   async close() {
     this.closing = true
     this.run({ type: 'note.all_off' })
+    // Free the MIDI input so Web mode can open it (the helper also does it on close).
+    this.run({ type: 'midi.select_input', id: null })
     this.ws.close()
   }
 }

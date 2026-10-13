@@ -17,6 +17,12 @@ const GAIN_SMOOTHING_SECONDS: f32 = 0.01;
 const STEAL_FADE_SECONDS: f32 = 0.003;
 /// Samples whose magnitude is below this are flushed to zero (denormal guard).
 const DENORMAL_FLOOR: f32 = 1e-20;
+/// Time a sustaining voice takes to reach a new sustain level, in seconds, so that
+/// moving the sustain knob while notes are held does not click.
+const SUSTAIN_SLEW_SECONDS: f32 = 0.005;
+/// A smoothed gain closer than this to its target snaps to it (keeps the gain state
+/// out of the subnormal range when the target is 0).
+const GAIN_SNAP: f32 = 1e-6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Waveform {
@@ -265,6 +271,15 @@ impl Synth {
         }
     }
 
+    /// True when a voice plays `note` and has not been released or stolen.
+    pub fn is_held(&self, note: u8) -> bool {
+        self.voices.iter().any(|v| {
+            v.note == note
+                && v.pending.is_none()
+                && matches!(v.stage, Stage::Attack | Stage::Decay | Stage::Sustain)
+        })
+    }
+
     /// Number of voices currently producing sound.
     pub fn active_voices(&self) -> usize {
         self.voices
@@ -282,16 +297,20 @@ impl Synth {
         let waveform = self.waveform;
         let attack_step = 1.0 / (envelope.attack * sample_rate);
         let decay_step = (1.0 - envelope.sustain) / (envelope.decay * sample_rate);
+        let slew_step = 1.0 / (SUSTAIN_SLEW_SECONDS * sample_rate);
 
         for frame in 0..frames {
             self.gain += (self.gain_target - self.gain) * self.gain_coeff;
+            if (self.gain - self.gain_target).abs() < GAIN_SNAP {
+                self.gain = self.gain_target;
+            }
             let mut sum = 0.0f32;
             for i in 0..MAX_VOICES {
                 let voice = &mut self.voices[i];
                 if voice.stage == Stage::Idle {
                     continue;
                 }
-                advance_envelope(voice, attack_step, decay_step, envelope.sustain);
+                advance_envelope(voice, attack_step, decay_step, slew_step, envelope.sustain);
                 if voice.stage == Stage::Idle {
                     if let Some((note, amplitude)) = voice.pending.take() {
                         let started_at = voice.started_at;
@@ -346,7 +365,13 @@ impl Synth {
     }
 }
 
-fn advance_envelope(voice: &mut Voice, attack_step: f32, decay_step: f32, sustain: f32) {
+fn advance_envelope(
+    voice: &mut Voice,
+    attack_step: f32,
+    decay_step: f32,
+    slew_step: f32,
+    sustain: f32,
+) {
     match voice.stage {
         Stage::Attack => {
             voice.level += attack_step;
@@ -356,13 +381,21 @@ fn advance_envelope(voice: &mut Voice, attack_step: f32, decay_step: f32, sustai
             }
         }
         Stage::Decay => {
-            voice.level -= decay_step;
             if voice.level <= sustain {
-                voice.level = sustain;
+                // Sustain raised above the current level: slew up instead of jumping.
                 voice.stage = Stage::Sustain;
+            } else {
+                voice.level = (voice.level - decay_step).max(sustain);
+                if voice.level <= sustain {
+                    voice.stage = Stage::Sustain;
+                }
             }
         }
-        Stage::Sustain => voice.level = sustain,
+        Stage::Sustain => {
+            // Follow sustain changes smoothly.
+            let delta = sustain - voice.level;
+            voice.level += delta.clamp(-slew_step, slew_step);
+        }
         Stage::Release | Stage::Steal => {
             voice.level -= voice.release_step;
             if voice.level <= 0.0 || voice.release_step <= 0.0 {

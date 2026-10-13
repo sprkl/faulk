@@ -246,16 +246,129 @@ fn note_off_in_every_envelope_stage_has_no_click() {
 #[test]
 fn voice_stealing_has_no_click() {
     let mut synth = low_sine_synth(10.0);
-    let mut out = Vec::new();
-    // Fill every voice, then play more notes: each one steals a voice.
-    for i in 0..(MAX_VOICES as u8 + 6) {
-        synth.note_on(24 + i % 3, 127); // low notes only, so the sine itself stays smooth
-        out.extend(render(&mut synth, 960));
+    // Sixteen distinct low notes fill every voice.
+    for note in 24..24 + MAX_VOICES as u8 {
+        synth.note_on(note, 127);
     }
+    let steady = render(&mut synth, 9_600);
+    let before = max_step(&steady[4_800..]);
+    // Each extra note must steal a voice; the stolen one fades out instead of cutting.
+    let mut stolen = Vec::new();
+    for note in 24 + MAX_VOICES as u8..24 + MAX_VOICES as u8 + 6 {
+        synth.note_on(note, 127);
+        stolen.extend(render(&mut synth, 960));
+    }
+    assert_eq!(synth.active_voices(), MAX_VOICES);
+    assert!(!synth.is_held(24), "the oldest note was stolen");
+    assert!(
+        synth.is_held(24 + MAX_VOICES as u8 + 5),
+        "the newest note plays"
+    );
+    assert_clean(&stolen);
+    // A cut voice would jump by its whole level (about 0.12 here), far above the
+    // steady slope of the sixteen-voice sum.
+    let during = max_step(&stolen);
+    assert!(
+        during < before * 1.5 + 0.005,
+        "steady {before}, while stealing {during}"
+    );
+}
+
+#[test]
+fn stealing_prefers_a_released_voice_over_a_held_one() {
+    let mut synth = low_sine_synth(10.0);
+    for note in 24..24 + MAX_VOICES as u8 {
+        synth.note_on(note, 127);
+    }
+    let _ = render(&mut synth, 480);
+    synth.note_off(30); // still sounding: release is 10 s
+    synth.note_on(60, 127);
+    let _ = render(&mut synth, 480);
+    assert!(synth.is_held(24), "the oldest held note keeps playing");
+    assert!(synth.is_held(60));
+    for note in (24..24 + MAX_VOICES as u8).filter(|n| *n != 30) {
+        assert!(
+            synth.is_held(note),
+            "note {note} was stolen instead of the released one"
+        );
+    }
+}
+
+#[test]
+fn changing_sustain_while_notes_are_held_has_no_click() {
+    let mut synth = low_sine_synth(10.0);
+    synth.note_on(33, 127);
+    let mut out = render(&mut synth, 9_600); // well into sustain (0.5)
+    synth.set_param(Param::Sustain, 0.05);
+    out.extend(render(&mut synth, 2_400));
+    synth.set_param(Param::Sustain, 1.0);
+    out.extend(render(&mut synth, 2_400));
     assert_clean(&out);
-    // Several voices sum, so allow their combined slope.
     let step = max_step(&out);
-    assert!(step < CLICK_BOUND * 3.0, "step {step}");
+    assert!(step < CLICK_BOUND, "step {step}");
+}
+
+#[test]
+fn zero_gain_settles_to_exact_silence() {
+    let mut synth = Synth::new(SR);
+    synth.note_on(60, 127);
+    let _ = render(&mut synth, 4_800);
+    synth.set_param(Param::Gain, 0.0);
+    let _ = render(&mut synth, 48_000);
+    assert!(render(&mut synth, 4_800).iter().all(|s| *s == 0.0));
+}
+
+/// Energy of the (Hann-windowed) DFT bins that are not within two bins of a harmonic below Nyquist:
+/// for a band-limited sawtooth this is aliasing (plus a little leakage).
+fn alias_energy(signal: &[f32], frequency: f32) -> f64 {
+    let n = signal.len();
+    let bin_hz = SR as f64 / n as f64;
+    let harmonics: Vec<f64> = (1..)
+        .map(|k| k as f64 * frequency as f64)
+        .take_while(|f| *f < SR as f64 / 2.0)
+        .collect();
+    let mut energy = 0.0;
+    for bin in 1..n / 2 {
+        let hz = bin as f64 * bin_hz;
+        if harmonics.iter().any(|h| (h - hz).abs() <= 2.0 * bin_hz) {
+            continue;
+        }
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        for (t, x) in signal.iter().enumerate() {
+            // Hann window, so leakage from the harmonics does not swamp the aliases.
+            let w = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * t as f64 / n as f64).cos();
+            let a = -2.0 * std::f64::consts::PI * bin as f64 * t as f64 / n as f64;
+            re += w * f64::from(*x) * a.cos();
+            im += w * f64::from(*x) * a.sin();
+        }
+        energy += re * re + im * im;
+    }
+    energy
+}
+
+#[test]
+fn polyblep_saw_aliases_much_less_than_a_naive_saw() {
+    // A high note, where a naive sawtooth aliases badly.
+    let note = 96u8;
+    let frequency = 440.0 * ((f32::from(note) - 69.0) / 12.0).exp2();
+    let mut synth = Synth::new(SR);
+    synth.set_param(Param::Waveform, Waveform::Saw.index() as f32);
+    synth.set_param(Param::Sustain, 1.0);
+    synth.set_param(Param::Gain, 0.1); // stays in tanh's linear range
+    synth.note_on(note, 127);
+    let _ = render(&mut synth, 9_600);
+    let window = 2_048;
+    let engine = render(&mut synth, window);
+    let naive: Vec<f32> = (0..window)
+        .map(|t| 2.0 * ((t as f32 * frequency / SR) % 1.0) - 1.0)
+        .collect();
+    let scale = |s: &[f32]| s.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>();
+    let engine_ratio = alias_energy(&engine, frequency) / scale(&engine);
+    let naive_ratio = alias_energy(&naive, frequency) / scale(&naive);
+    assert!(
+        engine_ratio < naive_ratio * 0.5,
+        "aliasing ratio: engine {engine_ratio:.4}, naive {naive_ratio:.4}"
+    );
 }
 
 #[test]

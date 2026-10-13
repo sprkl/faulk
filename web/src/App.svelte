@@ -202,7 +202,7 @@
         {/each}
       </div>
       <div class="meter-box">
-        <Meter peak={session.peak} label={t('meter.label')} />
+        <Meter peak={session.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
       </div>
       </div>
     </section>
