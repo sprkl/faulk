@@ -1,0 +1,108 @@
+# Faulk
+
+Faulk is a DAW in the spirit of Ableton Live that opens in the browser, and where users build their own instruments and effects. Product vision: `docs/product/01-vision.md`. Architecture: `docs/architecture/01-architecture.md`.
+
+## Methodology
+
+This project follows two protocols. Both are mandatory for any agent working here.
+
+- **Matt Pocock's engineering skills** (`mattpocock-skills` plugin, declared in `.claude/settings.json`) for issues, triage, specs, domain modeling, TDD, diagnosis and code review. Their repo-specific configuration is in "Agent skills" below and in `docs/agents/`.
+- **Open Knowledge Format v0.2** for everything in `docs/` (the bundle root). When you add or change a document:
+  - put it in the matching sub-folder (`product/`, `architecture/`, `constraints/`, `design/`, `specs/`, `spikes/`, `agents/`);
+  - give it frontmatter with `type`, `title` and `description`, plus `status: draft` until it is checked against the code;
+  - update that folder's `index.md` and add a dated entry to `docs/log.md`.
+
+The project is worked on with Claude Code only; this file is the agents' entry point.
+
+## Stack and layout
+
+The repository is a monorepo. Nothing below exists until the first spike (`docs/spikes/S1-moteur-hybride.md`) creates it; keep this section in sync with the code.
+
+| Path | What | Tech |
+|---|---|---|
+| `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
+| `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. | Rust → WASM (`wasm-bindgen`) |
+| `crates/helper` | Native helper ("Boost" mode): runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, driven by the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3) |
+| `crates/protocol` | Messages exchanged between the UI and an engine (web or native). One definition, both targets. | Rust + generated TypeScript types |
+| `web/` | The UI: one web app for both modes. | TypeScript, Vite (UI framework: open decision) |
+| `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
+
+Core rule: **one engine, two targets**. Any engine feature must build and behave the same in `engine-wasm` and in `helper`. Audio never crosses the UI ↔ helper link: only commands and visual feedback do.
+
+## Real-time audio rules
+
+Code that runs on the audio thread (the `process` path of the engine, a module or a hosted plugin wrapper) must never:
+
+- allocate or free memory, lock a mutex, block, do I/O, log, or call into the OS;
+- panic on any input: clamp, saturate or skip instead.
+
+Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics). Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
+
+## Branches
+
+- `develop`: default branch. Task branches start from it and come back through a pull request.
+- `main`: releases only, reached through a pull request from `develop` with green CI, merged as a **merge commit**.
+- Hotfix: branch from `main`, **squash** PR into `main`, then merge `main` into `develop`.
+- Task branches: `feat/<issue>-<slug>`, `fix/<issue>-<slug>`, `spike/<issue>-<slug>`.
+
+## Language
+
+- **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
+- **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
+- The product UI language is an open decision (`docs/product/01-vision.md`); ask before writing user-facing text.
+
+When the audience or the language of a text is unclear, ask before writing it; never deduce.
+
+## Links in documentation
+
+- Links are relative and must stay valid: when a file moves or is renamed, update every link to it.
+- From outside `docs/` (`README.md`, root files), link to the `docs/` folder, never to a file inside it.
+- Inside `docs/`, the `index.md` files and the links between documents follow the Open Knowledge Format.
+
+## Source of truth
+
+The code is always right; documentation, `docs/` included, may be stale. When a doc disagrees with the code, follow the code and point out the stale doc.
+
+## Working on an issue
+
+An issue is carried through autonomously, from plan to a reviewed pull request, without waiting for the user's go-ahead between steps. The detailed steps are in `docs/agents/issue-tracker.md` > Working on a task.
+
+1. **Plan**: read the issue, its spec and the code, write the plan, have Judge Dredd review it, and settle its findings.
+2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
+3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
+4. **Copilot review**, when Copilot code review is enabled on the repository: request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most).
+5. **Close the loop**: update the issue, then send the final message.
+
+Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. Never merge the pull request: the user merges.
+
+## Definition of done
+
+Checks depend on what the task touches (`docs/agents/verification.md` gives the commands):
+
+- **Rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and the WASM build of the engine.
+- **Engine and modules**: offline render tests that assert on the signal (level, spectrum, silence, no NaN/denormals), the allocation detector on the audio path, and parity between the native and WASM builds on the same render.
+- **Web**: typecheck, lint, tests, then a check in a real browser with Playwright (audio context started, no console error, the changed screens exercised).
+- **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
+
+Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+
+Before reporting a task as done:
+
+- every general claim ("all", "every", "each", "none") in the report, the pull request or a commit is proven by an enumeration, never stated from memory;
+- every mechanism introduced by the task (guard, fallback, cache, retry, lock-free queue, reconnection) gets an attack pass: how it fails or is bypassed, and a test of each state transition it meets.
+
+The final message to the user says what was verified and how, what Judge Dredd found and what became of it, and which out-of-scope defects were found.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`sprkl/faulk`), written in French, structured as epics, tasks (sub-issues) and phases (milestones). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.

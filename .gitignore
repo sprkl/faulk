@@ -1,0 +1,24 @@
+# rust
+target/
+
+# web
+node_modules/
+dist/
+pkg/
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
+
+# agents and QA
+.scratch/
+.qa/
+.playwright-mcp/
+.playwright-cli/
+
+# misc
+.DS_Store
+Thumbs.db
+*.local

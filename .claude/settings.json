@@ -1,0 +1,44 @@
+{
+	"extraKnownMarketplaces": {
+		"mattpocock": {
+			"source": {
+				"source": "github",
+				"repo": "mattpocock/skills"
+			}
+		},
+		"claude-plugins-official": {
+			"source": {
+				"source": "github",
+				"repo": "anthropics/claude-plugins-official"
+			}
+		}
+	},
+	"enabledPlugins": {
+		"mattpocock-skills@mattpocock": true,
+		"rust-analyzer-lsp@claude-plugins-official": true,
+		"typescript-lsp@claude-plugins-official": true,
+		"playwright@claude-plugins-official": true,
+		"context7@claude-plugins-official": true
+	},
+	"permissions": {
+		"allow": [
+			"Bash(cargo fmt:*)",
+			"Bash(cargo clippy:*)",
+			"Bash(cargo test:*)",
+			"Bash(cargo build:*)",
+			"Bash(cargo check:*)",
+			"Bash(pnpm install:*)",
+			"Bash(pnpm test:*)",
+			"Bash(pnpm typecheck:*)",
+			"Bash(pnpm lint:*)",
+			"Bash(pnpm build:*)",
+			"Bash(gh issue view:*)",
+			"Bash(gh issue list:*)",
+			"Bash(gh pr view:*)",
+			"Bash(gh pr diff:*)",
+			"Bash(git status:*)",
+			"Bash(git diff:*)",
+			"Bash(git log:*)"
+		]
+	}
+}
