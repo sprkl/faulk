@@ -1,6 +1,6 @@
 # Faulk
 
-Faulk est un DAW dans la lignée d'Ableton Live qui s'ouvre dans le navigateur, et où l'on fabrique ses propres instruments et effets. Un helper natif optionnel apporte la latence pro et les plugins VST3 et CLAP.
+Faulk est un DAW ouvert et portable : il s'ouvre dans le navigateur, et on y fabrique ses propres instruments et effets. En attendant que les navigateurs offrent un accès audio de niveau professionnel, un helper natif optionnel apporte la basse latence et les plugins VST3 et CLAP.
 
 Le projet démarre : rien n'est encore codé. La vision, l'architecture et la première étude technique sont dans [la documentation](docs/).
 

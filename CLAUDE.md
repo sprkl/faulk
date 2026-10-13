@@ -1,6 +1,6 @@
 # Faulk
 
-Faulk is a DAW in the spirit of Ableton Live that opens in the browser, and where users build their own instruments and effects. Product vision: `docs/product/01-vision.md`. Architecture: `docs/architecture/01-architecture.md`.
+Faulk is an open and portable DAW: it opens in the browser, users build their own instruments and effects, and an optional native helper brings pro latency and third-party plugins until browsers close the gap. Never name another DAW in the repository (code, docs, issues, commits): describe what Faulk does, not what it resembles. Product vision: `docs/product/01-vision.md`. Architecture: `docs/architecture/01-architecture.md`.
 
 ## Methodology
 

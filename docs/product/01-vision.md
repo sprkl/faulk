@@ -7,7 +7,9 @@ status: draft
 
 # Vision produit
 
-Faulk est un DAW (station de musique assistée par ordinateur) dans la lignée d'Ableton Live, qui s'ouvre dans le navigateur et où l'on fabrique ses propres instruments et effets.
+Faulk est un DAW (station de musique assistée par ordinateur) ouvert et portable : il s'ouvre dans le navigateur, et on y fabrique ses propres instruments et effets.
+
+Les DAW actuels sont d'excellents outils, mais fermés et liés à une machine. Faulk mise sur le web pour l'ouverture et la portabilité, et comble l'écart de performance avec un helper natif optionnel, le temps que les navigateurs rattrapent leur retard sur l'audio. La documentation ne cite aucun autre DAW : elle décrit ce que fait Faulk, pas ce à quoi il ressemble.
 
 ## Cible
 
