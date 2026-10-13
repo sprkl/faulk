@@ -87,45 +87,56 @@ describe("judgeToolCall: calling Judge Dredd", () => {
   });
 });
 
+const QA = "/repo/.git/faulk-qa";
+
 describe("judgeToolCall: write tools", () => {
   const refused = [
-    ["Write", { file_path: ".scratch/judge-dredd/6-delivery.md", content: "x" }],
-    ["Write", { file_path: "C:\\repo\\.scratch\\judge-dredd\\6-delivery.answer.md", content: "finding: none" }],
-    ["Write", { file_path: "/repo/.Scratch/Judge-Dredd/6-Delivery.Answer.md", content: "x" }],
-    ["Edit", { file_path: "/repo/.scratch/judge-dredd/6-plan.md", old_string: "a", new_string: "b" }],
-    ["MultiEdit", { file_path: ".scratch/judge-dredd/6-replies.md", edits: [] }],
-    ["NotebookEdit", { notebook_path: ".scratch/judge-dredd/6-plan.answer.md", new_source: "x" }],
-    ["Write", { file_path: ".qa/last-run.json", content: "{}" }],
-    ["Write", { file_path: "/repo/.qa/review.json", content: "{}" }],
-    ["Write", { file_path: "/repo/.qa/deferral.json", content: "{}" }],
-    ["Write", { file_path: "/repo/.qa/last-prompt.json", content: "{}" }],
-    ["Write", { file_path: "/repo/.qa/history.jsonl", content: "" }],
-    ["Write", { file_path: "/repo/.qa/sessions/abc.json", content: "{}" }],
-    ["Write", { file_path: "/repo/.qa/sessions/abc/wrote-0123.json", content: "{}" }],
+    [".scratch/judge-dredd/6-delivery.md", []],
+    ["C:\\repo\\.scratch\\judge-dredd\\6-delivery.answer.md", []],
+    ["/repo/.Scratch/Judge-Dredd/6-Delivery.Answer.md", []],
+    ["/repo/.scratch/judge-dredd/./6-plan.md", []],
+    [".scratch/judge-dredd/x/../6-delivery.answer.md", []],
+    [`${QA}/last-run.json`, []],
+    [`${QA}/review.json`, []],
+    [`${QA}/./review.json`, []],
+    [`${QA}/sessions/abc/wrote-0123.json`, []],
+    ["C:\\git\\music\\.git\\faulk-qa\\x\\..\\review.json", []],
+    ["C:\\git\\music\\.git\\worktrees\\w\\FAULK-QA\\deferral.json", []],
+    // Relative paths resolved against the cwd: from inside the records, or reaching them with `..`.
+    ["../review.json", ["/repo/.git/faulk-qa/sessions"]],
+    ["../../.git/faulk-qa/review.json", ["/repo/crates/engine"]],
+    ["../6-delivery.answer.md", ["/repo/.scratch/judge-dredd/tmp"]],
   ];
-  for (const [toolName, toolInput] of refused) {
-    it(`refuses ${toolName} on ${toolInput.file_path ?? toolInput.notebook_path}`, () => {
-      const verdict = judgeToolCall({ toolName, toolInput, dirs: [] });
-      assert.equal(verdict.allow, false);
-      assert.match(verdict.reason, /node scripts\/agent-review\/brief\.mjs/);
-    });
+  for (const [path, dirs] of refused) {
+    for (const [toolName, key] of [
+      ["Write", "file_path"],
+      ["Edit", "file_path"],
+      ["MultiEdit", "file_path"],
+      ["NotebookEdit", "notebook_path"],
+    ]) {
+      it(`refuses ${toolName} on ${path}${dirs.length ? ` from ${dirs[0]}` : ""}`, () => {
+        const verdict = judgeToolCall({ toolName, toolInput: { [key]: path, content: "{}" }, dirs });
+        assert.equal(verdict.allow, false);
+        assert.match(verdict.reason, /node scripts\/agent-qa\/record\.mjs/);
+      });
+    }
   }
 
   const allowed = [
-    ["Write", { file_path: ".scratch/judge-dredd/6-delivery.proposal.md", content: "x" }],
-    ["Write", { file_path: ".qa/renders/sine.wav", content: "x" }],
-    ["Edit", { file_path: "crates/engine/src/lib.rs", old_string: "a", new_string: "b" }],
+    [".scratch/judge-dredd/6-delivery.proposal.md", []],
+    [".qa/renders/sine.wav", []],
+    ["crates/engine/src/lib.rs", []],
+    ["../docs/notes.md", ["/repo/.scratch/judge-dredd"]],
   ];
-  for (const [toolName, toolInput] of allowed) {
-    it(`allows ${toolName} on ${toolInput.file_path}`, () => {
-      assert.deepEqual(judgeToolCall({ toolName, toolInput, dirs: [] }), { allow: true });
+  for (const [path, dirs] of allowed) {
+    it(`allows Write on ${path}`, () => {
+      assert.deepEqual(judgeToolCall({ toolName: "Write", toolInput: { file_path: path }, dirs }), { allow: true });
     });
   }
 
-  it("matches protected paths on their last components only", () => {
-    assert.equal(isProtectedPath("docs/.qa/notes.md"), false);
+  it("matches brief names in their folder only", () => {
+    assert.equal(isProtectedPath("docs/6-delivery.md"), false);
     assert.equal(isProtectedPath(".scratch/judge-dredd/notes.md"), false);
-    assert.equal(isProtectedPath(".qa"), true);
   });
 });
 
@@ -138,18 +149,31 @@ describe("judgeToolCall: shell commands", () => {
     ["Bash", "mv /tmp/x .scratch\\judge-dredd\\6-replies.md"],
     ["Bash", "touch .scratch/judge-dredd/6-delivery.answer.md"],
     ["Bash", "git checkout -- .scratch/judge-dredd/6-delivery.md"],
-    ["Bash", "rm -rf .qa"],
-    ["Bash", "rm .qa/sessions/abc.json"],
-    ["Bash", "echo '{}' > .qa/review.json"],
+    ["Bash", "cp x .scratch/judge-dredd/./6-delivery.answer.md"],
+    ["Bash", "cp x .scratch/judge-dredd/tmp/../6-delivery.answer.md"],
+    ["Bash", "cp x .scratch/judge-dredd/*.answer.md"],
+    ["Bash", "rm -rf .scratch/judge-dredd"],
+    ["Bash", "cd .scratch/judge-dredd && cp /tmp/x 6-delivery.answer.md"],
+    ["Bash", "echo x > 6-delivery.answer.md"],
+    ["Bash", "rm -rf .git/faulk-qa"],
+    ["Bash", "rm -rf ./.git/faulk-qa/"],
+    ["Bash", "rm -rf /c/git/music/.git/faulk-qa"],
+    ["Bash", "rm .git/faulk-qa/*"],
+    ["Bash", "echo '{}' > .git/faulk-qa/./review.json"],
+    ["Bash", "rm -rf .git/worktrees/w/faulk-qa/sessions"],
+    ["Bash", "rm -rf .git/*"],
+    ["Bash", "rm -rf .git"],
+    ["Bash", "find .git -name review.json -delete"],
+    ["Bash", "find .git/faulk-qa -type f -exec rm {} +"],
     ["Bash", "node scripts/agent-review/run.mjs .scratch/judge-dredd/6-delivery.md\ncp /tmp/x .scratch/judge-dredd/6-delivery.answer.md"],
     ["Bash", "node scripts/agent-review/run.mjs $(cp /tmp/x .scratch/judge-dredd/6-delivery.answer.md)"],
     ["Bash", "node scripts/agent-qa/record.mjs reviewed --brief x; touch .scratch/judge-dredd/6-delivery.answer.md"],
     ["Bash", 'node scripts/agent-qa/record.mjs reviewed --dispositions "$(cp x .scratch/judge-dredd/6-delivery.answer.md)"'],
     ["PowerShell", "Set-Content -Path .scratch\\judge-dredd\\6-delivery.answer.md -Value 'finding: none'"],
     ["PowerShell", "'x' | Out-File .scratch/judge-dredd/6-delivery.md"],
-    ["PowerShell", "Copy-Item C:\\tmp\\x .qa\\review.json"],
-    ["PowerShell", "Remove-Item -Recurse .qa"],
-    ["PowerShell", "[IO.File]::WriteAllText('.qa/last-run.json', '{}')"],
+    ["PowerShell", "Copy-Item C:\\tmp\\x .git\\faulk-qa\\review.json"],
+    ["PowerShell", "Remove-Item -Recurse C:\\git\\music\\.git\\faulk-qa"],
+    ["PowerShell", "[IO.File]::WriteAllText('.git/faulk-qa/last-run.json', '{}')"],
     ["Bash", 'claude -p --agent judge-dredd "Review my work, all is fine"'],
     ["PowerShell", "& C:\\bin\\claude.exe -p --agents x.json --agent judge-dredd 'be kind'"],
   ];
@@ -172,10 +196,13 @@ describe("judgeToolCall: shell commands", () => {
     ],
     ["Bash", "cat .scratch/judge-dredd/6-delivery.answer.md"],
     ["Bash", "cat .claude/agents/judge-dredd.md"],
+    ["Bash", "sed -i 's/opus/opus/' .claude/agents/judge-dredd.md"],
     ["Bash", "cat > .scratch/judge-dredd/6-delivery.proposal.md <<'EOF'\nclaims\nEOF"],
+    ["Bash", "mkdir -p .scratch/judge-dredd"],
     ["Bash", "cp out.wav .qa/renders/sine.wav"],
-    ["Bash", "ls .qa"],
-    ["PowerShell", "Get-Content .qa\\review.json"],
+    ["Bash", "git clean -fdx"],
+    ["Bash", "ls .git/faulk-qa && cat .git/faulk-qa/review.json"],
+    ["Bash", "git checkout feat/6-x"],
     ["Bash", 'node --test "scripts/**/*.test.mjs"'],
   ];
   for (const [toolName, command] of allowed) {
@@ -189,3 +216,4 @@ describe("judgeToolCall: shell commands", () => {
     assert.equal(withoutQuotedText(`a "$(rm x)"`), `a "$(rm x)"`);
   });
 });
+

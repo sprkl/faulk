@@ -5,17 +5,17 @@
  * marker). The Stop hook judges a session only in the checkouts it wrote to, so
  * a session that changes nothing is never blocked, whatever other sessions do.
  *
- * State lives in `.qa/sessions/<session id>/` of the session's project
- * checkout, one small file per fact so that parallel tool calls never race on
- * one file.
+ * State lives in the `sessions/<session id>/` folder of the records of the
+ * session's project checkout (`qaDir`), one small file per fact so that
+ * parallel tool calls never race on one file.
  *
  * @doc docs/agents/verification.md
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { checkoutRoot, qaDir } from "./fingerprint.mjs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { CODE_PATHS, checkoutRoot, qaDir } from "./fingerprint.mjs";
 
 export const validSessionId = (id) => typeof id === "string" && /^[\w-]{1,128}$/.test(id);
 
@@ -54,7 +54,7 @@ function read(path) {
 }
 
 function write(path, value, exclusive = false) {
-  mkdirSync(join(path, ".."), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true });
   try {
     writeFileSync(path, `${JSON.stringify({ ...value, at: new Date().toISOString() })}\n`, exclusive ? { flag: "wx" } : {});
     return true;
@@ -66,40 +66,36 @@ function write(path, value, exclusive = false) {
   }
 }
 
-/** A session's view of the checkouts: `{ baseline(root), isWriter(root), writerRoots(), ... }`. */
+/** A session's view of the checkouts. */
 export function sessionState(state, key) {
   const dir = sessionDir(state, key);
   const baselinePath = (root) => join(dir, `baseline-${rootId(root)}.json`);
   const writerPath = (root) => join(dir, `wrote-${rootId(root)}.json`);
+  const movePath = (root) => join(dir, `moved-${rootId(root)}.json`);
   const prePath = (toolUseId, root) => join(dir, `pre-${safeId(toolUseId)}-${rootId(root)}.json`);
+  const listed = (pattern) => (existsSync(dir) ? readdirSync(dir).filter((name) => pattern.test(name)) : []);
   return {
     /** `{ fingerprint }`, `{}` when unreadable, `null` when the checkout was never seen. */
     baseline: (root) => read(baselinePath(root)),
-    /** Written once, never overwritten (the first writer wins among parallel calls). */
+    /** Written once (the first writer wins among parallel calls)… */
     recordBaseline: (root, fingerprint, source) => write(baselinePath(root), { root, fingerprint, source }, true),
+    /** …except when a call moved HEAD without authoring code: the new state becomes the baseline. */
+    rebaseBaseline: (root, fingerprint, move) => {
+      write(baselinePath(root), { root, fingerprint, source: "head-moved" });
+      write(movePath(root), { root, move });
+    },
+    lastMove: (root) => read(movePath(root)),
     isWriter: (root) => existsSync(writerPath(root)),
     markWriter: (root, tool) => write(writerPath(root), { root, tool }),
-    writerRoots: () => {
-      if (!existsSync(dir)) {
-        return [];
-      }
-      return readdirSync(dir)
-        .filter((name) => /^wrote-[0-9a-f]{16}\.json$/.test(name))
+    writerRoots: () =>
+      listed(/^wrote-[0-9a-f]{16}\.json$/)
         .map((name) => read(join(dir, name))?.root)
-        .filter((root) => typeof root === "string");
-    },
-    savePre: (toolUseId, root, fingerprint) => write(prePath(toolUseId, root), { root, fingerprint }),
-    /**
-     * The snapshots taken before this tool call (every pending one when
-     * `toolUseId` is undefined), removed once read.
-     */
+        .filter((root) => typeof root === "string"),
+    savePre: (toolUseId, root, snapshot) => write(prePath(toolUseId, root), { root, ...snapshot }),
+    /** The snapshots taken before this tool call, removed once read. */
     takePre: (toolUseId) => {
-      if (!existsSync(dir)) {
-        return [];
-      }
-      const prefix = toolUseId === undefined ? "pre-" : `pre-${safeId(toolUseId)}-`;
       const snapshots = [];
-      for (const name of readdirSync(dir).filter((n) => n.startsWith(prefix))) {
+      for (const name of listed(new RegExp(`^pre-${safeId(toolUseId)}-[0-9a-f]{16}\\.json$`))) {
         const snapshot = read(join(dir, name));
         rmSync(join(dir, name), { force: true });
         if (typeof snapshot?.root === "string") {
@@ -108,37 +104,48 @@ export function sessionState(state, key) {
       }
       return snapshots;
     },
+    /**
+     * Drops the snapshots of calls that got no PostToolUse (denied by another
+     * hook or the user, interrupted, failed): they say nothing about who
+     * changed the code since.
+     */
+    dropPending: () => {
+      for (const name of listed(/^pre-/)) {
+        rmSync(join(dir, name), { force: true });
+      }
+    },
   };
 }
 
-/** Fingerprint, or "unknown" when it cannot be computed. */
-export function safeFingerprint(fingerprintFor, root) {
+/** `fn(root)`, or "unknown" when it throws. */
+export function safely(fn, root) {
   try {
-    return fingerprintFor(root);
+    return fn(root);
   } catch {
     return "unknown";
   }
 }
+export const safeFingerprint = safely;
 
 /** Records the session's baseline in each checkout where it has none. Never throws. */
 export function ensureBaselines(session, roots, fingerprintFor, source) {
   for (const root of roots) {
     try {
       if (session.baseline(root) === null) {
-        session.recordBaseline(root, safeFingerprint(fingerprintFor, root), source);
+        session.recordBaseline(root, safely(fingerprintFor, root), source);
       }
     } catch {
-      // Unwritable .qa/: never fail a hook for it.
+      // Unwritable records: never fail a hook for it.
     }
   }
 }
 
 /**
- * Whether a tool call wrote to the guarded code of a checkout: its
- * fingerprint after the call differs from the one before it. Without a
- * snapshot before (the call moved into a checkout the session had not seen),
- * the reference is the session's baseline there; without either, any change
- * there counts as the session's, the safe choice.
+ * Whether a call wrote to the guarded code of a checkout: its fingerprint
+ * after the call differs from the one before it. Without a snapshot before
+ * (the call moved into a checkout the session had not seen), the reference is
+ * the session's baseline there; without either, any change there counts as
+ * the session's, the safe choice.
  */
 export function wroteDuringCall({ before, baseline, after }) {
   if (after === "unknown") {
@@ -150,3 +157,65 @@ export function wroteDuringCall({ before, baseline, after }) {
   }
   return after !== reference;
 }
+
+/**
+ * Reflog subjects of moves that author code: a commit (amend, merge commit),
+ * a cherry-pick or a revert. A checkout, a switch, a pull, a fetch-and-merge,
+ * a reset or a rebase moves HEAD to code someone else authored or the session
+ * already had.
+ */
+export const authorsCode = (moves) => moves === null || moves.some((move) => /^(commit|cherry-pick|revert)\b/.test(move));
+
+/**
+ * Decision for a call that moved HEAD (`moves`: the reflog since its
+ * snapshot). An authoring move is judged on the whole fingerprint; a mere move
+ * only on the uncommitted changes, which a checkout or a pull carries over
+ * untouched unless the call also edited them.
+ */
+export function judgeHeadMove({ moves, before, after, localBefore, localAfter }) {
+  if (authorsCode(moves)) {
+    return { writer: wroteDuringCall({ before, after }) };
+  }
+  if (localAfter === "unknown" || localBefore === undefined) {
+    return { writer: false, rebase: true };
+  }
+  return localAfter !== localBefore ? { writer: true } : { writer: false, rebase: true };
+}
+
+/**
+ * The checkout and the path inside it of a file an edit tool targets, or
+ * `null` outside a checkout. `dirs`: where a relative path resolves.
+ */
+export function editTarget(path, dirs) {
+  if (typeof path !== "string" || path === "") {
+    return null;
+  }
+  const base = dirs.find((dir) => typeof dir === "string" && dir !== "" && existsSync(dir));
+  const absolute = isAbsolute(path) ? resolve(path) : base ? resolve(base, path) : null;
+  if (!absolute) {
+    return null;
+  }
+  let dir = dirname(absolute);
+  while (!existsSync(dir) && dirname(dir) !== dir) {
+    dir = dirname(dir);
+  }
+  const root = checkoutRoot(dir);
+  if (!root) {
+    return null;
+  }
+  // Real paths on both sides: Windows short names (RENAUD~1) and symlinks
+  // would otherwise put the file outside its own checkout.
+  const real = (path) => {
+    try {
+      return realpathSync.native(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  const rel = relative(real(root), join(real(dir), relative(dir, absolute))).split(sep).join("/");
+  return rel.startsWith("../") || rel === ".." ? null : { root, file: rel };
+}
+
+/** `true` when a path of a checkout is guarded code. */
+export const isGuardedFile = (file) =>
+  CODE_PATHS.some((path) => file === path || file.startsWith(`${path}/`));

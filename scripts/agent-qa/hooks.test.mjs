@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { changeFingerprint } from "./fingerprint.mjs";
+import { changeFingerprint, codeState } from "./fingerprint.mjs";
 
 const SCRIPTS = dirname(dirname(fileURLToPath(import.meta.url)));
 const REPO = dirname(SCRIPTS);
@@ -47,6 +47,8 @@ function makeRepo(branch = "feat/6-x") {
 }
 
 const toplevel = (dir) => git(dir, "rev-parse", "--show-toplevel").trim();
+/** The records folder of a checkout (in its git directory). */
+const qa = (dir, ...rest) => join(git(dir, "rev-parse", "--absolute-git-dir").trim(), "faulk-qa", ...rest);
 /** The id `session.mjs` gives a checkout in its file names. */
 const rootIdOf = (dir) => {
   const root = toplevel(dir).replaceAll("\\", "/");
@@ -84,18 +86,43 @@ const preToolUse = (root, tool_name, tool_input, session = "s1", tool_use_id = "
   hook("agent-review/agent-guard.mjs", root, { session_id: session, tool_name, tool_input, tool_use_id, ...extra });
 
 let calls = 0;
-/** One tool call of a session, between its PreToolUse and PostToolUse hooks. */
-function toolCall(root, session, action, { cwdBefore = root, cwdAfter = cwdBefore, project = root } = {}) {
+/**
+ * One tool call of a session, between its PreToolUse and PostToolUse hooks
+ * (`post: false`: the call never gets its PostToolUse, as when it is denied).
+ */
+function toolCall(
+  root,
+  session,
+  action,
+  { cwdBefore = root, cwdAfter = cwdBefore, project = root, tool = "Bash", toolInput = { command: "x" }, post = true } = {},
+) {
   const id = `call-${++calls}`;
   const run = (script, cwd) =>
     spawnSync(process.execPath, [join(SCRIPTS, script)], {
-      input: JSON.stringify({ session_id: session, cwd, tool_name: "Bash", tool_input: { command: "x" }, tool_use_id: id }),
+      input: JSON.stringify({ session_id: session, cwd, tool_name: tool, tool_input: toolInput, tool_use_id: id }),
       env: { ...cleanEnv(), CLAUDE_PROJECT_DIR: project },
       encoding: "utf8",
     });
   assert.equal(run("agent-review/agent-guard.mjs", cwdBefore).status, 0);
   action();
-  assert.equal(run("agent-qa/post-tool-use.mjs", cwdAfter).status, 0);
+  if (post) {
+    assert.equal(run("agent-qa/post-tool-use.mjs", cwdAfter).status, 0);
+  }
+}
+
+/** A clone of `root` whose `develop` is ahead with a commit that changes the guarded code. */
+function remoteAhead(root) {
+  const remote = mkdtempSync(join(tmpdir(), "faulk-remote-"));
+  git(remote, "clone", "-q", "--bare", root, ".");
+  const other = mkdtempSync(join(tmpdir(), "faulk-other-"));
+  git(other, "clone", "-q", remote, ".");
+  git(other, "switch", "-q", "feat/6-x");
+  writeFileSync(join(other, ...LIB), "pub fn gain() -> f32 { 0.8 }\n");
+  git(other, "commit", "-q", "-am", "someone else's change");
+  git(other, "push", "-q", "origin", "feat/6-x");
+  git(root, "remote", "add", "origin", remote);
+  git(root, "fetch", "-q", "origin");
+  git(root, "branch", "-q", "--set-upstream-to=origin/feat/6-x");
 }
 
 /** Runs a script as the agent does, from the checkout. */
@@ -122,6 +149,29 @@ function deliveryReview(root, { issue = 6, model = "opus", answerBody } = {}) {
 }
 
 const review = (root, brief = BRIEF) => script("agent-qa/record.mjs", root, "reviewed", "--brief", brief, "--dispositions", "none found");
+
+describe("codeState", () => {
+  it("gives the same fingerprint as changeFingerprint, and the uncommitted part apart", () => {
+    const root = makeRepo();
+    const check = () => assert.equal(codeState(root).fingerprint, changeFingerprint(root));
+    check();
+    assert.equal(codeState(root).local, null);
+    writeCode(root);
+    writeFileSync(join(root, "crates", "engine", "src", "new file.rs"), "pub const N: u8 = 1;\n");
+    check();
+    const dirty = codeState(root);
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "commit");
+    check();
+    const committed = codeState(root);
+    assert.equal(committed.fingerprint, dirty.fingerprint);
+    assert.equal(committed.local, null);
+    assert.notEqual(committed.head, dirty.head);
+    rmSync(join(root, "crates", "engine", "src", "new file.rs"));
+    check();
+    assert.notEqual(codeState(root).local, null);
+  });
+});
 
 describe("Stop hook: what blocks", () => {
   it("blocks a turn whose tool call changed crates/ without a verification, and says what to run", () => {
@@ -203,11 +253,31 @@ describe("Stop hook: what blocks", () => {
     assert.equal(stop(root), null);
   });
 
-  it("a change left by a call that got no PostToolUse is still attributed at the stop", () => {
+  it("an Edit of a guarded file makes the session a writer, wherever the file is", () => {
+    const project = makeRepo();
+    const worktree = makeRepo("feat/7-y");
+    startSession(project, "e");
+    const file = join(worktree, ...LIB);
+    toolCall(project, "e", () => writeCode(worktree), { tool: "Edit", toolInput: { file_path: file } });
+    const output = stop(project, "e");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)));
+  });
+
+  it("a subagent's change during an Agent call makes the lead a writer", () => {
+    const root = makeRepo();
+    startSession(root, "lead");
+    toolCall(root, "lead", () => writeCode(root), { tool: "Agent", toolInput: { subagent_type: "general-purpose", prompt: "fix" } });
+    assert.equal(stop(root, "lead").decision, "block");
+  });
+
+  it("a commit made in the same call as an edit is attributed", () => {
     const root = makeRepo();
     startSession(root);
-    preToolUse(root, "Bash", { command: "cargo fmt" }, "s1", "lost");
-    writeCode(root);
+    toolCall(root, "s1", () => {
+      writeCode(root);
+      git(root, "commit", "-q", "-am", "edit and commit");
+    });
     assert.equal(stop(root).decision, "block");
   });
 
@@ -242,7 +312,7 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     assert.equal(stop(root, "reader"), null);
   });
 
-  it("while another session or the user changes the code during it", () => {
+  it("while another session or the user changes the code between its calls", () => {
     const root = makeRepo();
     startSession(root, "reader");
     startSession(root, "writer");
@@ -252,6 +322,66 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     toolCall(root, "reader", () => {});
     assert.equal(stop(root, "reader"), null);
     assert.equal(stop(root, "writer").decision, "block");
+  });
+
+  it("while someone else edits the code during one of its edit calls on another file", () => {
+    const root = makeRepo();
+    startSession(root, "reader");
+    toolCall(root, "reader", () => {
+      writeFileSync(join(root, "README.md"), "# notes\n"); // the session's own edit, not guarded
+      writeCode(root, "pub fn gain() -> f32 { 0.4 }\n"); // someone else, at the same time
+    }, { tool: "Edit", toolInput: { file_path: join(root, "README.md") } });
+    assert.equal(stop(root, "reader"), null);
+  });
+
+  it("limit: someone else's edit during one of its shell calls is counted as the session's", () => {
+    const root = makeRepo();
+    startSession(root, "reader");
+    toolCall(root, "reader", () => writeCode(root, "pub fn gain() -> f32 { 0.4 }\n"));
+    assert.equal(stop(root, "reader").decision, "block");
+  });
+
+  it("after a call that was denied or interrupted, followed by someone else's edit", () => {
+    const root = makeRepo();
+    startSession(root, "d");
+    toolCall(root, "d", () => {}, { post: false });
+    writeCode(root); // someone else
+    assert.equal(stop(root, "d"), null);
+    assert.equal(stop(root, "d"), null);
+  });
+
+  it("when it switches branch, checks out a pull request or pulls", () => {
+    const root = makeRepo();
+    git(root, "switch", "-q", "-c", "feat/8-other");
+    writeCode(root, "pub fn gain() -> f32 { 0.7 }\n");
+    git(root, "commit", "-q", "-am", "other branch work");
+    git(root, "switch", "-q", "feat/6-x");
+    startSession(root, "sw");
+    toolCall(root, "sw", () => git(root, "switch", "-q", "feat/8-other"));
+    assert.equal(stop(root, "sw"), null);
+    toolCall(root, "sw", () => git(root, "switch", "-q", "feat/6-x"));
+    assert.equal(stop(root, "sw"), null);
+
+    const pulled = makeRepo();
+    remoteAhead(pulled);
+    startSession(pulled, "pl");
+    toolCall(pulled, "pl", () => git(pulled, "pull", "-q", "--ff-only"));
+    assert.equal(changeFingerprint(pulled) !== null, true);
+    assert.equal(stop(pulled, "pl"), null);
+  });
+
+  it("a switch that also edits the uncommitted code is attributed, and the message says HEAD moved", () => {
+    const root = makeRepo();
+    git(root, "switch", "-q", "-c", "feat/8-other");
+    writeFileSync(join(root, "README.md"), "# other\n");
+    git(root, "commit", "-q", "-am", "other branch, no guarded change");
+    git(root, "switch", "-q", "feat/6-x");
+    startSession(root, "swe");
+    toolCall(root, "swe", () => git(root, "switch", "-q", "feat/8-other"));
+    toolCall(root, "swe", () => writeCode(root, "pub fn gain() -> f32 { 0.2 }\n"));
+    const output = stop(root, "swe");
+    assert.equal(output.decision, "block");
+    assert.match(output.reason, /moved HEAD without authoring code/);
   });
 
   it("when it started before the hooks existed, while its later changes are judged", () => {
@@ -265,7 +395,7 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
   it("when its baseline could not be computed", () => {
     const root = makeRepo();
     writeCode(root);
-    const dir = join(root, ".qa", "sessions", "u");
+    const dir = qa(root, "sessions", "u");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `baseline-${rootIdOf(root)}.json`), JSON.stringify({ root: toplevel(root), fingerprint: "unknown" }));
     toolCall(root, "u", () => {});
@@ -277,10 +407,33 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     assert.equal(stop(outside), null);
     const empty = mkdtempSync(join(tmpdir(), "faulk-nocommit-"));
     git(empty, "init", "-q", "-b", "develop");
-    mkdirSync(join(empty, ".qa", "sessions", "s1"), { recursive: true });
+    mkdirSync(qa(empty, "sessions", "s1"), { recursive: true });
     // A writer marker for a checkout whose fingerprint cannot be computed.
-    writeFileSync(join(empty, ".qa", "sessions", "s1", `wrote-${rootIdOf(empty)}.json`), JSON.stringify({ root: toplevel(empty) }));
+    writeFileSync(qa(empty, "sessions", "s1", `wrote-${rootIdOf(empty)}.json`), JSON.stringify({ root: toplevel(empty) }));
     assert.match(stop(empty).systemMessage, /could not check the code/);
+  });
+
+  it("when the Stop input has no session id: the hook fails open with a warning to the user", () => {
+    const root = makeRepo();
+    const result = spawnSync(process.execPath, [join(SCRIPTS, "agent-qa/qa-guard.mjs")], {
+      input: JSON.stringify({ cwd: root }),
+      env: { ...cleanEnv(), CLAUDE_PROJECT_DIR: root },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.decision, undefined);
+    assert.match(output.systemMessage, /no valid session_id/);
+  });
+
+  it("warns the user, without blocking, when the guardrails themselves differ from develop", () => {
+    const root = makeRepo();
+    mkdirSync(join(root, "scripts", "agent-qa"), { recursive: true });
+    writeFileSync(join(root, "scripts", "agent-qa", "record.mjs"), "// weakened\n");
+    startSession(root, "g");
+    const output = stop(root, "g");
+    assert.equal(output.decision, undefined);
+    assert.match(output.systemMessage, /guardrails differ from develop.*scripts\/agent-qa\/record\.mjs/);
   });
 });
 
@@ -402,7 +555,7 @@ describe("record.mjs", () => {
   it("records nothing when the code has no change", () => {
     const root = makeRepo();
     assert.equal(script("agent-qa/record.mjs", root, "verified").status, 0);
-    assert.equal(existsSync(join(root, ".qa", "last-run.json")), false);
+    assert.equal(existsSync(qa(root, "last-run.json")), false);
   });
 });
 
@@ -465,7 +618,7 @@ describe("PreToolUse hook", () => {
 
   it("denies writing a record or a session's state by hand", () => {
     const root = makeRepo();
-    for (const path of [join(root, ".qa", "review.json"), join(root, ".qa", "sessions", "s1", "wrote-0.json")]) {
+    for (const path of [qa(root, "review.json"), qa(root, "sessions", "s1", "wrote-0.json"), qa(root, "x", "..", "review.json")]) {
       const output = preToolUse(root, "Write", { file_path: path, content: "{}" });
       assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
     }
@@ -501,7 +654,7 @@ describe("settings.json", () => {
       assert.equal(result.status, 0, `${command}: ${result.stderr}`);
       assert.doesNotMatch(result.stdout, /could not check|failed|block/, command);
     }
-    assert.ok(existsSync(join(root, ".qa", "sessions", "bash")), "SessionStart ran");
-    assert.ok(existsSync(join(root, ".qa", "last-prompt.json")), "UserPromptSubmit ran");
+    assert.ok(existsSync(qa(root, "sessions", "bash")), "SessionStart ran");
+    assert.ok(existsSync(qa(root, "last-prompt.json")), "UserPromptSubmit ran");
   });
 });

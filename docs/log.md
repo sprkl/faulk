@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-14
+* **Update** (#6, second delivery review): `agents/verification.md` and `agents/judge-dredd.md` move the records to the git directory (`faulk-qa`), describe the attribution per tool kind, branch switches and pulls, dropped calls, the guard-change warning, the measured cost with its method, and the remaining limits.
+
 ## 2026-10-13
 * **Update** (#6): the agent workflow is enforced. `agents/judge-dredd.md` replaces the hand-written brief with `scripts/agent-review/brief.mjs` and `run.mjs`, and its Limits with the guard, the Stop hook and their limits. `agents/verification.md` gains the agent scripts area, how to record a verification with `scripts/agent-qa/record.mjs`, the Stop hook, how a change is attributed to a session, the deferral and their limits. `agents/issue-tracker.md` and `agents/index.md` follow.
 * **Update**: Faulk becomes AI first (user's decision of 2026-10-13). `architecture/01-architecture.md` adds the command layer (`crates/commands`) shared by the UI, MCP and ACP, the helper as the local bridge (MCP server, ACP agents launched locally and relayed to the page), WebMCP and remote ACP left for later, and the guardrails. `spikes/S1-moteur-hybride.md` gains the command layer, an MCP server step and an ACP session step. `constraints/01-contraintes.md` gains the security of the local bridge. `product/01-vision.md` gains the AI first section. `agents/verification.md` and Judge Dredd gain the checks for commands and agents.

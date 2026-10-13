@@ -39,14 +39,26 @@ function git(cwd, ...args) {
   });
 }
 
-/** Top level of the git checkout that contains `dir`, or `null` outside a checkout. */
+const roots = new Map();
+/** Top level of the git checkout that contains `dir`, or `null` outside a checkout (cached per process). */
 export function checkoutRoot(dir) {
-  try {
-    return git(dir, "rev-parse", "--show-toplevel").trim() || null;
-  } catch {
-    return null;
+  const key = samePathKey(dir);
+  if (!roots.has(key)) {
+    let root = null;
+    try {
+      root = git(dir, "rev-parse", "--show-toplevel").trim() || null;
+    } catch {
+      // Not a checkout.
+    }
+    roots.set(key, root);
   }
+  return roots.get(key);
 }
+
+const samePathKey = (path) => {
+  const forward = String(path).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? forward.toLowerCase() : forward;
+};
 
 /**
  * Root of the first checkout among `dirs` (empty entries skipped), else the
@@ -84,8 +96,7 @@ export function hookRoots(input) {
   return roots;
 }
 
-const samePath = (a, b) =>
-  process.platform === "win32" ? a.replaceAll("\\", "/").toLowerCase() === b.replaceAll("\\", "/").toLowerCase() : a === b;
+const samePath = (a, b) => samePathKey(a) === samePathKey(b);
 
 /** Root for a script run by the agent: its working directory first. */
 export const scriptRoot = () => projectRoot(process.cwd(), process.env.CLAUDE_PROJECT_DIR);
@@ -137,6 +148,98 @@ export function changeFingerprint(cwd) {
   return fingerprintOf(cwd, changedFiles(cwd));
 }
 
+/**
+ * The state of the guarded code in three git calls (a hook runs it around
+ * every shell call, so each call counts): `fingerprint` of the changes since
+ * the base, `local` fingerprint of the uncommitted changes only (files that
+ * differ from HEAD, untracked included), and `head`.
+ */
+export function codeState(cwd) {
+  const status = git(
+    cwd,
+    "status",
+    "--porcelain=v2",
+    "--branch",
+    "--untracked-files=all",
+    "--no-renames",
+    "-z",
+    "--",
+    ...CODE_PATHS,
+  ).split("\0");
+  let head = null;
+  const local = new Set();
+  const untracked = [];
+  for (const entry of status) {
+    if (entry.startsWith("# branch.oid ")) {
+      const oid = entry.slice("# branch.oid ".length);
+      head = oid === "(initial)" ? null : oid;
+    } else if (entry.startsWith("? ")) {
+      untracked.push(entry.slice(2));
+      local.add(entry.slice(2));
+    } else if (/^[12u] /.test(entry)) {
+      // Ordinary (1), renamed (2, not produced with --no-renames) and unmerged (u) entries end with the path.
+      const fields = entry.split(" ");
+      local.add(fields.slice(entry.startsWith("1 ") ? 8 : entry.startsWith("u ") ? 10 : 9).join(" "));
+    }
+  }
+  const committed = lines(git(cwd, "diff", "--name-only", "--no-renames", baseRef(cwd), "--", ...CODE_PATHS));
+  return {
+    head,
+    fingerprint: fingerprintOf(cwd, [...new Set([...committed, ...untracked])].sort()),
+    local: fingerprintOf(cwd, [...local].sort()),
+  };
+}
+
+/** Fingerprint of the uncommitted changes only (guarded files that differ from HEAD, untracked included). */
+export function localFingerprint(cwd) {
+  return codeState(cwd).local;
+}
+
+/** The commit HEAD points to, or `null` (no commit yet). */
+export function headOf(cwd) {
+  try {
+    return git(cwd, "rev-parse", "HEAD").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The reflog subjects of the moves of HEAD since it pointed to `from`, newest
+ * first (`commit: …`, `checkout: moving from …`, `pull: Fast-forward`…), or
+ * `null` when `from` is not in the last 100 entries.
+ */
+export function headMovesSince(cwd, from) {
+  let output;
+  try {
+    output = git(cwd, "log", "-g", "--format=%H %gs", "-n", "100", "HEAD");
+  } catch {
+    return null;
+  }
+  const moves = [];
+  for (const line of lines(output)) {
+    const space = line.indexOf(" ");
+    if (line.slice(0, space) === from) {
+      return moves;
+    }
+    moves.push(line.slice(space + 1));
+  }
+  return null;
+}
+
+/** Files of the guardrails themselves that differ from the merge base with `develop`. */
+export const GUARD_PATHS = ["scripts/agent-qa", "scripts/agent-review", ".claude/settings.json", ".claude/agents"];
+
+export function changedGuardFiles(cwd) {
+  const pathspec = ["--", ...GUARD_PATHS];
+  return [
+    ...new Set([
+      ...lines(git(cwd, "diff", "--name-only", "--no-renames", baseRef(cwd), ...pathspec)),
+      ...lines(git(cwd, "ls-files", "--others", "--exclude-standard", ...pathspec)),
+    ]),
+  ].sort();
+}
+
 /** Current branch, or `null` without a readable branch (detached head included). */
 export function currentBranch(cwd) {
   try {
@@ -147,13 +250,27 @@ export function currentBranch(cwd) {
   }
 }
 
-export const qaDir = (cwd) => join(cwd, ".qa");
+/** Name of the records folder, protected by the guard wherever it appears in a path. */
+export const QA_DIR_NAME = "faulk-qa";
+
+const gitDirs = new Map();
+/**
+ * The records of a checkout live in its own git directory (`.git/faulk-qa/`,
+ * or `.git/worktrees/<name>/faulk-qa/` for a linked worktree): outside the
+ * working tree, so `git clean -x`, a glob or a stray edit of the tree never
+ * reaches them, and each worktree keeps its own.
+ */
+export function qaDir(cwd) {
+  if (!gitDirs.has(cwd)) {
+    gitDirs.set(cwd, git(cwd, "rev-parse", "--absolute-git-dir").trim());
+  }
+  return join(gitDirs.get(cwd), QA_DIR_NAME);
+}
 export const verificationPath = (cwd) => join(qaDir(cwd), "last-run.json");
 export const reviewPath = (cwd) => join(qaDir(cwd), "review.json");
 /** A deferral is kept apart, so it never erases a verification. */
 export const deferralPath = (cwd) => join(qaDir(cwd), "deferral.json");
 export const historyPath = (cwd) => join(qaDir(cwd), "history.jsonl");
-export const sessionPath = (cwd, sessionId) => join(qaDir(cwd), "sessions", `${sessionId}.json`);
 /** Time of the last user prompt in this checkout (`prompt-submit.mjs`): one deferral per prompt. */
 export const lastPromptPath = (cwd) => join(qaDir(cwd), "last-prompt.json");
 

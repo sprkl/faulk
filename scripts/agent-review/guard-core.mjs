@@ -4,8 +4,9 @@
  * advantage, and neither briefs (`brief.mjs`), Judge Dredd's answers
  * (`run.mjs`) nor the records of `record.mjs` are written by hand.
  *
- * Paths are matched on their last components, so a brief is protected in any
- * checkout or worktree, with `/` or `\` separators.
+ * Briefs and answers live in `.scratch/judge-dredd/`; the records live in the
+ * git directory, in a folder named `faulk-qa` (`fingerprint.mjs` > qaDir).
+ * Paths are normalized (`.`, `..`, separators, case) before they are matched.
  *
  * @doc docs/agents/judge-dredd.md
  */
@@ -19,72 +20,106 @@ export const BRIEF_DIR = ".scratch/judge-dredd";
 const BRIEF_NAME = /^\d+-(plan|delivery|replies)\.md$/;
 // Case-insensitive: Windows and macOS file systems are, so `.Scratch/Judge-Dredd/6-Plan.md` is the same file.
 const PROTECTED_BRIEF_NAME = /^\d+-(plan|delivery|replies)(\.answer)?\.md$/i;
-const QA_RECORD = /^(last-run\.json|review\.json|deferral\.json|history\.jsonl|last-prompt\.json)$/i;
+const QA_DIR_NAME = "faulk-qa";
 
-const SEP = String.raw`[\\/]+`;
-// A brief, an answer or a record named in a shell command, with either separator.
-const PROTECTED_IN_COMMAND = new RegExp(
-  String.raw`\.scratch${SEP}judge-dredd${SEP}\d+-(plan|delivery|replies)(\.answer)?\.md(?![\w.])` +
-    String.raw`|\.qa${SEP}(last-run\.json|review\.json|deferral\.json|history\.jsonl|last-prompt\.json|sessions)(?![\w.-])` +
-    String.raw`|(^|[\s'"=])\.qa[\\/]*(?=[\s'"]|$)`,
-  "i",
-);
 // Judge Dredd run outside `run.mjs`, where the prompt is not checked.
 const DIRECT_JUDGE_RUN = /(^|[\s;&|(\\/"'])claude(\.exe|\.cmd)?["']?[ \t][^\n]*\bjudge-dredd\b/i;
-const POSIX_WRITE = String.raw`>|\btee\b|\bsed\s+(-\w+\s+)*-i|\bcp\b|\bmv\b|\bln\b|\brm\b|\brmdir\b|\btruncate\b|\bdd\b|\bperl\s+-\w*i|\bawk\b.*\s-i\b|\binstall\b|\btouch\b|\bgit\s+(checkout|restore|clean|stash)\b`;
-const POWERSHELL_WRITE = String.raw`\b(set-content|add-content|out-file|copy-item|move-item|new-item|remove-item|rename-item|clear-content|set-item|sc|ac|ni|ri|del|erase|cpi|mi|rni|copy|move|ren)\b|\[(system\.)?io\.file\]::\s*(write|append|copy|move|delete|create|replace)`;
+const POSIX_WRITE = String.raw`>|\btee\b|\bsed\s+(-\w+\s+)*-i|\bcp\b|\bmv\b|\bln\b|\brm\b|\brmdir\b|\bunlink\b|\btruncate\b|\bdd\b|\bperl\s+-\w*i|\bawk\b.*\s-i\b|\binstall\b|\btouch\b|\brsync\b|\btar\b|\bunzip\b|\bfind\b[^\n]*\s-(delete|exec|execdir|ok|fprint)\b|\bgit\s+(checkout|restore|clean|stash|rm|mv)\b`;
+const POWERSHELL_WRITE = String.raw`\b(set-content|add-content|out-file|copy-item|move-item|new-item|remove-item|rename-item|clear-content|set-item|sc|ac|ni|ri|rd|del|erase|cpi|mi|rni|copy|move|ren|expand-archive)\b|\[(system\.)?io\.(file|directory)\]::\s*(write|append|copy|move|delete|create|replace)`;
 const SHELL_WRITE = new RegExp(`${POSIX_WRITE}|${POWERSHELL_WRITE}`, "i");
 // One call of an official script, on one line, with no chaining, redirection
 // or substitution: anything more is no longer that script alone.
 const OFFICIAL_SCRIPT =
   /^[ \t]*node[ \t]+(["']?\$\{?CLAUDE_PROJECT_DIR\}?[\\/])?["']?scripts[\\/](agent-review[\\/](brief|run)|agent-qa[\\/]record)\.mjs["']?(?![\w.])[^;&|<>\n\r$`()]*$/;
 const MAX_PROMPT = 300;
+const GLOB = /[*?[\]{}]/;
 
-const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-/** Tools whose calls can change files: the hooks fingerprint the code around them. */
-export const CHANGING_TOOLS = new Set([...WRITE_TOOLS, "Bash", "PowerShell"]);
+export const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** Tools whose effect on the code the hooks measure with a fingerprint before and after the call. */
+export const SNAPSHOT_TOOLS = new Set(["Bash", "PowerShell", "Agent", "Task"]);
+/** Tools whose calls can change files. */
+export const CHANGING_TOOLS = new Set([...EDIT_TOOLS, ...SNAPSHOT_TOOLS]);
 
 const deny = (reason) => ({ allow: false, reason });
 const parts = (path) => path.split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
-/** The last three components of a path, right-aligned: `[grandparent, parent, name]`. */
-const last3 = (path) => {
-  const p = parts(path);
-  return [p.at(-3), p.at(-2), p.at(-1)];
-};
-const lower = (items) => items.map((item) => item?.toLowerCase());
+
+/** The components of a path with `.` and `..` resolved (as far as the path itself goes), lower-cased. */
+function normalizedParts(path) {
+  const out = [];
+  for (const part of parts(path)) {
+    if (part === "..") {
+      if (out.length > 0 && out.at(-1) !== "..") {
+        out.pop();
+      } else {
+        out.push("..");
+      }
+    } else {
+      out.push(part.toLowerCase());
+    }
+  }
+  return out;
+}
 
 /**
- * The command with the content of its quoted arguments removed, so that
- * `--dispositions "a > b"` is not taken for a redirection. A double-quoted
- * argument holding `$` or a backtick (substitution) is kept as is.
+ * `true` when `path` names a brief, an answer, or anything in a records
+ * folder, once `.` and `..` are resolved. A relative path is also resolved
+ * against each of `dirs`, so that `../review.json` from inside the records is
+ * caught.
  */
-export function withoutQuotedText(command) {
-  return command.replace(/'[^'\n]*'/g, "''").replace(/"[^"$`\n]*"/g, '""');
-}
-
-/** `true` when `path` names a brief, an answer, or a record of `record.mjs`. */
-export function isProtectedPath(path) {
-  if (typeof path !== "string") {
+export function isProtectedPath(path, dirs = []) {
+  if (typeof path !== "string" || path === "") {
     return false;
   }
-  const [dir2, dir1, name] = lower(last3(path));
-  if (dir2 === ".scratch" && dir1 === "judge-dredd" && PROTECTED_BRIEF_NAME.test(name ?? "")) {
-    return true;
-  }
-  if (dir1 === ".qa" && QA_RECORD.test(name ?? "")) {
-    return true;
-  }
-  // The record folder itself, and anything in the sessions' state.
-  const p = lower(parts(path));
-  return name === ".qa" || p.some((part, i) => part === ".qa" && p[i + 1] === "sessions");
+  const forms = [path, ...(isAbsolute(path) ? [] : dirs.filter(Boolean).map((dir) => resolve(dir, path)))];
+  return forms.some((form) => {
+    const p = normalizedParts(form);
+    if (p.includes(QA_DIR_NAME)) {
+      return true;
+    }
+    const [dir2, dir1, name] = [p.at(-3), p.at(-2), p.at(-1)];
+    return dir2 === ".scratch" && dir1 === "judge-dredd" && PROTECTED_BRIEF_NAME.test(name ?? "");
+  });
 }
+
+/**
+ * Whether a word of a shell command reaches protected files: a records folder
+ * named in any form; the `.git` directory itself or a glob inside it (the
+ * records live there); the brief folder itself, a glob or `..` in it, or any
+ * file of it but a `.proposal.md`; a brief or answer named without its folder
+ * (after a `cd`).
+ */
+export function isProtectedWord(word) {
+  const p = normalizedParts(word);
+  if (p.length === 0) {
+    return false;
+  }
+  if (p.includes(QA_DIR_NAME)) {
+    return true;
+  }
+  const gitAt = p.indexOf(".git");
+  if (gitAt !== -1 && (gitAt === p.length - 1 || GLOB.test(word))) {
+    return true;
+  }
+  const dreddAt = p.indexOf("judge-dredd");
+  if (dreddAt !== -1) {
+    const rest = p.slice(dreddAt + 1);
+    const proposal = rest.length === 1 && rest[0].endsWith(".proposal.md") && !GLOB.test(rest[0]);
+    if (!proposal || parts(word).includes("..")) {
+      return true;
+    }
+  }
+  return PROTECTED_BRIEF_NAME.test(p.at(-1));
+}
+
+const words = (command) => command.split(/[\s'"`;|&<>()=]+/).filter(Boolean);
 
 /** `true` when `path` has the shape of a brief: `.scratch/judge-dredd/<issue>-<checkpoint>.md`, without `..`. */
 export function isBriefPath(path) {
   if (typeof path !== "string" || parts(path).includes("..")) {
     return false;
   }
-  const [dir2, dir1, name] = last3(path);
+  const p = parts(path);
+  const [dir2, dir1, name] = [p.at(-3), p.at(-2), p.at(-1)];
   return dir2 === ".scratch" && dir1 === "judge-dredd" && BRIEF_NAME.test(name ?? "");
 }
 
@@ -135,19 +170,28 @@ function pathValues(input) {
 }
 
 /**
+ * The command with the content of its quoted arguments removed, so that
+ * `--dispositions "a > b"` is not taken for a redirection. A double-quoted
+ * argument holding `$` or a backtick (substitution) is kept as is.
+ */
+export function withoutQuotedText(command) {
+  return command.replace(/'[^'\n]*'/g, "''").replace(/"[^"$`\n]*"/g, '""');
+}
+
+/**
  * `{ allow: true }` or `{ allow: false, reason }` (reason addressed to the
- * agent). `dirs`: directories a relative brief path resolves against, in order
- * (the input's `cwd`, then the project directory).
+ * agent). `dirs`: directories a relative path resolves against, in order (the
+ * input's `cwd`, then the project directory).
  */
 export function judgeToolCall({ toolName, toolInput, dirs }) {
   if (SUBAGENT_TOOLS.has(toolName) && AGENT_NAMES.has(toolInput?.subagent_type)) {
     return judgeAgentCall(toolInput.prompt, dirs ?? []);
   }
-  if (WRITE_TOOLS.has(toolName)) {
+  if (EDIT_TOOLS.has(toolName)) {
     for (const path of pathValues(toolInput)) {
-      if (isProtectedPath(path)) {
+      if (isProtectedPath(path, dirs ?? [])) {
         return deny(
-          `${path} cannot be edited: briefs are written only by node scripts/agent-review/brief.mjs, answers only by node scripts/agent-review/run.mjs, and the records in .qa/ only by node scripts/agent-qa/record.mjs. Write your plan or report draft to the .proposal.md file next to the brief.`,
+          `${path} cannot be edited: briefs are written only by node scripts/agent-review/brief.mjs, answers only by node scripts/agent-review/run.mjs, and the records (faulk-qa in the git directory) only by node scripts/agent-qa/record.mjs. Write your plan or report draft to the .proposal.md file next to the brief.`,
         );
       }
     }
@@ -160,9 +204,9 @@ export function judgeToolCall({ toolName, toolInput, dirs }) {
         "Judge Dredd runs only through node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<checkpoint>.md, or the judge-dredd subagent with that path as the whole prompt.",
       );
     }
-    if (!official && PROTECTED_IN_COMMAND.test(command) && SHELL_WRITE.test(command)) {
+    if (!official && SHELL_WRITE.test(command) && words(command).some(isProtectedWord)) {
       return deny(
-        "This command could write a Judge Dredd brief or answer, or a record in .qa/. Briefs come from node scripts/agent-review/brief.mjs, answers from node scripts/agent-review/run.mjs, records from node scripts/agent-qa/record.mjs: run each alone on its line. Read files with cat, and write your plan or report draft to the .proposal.md file.",
+        "This command could write or delete a Judge Dredd brief or answer, or the records (faulk-qa in the git directory). Briefs come from node scripts/agent-review/brief.mjs, answers from node scripts/agent-review/run.mjs, records from node scripts/agent-qa/record.mjs: run each alone on its line. Read files with cat, and write your plan or report draft to the .proposal.md file.",
       );
     }
   }

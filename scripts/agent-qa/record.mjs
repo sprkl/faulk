@@ -1,8 +1,9 @@
 /**
  * Records, for the current state of the code, the verification
- * (`.qa/last-run.json`), Judge Dredd's delivery review (`.qa/review.json`) or
- * the deferral of one stop (`.qa/deferral.json`), with a history in
- * `.qa/history.jsonl`. The verification clears the Stop hook until the next
+ * (`last-run.json`), Judge Dredd's delivery review (`review.json`) or the
+ * deferral of one stop (`deferral.json`), with a history in `history.jsonl`,
+ * all in the records folder of the checkout (`faulk-qa` in its git
+ * directory, `fingerprint.mjs` > qaDir). The verification clears the Stop hook until the next
  * change of the code; the review, for the whole task branch.
  *
  * Usage:
