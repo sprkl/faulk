@@ -77,9 +77,10 @@ An issue is carried through autonomously, from plan to a reviewed pull request, 
 2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
 3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
 4. **Copilot review**, when Copilot code review is enabled on the repository: request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most).
-5. **Close the loop**: update the issue, then send the final message.
+5. **Merge** when the pull request is ready (see below), with a merge commit.
+6. **Close the loop**: update the issue, then send the final message.
 
-Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. Never merge the pull request: the user merges.
+Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, Judge Dredd and Copilot findings settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. Releases to `main` stay with the founder.
 
 ## Definition of done
 
