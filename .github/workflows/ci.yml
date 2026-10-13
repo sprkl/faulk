@@ -22,6 +22,19 @@ jobs:
           echo "rust=$([ -f Cargo.toml ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "web=$([ -f web/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+  agent-scripts:
+    # The agent guardrails (hooks, Judge Dredd brief, verification records).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the agent scripts
+        run: node --test "scripts/**/*.test.mjs"
+
   rust:
     # Skipped until the Rust workspace exists (spike S1).
     needs: detect

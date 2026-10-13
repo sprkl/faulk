@@ -32,8 +32,8 @@ Structure lives in GitHub's native fields; labels carry triage state only.
 The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE.md` > Working on an issue). It stops for the user only on a decision that is theirs, and never merges.
 
 - **Start**: assign the task (`gh issue edit <n> --add-assignee @me`) and remove `ready-for-agent`. Create the task's branch from an up-to-date `develop`: `feat/<n>-<slug>` (`fix/` for a bug, `spike/` for a spike).
-- **Plan**: write the plan to `.scratch/judge-dredd/<n>-plan.md`, run Judge Dredd's `plan` review (`judge-dredd.md`), report its findings with the decision taken on each, and start the work.
-- **Deliver**: implement, verify (`verification.md`, `/code-review`), then run Judge Dredd's `delivery` review.
+- **Plan**: write the plan to `.scratch/judge-dredd/<n>-plan.proposal.md`, build the brief and run Judge Dredd's `plan` review (`judge-dredd.md`), report its findings with the decision taken on each, and start the work.
+- **Deliver**: implement, verify and record the verification (`verification.md`), run `/code-review`, then run Judge Dredd's `delivery` review and record it (`judge-dredd.md`). The Stop hook refuses to end a turn that changed the code without both records.
 - **Pull request**: push the branch (`git push -u origin <branch>`) and open the pull request against `develop` with `gh pr create --base develop`. Title and description in French: why, what changes, verification (including the reviews and what became of their findings), out of scope, `Closes #<n>`, then the Claude Code attribution.
 - **Copilot review**, when enabled on the repository:
   1. Request it: `gh pr edit <pr> --add-reviewer @copilot`.

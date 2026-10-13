@@ -38,7 +38,51 @@
 			"Bash(gh pr diff:*)",
 			"Bash(git status:*)",
 			"Bash(git diff:*)",
-			"Bash(git log:*)"
+			"Bash(git log:*)",
+			"Bash(node --test:*)"
+		]
+	},
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-qa/session-start.mjs\""
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-qa/prompt-submit.mjs\""
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "Agent|Task|Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-review/agent-guard.mjs\""
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-qa/qa-guard.mjs\""
+					}
+				]
+			}
 		]
 	}
 }

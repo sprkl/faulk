@@ -6,6 +6,11 @@ node_modules/
 dist/
 pkg/
 *.tsbuildinfo
+# test output: never part of the code the guardrails fingerprint
+test-results/
+playwright-report/
+blob-report/
+coverage/
 
 # env
 .env

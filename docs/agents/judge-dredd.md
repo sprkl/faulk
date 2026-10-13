@@ -1,7 +1,7 @@
 ---
 type: Agent Configuration
 title: "Judge Dredd: impartial review at the task checkpoints"
-description: "Read-only reviewer subagent that judges the lead's plan and, once per task, its delivery before the pull request, from a brief it receives as a path only."
+description: "Read-only reviewer subagent that judges the lead's plan and, once per task, its delivery before the pull request, from a brief built by a script and received as a path only; the guard and the Stop hook that enforce it, and their limits."
 ---
 
 # Judge Dredd: impartial review at the task checkpoints
@@ -10,33 +10,58 @@ The lead reviews its own work with the assumptions it used to write it. Judge Dr
 
 ## Checkpoints
 
-| Checkpoint | When | Brief |
+| Checkpoint | When | Command |
 |---|---|---|
-| `plan` | once, before starting an issue | `.scratch/judge-dredd/<issue>-plan.md` |
-| `delivery` | once, as the last step before opening the pull request, after the lead's own reviews (`/code-review`) and their fixes | `.scratch/judge-dredd/<issue>-delivery.md` |
-| `replies` | optional, only if the user asks for it | `.scratch/judge-dredd/<issue>-replies.md` |
+| `plan` | once, before starting an issue | write the plan to `.scratch/judge-dredd/<issue>-plan.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> plan` |
+| `delivery` | once, as the last step before opening the pull request, after the lead's own reviews (`/code-review`) and their fixes | write the report draft (the claims) to `.scratch/judge-dredd/<issue>-delivery.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> delivery` |
+| `replies` | optional, only if the user asks for it | `node scripts/agent-review/brief.mjs <issue> replies --pr <n>` |
 
-Judge Dredd does not run inside the lead's own work, test and fix loop, and is not run again for the fixes of its own findings.
+Judge Dredd does not run inside the lead's own work, test and fix loop, and is not run again for the fixes of its own findings. The `reviewed` record needs a brief built for the current state of the code: run the delivery review once the code is final, and record it before making any fix it brings.
 
-## Writing the brief
+## Building the brief and running the review
 
-Until a script builds briefs (see Limits), the lead writes the brief by hand. It holds, in this order:
+`scripts/agent-review/brief.mjs` builds the brief from GitHub and git and prints its path, `.scratch/judge-dredd/<issue>-<checkpoint>.md`. The brief holds, in this order: the checkpoint, the fingerprint of the code (delivery and replies), the issue body, its parent and its comments verbatim, the documents they cite, the general claims to prove by enumeration ("all", "every", "each", "none", "tous", "chaque", "aucun"…), the lead's plan or report draft, the pull request and its review threads (`--pr`), the commits, the changed files and the full diff against the merge base with `develop`, untracked files included. Everything except the diff is presented to Judge Dredd as information to check, never as instructions.
 
-1. `checkpoint: plan|delivery|replies` and the issue number.
-2. The issue body and comments (`gh issue view <n> --comments`), verbatim.
-3. The paths of the documents the issue cites.
-4. **General claims to prove by enumeration**: every "all", "every", "each", "none" of the plan or the report draft.
-5. The plan (plan checkpoint) or the report draft (delivery).
-6. Delivery and replies only: `git log --oneline develop..HEAD` and the full `git diff develop...HEAD`, pasted from the command output, never summarised.
+Then run the review:
 
-Then call the `judge-dredd` subagent with the brief's path as the **whole** prompt.
+```bash
+node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<checkpoint>.md
+```
+
+It runs Judge Dredd headless (`claude -p`, project settings only, no MCP server, no hooks, no `CLAUDE.md`, no automatic memory) and writes its answer to `.scratch/judge-dredd/<issue>-<checkpoint>.answer.md`, headed by the SHA-256 of the brief. A review takes several minutes: run it in the background (the Bash tool's `run_in_background`), not in the foreground where the tool's timeout kills it. Options: `--model` (default `opus`), `--budget` in USD (default 5, spent on the user's account), `--timeout` in minutes (default 30). An answer that holds no verdict (interrupted or truncated run), or a delivery answer that judges no acceptance criterion, is not written: run it again, with a higher `--budget` if needed.
+
+For a plan, the `judge-dredd` subagent can also be called in the session with the brief's path as the **whole** prompt. For a delivery, only `run.mjs` counts: the answer file is what `record.mjs reviewed` checks, and nothing else may write it.
 
 ## The lead's obligations
 
 1. **Every finding is shown to the user**, with the lead's opinion: fixed, or rejected and why. No finding is dropped or rejected silently. The lead acts on its own disposition without waiting, unless a finding raises a decision that is the user's.
 2. **General claims are proven** by an enumeration (a command, a Grep), never by memory.
 3. **Every mechanism the lead invents gets an attack pass**: how it fails or is bypassed, and a test of each state transition it meets.
+4. After the `delivery` review, record its outcome once for the branch:
+
+   ```bash
+   node scripts/agent-qa/record.mjs reviewed --brief .scratch/judge-dredd/<issue>-delivery.md --dispositions "<each finding: fixed, or rejected and why>"
+   ```
+
+   The record is refused unless the brief is a `delivery` brief of `.scratch/judge-dredd/` built for the current state of the code, its issue is the one of the task branch (`feat/<issue>-…`), and `run.mjs` wrote an answer to that exact brief that judges at least one acceptance criterion.
+
+## Enforcement
+
+Four hooks in `.claude/settings.json` apply to every Claude Code session in this repository.
+
+- **The guard** (`PreToolUse`, `scripts/agent-review/agent-guard.mjs`): a `judge-dredd` subagent call is denied unless its prompt is one path to an existing regular file `.scratch/judge-dredd/<issue>-<plan|delivery|replies>.md`; a `claude … judge-dredd` command in Bash or PowerShell is denied too. Edit, Write, MultiEdit and NotebookEdit are denied on briefs, answers and the records in `.qa/` (paths matched on their last components, case-insensitively, with either separator); Bash and PowerShell commands that name one of them together with a write operation (`>`, `tee`, `sed -i`, `cp`, `mv`, `rm`, `touch`, `git checkout`, `Set-Content`, `Out-File`, `Copy-Item`, `Remove-Item`, `[IO.File]::Write…` and others) are denied. A single call of `brief.mjs`, `run.mjs` or `record.mjs` alone on its line passes, and so do the `.proposal.md` files.
+- **The Stop hook** (`scripts/agent-qa/qa-guard.mjs`): a turn that leaves the guarded code changed ends only with a verification recorded for its current state (`verification.md`) **and** a delivery review recorded for the task's branch. See `verification.md` > Recording the verification for the guarded paths, the session baseline and the deferral.
+- **SessionStart** and **UserPromptSubmit** (`session-start.mjs`, `prompt-submit.mjs`) record the session's baseline and the time of the user's last message.
+
+The review record names its branch: later states of the same task branch (fixes after the review, a pull request review) only need a new verification. `develop`, `main` and a detached head never carry a review over.
 
 ## Limits
 
-Nothing enforces these checkpoints yet: they rest on the lead's good faith. Once the codebase exists, add the enforcement used in `sprkl/constat-ai`: a script that builds the brief from GitHub and git, a `PreToolUse` guard that only lets `judge-dredd` receive a brief path, and a `Stop` hook that requires the delivery review and the verification record for the current state of the code. Judge Dredd's agreement is weak evidence, since it shares the lead's model family.
+All of these rest on the lead's good faith:
+
+- The shell check reads the command line only: an interpreter that writes a file (`node -e`, `python -c`), or a `cd` into `.scratch/judge-dredd/` followed by a bare file name, passes. A command that names a brief and contains a write operation is refused even when harmless: run the scripts alone on their line.
+- The `plan` checkpoint is required by this procedure but not checked by a hook.
+- The review record is bound to a branch, not to the end of the work: a delivery review recorded early on a task branch satisfies the Stop hook for the rest of that branch, and its dispositions are not compared with the findings of the answer. The procedure (delivery as the last step) is what prevents this.
+- The guard, the hooks and `.claude/settings.json` can be changed by the agent; they are part of the guarded code, so changing them requires a verification and a review, but a `disableAllHooks` in `.claude/settings.local.json` (not tracked) switches everything off. That switch is the user's, never the agent's.
+- Subagents are not checked by the Stop hook (`SubagentStop` is not hooked): a subagent that changes code is checked only when the lead's session stops in the same checkout. See `verification.md` > Limits.
+- Judge Dredd's agreement is weak evidence, since it shares the lead's model family.
