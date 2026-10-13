@@ -40,7 +40,9 @@ Code that runs on the audio thread (the `process` path of the engine, a module o
 - allocate or free memory, lock a mutex, block, do I/O, log, or call into the OS;
 - panic on any input: clamp, saturate or skip instead.
 
-Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics). Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
+Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics).
+
+Known exception, until cross-origin isolation is decided: in the web worklet (`web/src/lib/engine/worklet.ts`) commands arrive through `postMessage` and the meter goes back through `postMessage` about 30 times per second, which allocates small JavaScript objects on the audio thread; the wasm instance is created in the worklet's message handler, once, before any audio. Moving both to a `SharedArrayBuffer` needs COOP/COEP headers. Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
 
 ## Branches
 

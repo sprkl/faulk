@@ -60,7 +60,8 @@ type: "pairing_refused"
  */
 buffer_frames?: (number | null)
 /**
- * Output latency estimated from the buffer size, not measured.
+ * Output latency estimated from one callback buffer plus the driver's
+ * reported output delay; not measured.
  */
 estimated_latency_ms?: (number | null)
 protocol: number

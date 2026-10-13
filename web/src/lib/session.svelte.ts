@@ -45,6 +45,8 @@ export class Session {
   notice = $state<MessageKey | null>(null)
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
 
+  /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
+  private lastWebInput: string | null = null
   private web: WebEngine | null = null
   private native: NativeEngine | null = null
   private midi: WebMidiHost | null = null
@@ -76,7 +78,7 @@ export class Session {
         this.inputs = inputs
         this.selectedInput = selected
       },
-      onMidiActivity: (note, velocity) => this.light(note, velocity),
+      onMidiActivity: (note, velocity) => this.markNote(note, velocity),
       onError: (code) => {
         if (code === 'session.replaced') this.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.notice = 'midi.connectError'
@@ -125,7 +127,7 @@ export class Session {
       onCommand: (command) => {
         if (this.mode === 'web') this.run(command)
       },
-      onActivity: (note, velocity) => this.light(note, velocity),
+      onActivity: (note, velocity) => this.markNote(note, velocity),
     })
     this.midiState = (await this.midi.enable()) ? 'ok' : 'denied'
   }
@@ -140,16 +142,18 @@ export class Session {
       case 'midi.list_inputs':
       case 'midi.select_input':
         if (this.native) this.native.run(command)
-        else if (command.type === 'midi.select_input') this.midi?.select(command.id ?? null)
-        else this.midi?.refresh()
+        else if (command.type === 'midi.select_input') {
+          this.lastWebInput = command.id ?? null
+          this.midi?.select(this.lastWebInput)
+        } else this.midi?.refresh()
         break
       case 'note.on':
         this.engine?.run(command)
-        this.light(command.note, command.velocity)
+        this.markNote(command.note, command.velocity)
         break
       case 'note.off':
         this.engine?.run(command)
-        this.light(command.note, 0)
+        this.markNote(command.note, 0)
         break
       case 'note.all_off':
         this.engine?.run(command)
@@ -158,7 +162,8 @@ export class Session {
     }
   }
 
-  private light(note: number, velocity: number) {
+  /** Records which notes sound, for the piano strip and the MIDI activity light. */
+  private markNote(note: number, velocity: number) {
     const others = this.activeNotes.filter((n) => n !== note)
     this.activeNotes = velocity > 0 ? [...others, note] : others
   }
@@ -169,15 +174,17 @@ export class Session {
     }
   }
 
-  async checkHelper() {
+  /** Probes for the helper; returns what was found. */
+  async checkHelper(): Promise<HelperState> {
     this.helper = 'checking'
     const result = await probeHelper()
-    if (this.native) return
+    if (this.native) return this.helper
     if (result.status === 'available') this.helper = 'available'
     else if (result.status === 'incompatible') {
       this.helper = 'incompatible'
       this.helperProtocol = result.protocol
     } else this.helper = 'absent'
+    return this.helper
   }
 
   async pair(code: string) {
@@ -216,12 +223,14 @@ export class Session {
       native.run({ type: 'midi.list_inputs' })
       await this.web?.suspend()
     } catch {
-      // The token is no longer valid (helper reinstalled) or the helper vanished.
-      storage()?.removeItem(TOKEN_KEY)
-      this.paired = false
       this.native = null
       await this.enterWeb()
-      await this.checkHelper()
+      // Forget the token only when the helper answers but refused the session (new
+      // token after a reinstall); a helper that is gone or busy keeps the pairing.
+      if ((await this.checkHelper()) === 'available') {
+        storage()?.removeItem(TOKEN_KEY)
+        this.paired = false
+      }
     }
   }
 
@@ -239,6 +248,7 @@ export class Session {
     await this.web.resume()
     this.status = this.web.status()
     this.replayParams(this.web)
-    this.midi?.refresh()
+    // Reopen the input that was playing before Boost (the helper had it meanwhile).
+    this.midi?.select(this.lastWebInput)
   }
 }

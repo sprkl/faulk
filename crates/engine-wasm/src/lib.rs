@@ -6,8 +6,8 @@
 //! each render quantum calls [`fk_render`] and copies the two output buffers, whose
 //! addresses [`fk_left_ptr`] and [`fk_right_ptr`] give, from the module's memory.
 //!
-//! Every export accepts a null or dangling-free instance pointer only as returned by
-//! [`fk_new`]; a null pointer is ignored, never dereferenced.
+//! Every export takes an instance pointer that must be either null or a live pointer
+//! returned by [`fk_new`]; a null pointer is ignored, never dereferenced.
 
 use engine::{Param, Synth};
 

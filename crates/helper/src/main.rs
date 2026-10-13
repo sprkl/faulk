@@ -90,7 +90,10 @@ async fn main() {
     let stream = device
         .build_output_stream(
             config,
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                let at = info.timestamp();
+                core.meter()
+                    .set_output_delay(at.playback.saturating_duration_since(at.callback));
                 #[cfg(debug_assertions)]
                 assert_no_alloc::assert_no_alloc(|| core.process(data, channels));
                 #[cfg(not(debug_assertions))]

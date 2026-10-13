@@ -28,8 +28,16 @@ describe('computer keyboard', () => {
     const input = document.createElement('input')
     document.body.append(input)
     expect(ignoreKeyEvent({ ...base, target: input })).toBe(true)
-    const range = document.createElement('div')
-    range.innerHTML = '<label><input type="range"></label>'
-    expect(ignoreKeyEvent({ ...base, target: range.querySelector('input') })).toBe(true)
+    const field = document.createElement('div')
+    field.innerHTML = '<label><input type="text"></label><textarea></textarea>'
+    expect(ignoreKeyEvent({ ...base, target: field.querySelector('input') })).toBe(true)
+    expect(ignoreKeyEvent({ ...base, target: field.querySelector('textarea') })).toBe(true)
+  })
+
+  it('keeps playing while a knob, button, radio or checkbox has the focus', () => {
+    const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false }
+    const box = document.createElement('div')
+    box.innerHTML = '<input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
+    for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
   })
 })

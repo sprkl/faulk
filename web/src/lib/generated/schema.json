@@ -496,7 +496,7 @@
             ]
           },
           "estimated_latency_ms": {
-            "description": "Output latency estimated from the buffer size, not measured.",
+            "description": "Output latency estimated from one callback buffer plus the driver's\nreported output delay; not measured.",
             "format": "float",
             "type": [
               "number",

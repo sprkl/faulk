@@ -33,6 +33,9 @@ pub struct Meter {
     voices: AtomicU32,
     /// Frames per callback, 0 until the first callback.
     callback_frames: AtomicU32,
+    /// Delay between the callback and the moment its first sample is played, as the
+    /// driver reports it, in microseconds (0 when the backend reports nothing).
+    output_delay_us: AtomicU32,
 }
 
 impl Meter {
@@ -47,6 +50,22 @@ impl Meter {
             0 => None,
             n => Some(n),
         }
+    }
+
+    /// Records the driver's output delay. Allocation-free: called from the audio callback.
+    pub fn set_output_delay(&self, delay: std::time::Duration) {
+        let us = delay.as_micros().min(u128::from(u32::MAX)) as u32;
+        self.output_delay_us.store(us, Ordering::Relaxed);
+    }
+
+    /// Estimated output latency in ms: one callback buffer (an event waits for the next
+    /// callback) plus the driver's output delay. An estimate from what the driver
+    /// reports, never a measurement. `None` before the first callback.
+    pub fn estimated_latency_ms(&self, sample_rate: f32) -> Option<f32> {
+        let frames = self.callback_frames()?;
+        let buffer_ms = frames as f32 * 1000.0 / sample_rate;
+        let delay_ms = self.output_delay_us.load(Ordering::Relaxed) as f32 / 1000.0;
+        Some(buffer_ms + delay_ms)
     }
 }
 
@@ -90,6 +109,11 @@ pub fn audio_core(sample_rate: f32, meter: Arc<Meter>) -> (AudioCore, EventSende
 }
 
 impl AudioCore {
+    /// The values this core publishes for the UI.
+    pub fn meter(&self) -> &Meter {
+        &self.meter
+    }
+
     /// Fills an interleaved output buffer of `channels` channels.
     /// Channel 0 gets the left signal, channel 1 the right one, others silence.
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
@@ -218,6 +242,20 @@ mod tests {
         assert_eq!(voices, 1);
         assert_eq!(meter.callback_frames(), Some(4_800));
         assert_eq!(meter.take().0, 0.0, "the peak resets after a read");
+    }
+
+    #[test]
+    fn latency_estimate_adds_the_driver_delay_to_one_buffer() {
+        let meter = Meter::default();
+        assert_eq!(
+            meter.estimated_latency_ms(48_000.0),
+            None,
+            "unknown before the first callback"
+        );
+        meter.callback_frames.store(480, Ordering::Relaxed);
+        assert_eq!(meter.estimated_latency_ms(48_000.0), Some(10.0));
+        meter.set_output_delay(std::time::Duration::from_micros(12_500));
+        assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
     }
 
     #[test]

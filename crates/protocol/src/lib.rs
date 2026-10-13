@@ -64,7 +64,8 @@ pub enum ServerMessage {
         sample_rate: f32,
         /// Frames per audio callback, once the device reported it.
         buffer_frames: Option<u32>,
-        /// Output latency estimated from the buffer size, not measured.
+        /// Output latency estimated from one callback buffer plus the driver's
+        /// reported output delay; not measured.
         estimated_latency_ms: Option<f32>,
     },
     /// The MIDI inputs available, and the one selected.

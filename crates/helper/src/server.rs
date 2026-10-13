@@ -90,12 +90,11 @@ impl Shared {
     }
 
     fn hello(&self) -> ServerMessage {
-        let buffer_frames = self.meter.callback_frames();
         ServerMessage::Hello {
             protocol: PROTOCOL_VERSION,
             sample_rate: self.sample_rate,
-            buffer_frames,
-            estimated_latency_ms: buffer_frames.map(|f| f as f32 * 1000.0 / self.sample_rate),
+            buffer_frames: self.meter.callback_frames(),
+            estimated_latency_ms: self.meter.estimated_latency_ms(self.sample_rate),
         }
     }
 

@@ -32,10 +32,18 @@ export function clampOctave(octave: number): number {
   return Math.min(MAX_OCTAVE, Math.max(MIN_OCTAVE, octave))
 }
 
-/** True when the event must not play: key repeat, modifier held, or typing in a field. */
+/** Input types where the user types text: letters must not play notes there. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'number', 'email', 'password', 'tel', 'url', 'date', 'time'])
+
+/**
+ * True when the event must not play: key repeat, modifier held, or typing text.
+ * Knobs (range inputs), buttons, radios and checkboxes keep the keyboard playing,
+ * so a sound can be tweaked with the mouse while notes are held.
+ */
 export function ignoreKeyEvent(event: Pick<KeyboardEvent, 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target'>): boolean {
   if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return true
   const target = event.target as HTMLElement | null
   if (!target || typeof target.closest !== 'function') return false
-  return target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null
+  if (target.closest('textarea, select, [contenteditable=""], [contenteditable="true"]')) return true
+  return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
 }
