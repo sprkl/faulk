@@ -195,6 +195,79 @@ export function localFingerprint(cwd) {
   return codeState(cwd).local;
 }
 
+/**
+ * What HEAD points to, read from the git directory without spawning git:
+ * a branch name, or a commit for a detached head. `null` when unreadable.
+ */
+export function currentRef(cwd) {
+  try {
+    const head = readFileSync(join(gitDir(cwd), "HEAD"), "utf8").trim();
+    return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `ref` names a branch of the checkout (not a commit). */
+const isBranchName = (ref) => !/^[0-9a-f]{40}$/.test(ref);
+
+/**
+ * Fingerprint of the committed content of a branch (or commit) against its
+ * merge base with `develop`, in the same form as `changeFingerprint` (so a
+ * branch whose tip holds exactly the verified working tree gets the same
+ * value). `undefined` when the ref no longer exists.
+ */
+export function refFingerprint(cwd, ref) {
+  let tip;
+  try {
+    tip = git(cwd, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`).trim();
+  } catch {
+    return undefined;
+  }
+  let base;
+  for (const develop of ["origin/develop", "develop"]) {
+    try {
+      base = git(cwd, "merge-base", tip, develop).trim();
+      break;
+    } catch {
+      // Missing ref: try the next one.
+    }
+  }
+  base ??= git(cwd, "rev-list", "--max-parents=0", tip).split("\n")[0];
+  const files = lines(git(cwd, "diff", "--name-only", "--no-renames", base, tip, "--", ...CODE_PATHS)).sort();
+  if (files.length === 0) {
+    return null;
+  }
+  const hash = createHash("sha256");
+  for (const file of files) {
+    let content;
+    try {
+      content = execFileSync("git", ["show", `${tip}:${file}`], { cwd, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
+    } catch {
+      content = "\0deleted";
+    }
+    hash.update(`${file}\0`).update(content);
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+export { isBranchName };
+
+/** Stash entries created at or after `since` (ISO time), newest first. */
+export function stashesSince(cwd, since) {
+  let output;
+  try {
+    output = git(cwd, "log", "-g", "--format=%gd %cI", "refs/stash");
+  } catch {
+    return [];
+  }
+  const limit = Date.parse(since);
+  return lines(output)
+    .map((line) => line.split(" "))
+    .filter(([, date]) => Date.parse(date) >= limit - 1000)
+    .map(([entry]) => entry);
+}
+
 /** The commit HEAD points to, or `null` (no commit yet). */
 export function headOf(cwd) {
   try {
@@ -254,6 +327,14 @@ export function currentBranch(cwd) {
 export const QA_DIR_NAME = "faulk-qa";
 
 const gitDirs = new Map();
+/** The git directory of a checkout (cached per process). */
+export function gitDir(cwd) {
+  if (!gitDirs.has(cwd)) {
+    gitDirs.set(cwd, git(cwd, "rev-parse", "--absolute-git-dir").trim());
+  }
+  return gitDirs.get(cwd);
+}
+
 /**
  * The records of a checkout live in its own git directory (`.git/faulk-qa/`,
  * or `.git/worktrees/<name>/faulk-qa/` for a linked worktree): outside the
@@ -261,10 +342,7 @@ const gitDirs = new Map();
  * reaches them, and each worktree keeps its own.
  */
 export function qaDir(cwd) {
-  if (!gitDirs.has(cwd)) {
-    gitDirs.set(cwd, git(cwd, "rev-parse", "--absolute-git-dir").trim());
-  }
-  return join(gitDirs.get(cwd), QA_DIR_NAME);
+  return join(gitDir(cwd), QA_DIR_NAME);
 }
 export const verificationPath = (cwd) => join(qaDir(cwd), "last-run.json");
 export const reviewPath = (cwd) => join(qaDir(cwd), "review.json");

@@ -30,6 +30,8 @@ node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<checkpoint>.md
 
 It runs Judge Dredd headless (`claude -p`, project settings only, `settings.local.json` excluded, no MCP server, no hooks, no `CLAUDE.md`, no automatic memory) and writes its answer to `.scratch/judge-dredd/<issue>-<checkpoint>.answer.md`, headed by the SHA-256 of the brief and the model. A review takes several minutes: run it in the background (the Bash tool's `run_in_background`), not in the foreground where the tool's timeout kills it. Options: `--model` (default: the model of `.claude/agents/judge-dredd.md`; a review by another model is refused by `record.mjs`), `--budget` in USD (default 5, spent on the user's account), `--timeout` in minutes (default 30).
 
+The isolation from `CLAUDE.md` was checked on 2026-10-14 with Claude Code 2.1.296: the same `claude -p` flags as `run.mjs` (project settings, `--settings` with `claudeMdExcludes`, `--agents` file, `--agent judge-dredd`, on Haiku), asked to quote any project instruction mentioning Faulk, answered "NOT LOADED"; a control run without the exclusions and the agent quoted the first words of `CLAUDE.md`. The run does not tell whether `claudeMdExcludes` or the agent's `omitClaudeMd` does the work (the `--agents` definition carries no `omitClaudeMd`, so it is the exclusions or `--agent` itself). Re-check after a Claude Code upgrade.
+
 `brief.mjs --issue-file <json>` builds a brief from a local copy of the issue, for tests and offline work; such a brief says `issue-source: file` and does not count for the review record. An answer that holds no verdict (interrupted or truncated run), or a delivery answer that judges no acceptance criterion, is not written: run it again, with a higher `--budget` if needed.
 
 For a plan, the `judge-dredd` subagent can also be called in the session with the brief's path as the **whole** prompt. For a delivery, only `run.mjs` counts: the answer file is what `record.mjs reviewed` checks, and nothing else may write it.
@@ -61,11 +63,15 @@ Five hooks in `.claude/settings.json` apply to every Claude Code session in this
 
 The review record names its branch: later states of the same task branch (fixes after the review, a pull request review) only need a new verification. Only a branch named by the convention (`feat|fix|spike/<issue>-<slug>`) carries a review over; on `develop`, `main`, a detached head or any other name, a review holds for the state it reviewed only.
 
+## Threat model
+
+The guard and the Stop hook stop an honest agent that skips or forgets a step. They do not stop a deliberately evasive agent: hiding a write from the hooks on purpose (interpreters, encoded commands, variables expanding to paths, background processes) is out of scope, and listed below and in `verification.md` > Limits.
+
 ## Limits
 
 All of these rest on the lead's good faith:
 
-- The shell check reads the command line only: an interpreter that writes a file (`node -e`, `python -c`) passes, and so does a glob that names neither folder (`rm ../*/*` from the wrong place). A command that names a brief and contains a write operation is refused even when harmless: run the scripts alone on their line.
+- The shell check reads the command line only, after removing quotes and escapes the way bash and PowerShell do: an interpreter that writes a file (`node -e`, `python -c`), an encoded command, a variable expanding to a path, or a glob that names neither folder (`rm ../*/*` from the wrong place) passes. A command that names a brief and contains a write operation is refused even when harmless: run the scripts alone on their line.
 - `git clean -x` deletes `.scratch/`, and with it the briefs and answers: that loses a review, never forges one. The records are out of its reach.
 - The `plan` checkpoint is required by this procedure but not checked by a hook.
 - The review record is bound to a branch, not to the end of the work: a delivery review recorded early on a task branch satisfies the Stop hook for the rest of that branch, and its dispositions are not compared with the findings of the answer. The procedure (delivery as the last step) is what prevents this.

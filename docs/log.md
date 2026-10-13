@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-14
+* **Update** (#6, third delivery review): `agents/verification.md` and `agents/judge-dredd.md` state the threat model (honest agents, not deliberate evasion), judge a branch the session wrote on wherever HEAD is, block on a writer's stash, stop attributing a checkout first seen at the end of a call, read shell words the way the shells do, measure the edit-tool cost, and record the check of the headless run's isolation from `CLAUDE.md`.
 * **Update** (#6, second delivery review): `agents/verification.md` and `agents/judge-dredd.md` move the records to the git directory (`faulk-qa`), describe the attribution per tool kind, branch switches and pulls, dropped calls, the guard-change warning, the measured cost with its method, and the remaining limits.
 
 ## 2026-10-13

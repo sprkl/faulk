@@ -13,7 +13,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { changeFingerprint, codeState, hookRoots } from "../agent-qa/fingerprint.mjs";
+import { changeFingerprint, codeState, currentRef, hookRoots } from "../agent-qa/fingerprint.mjs";
 import { editTarget, ensureBaselines, safely, sessionKey, sessionState, stateRoot } from "../agent-qa/session.mjs";
 import { EDIT_TOOLS, SNAPSHOT_TOOLS, judgeToolCall } from "./guard-core.mjs";
 
@@ -60,7 +60,7 @@ try {
       for (const root of roots) {
         // A session already known to have written there is judged anyway:
         // no snapshot needed, and no cost.
-        if (!session.isWriter(root)) {
+        if (!session.isWriter(root, currentRef(root))) {
           const state = safely(codeState, root);
           session.savePre(
             input.tool_use_id,

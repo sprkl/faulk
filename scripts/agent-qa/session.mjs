@@ -70,7 +70,9 @@ function write(path, value, exclusive = false) {
 export function sessionState(state, key) {
   const dir = sessionDir(state, key);
   const baselinePath = (root) => join(dir, `baseline-${rootId(root)}.json`);
-  const writerPath = (root) => join(dir, `wrote-${rootId(root)}.json`);
+  // One marker per checkout and per branch (or commit) the session wrote on.
+  const writerPath = (root, ref) => join(dir, `wrote-${rootId(root)}-${rootId(String(ref ?? "(none)"))}.json`);
+  const writerPattern = (root) => new RegExp(`^wrote-${root ? rootId(root) : "[0-9a-f]{16}"}-[0-9a-f]{16}\\.json$`);
   const movePath = (root) => join(dir, `moved-${rootId(root)}.json`);
   const prePath = (toolUseId, root) => join(dir, `pre-${safeId(toolUseId)}-${rootId(root)}.json`);
   const listed = (pattern) => (existsSync(dir) ? readdirSync(dir).filter((name) => pattern.test(name)) : []);
@@ -85,12 +87,23 @@ export function sessionState(state, key) {
       write(movePath(root), { root, move });
     },
     lastMove: (root) => read(movePath(root)),
-    isWriter: (root) => existsSync(writerPath(root)),
-    markWriter: (root, tool) => write(writerPath(root), { root, tool }),
-    writerRoots: () =>
-      listed(/^wrote-[0-9a-f]{16}\.json$/)
-        .map((name) => read(join(dir, name))?.root)
-        .filter((root) => typeof root === "string"),
+    /** Wrote in this checkout on `ref`, or on any ref when `ref` is undefined. */
+    isWriter: (root, ref) =>
+      ref === undefined ? listed(writerPattern(root)).length > 0 : existsSync(writerPath(root, ref)),
+    /** `ref`: the branch (or commit, on a detached head) the session wrote on. Keeps the first time. */
+    markWriter: (root, tool, ref) => write(writerPath(root, ref), { root, ref: ref ?? null, tool }, true),
+    /** Every `{ root, ref, at }` the session wrote on. */
+    writers: () =>
+      listed(writerPattern())
+        .map((name) => read(join(dir, name)))
+        .filter((marker) => typeof marker?.root === "string"),
+    writerRoots: () => [
+      ...new Set(
+        listed(writerPattern())
+          .map((name) => read(join(dir, name))?.root)
+          .filter((root) => typeof root === "string"),
+      ),
+    ],
     savePre: (toolUseId, root, snapshot) => write(prePath(toolUseId, root), { root, ...snapshot }),
     /** The snapshots taken before this tool call, removed once read. */
     takePre: (toolUseId) => {

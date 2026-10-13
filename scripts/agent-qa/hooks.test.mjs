@@ -292,12 +292,47 @@ describe("Stop hook: what blocks", () => {
     assert.ok(output.reason.includes(top), output.reason);
   });
 
-  it("attributes a change to a checkout entered and edited within one call", () => {
+  it("limit: a change made in the very call that enters a checkout is not attributed; the next measured call is", () => {
     const project = makeRepo();
     const worktree = makeRepo("feat/7-y");
     startSession(project, "cd");
     toolCall(worktree, "cd", () => writeCode(worktree), { cwdBefore: project, cwdAfter: worktree, project });
+    assert.equal(stop(project, "cd", { cwd: worktree }), null);
+    toolCall(worktree, "cd", () => writeCode(worktree, "pub fn gain() -> f32 { 0.15 }\n"), { project });
     assert.equal(stop(project, "cd", { cwd: worktree }).decision, "block");
+  });
+
+  it("a writer that commits then leaves its branch for develop is still judged on that branch", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    toolCall(root, "s1", () => git(root, "commit", "-q", "-am", "work"));
+    toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+    const output = stop(root);
+    assert.equal(output.decision, "block");
+    assert.match(output.reason, /wrote this code on feat\/6-x, and HEAD is now on develop: switch back \(git switch feat\/6-x\)/);
+  });
+
+  it("a writer that verified and reviewed its branch can leave it", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    toolCall(root, "s1", () => git(root, "commit", "-q", "-am", "work"));
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    deliveryReview(root);
+    assert.equal(review(root).status, 0);
+    toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+    assert.equal(stop(root), null);
+  });
+
+  it("a writer that stashes its changes is still judged", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    toolCall(root, "s1", () => git(root, "stash", "-q", "-u"));
+    const output = stop(root);
+    assert.equal(output.decision, "block");
+    assert.match(output.reason, /stash@\{0\} was stashed since: stashed code is not verified\. Restore it \(git stash pop\)/);
   });
 });
 
@@ -339,6 +374,18 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     startSession(root, "reader");
     toolCall(root, "reader", () => writeCode(root, "pub fn gain() -> f32 { 0.4 }\n"));
     assert.equal(stop(root, "reader").decision, "block");
+  });
+
+  it("when it enters a worktree that carries another agent's commits and uncommitted changes, read-only", () => {
+    const project = makeRepo();
+    const worktree = makeRepo("feat/9-other");
+    writeCode(worktree);
+    git(worktree, "commit", "-q", "-am", "another agent's commit");
+    writeFileSync(join(worktree, "crates", "engine", "src", "wip.rs"), "pub const WIP: u8 = 1;\n");
+    startSession(project, "visitor");
+    toolCall(worktree, "visitor", () => {}, { cwdBefore: project, cwdAfter: worktree, project });
+    toolCall(worktree, "visitor", () => git(worktree, "log", "-1"), { project });
+    assert.equal(stop(project, "visitor", { cwd: worktree }), null);
   });
 
   it("after a call that was denied or interrupted, followed by someone else's edit", () => {
@@ -409,7 +456,8 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     git(empty, "init", "-q", "-b", "develop");
     mkdirSync(qa(empty, "sessions", "s1"), { recursive: true });
     // A writer marker for a checkout whose fingerprint cannot be computed.
-    writeFileSync(qa(empty, "sessions", "s1", `wrote-${rootIdOf(empty)}.json`), JSON.stringify({ root: toplevel(empty) }));
+    const none = createHash("sha256").update("(none)").digest("hex").slice(0, 16);
+    writeFileSync(qa(empty, "sessions", "s1", `wrote-${rootIdOf(empty)}-${none}.json`), JSON.stringify({ root: toplevel(empty), ref: null }));
     assert.match(stop(empty).systemMessage, /could not check the code/);
   });
 

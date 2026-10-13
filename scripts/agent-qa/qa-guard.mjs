@@ -19,30 +19,47 @@ import {
   changedFiles,
   changedGuardFiles,
   currentBranch,
+  currentRef,
   deferralPath,
   fingerprintOf,
   hookRoots,
+  isBranchName,
   readRecord,
+  refFingerprint,
   reviewPath,
+  stashesSince,
   verificationPath,
 } from "./fingerprint.mjs";
 import { ensureBaselines, sessionKey, sessionState, stateRoot } from "./session.mjs";
 import { blockReason, stopDecision } from "./stop-core.mjs";
 
-/** The reason to block for one checkout, or `null` to let the turn end. */
-function judge(root, session) {
-  const writer = session ? session.isWriter(root) : false;
-  // A checkout removed since (a worktree cleaned up) has nothing left to verify.
-  if (!writer || !existsSync(root)) {
-    return null;
+/**
+ * Judges one branch (or commit) the session wrote on in a checkout: the
+ * working tree when HEAD is still on it, its committed content otherwise, so
+ * that leaving the branch (`git switch develop`) does not leave its code
+ * unverified. Returns `{ reason }` to block, `{ warning }`, or `{}`.
+ */
+function judgeRef(root, session, marker, current) {
+  const onIt = marker.ref === null || marker.ref === current;
+  let files;
+  let fingerprint;
+  if (onIt) {
+    files = changedFiles(root);
+    fingerprint = fingerprintOf(root, files);
+  } else {
+    fingerprint = refFingerprint(root, marker.ref);
+    if (fingerprint === undefined) {
+      return {
+        warning: `This session wrote code on ${marker.ref} in ${root}, which no longer exists: the end-of-turn guard cannot check it.`,
+      };
+    }
+    files = [`the committed content of ${marker.ref}`];
   }
-  const files = changedFiles(root);
-  const fingerprint = fingerprintOf(root, files);
   const decision = stopDecision({
     fingerprint,
-    writer,
-    baseline: session.baseline(root)?.fingerprint,
-    branch: currentBranch(root) ?? undefined,
+    writer: true,
+    baseline: onIt ? session.baseline(root)?.fingerprint : undefined,
+    branch: onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined,
     verification: readRecord(verificationPath(root)),
     review: readRecord(reviewPath(root)),
     deferral: readRecord(deferralPath(root)),
@@ -55,13 +72,45 @@ function judge(root, session) {
     );
   }
   if (decision.allow) {
-    return null;
+    return {};
+  }
+  const notes = [];
+  if (!onIt) {
+    notes.push(
+      `This session wrote this code on ${marker.ref}, and HEAD is now on ${current ?? "another commit"}: switch back (git switch ${marker.ref}) to verify and record it.`,
+    );
   }
   const move = session.lastMove(root);
-  const moved = move?.move
-    ? ` (A call of this session moved HEAD without authoring code: "${move.move}"; the baseline was moved with it, so only the changes made by the session's own calls count.)`
-    : "";
-  return blockReason({ root, fingerprint, files, missing: decision.missing }) + moved;
+  if (move?.move) {
+    notes.push(
+      `A call of this session moved HEAD without authoring code ("${move.move}"); the baseline moved with it, so only the changes made by the session's own calls count.`,
+    );
+  }
+  return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing }), ...notes].join(" ") };
+}
+
+/** Reasons to block and warnings for one checkout. */
+function judge(root, session) {
+  // A checkout removed since (a worktree cleaned up) has nothing left to verify.
+  if (!session || !existsSync(root)) {
+    return [];
+  }
+  const markers = session.writers().filter((marker) => marker.root === root);
+  if (markers.length === 0) {
+    return [];
+  }
+  const current = currentRef(root);
+  const results = markers.map((marker) => judgeRef(root, session, marker, current));
+  // A stash made since the session first wrote here holds code it may have
+  // changed, out of the working tree: it is still pending.
+  const since = markers.map((marker) => marker.at).sort()[0];
+  const stashes = stashesSince(root, since);
+  if (stashes.length > 0) {
+    results.push({
+      reason: `This session wrote code in ${root} and ${stashes.join(", ")} was stashed since: stashed code is not verified. Restore it (git stash pop), then verify and record it as the guard asks; drop the stash (git stash drop) only if it holds nothing of yours.`,
+    });
+  }
+  return results;
 }
 
 let input = {};
@@ -94,7 +143,9 @@ try {
     // say nothing about who changed the code since: drop their snapshots.
     session.dropPending();
   }
-  const reasons = roots.map((root) => judge(root, session)).filter(Boolean);
+  const results = roots.flatMap((root) => judge(root, session));
+  warnings.push(...results.map((result) => result.warning).filter(Boolean));
+  const reasons = results.map((result) => result.reason).filter(Boolean);
   if (reasons.length > 0) {
     output.decision = "block";
     output.reason = reasons.join("\n\n");

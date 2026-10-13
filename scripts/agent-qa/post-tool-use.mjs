@@ -16,7 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import { EDIT_TOOLS, SNAPSHOT_TOOLS } from "../agent-review/guard-core.mjs";
-import { codeState, headMovesSince, hookRoots } from "./fingerprint.mjs";
+import { codeState, currentRef, headMovesSince, hookRoots } from "./fingerprint.mjs";
 import {
   editTarget,
   isGuardedFile,
@@ -34,8 +34,8 @@ function afterEdit(session, input) {
       continue;
     }
     const target = editTarget(value, [input.cwd, process.env.CLAUDE_PROJECT_DIR]);
-    if (target && isGuardedFile(target.file) && !session.isWriter(target.root)) {
-      session.markWriter(target.root, input.tool_name);
+    if (target && isGuardedFile(target.file)) {
+      session.markWriter(target.root, input.tool_name, currentRef(target.root));
     }
   }
 }
@@ -48,14 +48,25 @@ function afterSnapshotCall(session, input) {
   );
   const roots = [...new Set([...before.keys(), ...hookRoots(input)])];
   for (const root of roots) {
-    if (session.isWriter(root)) {
+    const ref = currentRef(root);
+    if (session.isWriter(root, ref)) {
       continue;
     }
     const snapshot = before.get(root);
-    const baseline = session.baseline(root);
     const state = safely(codeState, root);
     const after = state === "unknown" ? "unknown" : state.fingerprint;
-    if (snapshot?.head && state !== "unknown" && state.head !== snapshot.head) {
+    if (!snapshot) {
+      // The call moved into this checkout (or had no id): its state before
+      // the call is unknown, so the call proves nothing about who changed it.
+      // Its state now becomes the baseline if it has none; only an edit tool
+      // targeting one of its files, or a later measured call, makes the
+      // session a writer there.
+      if (session.baseline(root) === null && after !== "unknown") {
+        session.recordBaseline(root, after, "post-tool-use");
+      }
+      continue;
+    }
+    if (snapshot.head && state !== "unknown" && state.head !== snapshot.head) {
       const moves = headMovesSince(root, snapshot.head);
       const verdict = judgeHeadMove({
         moves,
@@ -65,19 +76,14 @@ function afterSnapshotCall(session, input) {
         localAfter: state.local,
       });
       if (verdict.writer) {
-        session.markWriter(root, input.tool_name);
+        session.markWriter(root, input.tool_name, ref);
       } else if (verdict.rebase) {
         session.rebaseBaseline(root, after, moves?.[0] ?? "HEAD moved");
       }
       continue;
     }
-    if (wroteDuringCall({ before: snapshot?.fingerprint, baseline: baseline?.fingerprint, after })) {
-      session.markWriter(root, input.tool_name);
-    }
-    if (baseline === null) {
-      // First time the hooks see this checkout, after the call: its state
-      // before is unknown, so the baseline cannot clear anything.
-      session.recordBaseline(root, "unknown", "post-tool-use");
+    if (wroteDuringCall({ before: snapshot.fingerprint, after })) {
+      session.markWriter(root, input.tool_name, ref);
     }
   }
 }
