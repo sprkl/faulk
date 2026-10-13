@@ -9,7 +9,16 @@ Le projet démarre. La vision, l'architecture et la première étude technique s
 ```bash
 cd web
 pnpm install
-pnpm dev          # compile le moteur en WebAssembly puis ouvre http://localhost:5173
+pnpm dev          # compile le moteur en WebAssembly puis sert http://localhost:5173
+```
+
+L'application web a deux parties : la page d'accueil publique sur `/` (en anglais, `/fr` en français, `/en` en anglais) et le DAW sur `/app`. La page d'accueil choisit le français si le navigateur est en français ; le choix fait avec le bouton EN / FR est mémorisé et partagé avec le DAW.
+
+Pour vérifier la version statique, telle qu'elle sera publiée :
+
+```bash
+pnpm build        # écrit le site dans web/dist (index.html, en.html, fr.html, app.html)
+pnpm preview      # sert ce build sur http://localhost:4173
 ```
 
 Pour le mode Boost (helper natif, latence basse, MIDI natif) :

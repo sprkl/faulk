@@ -1,0 +1,165 @@
+/* Shared classes of the landing page (artboard "Site · Accueil faulk.app", DS-0.1). */
+
+.landing {
+  background: var(--fk-bg);
+  color: var(--fk-text);
+  font-family: var(--fk-font-ui);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.landing a {
+  color: inherit;
+}
+
+.landing a:hover {
+  color: var(--fk-accent);
+}
+
+/* Page width and gutters of the artboard. */
+.lp-wrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding-inline: clamp(16px, 4.4vw, 64px);
+}
+
+.lp-section {
+  padding-block: clamp(64px, 8vw, 120px);
+}
+
+.lp-display {
+  margin: 0;
+  font-family: var(--fk-font-display);
+  font-stretch: 125%;
+  font-weight: 800;
+}
+
+.lp-h2 {
+  font-size: clamp(36px, 6.6vw, 96px);
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+}
+
+.lp-mono {
+  font-family: var(--fk-font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+/* Spec line: mono labels on a rule, as at the top of the hero and Boost. */
+.lp-meta {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid currentColor;
+}
+
+/* Pill buttons and links. */
+.lp-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  padding: 0 28px;
+  border-radius: var(--fk-radius-pill);
+  border: 1px solid transparent;
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.landing a.lp-pill:hover {
+  color: inherit;
+}
+
+.landing .lp-pill-accent {
+  background: var(--fk-accent);
+  color: #fff;
+}
+
+.landing a.lp-pill-accent:hover {
+  background: var(--fk-accent-strong);
+  color: #fff;
+}
+
+.landing .lp-pill-outline {
+  border-color: var(--fk-text);
+  color: var(--fk-text);
+  background: transparent;
+}
+
+.landing a.lp-pill-outline:hover {
+  background: var(--fk-text);
+  color: var(--fk-bg);
+}
+
+.lp-pill:disabled {
+  cursor: not-allowed;
+}
+
+/* Visible on focus only. */
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -100px;
+  z-index: 10;
+  padding: 8px 16px;
+  border-radius: var(--fk-radius-pill);
+  background: var(--fk-text);
+  color: var(--fk-bg) !important;
+}
+
+.skip:focus {
+  top: 16px;
+}
+
+main:focus {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Grain: two layers of SVG fractal noise over the element, like the artboard's textured volumes.
+ * The noise is generated (feTurbulence), no image file.
+ */
+.lp-grain {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.lp-grain::before,
+.lp-grain::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1.6 -0.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.lp-grain::after {
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+  z-index: 2;
+}
+
+.lp-grain::before {
+  background-size: 110px 110px;
+  mix-blend-mode: soft-light;
+  opacity: 0.5;
+  z-index: 3;
+}

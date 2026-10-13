@@ -34,7 +34,7 @@ cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 ## Web UI (any change under `web/`)
 
 1. In `web/`: `pnpm gen:protocol` (no diff), `pnpm typecheck`, `pnpm lint`, `pnpm test` (builds the wasm engine and runs it under Node), `pnpm build`.
-2. Start the dev server (`pnpm dev`, port 5173) and open the app with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
+2. Start the dev server (`pnpm dev`, port 5173): the landing page is at `/` (`/en`, `/fr`) and the DAW at `/app`. Check the landing page with Playwright at 1440 and 390 px in both languages (no horizontal scroll, keyboard focus, no request to another host, no JavaScript or wasm loaded). Open the DAW (`/app`) with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
 3. Explore beyond the scripted flow: double clicks, reload during playback, helper connected then disconnected, tab in the background.
 
 ## Latency (changes to audio I/O, the worklet, the helper or the protocol)

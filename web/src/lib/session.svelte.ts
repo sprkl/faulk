@@ -3,13 +3,12 @@ import { probeHelper, pairHelper } from './engine/helper-client'
 import { NativeEngine } from './engine/native-engine'
 import { WebEngine } from './engine/web-engine'
 import type { Command, MidiInput, SynthParam } from './generated/protocol'
-import { defaultLang, type Lang, type MessageKey, translate } from './i18n'
+import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from './i18n/index'
 import { WebMidiHost } from './midi/web-midi'
 import { DEFAULT_PARAMS } from './params'
 
 
 const TOKEN_KEY = 'faulk.helperToken'
-const LANG_KEY = 'faulk.lang'
 
 type HelperState = 'checking' | 'absent' | 'incompatible' | 'available' | 'connecting' | 'connected'
 
@@ -26,7 +25,7 @@ function storage(): Storage | null {
  * `Command` passed to `run`.
  */
 export class Session {
-  lang = $state<Lang>(defaultLang(storage()?.getItem(LANG_KEY) ?? null, globalThis.navigator?.language))
+  lang = $state<Lang>(defaultLang(storage()?.getItem(LANG_STORAGE_KEY) ?? null, globalThis.navigator?.language))
   started = $state(false)
   starting = $state(false)
   status = $state<EngineStatus | null>(null)
@@ -55,7 +54,7 @@ export class Session {
 
   setLang(lang: Lang) {
     this.lang = lang
-    storage()?.setItem(LANG_KEY, lang)
+    storage()?.setItem(LANG_STORAGE_KEY, lang)
   }
 
   private get engine(): Engine | null {

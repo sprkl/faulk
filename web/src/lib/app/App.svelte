@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { resolve } from '$app/paths'
   import { onMount } from 'svelte'
-  import Knob from './lib/components/Knob.svelte'
-  import Meter from './lib/components/Meter.svelte'
-  import PianoStrip from './lib/components/PianoStrip.svelte'
-  import type { MessageKey } from './lib/i18n'
-  import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from './lib/keyboard'
-  import { formatValue, KNOB_PARAMS, positionOf, valueAt } from './lib/params'
-  import { Session } from './lib/session.svelte'
+  import Monogram from '../components/Monogram.svelte'
+  import Knob from '../components/Knob.svelte'
+  import Meter from '../components/Meter.svelte'
+  import PianoStrip from '../components/PianoStrip.svelte'
+  import type { MessageKey } from '../i18n/index'
+  import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../keyboard'
+  import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../params'
+  import { Session } from '../session.svelte'
 
   const session = new Session()
   const t = session.t
@@ -78,6 +80,8 @@
 
 <header>
   <div class="brand">
+    <!-- Full page load: the landing page has its own theme and no client-side router. -->
+    <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
     <h1>FAULK</h1>
     <span class="ref">FLK-0.1</span>
     <span class="tagline">{t('app.tagline')}</span>
@@ -234,6 +238,11 @@
     align-items: baseline;
     gap: var(--fk-space-3);
   }
+  .home {
+    align-self: center;
+    display: inline-flex;
+    color: var(--fk-text);
+  }
   h1 {
     margin: 0;
     font-family: var(--fk-font-display);
@@ -243,6 +252,7 @@
     letter-spacing: -0.02em;
   }
   .ref {
+    white-space: nowrap;
     font-family: var(--fk-font-mono);
     font-size: 12px;
     color: var(--fk-text-muted);

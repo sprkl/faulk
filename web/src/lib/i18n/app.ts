@@ -1,7 +1,10 @@
-/** UI text in English and French. Every key must exist in both languages. */
+/** Text of the DAW (`/app`) in English and French. Every key must exist in both languages. */
+
+import { fill, type Lang } from './lang'
 
 const en = {
   'app.tagline': 'Open DAW, in your browser',
+  'app.home': 'Faulk home page',
   'start.title': 'Start the audio engine',
   'start.body': 'Browsers only play sound after a click.',
   'start.button': 'Start audio',
@@ -57,6 +60,7 @@ export type MessageKey = keyof typeof en
 
 const fr: Record<MessageKey, string> = {
   'app.tagline': 'DAW ouvert, dans ton navigateur',
+  'app.home': 'Page d’accueil de Faulk',
   'start.title': 'Démarrer le moteur audio',
   'start.body': 'Les navigateurs ne jouent du son qu’après un clic.',
   'start.button': 'Démarrer l’audio',
@@ -108,14 +112,8 @@ const fr: Record<MessageKey, string> = {
   'lang.switch': 'English',
 }
 
-export type Lang = 'en' | 'fr'
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, fr }
 
 export function translate(lang: Lang, key: MessageKey, vars: Record<string, string | number> = {}): string {
-  return messages[lang][key].replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? `{${name}}`))
-}
-
-export function defaultLang(stored: string | null, browser: string | undefined): Lang {
-  if (stored === 'en' || stored === 'fr') return stored
-  return browser?.toLowerCase().startsWith('fr') ? 'fr' : 'en'
+  return fill(messages[lang][key], vars)
 }

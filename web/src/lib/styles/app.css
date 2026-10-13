@@ -1,0 +1,20 @@
+/* Globals of the DAW (`/app`) only; the shared base is in base.css. */
+
+body {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.value {
+  font-family: var(--fk-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.label {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fk-text-muted);
+}
