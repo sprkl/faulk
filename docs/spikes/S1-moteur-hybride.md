@@ -36,4 +36,4 @@ WebMCP (encore expérimental) et les agents ACP distants (transport en cours de 
 
 ## Prérequis sur la machine
 
-Rust (`rustup`, cible `wasm32-unknown-unknown`), `wasm-pack` ou `wasm-bindgen-cli`, Node et pnpm, le compilateur Faust, Claude Code.
+Rust (`rustup`, cible `wasm32-unknown-unknown`), sous Windows les Visual Studio Build Tools (charge de travail C++) pour le helper, Node 24 et pnpm, le compilateur Faust, Claude Code.

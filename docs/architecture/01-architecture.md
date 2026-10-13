@@ -37,9 +37,9 @@ Un seul moteur audio en Rust, compilé pour deux cibles, et une seule couche de 
 | `crates/engine` | Graphe audio, transport, horloge, DSP. Pur : aucune entrée-sortie, aucune allocation dans le chemin audio. | Rust |
 | `crates/commands` | Toutes les actions de Faulk, typées : nom, schéma d'entrée et de sortie, description pour les agents, annulation. Source unique dont dérivent les outils MCP et les types TypeScript. | Rust, `serde`, `schemars` |
 | `crates/protocol` | Les messages entre l'interface et un moteur (web ou natif) : commandes, état, retours visuels. | Rust, types TypeScript générés |
-| `crates/engine-wasm` | Le moteur dans un `AudioWorklet`. Mémoire partagée avec l'interface via `SharedArrayBuffer`. | Rust, `wasm-bindgen` |
+| `crates/engine-wasm` | Le moteur dans un `AudioWorklet`. Exports C simples (`fk_*`), sans `wasm-bindgen` dont le code d'appui ne se charge pas dans un worklet. La page envoie les octets du `.wasm` au worklet, qui le compile lui-même. Les commandes arrivent par `postMessage`. | Rust |
 | `crates/helper` | Le pont local : le moteur natif, l'audio basse latence, le MIDI, les plugins tiers, le serveur MCP, le lancement des agents ACP, et un serveur WebSocket local vers la page. | Rust, `cpal`, `midir`, `clack`, SDK MCP Rust (`rmcp`), ACP |
-| `web/` | L'interface : arrangement, clips, mixer, Atelier, panneau d'agent. | TypeScript, Vite ; framework à choisir |
+| `web/` | L'interface : arrangement, clips, mixer, Atelier, panneau d'agent. | TypeScript, Svelte 5, Vite |
 | `modules/` | Les modules de Faulk. | Faust d'abord (compilation à la volée), Rust → WASM ensuite |
 
 ## Principes

@@ -29,7 +29,7 @@ Structure lives in GitHub's native fields; labels carry triage state only.
 
 ## Working on a task
 
-The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE.md` > Working on an issue). It stops for the user only on a decision that is theirs, and never merges.
+The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE.md` > Working on an issue). It stops for the user only on a decision that is theirs, and merges the pull request itself once it is ready (`CLAUDE.md`).
 
 - **Start**: assign the task (`gh issue edit <n> --add-assignee @me`) and remove `ready-for-agent`. Create the task's branch from an up-to-date `develop`: `feat/<n>-<slug>` (`fix/` for a bug, `spike/` for a spike).
 - **Plan**: write the plan to `.scratch/judge-dredd/<n>-plan.md`, run Judge Dredd's `plan` review (`judge-dredd.md`), report its findings with the decision taken on each, and start the work.
@@ -44,7 +44,7 @@ The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE
 - **End**, before telling the user the task is finished:
   1. Tick in the issue body every acceptance criterion that is met and verified. Leave the others unticked and explain why.
   2. Post a report comment in French: branch, commits and pull request, decisions taken, verification, review findings and what became of them, deviations from the ticket, out-of-scope defects with the issues created for them.
-- **Close** on merge into `develop` through `Closes #<n>`. The user merges.
+- **Merge and close**: once CI is green, the reviews are settled and nothing waits on the founder, merge into `develop` with a merge commit (`gh pr merge <pr> --merge`); `Closes #<n>` closes the task. A pull request carrying a founder decision or user-facing text to validate waits for the founder.
 
 ## Pull requests as a triage surface
 

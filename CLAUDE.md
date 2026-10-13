@@ -16,16 +16,16 @@ The project is worked on with Claude Code only; this file is the agents' entry p
 
 ## Stack and layout
 
-The repository is a monorepo. Nothing below exists until the first spike (`docs/spikes/S1-moteur-hybride.md`) creates it; keep this section in sync with the code.
+The repository is a monorepo; keep this section in sync with the code. `modules/` does not exist yet.
 
 | Path | What | Tech |
 |---|---|---|
 | `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
 | `crates/commands` | Every user action as a typed command: name, input and output schema, description for agents, undo. The single source for MCP tools and TypeScript types. | Rust (`serde`, `schemars`) |
-| `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. | Rust → WASM (`wasm-bindgen`) |
+| `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. Plain C ABI exports (`fk_*`), no `wasm-bindgen`: its glue does not load in an `AudioWorkletGlobalScope`. | Rust → WASM |
 | `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |
-| `crates/protocol` | Messages exchanged between the UI and an engine (web or native). One definition, both targets. | Rust + generated TypeScript types |
-| `web/` | The UI: one web app for both modes. | TypeScript, Vite (UI framework: open decision) |
+| `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
+| `web/` | The UI: one web app for both modes. | TypeScript, Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
 
 Core rules:
@@ -40,7 +40,9 @@ Code that runs on the audio thread (the `process` path of the engine, a module o
 - allocate or free memory, lock a mutex, block, do I/O, log, or call into the OS;
 - panic on any input: clamp, saturate or skip instead.
 
-Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics). Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
+Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics).
+
+Known exception, until cross-origin isolation is decided: in the web worklet (`web/src/lib/engine/worklet.ts`) commands arrive through `postMessage` and the meter goes back through `postMessage` about 30 times per second, which allocates small JavaScript objects on the audio thread; the wasm instance is created in the worklet's message handler, once, before any audio. Moving both to a `SharedArrayBuffer` needs COOP/COEP headers. Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
 
 ## Branches
 
@@ -53,7 +55,7 @@ Communicate with the audio thread through lock-free structures (`rtrb` ring buff
 
 - **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
 - **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
-- The product UI language is an open decision (`docs/product/01-vision.md`); ask before writing user-facing text.
+- The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n.ts` in both languages.
 
 When the audience or the language of a text is unclear, ask before writing it; never deduce.
 
@@ -75,9 +77,10 @@ An issue is carried through autonomously, from plan to a reviewed pull request, 
 2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
 3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
 4. **Copilot review**, when Copilot code review is enabled on the repository: request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most).
-5. **Close the loop**: update the issue, then send the final message.
+5. **Merge** when the pull request is ready (see below), with a merge commit.
+6. **Close the loop**: update the issue, then send the final message.
 
-Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. Never merge the pull request: the user merges.
+Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, Judge Dredd and Copilot findings settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. Releases to `main` stay with the founder.
 
 ## Definition of done
 
