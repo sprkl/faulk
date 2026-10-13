@@ -11,7 +11,7 @@ import type { Lang } from './lang'
 const en = {
   'meta.title': 'Faulk · Make your own sounds',
   'meta.description':
-    'Faulk is an open DAW that opens in your browser, where you build your own instruments and effects. Under construction.',
+    'Faulk is an open DAW that opens in your browser, where you’ll build your own instruments and effects. Under construction.',
   'skip': 'Skip to content',
   'nav.label': 'Main',
   'nav.home': 'Faulk, home',
@@ -27,7 +27,7 @@ const en = {
   'hero.metaRight': 'Browser · Boost coming',
   'hero.title': 'MAKE YOUR OWN SOUNDS.',
   'hero.lead':
-    'Faulk is a DAW that opens in a browser tab, where you build your own instruments and effects. Soon you’ll describe a sound, an AI will write the module and you’ll hear it straight away. When you need studio latency, Boost will take over.',
+    'Faulk is a DAW that opens in a browser tab, where you’ll build your own instruments and effects. Soon you’ll describe a sound, an AI will write the module and you’ll hear it straight away. When you need studio latency, Boost will take over.',
   'hero.status':
     'Faulk is under construction: the first version plays an oscillator from a MIDI keyboard or the computer keyboard.',
   'hero.cta': 'Open Faulk, no install',
@@ -107,7 +107,7 @@ export type LandingKey = keyof typeof en
 const fr: Record<LandingKey, string> = {
   'meta.title': 'Faulk · Fabrique tes propres sons',
   'meta.description':
-    'Faulk est un DAW ouvert qui s’ouvre dans ton navigateur, et où tu fabriques tes propres instruments et effets. En construction.',
+    'Faulk est un DAW ouvert qui s’ouvre dans ton navigateur, et où tu fabriqueras tes propres instruments et effets. En construction.',
   'skip': 'Aller au contenu',
   'nav.label': 'Principale',
   'nav.home': 'Faulk, accueil',
@@ -123,7 +123,7 @@ const fr: Record<LandingKey, string> = {
   'hero.metaRight': 'Navigateur · Boost à venir',
   'hero.title': 'FABRIQUE TES PROPRES SONS.',
   'hero.lead':
-    'Faulk est un DAW qui s’ouvre dans un onglet, et où tu fabriques tes propres instruments et effets. Bientôt, tu décriras un son, une IA écrira le module et tu l’entendras aussitôt. Quand il te faudra la latence d’un studio, Boost prendra le relais.',
+    'Faulk est un DAW qui s’ouvre dans un onglet, et où tu fabriqueras tes propres instruments et effets. Bientôt, tu décriras un son, une IA écrira le module et tu l’entendras aussitôt. Quand il te faudra la latence d’un studio, Boost prendra le relais.',
   'hero.status':
     'Faulk est en construction : la première version joue un oscillateur depuis un clavier MIDI ou le clavier de l’ordinateur.',
   'hero.cta': 'Ouvrir Faulk, sans installer',

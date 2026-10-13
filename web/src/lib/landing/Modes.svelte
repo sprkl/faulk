@@ -11,22 +11,28 @@
 
 <section id="modes" class="lp-wrap lp-section modes" aria-labelledby="modes-title">
   <h2 id="modes-title" class="lp-display lp-h2">{t('modes.title1')}<br />{t('modes.title2')}</h2>
-  <table>
+  <!-- Explicit roles keep the table semantics when the phone layout changes its display (WebKit). -->
+  <!-- svelte-ignore a11y_no_redundant_roles -->
+  <table role="table">
     <caption class="visually-hidden">{t('modes.caption')}</caption>
-    <thead>
-      <tr class="lp-mono">
-        <th scope="col">{t('modes.colMode')}</th>
+    <!-- svelte-ignore a11y_no_redundant_roles -->
+    <thead role="rowgroup">
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <tr role="row" class="lp-mono">
+        <th role="columnheader" scope="col">{t('modes.colMode')}</th>
         {#each COLUMNS as col (col)}
-          <th scope="col">{t(`modes.col${col}` as LandingKey)}</th>
+          <th role="columnheader" scope="col">{t(`modes.col${col}` as LandingKey)}</th>
         {/each}
       </tr>
     </thead>
-    <tbody>
+    <!-- svelte-ignore a11y_no_redundant_roles -->
+    <tbody role="rowgroup">
       {#each MODES as mode (mode)}
-        <tr>
-          <th scope="row" class="lp-display name" class:accent={mode === 'boost'}>{t(key(mode, 'Name'))}</th>
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tr role="row">
+          <th role="rowheader" scope="row" class="lp-display name" class:accent={mode === 'boost'}>{t(key(mode, 'Name'))}</th>
           {#each COLUMNS as col (col)}
-            <td class:mono={col === 'Latency' || col === 'Status'} data-label={t(`modes.col${col}` as LandingKey)}>
+            <td role="cell" class:mono={col === 'Latency' || col === 'Status'} data-label={t(`modes.col${col}` as LandingKey)}>
               {t(key(mode, col))}
             </td>
           {/each}
