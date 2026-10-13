@@ -85,11 +85,12 @@ const fence = (text) => {
   return `${ticks}\n${text}\n${ticks}`;
 };
 
-/** The brief's header lines `record.mjs` reads (`checkpoint:`, `fingerprint:`). */
+/** The brief's header lines `record.mjs` reads (`checkpoint:`, `issue-source:`, `fingerprint:`). */
 export function briefHeader(text) {
   const head = String(text).slice(0, 1000);
   return {
     checkpoint: head.match(/^checkpoint: (\S+)$/m)?.[1],
+    issueSource: head.match(/^issue-source: (\S+)$/m)?.[1],
     fingerprint: head.match(/^fingerprint: (\S+)$/m)?.[1],
   };
 }
@@ -97,6 +98,7 @@ export function briefHeader(text) {
 export function renderBrief({
   checkpoint,
   issue,
+  issueSource = "github",
   proposal,
   fingerprint,
   base,
@@ -110,6 +112,7 @@ export function renderBrief({
   const parts = [];
   parts.push(`# Judge Dredd brief — #${issue.number}\n`);
   parts.push(`checkpoint: ${checkpoint}`);
+  parts.push(`issue-source: ${issueSource}`);
   if (fingerprint) {
     parts.push(`fingerprint: ${fingerprint}`);
   }

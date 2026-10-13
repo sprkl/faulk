@@ -92,7 +92,7 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 
 Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Briefs are built by `scripts/agent-review/brief.mjs` and the delivery review runs through `scripts/agent-review/run.mjs`. Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
 
-A `Stop` hook enforces this: a turn that leaves the guarded code (`crates/`, `web/`, `modules/`, `scripts/`…) changed ends only once the checks are recorded for its current state (`node scripts/agent-qa/record.mjs verified …`, `docs/agents/verification.md`) and the branch's delivery review is recorded (`node scripts/agent-qa/record.mjs reviewed …`). To stop mid-task only to ask the user a question, `node scripts/agent-qa/record.mjs deferred --reason "<question>"` lets one stop through. A session that does not change the code is never blocked.
+A `Stop` hook enforces this: a turn in which the session's own tool calls changed the guarded code (`crates/`, `web/`, `modules/`, `scripts/`…) ends only once the checks are recorded for its current state (`node scripts/agent-qa/record.mjs verified …`, `docs/agents/verification.md`) and the branch's delivery review is recorded (`node scripts/agent-qa/record.mjs reviewed …`). To stop mid-task only to ask the user a question, `node scripts/agent-qa/record.mjs deferred --reason "<question>"` lets one stop through per user message. A session whose tool calls change no guarded file is never blocked, whatever others change meanwhile.
 
 Before reporting a task as done:
 

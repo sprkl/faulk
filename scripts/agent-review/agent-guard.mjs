@@ -1,11 +1,12 @@
 /**
  * Claude Code `PreToolUse` hook: applies the decision of `guard-core.mjs` to
- * each guarded tool call (Judge Dredd call, file write, shell command), and,
- * before the tool runs, records the session's baseline in each checkout where
- * it has none (a session started before the hooks existed).
+ * each guarded tool call (Judge Dredd call, file write, shell command). Before
+ * a call that can change files, it also records the session's baseline where
+ * it has none and a snapshot of the fingerprint, which `post-tool-use.mjs`
+ * compares after the call to tell whether this session changed the code.
  *
  * Failure policy: an unexpected error lets the call through with a warning to
- * the user; the Stop hook still judges the result.
+ * the user.
  *
  * @doc docs/agents/judge-dredd.md
  * @doc docs/agents/verification.md
@@ -13,8 +14,8 @@
 
 import { readFileSync } from "node:fs";
 import { changeFingerprint, hookRoots } from "../agent-qa/fingerprint.mjs";
-import { ensureBaselines, sessionKey } from "../agent-qa/session.mjs";
-import { judgeToolCall } from "./guard-core.mjs";
+import { ensureBaselines, safeFingerprint, sessionKey, sessionState, stateRoot } from "../agent-qa/session.mjs";
+import { CHANGING_TOOLS, judgeToolCall } from "./guard-core.mjs";
 
 let input;
 try {
@@ -26,7 +27,6 @@ try {
 
 try {
   const roots = hookRoots(input);
-  ensureBaselines(roots, sessionKey(input), changeFingerprint, "pre-tool-use");
   const verdict = judgeToolCall({
     toolName: input.tool_name,
     toolInput: input.tool_input,
@@ -42,6 +42,22 @@ try {
         },
       }),
     );
+    process.exit(0);
+  }
+  const key = sessionKey(input);
+  const state = key ? stateRoot(input) : null;
+  if (state && CHANGING_TOOLS.has(input.tool_name)) {
+    const session = sessionState(state, key);
+    ensureBaselines(session, roots, changeFingerprint, "pre-tool-use");
+    if (typeof input.tool_use_id === "string") {
+      for (const root of roots) {
+        // A session already known to have written there is judged anyway:
+        // no snapshot needed, and no cost.
+        if (!session.isWriter(root)) {
+          session.savePre(input.tool_use_id, root, safeFingerprint(changeFingerprint, root));
+        }
+      }
+    }
   }
 } catch (error) {
   const detail = error instanceof Error ? error.message.split("\n")[0] : String(error);

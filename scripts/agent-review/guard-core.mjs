@@ -41,6 +41,8 @@ const OFFICIAL_SCRIPT =
 const MAX_PROMPT = 300;
 
 const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** Tools whose calls can change files: the hooks fingerprint the code around them. */
+export const CHANGING_TOOLS = new Set([...WRITE_TOOLS, "Bash", "PowerShell"]);
 
 const deny = (reason) => ({ allow: false, reason });
 const parts = (path) => path.split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
@@ -72,8 +74,9 @@ export function isProtectedPath(path) {
   if (dir1 === ".qa" && QA_RECORD.test(name ?? "")) {
     return true;
   }
-  // The baselines of the sessions, and the record folders themselves.
-  return (dir2 === ".qa" && dir1 === "sessions") || name === ".qa" || (dir1 === ".qa" && name === "sessions");
+  // The record folder itself, and anything in the sessions' state.
+  const p = lower(parts(path));
+  return name === ".qa" || p.some((part, i) => part === ".qa" && p[i + 1] === "sessions");
 }
 
 /** `true` when `path` has the shape of a brief: `.scratch/judge-dredd/<issue>-<checkpoint>.md`, without `..`. */

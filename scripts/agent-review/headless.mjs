@@ -67,7 +67,8 @@ export function runJudgeDredd({ root, brief, model, budget, timeoutMinutes, work
     [
       "-p",
       "--setting-sources",
-      "project,local",
+      // Not "local": an untracked settings.local.json must not shape the review.
+      "project",
       "--strict-mcp-config",
       "--settings",
       settingsPath,

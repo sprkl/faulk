@@ -77,30 +77,32 @@ export function missingEvidence(files, values) {
 
 export { FLAGS as EVIDENCE_FLAGS };
 
-/** A task branch, not `develop`, `main` or a detached head, where a review would not name the task. */
-export function isTaskBranch(branch) {
-  return typeof branch === "string" && branch !== "" && !["develop", "main", "HEAD"].includes(branch);
+/** The issue of a task branch named by the convention (`feat|fix|spike/<issue>-<slug>`), or `null`. */
+export function taskBranchIssue(branch) {
+  return (typeof branch === "string" && branch.match(/^(?:feat|fix|spike)\/(\d+)-/)?.[1]) || null;
 }
 
 /**
- * `session` is the record the hooks wrote the first time they saw this
- * session (`{ fingerprint }`), `null` when they never saw it, `undefined` when
- * the session id is unknown. A session judged only on what it changed: a
- * session that leaves the code as the hooks first found it is never blocked.
- *
- * Returns `{ allow, recordBaseline?, consumeDeferral?, missing? }`.
+ * A task branch named by the convention, where a review names the task. On
+ * any other branch (`develop`, `main`, a detached head, a free name) a review
+ * holds only for the state it reviewed.
  */
-export function stopDecision({ fingerprint, session, branch, verification, review, deferral }) {
-  if (fingerprint === null) {
+export const isTaskBranch = (branch) => taskBranchIssue(branch) !== null;
+
+/**
+ * Decision for one checkout. `writer`: one of this session's own tool calls
+ * changed the guarded code there; a session that did not is never blocked,
+ * whatever other sessions or the user changed. `baseline`: the fingerprint the
+ * first time the hooks saw this checkout in this session.
+ *
+ * Returns `{ allow, consumeDeferral?, missing? }`.
+ */
+export function stopDecision({ fingerprint, writer, baseline, branch, verification, review, deferral }) {
+  if (fingerprint === null || !writer) {
     return { allow: true };
   }
-  if (session === null) {
-    // No tool call of this session went through the PreToolUse hook, and
-    // SessionStart did not run (session started before the hooks existed):
-    // this session changed nothing under the hooks. Its baseline is now.
-    return { allow: true, recordBaseline: true };
-  }
-  if (session && session.fingerprint === fingerprint) {
+  if (baseline !== undefined && baseline !== "unknown" && baseline === fingerprint) {
+    // The session undid its own changes.
     return { allow: true };
   }
   const verified = verification?.fingerprint === fingerprint && verification.status === "verified";
@@ -126,12 +128,13 @@ export function stopDecision({ fingerprint, session, branch, verification, revie
 }
 
 /**
- * One deferral per state of the code and per user prompt: without this rule, a
- * blocked agent would defer again at each stop and never verify. A new user
- * prompt (the user answered) allows a new question on the same state.
+ * One deferral per user prompt: once a deferral has let a stop through, the
+ * next one needs the user to have written since. Without this rule, a blocked
+ * agent would defer at each stop (after touching the code, if the rule were per
+ * state) and never verify.
  */
-export function canDefer(existing, fingerprint, lastPromptAt) {
-  if (!(existing?.fingerprint === fingerprint && existing.consumedAt)) {
+export function canDefer(existing, lastPromptAt) {
+  if (!existing?.consumedAt) {
     return true;
   }
   return typeof lastPromptAt === "string" && existing.consumedAt < lastPromptAt;

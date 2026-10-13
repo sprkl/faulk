@@ -7,8 +7,9 @@
  *   node scripts/agent-review/brief.mjs <issue> delivery [--pr <n>]
  *                                                           (report draft in .scratch/judge-dredd/<issue>-delivery.proposal.md)
  *   node scripts/agent-review/brief.mjs <issue> replies --pr <n>
- * Options: --issue-file <json> (the issue as `gh issue view --json number,title,body,comments` prints it,
- * instead of calling gh), --comments-before <ISO date> (ignores later comments).
+ * Option: --issue-file <json> (the issue as `gh issue view --json number,title,body,comments` prints it,
+ * instead of calling gh, for tests and offline work). Such a brief says `issue-source: file`, and
+ * `record.mjs reviewed` refuses it: a review that counts judges the ticket as GitHub holds it.
  *
  * @doc docs/agents/judge-dredd.md
  */
@@ -33,7 +34,6 @@ try {
     options: {
       pr: { type: "string" },
       "issue-file": { type: "string" },
-      "comments-before": { type: "string" },
     },
   });
 } catch (error) {
@@ -70,9 +70,7 @@ const issue = {
   title: raw.title,
   body: raw.body,
   parent: raw.parent ? { number: raw.parent.number, title: raw.parent.title } : null,
-  comments: (raw.comments ?? [])
-    .filter((c) => !values["comments-before"] || c.createdAt < values["comments-before"])
-    .map((c) => ({ author: c.author?.login ?? "unknown", createdAt: c.createdAt, body: c.body })),
+  comments: (raw.comments ?? []).map((c) => ({ author: c.author?.login ?? "unknown", createdAt: c.createdAt, body: c.body })),
 };
 
 const proposalPath = join(root, BRIEF_DIR, `${issueNumber}-${checkpoint}.proposal.md`);
@@ -82,7 +80,7 @@ if (checkpoint !== "replies" && !proposal?.trim()) {
   fail(`write your ${what} to ${BRIEF_DIR}/${issueNumber}-${checkpoint}.proposal.md first, then run this command again.`);
 }
 
-const brief = { checkpoint, issue, proposal };
+const brief = { checkpoint, issue, issueSource: values["issue-file"] ? "file" : "github", proposal };
 if (checkpoint !== "plan") {
   let base;
   for (const ref of ["origin/develop", "develop"]) {

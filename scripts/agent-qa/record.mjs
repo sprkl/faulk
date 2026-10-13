@@ -35,7 +35,8 @@ import {
   scriptRoot,
   verificationPath,
 } from "./fingerprint.mjs";
-import { EVIDENCE_FLAGS, canDefer, missingEvidence, verifiedCommand } from "./stop-core.mjs";
+import { agentDefinition } from "../agent-review/headless.mjs";
+import { EVIDENCE_FLAGS, canDefer, missingEvidence, taskBranchIssue, verifiedCommand } from "./stop-core.mjs";
 
 const fail = (message) => {
   console.error(`[agent-qa] ${message}`);
@@ -93,11 +94,11 @@ if (status === "verified") {
 } else {
   // An unreadable record counts as consumed: refusing the deferral is the safe choice.
   const previous = existsSync(deferralPath(root))
-    ? (readRecord(deferralPath(root)) ?? { fingerprint, consumedAt: "9999" })
+    ? (readRecord(deferralPath(root)) ?? { consumedAt: "9999" })
     : null;
-  if (!canDefer(previous, fingerprint, readRecord(lastPromptPath(root))?.at)) {
+  if (!canDefer(previous, readRecord(lastPromptPath(root))?.at)) {
     fail(
-      "a deferral was already used for this state of the code since the user's last message: run the checks and record them (node scripts/agent-qa/record.mjs verified ...), and the delivery review if the branch has none (docs/agents/judge-dredd.md).",
+      `a deferral already let a stop through since the user's last message: run the checks and record them (${verifiedCommand(files)}), and the delivery review if the branch has none (docs/agents/judge-dredd.md).`,
     );
   }
 }
@@ -116,7 +117,7 @@ function checkReview(brief) {
     fail(`${brief} does not exist in ${root}: run node scripts/agent-review/brief.mjs ${issue} delivery.`);
   }
   const branch = currentBranch(root);
-  const branchIssue = branch?.match(/^(?:feat|fix|spike)\/(\d+)-/)?.[1];
+  const branchIssue = taskBranchIssue(branch);
   if (branchIssue && branchIssue !== issue) {
     fail(`${brief} reviews issue #${issue}, but branch ${branch} is the task of issue #${branchIssue}.`);
   }
@@ -124,6 +125,11 @@ function checkReview(brief) {
   const header = briefHeader(content.toString("utf8"));
   if (header.checkpoint !== "delivery") {
     fail(`${brief} is not a delivery brief (checkpoint: delivery): run node scripts/agent-review/brief.mjs ${issue} delivery.`);
+  }
+  if (header.issueSource !== "github") {
+    fail(
+      `${brief} was not built from the GitHub issue (issue-source: ${header.issueSource ?? "none"}): run node scripts/agent-review/brief.mjs ${issue} delivery without --issue-file.`,
+    );
   }
   if (header.fingerprint !== fingerprint) {
     fail(
@@ -133,8 +139,15 @@ function checkReview(brief) {
   const answerFile = join(root, BRIEF_DIR, `${issue}-delivery.answer.md`);
   const briefHash = createHash("sha256").update(content).digest("hex");
   const answer = existsSync(answerFile) ? readFileSync(answerFile, "utf8") : "";
-  if (answer.split("\n")[0] !== `brief-sha256: ${briefHash}`) {
+  const [hashLine, modelLine] = answer.split("\n");
+  if (hashLine !== `brief-sha256: ${briefHash}`) {
     fail(`no Judge Dredd answer to this brief: run node scripts/agent-review/run.mjs ${BRIEF_DIR}/${issue}-delivery.md.`);
+  }
+  const expectedModel = agentDefinition(root)["judge-dredd"].model ?? "opus";
+  if (modelLine !== `model: ${expectedModel}`) {
+    fail(
+      `the answer was not written by Judge Dredd's model (${modelLine ?? "none"}, expected model: ${expectedModel}): run node scripts/agent-review/run.mjs ${BRIEF_DIR}/${issue}-delivery.md without --model.`,
+    );
   }
   if (!answerIsComplete(answer, "delivery")) {
     fail(

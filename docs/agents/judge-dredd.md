@@ -28,7 +28,9 @@ Then run the review:
 node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<checkpoint>.md
 ```
 
-It runs Judge Dredd headless (`claude -p`, project settings only, no MCP server, no hooks, no `CLAUDE.md`, no automatic memory) and writes its answer to `.scratch/judge-dredd/<issue>-<checkpoint>.answer.md`, headed by the SHA-256 of the brief. A review takes several minutes: run it in the background (the Bash tool's `run_in_background`), not in the foreground where the tool's timeout kills it. Options: `--model` (default `opus`), `--budget` in USD (default 5, spent on the user's account), `--timeout` in minutes (default 30). An answer that holds no verdict (interrupted or truncated run), or a delivery answer that judges no acceptance criterion, is not written: run it again, with a higher `--budget` if needed.
+It runs Judge Dredd headless (`claude -p`, project settings only, `settings.local.json` excluded, no MCP server, no hooks, no `CLAUDE.md`, no automatic memory) and writes its answer to `.scratch/judge-dredd/<issue>-<checkpoint>.answer.md`, headed by the SHA-256 of the brief and the model. A review takes several minutes: run it in the background (the Bash tool's `run_in_background`), not in the foreground where the tool's timeout kills it. Options: `--model` (default: the model of `.claude/agents/judge-dredd.md`; a review by another model is refused by `record.mjs`), `--budget` in USD (default 5, spent on the user's account), `--timeout` in minutes (default 30).
+
+`brief.mjs --issue-file <json>` builds a brief from a local copy of the issue, for tests and offline work; such a brief says `issue-source: file` and does not count for the review record. An answer that holds no verdict (interrupted or truncated run), or a delivery answer that judges no acceptance criterion, is not written: run it again, with a higher `--budget` if needed.
 
 For a plan, the `judge-dredd` subagent can also be called in the session with the brief's path as the **whole** prompt. For a delivery, only `run.mjs` counts: the answer file is what `record.mjs reviewed` checks, and nothing else may write it.
 
@@ -43,17 +45,17 @@ For a plan, the `judge-dredd` subagent can also be called in the session with th
    node scripts/agent-qa/record.mjs reviewed --brief .scratch/judge-dredd/<issue>-delivery.md --dispositions "<each finding: fixed, or rejected and why>"
    ```
 
-   The record is refused unless the brief is a `delivery` brief of `.scratch/judge-dredd/` built for the current state of the code, its issue is the one of the task branch (`feat/<issue>-…`), and `run.mjs` wrote an answer to that exact brief that judges at least one acceptance criterion.
+   The record is refused unless the brief is a `delivery` brief of `.scratch/judge-dredd/` built from the GitHub issue for the current state of the code, its issue is the one of the task branch (`feat/<issue>-…`), and `run.mjs` wrote an answer to that exact brief, by Judge Dredd's model, that judges at least one acceptance criterion.
 
 ## Enforcement
 
-Four hooks in `.claude/settings.json` apply to every Claude Code session in this repository.
+Five hooks in `.claude/settings.json` apply to every Claude Code session in this repository.
 
 - **The guard** (`PreToolUse`, `scripts/agent-review/agent-guard.mjs`): a `judge-dredd` subagent call is denied unless its prompt is one path to an existing regular file `.scratch/judge-dredd/<issue>-<plan|delivery|replies>.md`; a `claude … judge-dredd` command in Bash or PowerShell is denied too. Edit, Write, MultiEdit and NotebookEdit are denied on briefs, answers and the records in `.qa/` (paths matched on their last components, case-insensitively, with either separator); Bash and PowerShell commands that name one of them together with a write operation (`>`, `tee`, `sed -i`, `cp`, `mv`, `rm`, `touch`, `git checkout`, `Set-Content`, `Out-File`, `Copy-Item`, `Remove-Item`, `[IO.File]::Write…` and others) are denied. A single call of `brief.mjs`, `run.mjs` or `record.mjs` alone on its line passes, and so do the `.proposal.md` files.
-- **The Stop hook** (`scripts/agent-qa/qa-guard.mjs`): a turn that leaves the guarded code changed ends only with a verification recorded for its current state (`verification.md`) **and** a delivery review recorded for the task's branch. See `verification.md` > Recording the verification for the guarded paths, the session baseline and the deferral.
-- **SessionStart** and **UserPromptSubmit** (`session-start.mjs`, `prompt-submit.mjs`) record the session's baseline and the time of the user's last message.
+- **The Stop hook** (`scripts/agent-qa/qa-guard.mjs`): a turn in which the session's own tool calls changed the guarded code ends only with a verification recorded for its current state (`verification.md`) **and** a delivery review recorded for the task's branch. See `verification.md` > Recording the verification for the guarded paths, how a change is attributed to a session, and the deferral.
+- **PostToolUse**, **SessionStart** and **UserPromptSubmit** (`post-tool-use.mjs`, `session-start.mjs`, `prompt-submit.mjs`) attribute changes to the session, record its baseline, and record the time of the user's last message.
 
-The review record names its branch: later states of the same task branch (fixes after the review, a pull request review) only need a new verification. `develop`, `main` and a detached head never carry a review over.
+The review record names its branch: later states of the same task branch (fixes after the review, a pull request review) only need a new verification. Only a branch named by the convention (`feat|fix|spike/<issue>-<slug>`) carries a review over; on `develop`, `main`, a detached head or any other name, a review holds for the state it reviewed only.
 
 ## Limits
 
@@ -63,5 +65,5 @@ All of these rest on the lead's good faith:
 - The `plan` checkpoint is required by this procedure but not checked by a hook.
 - The review record is bound to a branch, not to the end of the work: a delivery review recorded early on a task branch satisfies the Stop hook for the rest of that branch, and its dispositions are not compared with the findings of the answer. The procedure (delivery as the last step) is what prevents this.
 - The guard, the hooks and `.claude/settings.json` can be changed by the agent; they are part of the guarded code, so changing them requires a verification and a review, but a `disableAllHooks` in `.claude/settings.local.json` (not tracked) switches everything off. That switch is the user's, never the agent's.
-- Subagents are not checked by the Stop hook (`SubagentStop` is not hooked): a subagent that changes code is checked only when the lead's session stops in the same checkout. See `verification.md` > Limits.
+- Subagents are not checked by their own stop (`SubagentStop` is not hooked). See `verification.md` > Limits.
 - Judge Dredd's agreement is weak evidence, since it shares the lead's model family.

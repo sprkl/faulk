@@ -101,6 +101,7 @@ describe("judgeToolCall: write tools", () => {
     ["Write", { file_path: "/repo/.qa/last-prompt.json", content: "{}" }],
     ["Write", { file_path: "/repo/.qa/history.jsonl", content: "" }],
     ["Write", { file_path: "/repo/.qa/sessions/abc.json", content: "{}" }],
+    ["Write", { file_path: "/repo/.qa/sessions/abc/wrote-0123.json", content: "{}" }],
   ];
   for (const [toolName, toolInput] of refused) {
     it(`refuses ${toolName} on ${toolInput.file_path ?? toolInput.notebook_path}`, () => {

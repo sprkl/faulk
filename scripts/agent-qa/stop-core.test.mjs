@@ -8,18 +8,19 @@ import {
   stopDecision,
   verifiedCommand,
 } from "./stop-core.mjs";
+import { wroteDuringCall } from "./session.mjs";
 
 const verified = { status: "verified", fingerprint: "f1" };
 const reviewed = { status: "reviewed", fingerprint: "f1", branch: "feat/6-x" };
-const seen = { fingerprint: "f0" };
+
 
 describe("stopDecision", () => {
   it("allows a turn when the code has no change", () => {
-    assert.deepEqual(stopDecision({ fingerprint: null, session: seen }), { allow: true });
+    assert.deepEqual(stopDecision({ fingerprint: null, writer: true, baseline: "f0" }), { allow: true });
   });
 
   it("allows a turn with a verification and a review of the current state", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f1", session: seen, verification: verified, review: reviewed }), {
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", verification: verified, review: reviewed }), {
       allow: true,
     });
   });
@@ -37,7 +38,7 @@ describe("stopDecision", () => {
   ];
   for (const [label, records, missing] of cases) {
     it(`blocks ${label}`, () => {
-      assert.deepEqual(stopDecision({ fingerprint: "f1", session: seen, branch: "develop", ...records }), {
+      assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", branch: "develop", ...records }), {
         allow: false,
         missing,
       });
@@ -46,16 +47,16 @@ describe("stopDecision", () => {
 
   it("lets exactly one stop through with a deferral, then blocks again", () => {
     const deferral = { status: "deferred", fingerprint: "f1", reason: "question" };
-    assert.deepEqual(stopDecision({ fingerprint: "f1", session: seen, deferral }), { allow: true, consumeDeferral: true });
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", deferral }), { allow: true, consumeDeferral: true });
     assert.equal(
-      stopDecision({ fingerprint: "f1", session: seen, deferral: { ...deferral, consumedAt: "2026-10-13T12:00:00Z" } }).allow,
+      stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", deferral: { ...deferral, consumedAt: "2026-10-13T12:00:00Z" } }).allow,
       false,
     );
   });
 
   it("refuses a deferral of an earlier state", () => {
     const deferral = { status: "deferred", fingerprint: "f0" };
-    assert.equal(stopDecision({ fingerprint: "f1", session: seen, deferral }).allow, false);
+    assert.equal(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", deferral }).allow, false);
   });
 });
 
@@ -65,13 +66,13 @@ describe("stopDecision: one delivery review per task branch", () => {
 
   it("keeps the review for a later state of the same task branch once it is verified", () => {
     assert.deepEqual(
-      stopDecision({ fingerprint: "f2", session: seen, branch: "feat/6-x", verification: laterVerification, review }),
+      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verification: laterVerification, review }),
       { allow: true },
     );
   });
 
   it("still requires the verification of the later state", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f2", session: seen, branch: "feat/6-x", verification: verified, review }), {
+    assert.deepEqual(stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verification: verified, review }), {
       allow: false,
       missing: ["verification"],
     });
@@ -79,16 +80,16 @@ describe("stopDecision: one delivery review per task branch", () => {
 
   it("requires a review on a branch that has none (another branch's review does not count)", () => {
     assert.deepEqual(
-      stopDecision({ fingerprint: "f2", session: seen, branch: "feat/7-y", verification: laterVerification, review }),
+      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/7-y", verification: laterVerification, review }),
       { allow: false, missing: ["review"] },
     );
   });
 
-  for (const branch of ["develop", "main", "HEAD", undefined]) {
+  for (const branch of ["develop", "main", "HEAD", "wip", "feat/no-issue", undefined]) {
     it(`never carries a review over on ${branch}`, () => {
       const decision = stopDecision({
         fingerprint: "f2",
-        session: seen,
+        writer: true, baseline: "f0",
         branch,
         verification: laterVerification,
         review: { ...review, branch },
@@ -99,43 +100,57 @@ describe("stopDecision: one delivery review per task branch", () => {
 });
 
 describe("stopDecision: a session is judged only on what it changed", () => {
-  it("allows a session that left the code as the hooks first found it, even unverified", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f1", session: { fingerprint: "f1" } }), { allow: true });
+  it("allows a session none of whose tool calls changed the code, whatever the state", () => {
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: false, baseline: "f0" }), { allow: true });
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: false }), { allow: true });
   });
 
-  it("allows a session the hooks never saw, and asks to record its baseline", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f1", session: null }), { allow: true, recordBaseline: true });
+  it("allows a writer that undid its own changes", () => {
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f1" }), { allow: true });
   });
 
-  it("judges a session that changed the code", () => {
-    assert.equal(stopDecision({ fingerprint: "f2", session: { fingerprint: "f1" } }).allow, false);
+  it("judges a writer with an unknown or missing baseline", () => {
+    assert.equal(stopDecision({ fingerprint: "f1", writer: true, baseline: "unknown" }).allow, false);
+    assert.equal(stopDecision({ fingerprint: "f1", writer: true }).allow, false);
+  });
+});
+
+describe("wroteDuringCall", () => {
+  it("compares the fingerprint after the call with the one before it", () => {
+    assert.equal(wroteDuringCall({ before: "f1", baseline: "f0", after: "f1" }), false);
+    assert.equal(wroteDuringCall({ before: "f1", after: "f2" }), true);
+    assert.equal(wroteDuringCall({ before: null, after: "f2" }), true);
+    assert.equal(wroteDuringCall({ before: "f1", after: null }), true);
   });
 
-  it("judges a session with an unknown or unreadable baseline, and one without a session id", () => {
-    assert.equal(stopDecision({ fingerprint: "f1", session: { fingerprint: "unknown" } }).allow, false);
-    assert.equal(stopDecision({ fingerprint: "f1", session: {} }).allow, false);
-    assert.equal(stopDecision({ fingerprint: "f1", session: undefined }).allow, false);
+  it("falls back on the baseline, then counts any change as the session's", () => {
+    assert.equal(wroteDuringCall({ baseline: "f2", after: "f2" }), false);
+    assert.equal(wroteDuringCall({ baseline: "f1", after: "f2" }), true);
+    assert.equal(wroteDuringCall({ after: "f2" }), true);
+    assert.equal(wroteDuringCall({ after: null }), false);
+    assert.equal(wroteDuringCall({ before: "unknown", after: "f2" }), true);
+  });
+
+  it("never marks a writer when the fingerprint after cannot be computed", () => {
+    assert.equal(wroteDuringCall({ before: "f1", after: "unknown" }), false);
   });
 });
 
 describe("canDefer", () => {
   const consumed = { fingerprint: "f1", status: "deferred", consumedAt: "2026-10-13T12:00:00.000Z" };
 
-  it("allows a first deferral", () => {
-    assert.equal(canDefer(null, "f1"), true);
+  it("allows a first deferral, and one never consumed", () => {
+    assert.equal(canDefer(null), true);
+    assert.equal(canDefer({ fingerprint: "f1", status: "deferred" }), true);
   });
 
-  it("refuses a second deferral of the same state", () => {
-    assert.equal(canDefer(consumed, "f1"), false);
-    assert.equal(canDefer(consumed, "f1", "2026-10-13T11:00:00.000Z"), false);
+  it("refuses another one until the user writes again, whatever the code", () => {
+    assert.equal(canDefer(consumed), false);
+    assert.equal(canDefer(consumed, "2026-10-13T11:00:00.000Z"), false);
   });
 
   it("allows a new deferral after the user wrote again", () => {
-    assert.equal(canDefer(consumed, "f1", "2026-10-13T12:05:00.000Z"), true);
-  });
-
-  it("allows a deferral after a change of the code", () => {
-    assert.equal(canDefer(consumed, "f2"), true);
+    assert.equal(canDefer(consumed, "2026-10-13T12:05:00.000Z"), true);
   });
 });
 

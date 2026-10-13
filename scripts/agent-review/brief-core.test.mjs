@@ -40,7 +40,7 @@ describe("renderBrief", () => {
     assert.ok(brief.includes("- docs/agents/judge-dredd.md"));
     assert.ok(brief.includes("1. Every hook names the command to run."));
     assert.ok(brief.includes("diff --git a/scripts/agent-qa/record.mjs"));
-    assert.deepEqual(briefHeader(brief), { checkpoint: "delivery", fingerprint: "abc123" });
+    assert.deepEqual(briefHeader(brief), { checkpoint: "delivery", issueSource: "github", fingerprint: "abc123" });
   });
 
   it("has no diff at the plan checkpoint", () => {

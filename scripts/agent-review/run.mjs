@@ -5,7 +5,7 @@
  * A review takes minutes: run it in the background.
  *
  * Usage: node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<checkpoint>.md
- *          [--model opus] [--budget <usd, default 5>] [--timeout <minutes, default 30>]
+ *          [--model <default: the model of .claude/agents/judge-dredd.md>] [--budget <usd, default 5>] [--timeout <minutes, default 30>]
  *
  * @doc docs/agents/judge-dredd.md
  */
@@ -17,10 +17,10 @@ import { parseArgs } from "node:util";
 import { scriptRoot } from "../agent-qa/fingerprint.mjs";
 import { answerIsComplete } from "./brief-core.mjs";
 import { BRIEF_DIR, isBriefPath } from "./guard-core.mjs";
-import { runJudgeDredd } from "./headless.mjs";
+import { agentDefinition, runJudgeDredd } from "./headless.mjs";
 
 const USAGE =
-  "usage: node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<plan|delivery|replies>.md [--model opus] [--budget 5] [--timeout 30]";
+  "usage: node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-<plan|delivery|replies>.md [--model <model>] [--budget 5] [--timeout 30]";
 const fail = (message) => {
   console.error(`[judge-dredd] ${message}`);
   process.exit(1);
@@ -31,7 +31,7 @@ try {
   parsed = parseArgs({
     allowPositionals: true,
     options: {
-      model: { type: "string", default: "opus" },
+      model: { type: "string" },
       budget: { type: "string", default: "5" },
       timeout: { type: "string", default: "30" },
     },
@@ -56,6 +56,9 @@ if (!/^\d+(\.\d+)?$/.test(values.budget) || !/^\d+$/.test(values.timeout)) {
   fail(USAGE);
 }
 
+// The answer names its model: `record.mjs reviewed` accepts only a review by
+// the model of Judge Dredd's definition.
+const model = values.model ?? agentDefinition(root)["judge-dredd"].model ?? "opus";
 // Hashed before the run: an answer always names the brief Judge Dredd read.
 const briefHash = createHash("sha256").update(readFileSync(briefFile)).digest("hex");
 let result;
@@ -63,7 +66,7 @@ try {
   result = runJudgeDredd({
     root,
     brief,
-    model: values.model,
+    model,
     budget: values.budget,
     timeoutMinutes: Number(values.timeout),
     workDir: join(root, BRIEF_DIR),
@@ -78,5 +81,5 @@ if (!answerIsComplete(text, checkpoint)) {
   );
 }
 const answer = join(root, BRIEF_DIR, `${issue}-${checkpoint}.answer.md`);
-writeFileSync(answer, `brief-sha256: ${briefHash}\n\n${text}\n`);
+writeFileSync(answer, `brief-sha256: ${briefHash}\nmodel: ${model}\n\n${text}\n`);
 console.log(`${BRIEF_DIR}/${issue}-${checkpoint}.answer.md (${cost.toFixed(2)} USD)`);

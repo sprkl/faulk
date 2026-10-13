@@ -1,13 +1,13 @@
 /**
- * Claude Code `Stop` hook: refuses to end a turn while the code this session
- * changed has no recorded verification for its current state, or the task's
- * branch has no delivery review (records of `record.mjs`). The reason it
- * returns is addressed to the agent.
+ * Claude Code `Stop` hook: refuses to end a turn while a checkout where this
+ * session's own tool calls changed the guarded code has no recorded
+ * verification for its current state, or its task branch has no delivery
+ * review (records of `record.mjs`). The reason it returns is addressed to the
+ * agent.
  *
  * Failure policy: fail open, loudly. When the hook itself cannot decide (git
  * unavailable, unexpected error), it lets the turn end and shows the user a
- * warning, so that a session that changed nothing is never blocked by a broken
- * environment.
+ * warning, so that a broken environment never blocks a session.
  *
  * @doc docs/agents/verification.md
  * @doc docs/agents/judge-dredd.md
@@ -15,6 +15,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
+  changeFingerprint,
   changedFiles,
   currentBranch,
   deferralPath,
@@ -22,31 +23,29 @@ import {
   hookRoots,
   readRecord,
   reviewPath,
-  sessionPath,
   verificationPath,
 } from "./fingerprint.mjs";
-import { recordSessionBaseline, sessionKey } from "./session.mjs";
+import { ensureBaselines, safeFingerprint, sessionKey, sessionState, stateRoot, wroteDuringCall } from "./session.mjs";
 import { blockReason, stopDecision } from "./stop-core.mjs";
 
-// An unreadable baseline counts as a session seen without a usable baseline
-// (judged on the records), never as a session the hooks never saw.
-const sessionRecord = (path) => (existsSync(path) ? (readRecord(path) ?? {}) : null);
-
 /** The reason to block for one checkout, or `null` to let the turn end. */
-function judge(root, key) {
+function judge(root, session) {
+  const writer = session ? session.isWriter(root) : false;
+  // A checkout removed since (a worktree cleaned up) has nothing left to verify.
+  if (!writer || !existsSync(root)) {
+    return null;
+  }
   const files = changedFiles(root);
   const fingerprint = fingerprintOf(root, files);
   const decision = stopDecision({
     fingerprint,
-    session: key ? sessionRecord(sessionPath(root, key)) : undefined,
+    writer,
+    baseline: session.baseline(root)?.fingerprint,
     branch: currentBranch(root) ?? undefined,
     verification: readRecord(verificationPath(root)),
     review: readRecord(reviewPath(root)),
     deferral: readRecord(deferralPath(root)),
   });
-  if (decision.recordBaseline) {
-    recordSessionBaseline(root, key, fingerprint, "stop");
-  }
   if (decision.consumeDeferral) {
     const deferral = readRecord(deferralPath(root));
     writeFileSync(
@@ -61,18 +60,37 @@ let input = {};
 try {
   input = JSON.parse(readFileSync(0, "utf8"));
 } catch {
-  // No or unreadable input: no session id, the hook judges without a baseline.
+  // No or unreadable input: no session id, nothing attributed to the session.
 }
 
 try {
   const key = sessionKey(input);
-  const reasons = [];
-  for (const root of hookRoots(input)) {
-    const reason = judge(root, key);
-    if (reason) {
-      reasons.push(reason);
+  const state = key ? stateRoot(input) : null;
+  const session = state ? sessionState(state, key) : null;
+  const here = hookRoots(input);
+  const roots = [...here];
+  for (const root of session?.writerRoots() ?? []) {
+    if (!roots.includes(root)) {
+      roots.push(root);
     }
   }
+  if (session) {
+    ensureBaselines(session, here, changeFingerprint, "stop");
+    // Snapshots left by calls that got no PostToolUse (a failed call can still
+    // have written): compare them with the code now.
+    for (const { root, fingerprint } of session.takePre(undefined)) {
+      if (!session.isWriter(root) && existsSync(root)) {
+        const now = safeFingerprint(changeFingerprint, root);
+        if (wroteDuringCall({ before: fingerprint, after: now })) {
+          session.markWriter(root, "unfinished call");
+        }
+      }
+      if (!roots.includes(root)) {
+        roots.push(root);
+      }
+    }
+  }
+  const reasons = roots.map((root) => judge(root, session)).filter(Boolean);
   if (reasons.length > 0) {
     process.stdout.write(JSON.stringify({ decision: "block", reason: reasons.join("\n\n") }));
   }
