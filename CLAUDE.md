@@ -16,16 +16,16 @@ The project is worked on with Claude Code only; this file is the agents' entry p
 
 ## Stack and layout
 
-The repository is a monorepo. Nothing below exists until the first spike (`docs/spikes/S1-moteur-hybride.md`) creates it; keep this section in sync with the code.
+The repository is a monorepo; keep this section in sync with the code. `modules/` does not exist yet.
 
 | Path | What | Tech |
 |---|---|---|
 | `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
 | `crates/commands` | Every user action as a typed command: name, input and output schema, description for agents, undo. The single source for MCP tools and TypeScript types. | Rust (`serde`, `schemars`) |
-| `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. | Rust → WASM (`wasm-bindgen`) |
+| `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. Plain C ABI exports (`fk_*`), no `wasm-bindgen`: its glue does not load in an `AudioWorkletGlobalScope`. | Rust → WASM |
 | `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |
-| `crates/protocol` | Messages exchanged between the UI and an engine (web or native). One definition, both targets. | Rust + generated TypeScript types |
-| `web/` | The UI: one web app for both modes. | TypeScript, Vite (UI framework: open decision) |
+| `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
+| `web/` | The UI: one web app for both modes. | TypeScript, Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
 
 Core rules:
@@ -53,7 +53,7 @@ Communicate with the audio thread through lock-free structures (`rtrb` ring buff
 
 - **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
 - **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
-- The product UI language is an open decision (`docs/product/01-vision.md`); ask before writing user-facing text.
+- The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n.ts` in both languages.
 
 When the audience or the language of a text is unclear, ask before writing it; never deduce.
 

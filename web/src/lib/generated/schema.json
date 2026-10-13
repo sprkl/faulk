@@ -1,0 +1,632 @@
+{
+  "client_message": {
+    "$defs": {
+      "Command": {
+        "description": "A Faulk command, tagged by its `type` field (e.g. `{\"type\": \"note.on\", ...}`).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "List the MIDI inputs available to the engine. The answer is a `midi.inputs` event.",
+            "properties": {
+              "type": {
+                "const": "midi.list_inputs",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object",
+            "x-undo": "none"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Choose the MIDI input that plays the synth. `id` is an id from `midi.inputs`;\n`null` disconnects MIDI input.",
+            "properties": {
+              "id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "const": "midi.select_input",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object",
+            "x-undo": "host"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Set a synth parameter. Values outside the parameter's range are clamped.\nUndo: set the parameter back to its previous value.",
+            "properties": {
+              "param": {
+                "$ref": "#/$defs/SynthParam"
+              },
+              "type": {
+                "const": "synth.set_param",
+                "type": "string"
+              },
+              "value": {
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "type",
+              "param",
+              "value"
+            ],
+            "type": "object",
+            "x-undo": "inverse"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Start a note on the synth. `note` is a MIDI note number (60 = middle C),\n`velocity` 1 to 127 (0 acts as a note off). Not undoable: it changes no project data.",
+            "properties": {
+              "note": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "const": "note.on",
+                "type": "string"
+              },
+              "velocity": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "type",
+              "note",
+              "velocity"
+            ],
+            "type": "object",
+            "x-undo": "none"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Release a note started with `note.on`. Not undoable: it changes no project data.",
+            "properties": {
+              "note": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "const": "note.off",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "note"
+            ],
+            "type": "object",
+            "x-undo": "none"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Release every playing note (panic button). Not undoable: it changes no project data.",
+            "properties": {
+              "type": {
+                "const": "note.all_off",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object",
+            "x-undo": "none"
+          }
+        ]
+      },
+      "SynthParam": {
+        "description": "A synth parameter, with its unit and range.",
+        "oneOf": [
+          {
+            "const": "waveform",
+            "description": "Oscillator waveform: 0 sine, 1 saw, 2 square, 3 triangle.",
+            "type": "string"
+          },
+          {
+            "const": "attack",
+            "description": "Attack time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "decay",
+            "description": "Decay time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "sustain",
+            "description": "Sustain level, 0 to 1.",
+            "type": "string"
+          },
+          {
+            "const": "release",
+            "description": "Release time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "gain",
+            "description": "Master gain, 0 to 1 (linear).",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A message from the page to the helper.",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "description": "Pair with the helper using the one-time code it displays. Only on `/pair`.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "type": {
+            "const": "pair",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "code"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Run a command on the helper's engine. Only on an authenticated `/session`.",
+        "properties": {
+          "command": {
+            "$ref": "#/$defs/Command"
+          },
+          "type": {
+            "const": "command",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "command"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "ClientMessage"
+  },
+  "command": {
+    "$defs": {
+      "SynthParam": {
+        "description": "A synth parameter, with its unit and range.",
+        "oneOf": [
+          {
+            "const": "waveform",
+            "description": "Oscillator waveform: 0 sine, 1 saw, 2 square, 3 triangle.",
+            "type": "string"
+          },
+          {
+            "const": "attack",
+            "description": "Attack time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "decay",
+            "description": "Decay time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "sustain",
+            "description": "Sustain level, 0 to 1.",
+            "type": "string"
+          },
+          {
+            "const": "release",
+            "description": "Release time in seconds, 0.002 to 30.",
+            "type": "string"
+          },
+          {
+            "const": "gain",
+            "description": "Master gain, 0 to 1 (linear).",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A Faulk command, tagged by its `type` field (e.g. `{\"type\": \"note.on\", ...}`).",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "description": "List the MIDI inputs available to the engine. The answer is a `midi.inputs` event.",
+        "properties": {
+          "type": {
+            "const": "midi.list_inputs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object",
+        "x-undo": "none"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Choose the MIDI input that plays the synth. `id` is an id from `midi.inputs`;\n`null` disconnects MIDI input.",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "midi.select_input",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object",
+        "x-undo": "host"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Set a synth parameter. Values outside the parameter's range are clamped.\nUndo: set the parameter back to its previous value.",
+        "properties": {
+          "param": {
+            "$ref": "#/$defs/SynthParam"
+          },
+          "type": {
+            "const": "synth.set_param",
+            "type": "string"
+          },
+          "value": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "param",
+          "value"
+        ],
+        "type": "object",
+        "x-undo": "inverse"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Start a note on the synth. `note` is a MIDI note number (60 = middle C),\n`velocity` 1 to 127 (0 acts as a note off). Not undoable: it changes no project data.",
+        "properties": {
+          "note": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "note.on",
+            "type": "string"
+          },
+          "velocity": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "note",
+          "velocity"
+        ],
+        "type": "object",
+        "x-undo": "none"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Release a note started with `note.on`. Not undoable: it changes no project data.",
+        "properties": {
+          "note": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "note.off",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "note"
+        ],
+        "type": "object",
+        "x-undo": "none"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Release every playing note (panic button). Not undoable: it changes no project data.",
+        "properties": {
+          "type": {
+            "const": "note.all_off",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object",
+        "x-undo": "none"
+      }
+    ],
+    "title": "Command"
+  },
+  "param_defaults": {
+    "attack": 0.005,
+    "decay": 0.2,
+    "gain": 0.8,
+    "release": 0.3,
+    "sustain": 0.7,
+    "waveform": 1
+  },
+  "param_ids": {
+    "attack": 1,
+    "decay": 2,
+    "gain": 5,
+    "release": 4,
+    "sustain": 3,
+    "waveform": 0
+  },
+  "protocol_version": 1,
+  "server_message": {
+    "$defs": {
+      "MidiInput": {
+        "description": "A MIDI input as the helper sees it.",
+        "properties": {
+          "id": {
+            "description": "Stable for as long as the device stays plugged in.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A message from the helper to the page.",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "description": "Answer to a probe: a Faulk helper listens here.",
+        "properties": {
+          "helper": {
+            "type": "string"
+          },
+          "protocol": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "probe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "helper",
+          "protocol"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Pairing accepted: keep this token and pass it as `?token=` to `/session`.",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "type": {
+            "const": "paired",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "token"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Pairing refused (wrong or expired code). At 0 attempts left the helper shows a new code.",
+        "properties": {
+          "attempts_left": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "pairing_refused",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "attempts_left"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "First message of a session.",
+        "properties": {
+          "buffer_frames": {
+            "description": "Frames per audio callback, once the device reported it.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estimated_latency_ms": {
+            "description": "Output latency estimated from the buffer size, not measured.",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "protocol": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sample_rate": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": {
+            "const": "hello",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "protocol",
+          "sample_rate"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The MIDI inputs available, and the one selected.",
+        "properties": {
+          "inputs": {
+            "items": {
+              "$ref": "#/$defs/MidiInput"
+            },
+            "type": "array"
+          },
+          "selected": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "midi.inputs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "inputs"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "A note received from the selected MIDI input (for the activity light).",
+        "properties": {
+          "note": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "midi.activity",
+            "type": "string"
+          },
+          "velocity": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "note",
+          "velocity"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Output level and voice count, about 30 times per second.",
+        "properties": {
+          "peak": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": {
+            "const": "meter",
+            "type": "string"
+          },
+          "voices": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "peak",
+          "voices"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The helper could not do something; `code` is stable, `message` is for developers.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "const": "error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "ServerMessage"
+  }
+}
