@@ -1,0 +1,10 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Faulk audio engine core: pure DSP, no I/O, no allocation on the audio path."
+
+[dev-dependencies]
+assert_no_alloc = "1"

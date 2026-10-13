@@ -1,0 +1,60 @@
+/* Faulk design tokens, DS-0.1. Source: the Claude Design canvas linked from
+   docs/design/01-brief-design-system.md (artboards "Couleurs" and "Typographie"). */
+
+:root,
+[data-theme='light'] {
+  --fk-bg: #fdfcfc;
+  --fk-surface: #f6f4f2;
+  --fk-surface-2: #ece9e6;
+  --fk-line: #dad6d2;
+  --fk-text: #131211;
+  --fk-text-muted: #6e6964;
+  --fk-accent: #6633f4;
+  --fk-accent-strong: #4c1ebc;
+  --fk-accent-fg: #6633f4;
+  --fk-accent-tint: #ede9ff;
+  --fk-play: #3fc168;
+  --fk-rec: #ee3533;
+  --fk-solo: #efcc36;
+  --fk-mute: #4baeed;
+
+  --fk-font-display: 'Archivo', 'Arial Black', sans-serif;
+  --fk-font-ui: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --fk-font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  --fk-space-1: 4px;
+  --fk-space-2: 8px;
+  --fk-space-3: 12px;
+  --fk-space-4: 16px;
+  --fk-space-5: 20px;
+  --fk-space-6: 24px;
+  --fk-space-8: 32px;
+  --fk-space-12: 48px;
+
+  --fk-radius-pill: 999px;
+  --fk-radius-card: 20px;
+  --fk-radius-panel: 8px;
+  --fk-radius-work: 2px;
+
+  --fk-shadow-float: 0 12px 32px rgb(19 18 17 / 0.18);
+  --fk-dur-fast: 80ms;
+  --fk-dur-panel: 160ms;
+  --fk-row: 28px;
+  --fk-control: 32px;
+}
+
+[data-theme='dark'] {
+  --fk-bg: #131211;
+  --fk-surface: #1a1917;
+  --fk-surface-2: #22201e;
+  --fk-line: #34312e;
+  --fk-text: #ece9e6;
+  --fk-text-muted: #8f8a85;
+  --fk-accent-fg: #9c92ff;
+  --fk-accent-tint: #2a2150;
+}
+
+[data-density='compact'] {
+  --fk-row: 22px;
+  --fk-control: 26px;
+}

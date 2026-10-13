@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Brief du design system"
-description: "Pointer to the design system brief given to Claude Design, and its key decisions: references, foundations, the two surfaces and the DAW interface principles."
+description: "Pointer to the design system brief and to the DS-0.1 canvas that is the design reference, and their key decisions."
 status: draft
 ---
 
@@ -22,6 +22,10 @@ Le brief complet est un document partagé : [Faulk — Brief design system](http
 - L'application répond aux critiques courantes des DAW : contraste et taille de texte, vue unifiée clips et timeline à explorer, palette de commandes, plugins ancrés dans la chaîne d'effets, routage visuel, historique de versions, dévoilement progressif.
 - L'état du moteur (mode Web ou Boost, latence, charge processeur) est toujours visible.
 
+## Design system DS-0.1
+
+Le canvas [Faulk DS-0.1](https://claude.ai/artifact/FrH1dzkY5Xgyn7JdgsU4eQ) fait foi depuis le 2026-10-13 (décision du fondateur). Ses tokens sont copiés dans `web/src/lib/styles/tokens.css` : accent ultraviolet #6633F4, neutres chauds, application en thème sombre, Archivo (titres), Geist (interface), Geist Mono (valeurs), base d'espacement 4 px. Chaque état (lecture, enregistrement, solo, mute, Boost) a un glyphe en plus de sa couleur.
+
 ## Questions ouvertes
 
-Couleur d'accent, thème par défaut de l'application, licences de polices, piste de logo, vue unifiée à prototyper.
+Piste de logo, vue unifiée clips et timeline à prototyper.
