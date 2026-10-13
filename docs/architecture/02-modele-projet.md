@@ -1,0 +1,407 @@
+---
+type: Architecture
+title: "Modèle de projet et format sur disque"
+description: "Proposal for the Faulk project model and its on-disk format: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, and the strategy for very large projects."
+status: draft
+---
+
+# Modèle de projet et format sur disque
+
+> **Proposition, en attente des décisions du fondateur** (document « Faulk — Plan MVP et swarm »). Ce document reprend l'étude du 2026-10-13 sur un modèle de projet versionnable, avec les ajustements de la synthèse : arborescence regroupée par piste, un fichier par device, arrangement par piste, binaire adressé par contenu pour les données denses, instantané de cache et banc de charge. Rien n'est décidé tant que le fondateur n'a pas tranché les questions de la fin.
+
+## En bref
+
+Un projet Faulk est **un dossier regroupé par piste**. Ce qui est à l'échelle humaine (une piste, un device, un clip, une liste de notes) est du **texte canonique** : JSON à clés triées pour les structures, TSV pour les longues listes homogènes, une donnée par ligne. Ce qui est à l'échelle de la machine (audio, automation très dense, état opaque d'un instrument) est du **binaire adressé par son contenu** (SHA-256) sous `blobs/`, jamais modifié et compatible Git LFS.
+
+Une seule bibliothèque Rust lit, écrit, valide et **fusionne en trois points** ce dossier. Elle sert de pilote de fusion pour git, de moteur des « variantes » dans l'application et de garde-fou après chaque fusion. Le double objectif :
+
+1. un utilisateur qui connaît git met son projet dans un dépôt, travaille en branches, fusionne et lit des diffs compréhensibles ;
+2. un utilisateur qui ne connaîtra jamais git obtient les mêmes gestes dans l'interface : **sauver une version, ouvrir une variante, comparer A/B, fusionner**, avec git en coulisse.
+
+Le stockage du dossier (dossier réel, OPFS, helper) et la mémoire audio sont traités dans [Stockage local du projet et mémoire audio](03-stockage-local.md). Les tâches qui construisent ce format sont dans le [découpage du MVP](../specs/02-decoupage-mvp.md).
+
+## 1. Le modèle de données
+
+### 1.1 Principes
+
+| Principe | Choix | Pourquoi |
+| --- | --- | --- |
+| Identité | Chaque entité durable (piste, device, clip, couloir d'automation, scène, placement) a un **ULID** créé à sa naissance et jamais réutilisé. | Deux branches qui créent chacune une piste ne se marchent pas dessus ; un renommage ne change pas l'identité ; un fichier se nomme d'après l'ID de ce qu'il contient. |
+| Temps musical | Positions et durées en **ticks entiers**, `PPQ = 960` ticks par noire. | Un changement de tempo d'un côté et des notes modifiées de l'autre se fusionnent sans décalage. 960 se divise par 2, 3, 4, 5, 6, 8, 10, 12, 15, 16 : triolets et quintolets exacts. Entiers : aucune dérive, diff stable. |
+| Temps audio | Positions *dans un fichier audio* en **frames** entières. | La source audio ne dépend pas du tempo. |
+| Ordre | L'ordre des pistes, scènes et devices est une **clé d'indexation fractionnaire** (chaîne triable, ex. `"a0"`, `"a0V"`) portée par chaque élément, pas une liste centrale. | Deux branches qui ajoutent chacune une piste ne touchent pas la même liste : pas de conflit. Une commande peut recevoir un index ; le modèle le traduit en clé. |
+| Paramètres | Identifiés par un **ID stable sous forme de chaîne** (`"cutoff"`), jamais par un index. Valeur en **unité naturelle** (s, Hz, dB) déclarée par le device. | Le diff se lit (`cutoff: 800 → 1200`) ; un device qui ajoute un paramètre ne décale pas les autres. |
+| Projet et session | Ce qui fait la musique va dans le projet ; ce qui relève de l'écran ou de la machine (zoom, sélection, défilement, entrée MIDI choisie, pistes repliées, caches) va dans `.faulk/`, **ignoré par git**. | Ouvrir un projet et faire défiler l'écran ne produit aucun diff. |
+
+Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix) : proposition, solo en session et mute dans le projet. **Question ouverte.**
+
+### 1.2 Les types (`crates/project`)
+
+Nouvelle crate `crates/project` : le modèle, la lecture et l'écriture canoniques, la validation, la fusion. Pure (elle reçoit et rend des octets, aucune entrée-sortie directe), compilable en natif et en WASM (côté page, hors worklet, donc `wasm-bindgen` y est possible). `crates/commands` en dépend ; le moteur n'en dépend pas : il reçoit un graphe de rendu dérivé du modèle. Sa création modifie la table « Stack and layout » de `CLAUDE.md` : c'est une décision du fondateur.
+
+```rust
+pub type Tick = i64;          // 960 per quarter note
+pub type Frame = u64;         // sample index in an audio file
+pub type Id = Ulid;           // 26 chars, Crockford base32, time-sortable
+pub type OrderKey = String;   // fractional index, compared bytewise
+pub type Hash = [u8; 32];     // SHA-256 of a blob
+
+pub struct Project {
+    pub format: u32,                     // on-disk format version, for migrations
+    pub name: String,
+    pub tempo: Vec<TempoPoint>,          // sorted by tick; a single point in the MVP
+    pub meter: Vec<MeterPoint>,          // time signatures, sorted by tick
+    pub scenes: BTreeMap<Id, Scene>,
+    pub master: Mixer,                   // master bus (no sends)
+    pub tracks: BTreeMap<Id, Track>,
+}
+
+pub struct Scene { pub name: String, pub order: OrderKey, pub tempo: Option<f64> }
+
+pub struct Track {
+    pub name: String,
+    pub color: Option<Rgb>,
+    pub order: OrderKey,
+    pub kind: TrackKind,                 // Instrument | Audio | Return
+    pub mixer: Mixer,
+    pub output: Output,                  // Master | Track(Id) (group or return)
+    pub devices: BTreeMap<Id, Device>,   // instrument + effects, ordered by Device::order
+    pub clips: BTreeMap<Id, Clip>,
+    pub placements: BTreeMap<Id, Placement>, // this track's arrangement
+    pub automation: BTreeMap<Id, AutomationLane>,
+}
+
+pub struct Mixer { pub gain_db: f64, pub pan: f64, pub mute: bool, pub sends: BTreeMap<Id, Send> }
+
+pub struct Device {
+    pub order: OrderKey,
+    pub role: DeviceRole,                // Instrument | Effect
+    pub enabled: bool,
+    pub source: DeviceSource,            // Builtin { id, version } | Module { name, hash } | Plugin { .. }
+    pub params: BTreeMap<String, f64>,   // param id -> value in natural unit
+    pub state: Option<Hash>,             // opaque instrument state, stored as a blob
+}
+
+pub struct Clip {
+    pub name: String,
+    pub color: Option<Rgb>,
+    pub slot: Option<Id>,                // scene id when the clip sits in the launch grid
+    pub length: Tick,
+    pub looping: Option<Loop>,
+    pub content: ClipContent,            // Midi { notes: BTreeSet<Note> } | Audio { media: Hash, start: Frame, frames: Frame, gain_db: f64 }
+}
+
+#[derive(Ord)] // ordering = (start, pitch, length, velocity)
+pub struct Note { pub start: Tick, pub pitch: u8, pub length: Tick, pub velocity: u8 }
+
+pub struct Placement { pub clip: Id, pub start: Tick, pub length: Tick, pub offset: Tick }
+
+pub struct AutomationLane {
+    pub target: AutomationTarget,        // Device { device: Id, param: String } | Mixer(MixerParam)
+    pub points: BTreeMap<Tick, AutomationPoint>, // at most one point per tick
+}
+```
+
+Choix et limites pour le MVP :
+
+- **Clips et placements.** Le clip est le contenu ; la grille de lancement le met dans une case (`slot`), l'arrangement le pose dans le temps avec un `Placement`. Plusieurs placements d'un même clip sont des clips liés. Copier-coller dans l'arrangement crée par défaut un nouveau clip indépendant (c'est aussi ce que prévoit la tâche AR-5 du découpage) ; **à confirmer**.
+- **Clips audio non élastiques** : début en ticks, durée en frames ; un changement de tempo déplace le début, pas la vitesse. Le recalage temporel viendra plus tard comme une liste de points `(tick, frame)`.
+- **Automation d'arrangement uniquement** (par piste) ; les enveloppes propres aux clips sont reportées.
+- **Notes sans identifiant sur disque.** Une note est une *valeur* : la modifier, c'est retirer l'ancienne et ajouter la nouvelle, ce qui rend la fusion des notes triviale (§ 4.3). Le découpage du MVP prévoit pourtant un `NoteId` dans les commandes : **à trancher** dans le contrat de commande (CT-4) ; une voie possible est un identifiant de session, tenu en mémoire et jamais écrit sur disque. L'expression par note (MPE) exigera plus tard un identifiant durable, ajouté comme colonne optionnelle.
+- **Plugins tiers** : leur état est un blob opaque ; seuls les paramètres que l'hôte peut lire sont recopiés en clair dans `params`. En conflit, un état opaque ne se fusionne pas : on choisit un côté.
+
+## 2. Le format sur disque
+
+### 2.1 La règle de format
+
+- **Données à l'échelle humaine : du texte.** JSON canonique (clés triées, une valeur par ligne) pour les structures ; TSV pour les longues listes homogènes (notes, points d'automation, placements), une ligne par élément.
+- **Données à l'échelle de la machine : du binaire adressé par contenu** sous `blobs/<sha256>` : audio, automation très dense (au-delà d'environ 1 000 points par couloir, seuil à fixer par le banc de charge), état opaque d'un instrument. Un blob n'est jamais modifié ; il est compatible Git LFS.
+- Un fichier unique binaire `.faulkpack` peut exister **pour l'export et le partage seulement** ; ce n'est jamais le format de travail.
+
+Pourquoi un dossier plutôt qu'un fichier : le chemin dit déjà *quoi* a changé, et la plupart des éditions parallèles touchent des fichiers différents, donc git fusionne sans conflit. Aucun fichier unique, si bien formaté soit-il, n'empêche qu'un ajout de piste et un ajout de scène tombent dans des lignes voisines. Le prix : l'atomicité de l'enregistrement est à traiter fichier par fichier (voir [stockage](03-stockage-local.md)), et le partage hors git passe par `.faulkpack`.
+
+### 2.2 Arborescence
+
+```
+Mon morceau/
+├── project.json                      # format version, name, tempo, time signature, scenes, master mixer
+├── tracks/
+│   └── <track>/                      # folder named by the track ULID, never by its name
+│       ├── track.json                # name, colour, mixer, routing, order key
+│       ├── devices/
+│       │   └── <device>.json         # one instrument or effect: type, parameters, order key in the chain
+│       ├── automation/
+│       │   └── <lane>.tsv            # target device+parameter, then sorted points, one per line
+│       ├── clips/
+│       │   ├── <clip>.json           # clip header: name, slot, length, loop, audio reference
+│       │   └── <clip>.notes.tsv      # MIDI notes, one per line
+│       └── arrangement.tsv           # placements of this track's clips on the timeline
+├── blobs/
+│   └── <sha256>                      # audio, dense automation, opaque instrument state; never modified
+├── .faulk/                           # cache snapshot, view state, temp files; ignored by git
+├── .gitattributes                    # written by Faulk (LFS, merge and diff drivers, eol)
+└── .gitignore                        # written by Faulk (.faulk/)
+```
+
+- Un dossier de piste est nommé par l'ID : renommer une piste change une ligne, pas un chemin. Supprimer une piste supprime un dossier. Déplacer un clip d'une piste à l'autre est un déplacement de fichiers, que git détecte comme renommage.
+- **Un fichier par device** : régler le filtre de la basse et insérer un delay sur la batterie touchent deux fichiers distincts.
+- **L'arrangement est par piste** (pas un fichier global) : deux personnes qui arrangent deux pistes différentes ne se croisent jamais.
+- Les blobs sont partagés au niveau du projet : le même échantillon utilisé sur trois pistes n'existe qu'une fois.
+- Les métadonnées d'un fichier audio (fréquence, canaux, nombre de frames, nom d'origine) sont écrites en clair à côté de sa référence, dans le JSON du clip : le projet se lit, se valide et se fusionne sans décoder l'audio, et sans l'avoir téléchargé.
+
+### 2.3 Exemples
+
+`clips/<clip>.notes.tsv` :
+
+```
+# faulk-notes 1	start	length	pitch	velocity
+0	240	36	110
+0	240	48	96
+480	240	36	100
+960	120	43	100
+```
+
+`automation/<lane>.tsv` (au-delà du seuil de densité, l'en-tête référence un blob au lieu de lister les points) :
+
+```
+# faulk-automation 1	target=device:<device>/cutoff
+0	800	linear
+3840	2400	linear
+7680	2400	step
+```
+
+`arrangement.tsv` :
+
+```
+# faulk-arrangement 1	id	start	length	clip	offset
+<placement>	0	15360	<clip>	0
+<placement>	15360	15360	<clip>	0
+```
+
+Un diff de notes reste lisible (`-480 240 36 100` / `+480 240 36 90` : la vélocité a baissé), et la vue de diff de Faulk l'affiche graphiquement (§ 4.5).
+
+### 2.4 Déterminisme : les règles de l'écrivain canonique
+
+Le même projet produit toujours **exactement les mêmes octets**. Règles, toutes testées (sérialiser → relire → resérialiser = identique, sur des projets générés aléatoirement) :
+
+- UTF-8 sans BOM, fin de ligne `\n`, `\n` final ; `.gitattributes` force `eol=lf`.
+- Clés JSON triées par ordre d'octets, une valeur par ligne ; tables indexées par ID plutôt que tableaux.
+- Lignes TSV triées par la clé naturelle (note : start, pitch, length, velocity ; point : tick ; placement : start puis id).
+- **Écriture paresseuse** : seuls les fichiers dont le contenu canonique a changé sont réécrits.
+- Aucune donnée volatile dans les fichiers versionnés : pas de date de sauvegarde, pas de version de l'application hors numéro de format, pas d'état d'écran.
+
+### 2.5 Nombres à virgule
+
+- Positions en entiers (ticks, frames) : aucun flottant là où l'ordre et l'égalité comptent.
+- Valeurs continues écrites avec la **représentation décimale la plus courte qui relit la même valeur** (comportement par défaut de `serde_json` et de `JSON.stringify` pour un `f64`). Jamais `-0` (normalisé en `0`), jamais `NaN` (refusé à la validation). `-inf dB` s'écrit `null`.
+- **Quantification à la source** : chaque paramètre déclare un pas (0,01 dB, 1 Hz…) et la commande arrondit avant d'écrire. Sans cela, un bouton tourné à la souris produit des diffs bruités et des conflits factices. L'automation enregistrée en direct est quantifiée et simplifiée (points colinéaires supprimés).
+
+### 2.6 Versions du format et migrations
+
+`project.json` porte `"format": 1`. Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
+
+## 3. Les blobs
+
+### 3.1 Adressage par contenu
+
+- Un blob est nommé par le **SHA-256 de ses octets** et n'est **jamais modifié** : une édition destructive (normaliser, inverser) produit un nouveau blob. Un clip référence une empreinte, pas un chemin.
+- **Déduplication gratuite** : importer deux fois le même échantillon, ou le même enregistrement dans deux branches, ne coûte qu'un fichier.
+- **Import** : on garde les octets d'origine, pour que l'empreinte corresponde au fichier de l'utilisateur (le stockage discute le cas des formats compressés). **Enregistrement** : écrit d'abord dans `.faulk/`, puis à l'arrêt on calcule l'empreinte, on range le blob et on crée le clip. Format d'enregistrement (FLAC ou WAV) : **question ouverte**.
+- Le SHA-256 se calcule en flux (dans le navigateur, crate `sha2` en WASM dans un worker).
+
+SHA-256 est exactement l'identifiant (`oid`) qu'utilise Git LFS : l'empreinte de Faulk et celle de LFS sont la même, sans recalcul.
+
+### 3.2 Avec git : LFS et pilotes
+
+Faulk écrit dans `.gitattributes` :
+
+```
+blobs/** filter=lfs diff=lfs merge=lfs -text
+*.json   text eol=lf merge=faulk diff=faulk
+*.tsv    text eol=lf merge=faulk diff=faulk
+```
+
+Un blob ne peut jamais être en conflit : deux branches qui ajoutent le même fichier ajoutent le même nom avec le même contenu. Un pointeur LFS est un petit fichier texte (`version`, `oid sha256:…`, `size`) que Faulk sait écrire sans le client LFS, ce qui compte pour le navigateur (§ 6).
+
+### 3.3 Sans git : le magasin de contenu
+
+Pour l'utilisateur sans git et pour le navigateur, les blobs vivent dans un **magasin local par empreinte** (le dossier `blobs/` du projet, ou un magasin partagé entre projets dans OPFS). Plus tard, un magasin distant (stockage objet, ou serveur LFS) permet de télécharger un projet léger puis l'audio à la demande ; une piste dont le blob manque reste ouvrable et affiche « média absent ».
+
+### 3.4 Nettoyage
+
+Marquer puis balayer : un blob est vivant s'il est référencé par **l'état courant, une version sauvegardée de n'importe quelle variante, ou la pile d'annulation**. Le reste se supprime **sur demande seulement** (« Libérer l'espace : 1,2 Go de prises inutilisées »), jamais automatiquement. Sous git, l'historique LFS se nettoie avec les outils LFS.
+
+## 4. Branches et fusions qui ont un sens musical
+
+### 4.1 Trois niveaux de fusion
+
+1. **Par fichier (git seul).** Deux branches qui touchent des pistes, des devices, des clips ou des couloirs différents modifient des fichiers différents : git fusionne sans rien savoir de Faulk. C'est le cas le plus fréquent.
+2. **Par fichier, sémantique (pilote `faulk merge`).** Quand les deux branches touchent le *même* fichier, le pilote fusionne à trois points au niveau des champs et des éléments, pas des lignes.
+3. **Au niveau du projet (validation après fusion).** Certaines incohérences n'existent qu'entre fichiers : une branche supprime une piste, l'autre y ajoute un clip ; une branche supprime un device, l'autre automatise un de ses paramètres. Après toute fusion, Faulk valide le projet et transforme ces incohérences en **conflits sémantiques** à trancher.
+
+### 4.2 Fusion des structures (JSON)
+
+| Base → nous / eux | Résultat |
+| --- | --- |
+| inchangé / changé | on prend le changement |
+| changé / changé, même valeur | on prend la valeur |
+| changé / changé, valeurs différentes | **conflit** sur ce champ |
+| entité ajoutée d'un côté | ajoutée (IDs uniques : jamais de collision) |
+| entité supprimée d'un côté, inchangée de l'autre | supprimée |
+| entité supprimée d'un côté, modifiée de l'autre | **conflit** « supprimé / modifié » |
+
+Deux insertions qui reçoivent par hasard la même clé d'ordre sont départagées par ID (ordre déterministe, pas de conflit).
+
+### 4.3 Fusion des collections
+
+- **Notes : fusion d'ensembles.** Résultat = (nous ∩ eux) ∪ (nous − base) ∪ (eux − base). Jamais de conflit textuel : une branche qui ajoute un contre-chant et une autre qui corrige une fausse note dans le même clip se fusionnent. Deux notes de même hauteur qui se chevauchent après fusion sont signalées comme « conflit de note » à écouter.
+- **Points d'automation** : table indexée par tick ; même tick changé différemment des deux côtés → conflit sur ce point. Un couloir stocké en blob se fusionne en le relisant comme table.
+- **Placements** : table indexée par ID ; même placement déplacé différemment → conflit ; chevauchements après fusion → signalés.
+
+### 4.4 Ce qu'est un conflit, en musique
+
+| Situation | Fusion automatique ? |
+| --- | --- |
+| Pistes, devices, clips ou couloirs différents | Oui |
+| Notes ajoutées ou retirées dans le même clip, à des endroits différents | Oui |
+| Tempo changé d'un côté, notes éditées de l'autre | Oui (tout est en ticks) ; les clips audio sont repositionnés et signalés « à réécouter » |
+| Même paramètre réglé à deux valeurs différentes | Conflit sur ce paramètre |
+| Même clip renommé ou recoloré deux fois | Conflit mineur, avec un choix par défaut |
+| Piste supprimée d'un côté, éditée de l'autre | Conflit « supprimé / modifié » |
+| Deux clips posés dans la même case de la grille | Conflit |
+| Automation d'un device supprimé de l'autre côté | Conflit sémantique (validation) |
+| État opaque d'un instrument changé des deux côtés | Conflit, choix d'un côté |
+| Source d'un module Faust modifiée des deux côtés | Fusion texte classique ; si conflit, choix ou édition dans l'Atelier |
+
+Un conflit est toujours **localisé et nommé** (« Basse › Filtre › cutoff : 800 Hz chez vous, 1 200 Hz dans la variante ») et se résout par un choix (« garder le mien », « garder le leur », « garder les deux » quand cela a un sens). Jamais de marqueurs `<<<<<<<` dans un fichier de projet.
+
+### 4.5 Le pilote de fusion git et le diff lisible
+
+- `faulk merge %O %A %B %P` : git fournit la base, notre version, la leur et le chemin ; le pilote écrit le résultat dans `%A` et sort en erreur s'il reste un conflit. Le fichier laissé est **toujours valide** (notre valeur à l'endroit du conflit) ; les conflits sont listés dans `.faulk/conflicts.json`, et Faulk relit la base, notre version et la leur dans l'index git pour son écran de résolution.
+- `faulk diff` en `textconv` : `git diff` affiche « Basse : volume −6 dB → −4,5 dB ; clip Intro : +3 notes, −1 note » au lieu de lignes brutes.
+- Une config git ne se versionne pas : `faulk git setup` (commande du helper) inscrit les pilotes. Sans cette étape, git retombe sur la fusion ligne à ligne, qui, grâce au format, produit des conflits localisés, et la validation de Faulk rattrape le reste à l'ouverture.
+
+**Une seule implémentation** de la fusion, dans `crates/project` : appelée par le helper comme pilote git, par la page (WASM) comme `mergeDriver` d'isomorphic-git ou pour les variantes, et par les tests.
+
+### 4.6 Dans l'interface : versions, variantes, comparer, fusionner
+
+Vocabulaire proposé, sans le mot « branche » :
+
+- **Version** : un instantané nommé du projet (un commit). « Sauver une version » est un geste explicite ; l'enregistrement automatique écrit le dossier de travail sans créer de version.
+- **Variante** : une exploration parallèle (une branche). « Essayer une variante » la crée depuis l'état courant et bascule dessus.
+- **Comparer A/B** : jouer les deux états à la même position et basculer **sans arrêter la lecture**, à la mesure suivante ; le moteur reçoit la différence entre les deux graphes de rendu. La vue montre aussi les pistes et clips ajoutés, modifiés, supprimés.
+- **Fusionner** : ramener une variante (en entier, par piste ou par clip) dans la version principale ; les conflits s'affichent comme une liste à cocher, chacun avec une écoute de chaque côté.
+- **Reprendre seulement ceci** : copier un clip ou une piste depuis une autre variante ou une ancienne version.
+
+C'est aussi le terrain de l'IA : **un agent travaille dans une variante** (« Fais-moi trois variantes du refrain »), l'utilisateur compare et fusionne ce qui lui plaît.
+
+## 5. Commandes, état et annulation
+
+### 5.1 Options
+
+| Option | Pour | Contre |
+| --- | --- | --- |
+| Journal d'opérations comme vérité (event sourcing) | Historique fin, attribution, temps réel envisageable | Rejouer coûte cher ; chaque évolution d'une commande impose de migrer l'historique ; fusionner deux journaux n'est pas plus simple que fusionner deux états ; diff illisible |
+| **État + git** | Simple, robuste, lisible, compatible avec les outils git | Historique au grain des versions, pas des gestes |
+| CRDT (ex. Automerge) | Fusion sans conflit, temps réel | Fusionne *sans* demander, ce qui en musique est souvent faux ; format binaire peu compatible avec git ; dépendance lourde |
+
+### 5.2 Proposition
+
+**L'état est la vérité ; git est l'histoire ; les commandes sont le seul moyen de changer l'état.**
+
+1. **Modèle immuable à partage structurel.** Chaque commande prend un `Project` et rend un nouveau `Project` qui partage tout ce qui n'a pas changé (`Arc` sur les pistes, clips, couloirs, ou la crate `im`). Coût proportionnel à ce qui change.
+2. **Annuler = revenir à la racine précédente.** La pile d'annulation est une liste de racines, bon marché grâce au partage structurel. Une commande structurelle (« supprimer une piste ») n'a plus à savoir écrire son inverse : `x-undo` prend la valeur `snapshot` pour les commandes du projet. L'inverse explicite reste utile pour les réglages temps réel que le moteur applique directement ; `none` pour les notes jouées en direct. Un tour d'agent = une seule entrée.
+3. **Fichiers sales** : chaque commande marque les entités touchées ; l'enregistrement réécrit seulement leurs fichiers (§ 7).
+4. **Journal léger, non vérité** : les commandes d'une session sont gardées (en mémoire et dans `.faulk/`) pour l'attribution et pour **rédiger le message de la version** (« Agent : 1 piste ajoutée, 42 notes posées », avec des lignes de fin `Faulk-Author: agent:<nom>`).
+5. **Les gestes de version sont des commandes** : `version.save { message }`, `version.list`, `variant.create { name }`, `variant.switch { name }`, `variant.compare { a, b }`, `variant.merge { from } → { conflicts }`, `conflict.resolve { id, choice }`, `version.restore { id }`. `version.restore` et l'abandon d'une variante sont destructeurs.
+
+Le découpage du MVP prévoit des inverses explicites dans `Outcome` (CT-4) : la valeur `snapshot` de `x-undo` est à ajouter au contrat de commande.
+
+### 5.3 Ce qu'on reporte
+
+Le journal d'opérations comme vérité, la collaboration en temps réel et les CRDT. Le modèle proposé (IDs stables, notes comme ensemble, clés d'ordre fractionnaires) reste compatible avec une couche CRDT future.
+
+### 5.4 Où vit le modèle
+
+Proposition : **la page détient le modèle dans les deux modes** (`crates/project` et `crates/commands` en WASM) ; le moteur (worklet ou helper) ne reçoit que le graphe de rendu et ses changements. Les agents MCP passant par le helper voient leurs commandes relayées vers la page, ce qui garde le helper dans son rôle de pont. Le stockage est derrière une interface `ProjectStore` (OPFS, dossier choisi, système de fichiers du helper) et git derrière `VersionStore`. En mode Boost, le helper est la seule autorité qui *écrit* le dossier (voir [stockage](03-stockage-local.md)), mais il écrit ce que la page lui envoie. **À confirmer** avec l'architecture.
+
+## 6. git dans le navigateur
+
+### 6.1 État des lieux (octobre 2026)
+
+- **isomorphic-git** : git en JavaScript pur, navigateur et workers compris, avec son propre système de fichiers (« bring your own fs ») ; des démonstrations le font tourner sur OPFS. `merge` accepte un `mergeDriver`, ce qui permet d'y brancher la fusion de Faulk ; mais pas de stratégie récursive (échec s'il y a plusieurs bases), pas d'abandon de fusion incomplète, pas de Git LFS documenté. Maintenu par deux bénévoles : **dépendance à risque, à isoler derrière une interface**.
+- **CORS** : les grands hébergeurs git n'envoient pas les en-têtes nécessaires ; pousser ou tirer depuis la page exige un proxy. Le helper n'a pas ce problème.
+- **Dossier réel** (`showDirectoryPicker`) : Chromium seulement. OPFS est disponible partout mais invisible pour l'utilisateur et pour son git.
+- **LightningFS** peut corrompre un dépôt en cas d'arrêt brutal : préférer un adaptateur OPFS soigné, avec `flush`.
+
+### 6.2 Deux usages
+
+1. **Versions et variantes dans l'application** : personne ne voit le dépôt. Il peut vivre dans OPFS, les blobs **hors** des objets git (dans le magasin par empreinte), les commits ne contenant que du texte.
+2. **Le projet dans le git de l'utilisateur** : vrai dossier, vrai git, LFS, dépôt distant. C'est le terrain du helper.
+
+### 6.3 Chemin proposé
+
+**Phase 1 (MVP) : un format prêt pour git, sans git dans l'application.**
+
+- `crates/project` : modèle, écrivain canonique, validation, fusion à trois points, migrations ; tests de déterminisme et de propriétés de la fusion (`merge(b, x, b) = x`, `merge(b, x, x) = x`, symétrie des conflits).
+- Projet enregistré dans OPFS, dans un dossier choisi (Chromium) ou par le helper ; export et import `.faulkpack`.
+- `.gitattributes` et `.gitignore` écrits par Faulk ; binaire `faulk` (livré avec le helper) qui sert de pilote `merge` et `diff`, et `faulk git setup`.
+- Validation à l'ouverture : un projet fusionné à la main par git est vérifié et ses incohérences présentées comme conflits.
+
+**Phase 2 : versions et variantes dans l'application.** `VersionStore` dans un worker (isomorphic-git sur OPFS en mode Web ; git du système ou une bibliothèque Rust comme gitoxide, à évaluer, dans le helper) ; commandes `version.*` et `variant.*`, comparaison A/B, fusion avec écoute ; les cas que isomorphic-git ne gère pas se rabattent sur une fusion complète faite par Faulk à partir des trois arbres.
+
+**Phase 3 : dépôts distants et partage.** Pousser et tirer via le helper (vrai git et LFS) ; depuis la page seule, via un proxy CORS ou un service de synchronisation. Les commits créés dans la page référencent les blobs par **pointeurs LFS écrits par Faulk** ; l'envoi passe par l'API batch de LFS (faisabilité à valider par un spike). Téléchargement paresseux de l'audio.
+
+**Plus tard** : collaboration en temps réel, revue de variante entre musiciens, enveloppes de clip, audio élastique, expression par note.
+
+### 6.4 Précédents hors musique
+
+- Moteurs de jeu dont les scènes sont en texte pensé pour git, avec un outil de fusion fourni comme pilote git : précédent direct de `faulk merge`.
+- Carnets de calcul : un outil de diff et de fusion sémantique branché comme pilote git, pour un JSON illisible en diff ligne à ligne.
+- Outils de design avec branches internes pour des non-développeurs, et ordre des éléments par indexation fractionnaire : modèle de l'expérience visée pour les variantes.
+- Bases de données versionnées : fusion cellule par cellule, conflit seulement sur la même cellule ; c'est le grain proposé ici (le champ, la note, le point).
+- Recherche « local-first » (Automerge) : elle insiste sur la visualisation des différences et la fusion volontaire plutôt qu'automatique, ce qui rejoint « fusionner en demandant ».
+
+## 7. Les grands projets
+
+Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrement ne deviennent lents.
+
+- **Le texte est lu à l'ouverture et écrit à l'enregistrement, jamais entre les deux.** En mémoire, le modèle est fait de structures Rust compactes (une note = 12 à 16 octets) ; le texte n'est pas la représentation de travail.
+- **Risque 1 : le nombre de fichiers dans le navigateur.** Ouvrir des milliers de petits fichiers par les API asynchrones du navigateur coûte cher. Parade : un **instantané binaire de tout le projet dans `.faulk/cache/`**, écrit à l'enregistrement ; à l'ouverture, Faulk charge l'instantané puis ne relit que les fichiers modifiés depuis (date et taille, ou empreinte). Le cache est régénérable : s'il manque ou ne correspond plus, on relit tout.
+- **Risque 2 : l'enregistrement.** Suivi des fichiers sales : éditer une note réécrit un seul petit fichier (le `.notes.tsv` du clip), jamais tout le projet.
+- **Annulation** : les instantanés sont bon marché grâce au partage structurel (§ 5.2), même sur un gros projet.
+- **Automation dense** : au-delà d'environ 1 000 points, un couloir passe en blob pour ne pas produire des fichiers texte énormes et des diffs illisibles.
+
+**Banc de charge** (tâche QA-7 du [découpage du MVP](../specs/02-decoupage-mvp.md), phase 1) : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) et mesurer l'ouverture, l'enregistrement, la mémoire et les opérations git, dans le navigateur et en natif. Ses chiffres fixent les seuils du format (densité d'automation qui bascule en blob, utilité de l'instantané de cache, éventuelle subdivision de `blobs/`).
+
+## 8. Proposition de MVP
+
+1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, fusion à trois points, migrations.
+2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7.
+3. Commandes de projet en modèle immuable, annulation par instantané.
+4. Binaire `faulk` : pilotes git `merge` et `diff`, `git setup`.
+5. Tests : aller-retour octet pour octet, une fusion de référence par ligne du tableau § 4.4, propriétés de la fusion, un dépôt git réel où deux branches sont fusionnées par le pilote ; banc de charge.
+
+Phase 2 ensuite : versions et variantes dans l'application, comparaison A/B, fusion avec écoute.
+
+## 9. Questions ouvertes pour le fondateur
+
+1. **Solo** dans le projet ou dans la session ? Et l'entrée MIDI, le métronome, la zone de boucle ?
+2. **Copier un clip dans l'arrangement** : clip lié ou indépendant par défaut ?
+3. **Notes** : sans identifiant sur disque (fusion par ensemble) avec des identifiants de session dans les commandes, ou `NoteId` durable dès le MVP ?
+4. **Où vivent les projets** par défaut en mode Web : OPFS (invisible) ou dossier choisi (Chromium seulement) ?
+5. **Format d'enregistrement** audio : FLAC ou WAV ?
+6. **Vocabulaire** : « Version » et « Variante » conviennent-ils, en français et en anglais ?
+7. **Qui détient le modèle en mode Boost** : la page (proposé) ou le helper ?
+8. **Blobs dans git** : LFS par défaut, ou magasin séparé dès le départ ?
+9. **Sources Faust des modules du projet** : dans le dossier du projet (un sous-dossier texte, versionné avec lui) ou dans une bibliothèque personnelle ? L'arborescence de la synthèse ne les place pas encore (voir la [spec de l'Atelier](../specs/01-atelier-modules.md)).
+10. **Collaboration** : le partage entre musiciens est-il un objectif de la première année (ce qui avance la phase 3), ou d'abord un outil personnel ?
+
+## Sources
+
+- isomorphic-git : https://github.com/isomorphic-git/isomorphic-git ; https://isomorphic-git.org/docs/en/merge ; https://isomorphic-git.org/docs/en/fs
+- git sur OPFS (démo memfs) : https://unpkg.com/memfs@4.80.0/demo/git-opfs/README.md ; preuve de concept OPFS + ZenFS + isomorphic-git : https://gitlab.com/gitlab-org/gitlab-web-ide/-/merge_requests/536/commits
+- Pilotes de fusion git (`%O %A %B`, résultat dans `%A`) : https://www.root.cz/man/5/gitattributes ; https://graphite.dev/guides/git-merge-driver
+- API batch de Git LFS : https://demo.gitea.com/lunny/git-lfs/raw/commit/4457d7c7c5906025f753579f67f975792235b717/docs/api/http-v1-batch.md
+- Accès aux dossiers dans le navigateur : https://web.dev/articles/files/open-a-directory
+- Automerge 3 : https://automerge.org/blog/automerge-3/
