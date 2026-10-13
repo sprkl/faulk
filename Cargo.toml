@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/engine", "crates/commands", "crates/engine-wasm", "crates/protocol", "crates/helper"]
+
+[workspace.package]
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.release.package.engine-wasm]
+opt-level = 3

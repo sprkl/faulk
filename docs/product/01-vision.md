@@ -47,8 +47,11 @@ Les modules sont l'actif central : portables entre les deux modes et partageable
 2. La recréation par mesure : on mesure un plugin existant en boîte noire et l'IA écrit un module équivalent jusqu'à un écart mesuré acceptable (`../constraints/01-contraintes.md`).
 3. La création originale dans l'Atelier.
 
+## Décisions prises
+
+- Interface en anglais et en français dès le départ (décision du 2026-10-13).
+- Interface web en Svelte 5 (décision du 2026-10-13).
+
 ## Décisions ouvertes
 
-- Langue de l'interface : français d'abord, anglais d'abord, ou les deux dès le départ.
-- Framework de l'interface web.
 - Modèle de distribution : outil personnel, open source, produit commercial.

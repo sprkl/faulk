@@ -1,0 +1,26 @@
+[package]
+name = "helper"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Faulk native helper (Boost mode): the local bridge running the engine with native audio and MIDI."
+
+[[bin]]
+name = "faulk-helper"
+path = "src/main.rs"
+
+[dependencies]
+engine = { path = "../engine" }
+commands = { path = "../commands" }
+protocol = { path = "../protocol" }
+cpal = "0.18.2"
+midir = "0.11.1"
+rtrb = "0.4.0"
+serde_json = "1.0.154"
+getrandom = "0.4.3"
+dirs = "7.0.0"
+futures-util = "0.3.34"
+assert_no_alloc = "1.1.2"
+tokio-tungstenite = "0.30.0"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
