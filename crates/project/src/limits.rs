@@ -8,10 +8,10 @@
 //! refuses a project beyond them, so that a command is refused with a typed error before
 //! it reaches the engine, which never fails in real time (MVP breakdown § 2.3).
 //!
-//! The engine-facing totals (tracks, notes, points) are the safety limit CT-3 (#39) sets
-//! for the engine; until it lands they are the example numbers of § 2.3 (4 096 tracks,
-//! 16 777 216 notes). They must never exceed the engine's: whichever of PR-1 and CT-3
-//! lands second aligns them.
+//! The engine-facing limits are the engine's own (`engine::msg::limits`, CT-3 #39): the
+//! document takes them from there where they coincide, and the `const` block at the end
+//! checks that no document limit exceeds the engine's, so that a project the document
+//! accepts is never refused by the engine on a count.
 
 /// Latest tick a position or an end may reach: 2^40 ticks, the bound under which CT-2
 /// guarantees an exact tick → sample → tick round trip (about 18 years at 120 BPM).
@@ -28,10 +28,10 @@ pub const MAX_NAME_CHARS: usize = 200;
 pub const MAX_KEY_LEN: usize = 128;
 
 /// Most tracks in a project.
-pub const MAX_TRACKS: usize = 4_096;
+pub const MAX_TRACKS: usize = engine::msg::limits::MAX_TRACKS as usize;
 
 /// Most scenes in a project.
-pub const MAX_SCENES: usize = 4_096;
+pub const MAX_SCENES: usize = engine::msg::limits::MAX_SCENES as usize;
 
 /// Most devices in one track's chain.
 pub const MAX_DEVICES_PER_TRACK: usize = 1_000;
@@ -52,13 +52,13 @@ pub const MAX_LANES_PER_TRACK: usize = 10_000;
 pub const MAX_NOTES_PER_CLIP: usize = 1_000_000;
 
 /// Most points in one automation lane.
-pub const MAX_POINTS_PER_LANE: usize = 16_777_216;
+pub const MAX_POINTS_PER_LANE: usize = engine::msg::limits::MAX_POINTS_PER_LANE as usize;
 
 /// Most notes in the whole project.
-pub const MAX_NOTES: usize = 16_777_216;
+pub const MAX_NOTES: usize = engine::msg::limits::MAX_NOTES as usize;
 
 /// Most automation points in the whole project.
-pub const MAX_POINTS: usize = 16_777_216;
+pub const MAX_POINTS: usize = engine::msg::limits::MAX_AUTOMATION_POINTS as usize;
 
 /// Most channels in an audio file.
 pub const MAX_CHANNELS: u16 = 64;
@@ -103,3 +103,19 @@ impl Limits {
         points: MAX_POINTS,
     };
 }
+
+// No document limit exceeds the engine's (CT-3): the project never accepts a count that a
+// message would then be refused for.
+const _: () = {
+    use engine::msg::limits as engine;
+    assert!(MAX_TRACKS <= engine::MAX_TRACKS as usize);
+    assert!(MAX_SCENES <= engine::MAX_SCENES as usize);
+    assert!(MAX_DEVICES_PER_TRACK <= engine::MAX_DEVICES_PER_TRACK as usize);
+    assert!(MAX_CLIPS_PER_TRACK <= engine::MAX_CLIPS as usize);
+    assert!(MAX_PLACEMENTS_PER_TRACK <= engine::MAX_PLACEMENTS_PER_TRACK as usize);
+    assert!(MAX_LANES_PER_TRACK <= engine::MAX_LANES as usize);
+    assert!(MAX_NOTES_PER_CLIP <= engine::MAX_NOTES_PER_CLIP as usize);
+    assert!(MAX_POINTS_PER_LANE <= engine::MAX_POINTS_PER_LANE as usize);
+    assert!(MAX_NOTES <= engine::MAX_NOTES as usize);
+    assert!(MAX_POINTS <= engine::MAX_AUTOMATION_POINTS as usize);
+};

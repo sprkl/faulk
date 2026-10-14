@@ -189,13 +189,13 @@ pub mod limits {
     /// Tracks in a project.
     pub const MAX_TRACKS: u32 = 4096;
     /// Devices in one track's chain.
-    pub const MAX_DEVICES_PER_TRACK: u32 = 64;
+    pub const MAX_DEVICES_PER_TRACK: u32 = 1024;
     /// Clips in a project (grid and arrangement together).
-    pub const MAX_CLIPS: u32 = 65_536;
+    pub const MAX_CLIPS: u32 = 1_048_576;
     /// Placements in a project, every track together.
     pub const MAX_PLACEMENTS: u32 = 1_048_576;
     /// Placements in one track's arrangement.
-    pub const MAX_PLACEMENTS_PER_TRACK: u32 = 65_536;
+    pub const MAX_PLACEMENTS_PER_TRACK: u32 = 131_072;
     /// Notes in a project, every clip together.
     pub const MAX_NOTES: u32 = 16_777_216;
     /// Notes in one clip.
@@ -205,11 +205,11 @@ pub mod limits {
     /// Automation points in a project, every lane together.
     pub const MAX_AUTOMATION_POINTS: u32 = 16_777_216;
     /// Automation points in one lane.
-    pub const MAX_POINTS_PER_LANE: u32 = 1_048_576;
+    pub const MAX_POINTS_PER_LANE: u32 = 16_777_216;
     /// Audio sources (files) declared to the engine.
     pub const MAX_AUDIO_SOURCES: u32 = 4096;
     /// Scenes of the launch grid.
-    pub const MAX_SCENES: u32 = 1024;
+    pub const MAX_SCENES: u32 = 4096;
     /// Memory the streaming buffers of the audio tracks may hold together (AU-3).
     pub const PCM_BUDGET_BYTES: u64 = 1 << 30;
     /// Memory the project lets the engine's tables and devices take together, from the

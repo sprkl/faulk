@@ -35,7 +35,10 @@ fn the_header_is_sixteen_little_endian_bytes_and_round_trips() {
             0xEF, 0xBE, 0xAD, 0xDE, // seq
         ]
     );
-    assert_eq!(Header::decode(&bytes, 3), Ok(h));
+    // The whole message: the header followed by `len` bytes of payload.
+    let mut whole = bytes.to_vec();
+    whole.resize(HEADER_BYTES + h.len as usize, 0);
+    assert_eq!(Header::decode(&whole, 3), Ok(h));
 }
 
 /// One sample per `ControlMsg` variant: the enumeration of the contract.
