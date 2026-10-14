@@ -31,6 +31,7 @@ try {
     toolName: input.tool_name,
     toolInput: input.tool_input,
     dirs: [input.cwd, ...roots, process.env.CLAUDE_PROJECT_DIR],
+    checkouts: roots,
   });
   if (!verdict.allow) {
     process.stdout.write(

@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { changeFingerprint, scriptRoot } from "../agent-qa/fingerprint.mjs";
@@ -94,18 +94,33 @@ if (checkpoint !== "plan") {
   if (!base) {
     fail("no develop branch to compare with: run git fetch origin develop, then this command again.");
   }
-  const exclude = ["--", ".", ":(exclude)Cargo.lock", ":(exclude)**/pnpm-lock.yaml", ":(exclude)pnpm-lock.yaml"];
+  // Lockfiles are listed with the changed files but their content is left
+  // out of the diff (thousands of generated lines); the brief says so, and the
+  // manifests that drive them (Cargo.toml, package.json) are in the diff.
+  const lockfiles = [":(exclude)Cargo.lock", ":(exclude,glob)**/pnpm-lock.yaml", ":(exclude,glob)**/package-lock.json"];
   brief.base = base.slice(0, 12);
   brief.head = "working tree";
   brief.fingerprint = changeFingerprint(root) ?? "none";
   brief.commits = run("git", ["log", "--format=%h %s%n%n%b", `${base}..HEAD`]);
-  brief.files = run("git", ["diff", "--name-status", base, ...exclude]);
-  brief.diff = run("git", ["diff", "--no-ext-diff", base, ...exclude]);
+  brief.files = run("git", ["diff", "--name-status", base, "--", "."]);
+  brief.diff = run("git", ["diff", "--no-ext-diff", base, "--", ".", ...lockfiles]);
+  const changedLockfiles = run("git", ["diff", "--name-only", base, "--", ".", ":(glob)**/Cargo.lock", ":(glob)**/pnpm-lock.yaml", ":(glob)**/package-lock.json"])
+    .split("\n")
+    .filter(Boolean);
+  if (changedLockfiles.length > 0) {
+    brief.diffNote = `The content of these lockfiles is left out of the diff: ${changedLockfiles.join(", ")}. Check the dependency changes in the manifests and run git diff ${base.slice(0, 12)} -- <lockfile> if needed.`;
+  }
   const untracked = run("git", ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean);
   for (const file of untracked) {
-    brief.files += `A\t${file} (untracked)\n`;
     const path = join(root, file);
-    const content = statSync(path).size > 1024 * 1024 ? null : readFileSync(path);
+    // Never follow a link: its target may be outside the repository.
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) {
+      brief.files += `A\t${file} (untracked symbolic link, not followed)\n`;
+      continue;
+    }
+    brief.files += `A\t${file} (untracked)\n`;
+    const content = !stat.isFile() || stat.size > 1024 * 1024 ? null : readFileSync(path);
     const text = content && !content.includes(0) ? content.toString("utf8") : "(binary or larger than 1 MB: not shown)";
     brief.diff += `\n--- /dev/null\n+++ b/${file} (untracked)\n${text}`;
   }

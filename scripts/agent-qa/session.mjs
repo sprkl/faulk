@@ -172,12 +172,21 @@ export function wroteDuringCall({ before, baseline, after }) {
 }
 
 /**
- * Reflog subjects of moves that author code: a commit (amend, merge commit),
- * a cherry-pick or a revert. A checkout, a switch, a pull, a fetch-and-merge,
- * a reset or a rebase moves HEAD to code someone else authored or the session
- * already had.
+ * Reflog subjects of moves that author code: a commit (amend, or `commit
+ * (merge)` after resolving conflicts by hand), a cherry-pick, a revert, and a
+ * merge of any branch but `develop` or `main`. Merging `develop` (or `main`)
+ * into a task branch brings code that was reviewed in its own pull request,
+ * so it is not authoring; merging another task branch brings code nobody
+ * verified here, so it is. A checkout, a switch, a pull, a reset or a rebase
+ * moves HEAD to code someone else authored or the session already had.
  */
-export const authorsCode = (moves) => moves === null || moves.some((move) => /^(commit|cherry-pick|revert)\b/.test(move));
+export const authorsCode = (moves) =>
+  moves === null ||
+  moves.some(
+    (move) =>
+      /^(commit|cherry-pick|revert)\b/.test(move) ||
+      (/^merge\b/.test(move) && !/^merge (refs\/remotes\/)?(origin\/)?(develop|main)\b/.test(move)),
+  );
 
 /**
  * Decision for a call that moved HEAD (`moves`: the reflog since its

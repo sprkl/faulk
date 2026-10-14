@@ -106,6 +106,7 @@ export function renderBrief({
   commits,
   files,
   diff,
+  diffNote,
   reviewThreads,
   pullRequest,
 }) {
@@ -175,6 +176,9 @@ export function renderBrief({
   }
   if (checkpoint !== "plan" && diff) {
     parts.push("\n## Diff\n");
+    if (diffNote) {
+      parts.push(`${diffNote}\n`);
+    }
     parts.push(fence(diff));
   }
   return `${parts.join("\n")}\n`;

@@ -55,6 +55,26 @@ if (!existsSync(briefFile) || !lstatSync(briefFile).isFile() || lstatSync(briefF
 if (!/^\d+(\.\d+)?$/.test(values.budget) || !/^\d+$/.test(values.timeout)) {
   fail(USAGE);
 }
+// This script writes the answer and its run files in the brief folder: none
+// of the folders on the way, nor the files it writes, may be a link, which it
+// would follow to write outside the repository.
+for (const path of [
+  join(root, ".scratch"),
+  join(root, BRIEF_DIR),
+  join(root, BRIEF_DIR, `${issue}-${checkpoint}.answer.md`),
+  join(root, BRIEF_DIR, "headless.settings.json"),
+  join(root, BRIEF_DIR, "headless.agents.json"),
+]) {
+  let stat = null;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    // Absent: the script creates a regular file.
+  }
+  if (stat?.isSymbolicLink()) {
+    fail(`${path} is a symbolic link: remove it, then run this command again.`);
+  }
+}
 
 // The answer names its model: `record.mjs reviewed` accepts only a review by
 // the model of Judge Dredd's definition.

@@ -111,8 +111,19 @@ export function baseRef(cwd) {
     }
   }
   // Without `develop` (fresh clone, CI), all the code counts as changed:
-  // requiring a verification is safer than requiring none.
-  return git(cwd, "rev-list", "--max-parents=0", "HEAD").split("\n")[0];
+  // requiring a verification is safer than requiring none. The base is then
+  // the empty tree, so the files of the root commit count too.
+  return emptyTree(cwd);
+}
+
+/** The id of the empty tree in this repository's hash format (SHA-1 or SHA-256). */
+export function emptyTree(cwd) {
+  return execFileSync("git", ["hash-object", "-t", "tree", "--stdin"], {
+    cwd,
+    input: "",
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "ignore"],
+  }).trim();
 }
 
 const lines = (output) => output.split("\n").filter(Boolean);
@@ -233,7 +244,7 @@ export function refFingerprint(cwd, ref) {
       // Missing ref: try the next one.
     }
   }
-  base ??= git(cwd, "rev-list", "--max-parents=0", tip).split("\n")[0];
+  base ??= emptyTree(cwd);
   const files = lines(git(cwd, "diff", "--name-only", "--no-renames", base, tip, "--", ...CODE_PATHS)).sort();
   if (files.length === 0) {
     return null;

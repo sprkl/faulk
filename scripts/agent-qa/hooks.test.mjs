@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -325,6 +325,39 @@ describe("Stop hook: what blocks", () => {
     assert.equal(stop(root), null);
   });
 
+  it("merging develop into the task branch is not authoring; merging another task branch is", () => {
+    const root = makeRepo();
+    git(root, "switch", "-q", "develop");
+    writeCode(root, "pub fn gain() -> f32 { 0.65 }\n");
+    git(root, "commit", "-q", "-am", "reviewed work on develop");
+    git(root, "switch", "-q", "-c", "feat/10-other", "HEAD~1");
+    writeFileSync(join(root, "crates", "engine", "src", "other.rs"), "pub const OTHER: u8 = 1;\n");
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "unreviewed work");
+    git(root, "switch", "-q", "feat/6-x");
+    startSession(root, "m");
+    toolCall(root, "m", () => git(root, "merge", "-q", "--no-ff", "--no-edit", "develop"));
+    assert.equal(stop(root, "m"), null);
+    toolCall(root, "m", () => git(root, "merge", "-q", "--no-ff", "--no-edit", "feat/10-other"));
+    assert.equal(stop(root, "m").decision, "block");
+  });
+
+  it("a session working in a linked worktree while the project directory is the main checkout records and stops there", () => {
+    const main = makeRepo("develop");
+    const linked = join(mkdtempSync(join(tmpdir(), "faulk-linked-")), "w");
+    git(main, "worktree", "add", "-q", "-b", "feat/6-x", linked);
+    startSession(main, "lw");
+    toolCall(linked, "lw", () => writeCode(linked), { project: main });
+    const blocked = stop(main, "lw", { cwd: linked });
+    assert.equal(blocked.decision, "block");
+    assert.ok(blocked.reason.includes(toplevel(linked)));
+    assert.equal(script("agent-qa/record.mjs", linked, "verified", ...RUST).status, 0);
+    deliveryReview(linked);
+    assert.equal(review(linked).status, 0);
+    assert.equal(stop(main, "lw", { cwd: linked }), null);
+    assert.equal(stop(main, "lw", { cwd: main }), null);
+  });
+
   it("a writer that stashes its changes is still judged", () => {
     const root = makeRepo();
     startSession(root);
@@ -452,13 +485,22 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
   it("when git cannot run: the hook fails open with a warning to the user", () => {
     const outside = mkdtempSync(join(tmpdir(), "faulk-nogit-"));
     assert.equal(stop(outside), null);
-    const empty = mkdtempSync(join(tmpdir(), "faulk-nocommit-"));
-    git(empty, "init", "-q", "-b", "develop");
-    mkdirSync(qa(empty, "sessions", "s1"), { recursive: true });
-    // A writer marker for a checkout whose fingerprint cannot be computed.
-    const none = createHash("sha256").update("(none)").digest("hex").slice(0, 16);
-    writeFileSync(qa(empty, "sessions", "s1", `wrote-${rootIdOf(empty)}-${none}.json`), JSON.stringify({ root: toplevel(empty), ref: null }));
-    assert.match(stop(empty).systemMessage, /could not check the code/);
+    const project = makeRepo();
+    // A writer marker for a directory where git cannot compute anything (no longer a checkout).
+    const broken = mkdtempSync(join(tmpdir(), "faulk-broken-"));
+    const id = (text) => createHash("sha256").update(text.replaceAll("\\", "/").toLowerCase()).digest("hex").slice(0, 16);
+    const brokenId = process.platform === "win32" ? id(broken) : createHash("sha256").update(broken).digest("hex").slice(0, 16);
+    mkdirSync(qa(project, "sessions", "s1"), { recursive: true });
+    writeFileSync(qa(project, "sessions", "s1", `wrote-${brokenId}-${id("(none)")}.json`), JSON.stringify({ root: broken, ref: null }));
+    assert.match(stop(project).systemMessage, /could not check the code/);
+  });
+
+  it("without develop, the files of the root commit count as changed", () => {
+    const root = makeRepo("develop");
+    git(root, "branch", "-q", "-m", "develop", "trunk");
+    assert.notEqual(changeFingerprint(root), null);
+    assert.notEqual(codeState(root).fingerprint, null);
+    assert.equal(codeState(root).fingerprint, changeFingerprint(root));
   });
 
   it("when the Stop input has no session id: the hook fails open with a warning to the user", () => {
@@ -626,6 +668,59 @@ describe("brief.mjs and run.mjs", () => {
     assert.match(text, /1\. Every stop is guarded\./);
     assert.match(text, /\+pub fn gain\(\) -> f32 \{ 0\.5 \}/);
     assert.match(text, /pub const NEW: u8 = 1;/);
+  });
+
+  it("lists a changed lockfile and says its content is left out of the diff", () => {
+    const root = makeRepo();
+    writeFileSync(join(root, "Cargo.lock"), "# lock v2\n");
+    writeCode(root);
+    mkdirSync(join(root, ".scratch", "judge-dredd"), { recursive: true });
+    writeFileSync(join(root, ".scratch", "judge-dredd", "6-delivery.proposal.md"), "Claims.\n");
+    const issueFile = join(root, ".scratch", "issue.json");
+    writeFileSync(issueFile, JSON.stringify({ number: 6, title: "t", body: "b", comments: [] }));
+    git(root, "add", "Cargo.lock");
+    assert.equal(script("agent-review/brief.mjs", root, "6", "delivery", "--issue-file", issueFile).status, 0);
+    const text = readFileSync(join(root, BRIEF), "utf8");
+    assert.match(text, /A\tCargo\.lock/);
+    assert.match(text, /content of these lockfiles is left out of the diff: Cargo\.lock/);
+    assert.doesNotMatch(text, /# lock v2/);
+  });
+
+  it("does not follow an untracked symbolic link", (t) => {
+    const root = makeRepo();
+    const secret = join(mkdtempSync(join(tmpdir(), "faulk-secret-")), "secret.txt");
+    writeFileSync(secret, "TOP SECRET\n");
+    try {
+      symlinkSync(secret, join(root, "crates", "engine", "src", "link.rs"));
+    } catch {
+      t.skip("symbolic links are not allowed for this user on this system");
+      return;
+    }
+    mkdirSync(join(root, ".scratch", "judge-dredd"), { recursive: true });
+    writeFileSync(join(root, ".scratch", "judge-dredd", "6-delivery.proposal.md"), "Claims.\n");
+    const issueFile = join(root, ".scratch", "issue.json");
+    writeFileSync(issueFile, JSON.stringify({ number: 6, title: "t", body: "b", comments: [] }));
+    assert.equal(script("agent-review/brief.mjs", root, "6", "delivery", "--issue-file", issueFile).status, 0);
+    const text = readFileSync(join(root, BRIEF), "utf8");
+    assert.match(text, /link\.rs \(untracked symbolic link, not followed\)/);
+    assert.doesNotMatch(text, /TOP SECRET/);
+  });
+
+  it("run.mjs refuses to write through a symbolic link", (t) => {
+    const root = makeRepo();
+    writeCode(root);
+    deliveryReview(root);
+    const answer = join(root, ".scratch", "judge-dredd", "6-delivery.answer.md");
+    rmSync(answer);
+    try {
+      symlinkSync(join(root, "README.md"), answer);
+    } catch {
+      t.skip("symbolic links are not allowed for this user on this system");
+      return;
+    }
+    const result = script("agent-review/run.mjs", root, BRIEF);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /is a symbolic link/);
   });
 
   it("refuses to build a brief without the lead's plan or report draft", () => {

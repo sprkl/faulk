@@ -61,7 +61,13 @@ function normalizedParts(path) {
 }
 
 /**
- * `true` when `path` names a brief, an answer, or anything in a records
+ * `.claude/settings.local.json` holds the user's switch to turn the hooks off
+ * (`disableAllHooks`): an agent never writes it.
+ */
+const isLocalSettings = (p) => p.at(-1) === "settings.local.json" && p.at(-2) === ".claude";
+
+/**
+ * `true` when `path` names a brief, an answer, the user's local settings, or anything in a records
  * folder, once `.` and `..` are resolved. A relative path is also resolved
  * against each of `dirs`, so that `../review.json` from inside the records is
  * caught.
@@ -73,7 +79,7 @@ export function isProtectedPath(path, dirs = []) {
   const forms = [path, ...(isAbsolute(path) ? [] : dirs.filter(Boolean).map((dir) => resolve(dir, path)))];
   return forms.some((form) => {
     const p = normalizedParts(form);
-    if (p.includes(QA_DIR_NAME)) {
+    if (p.includes(QA_DIR_NAME) || isLocalSettings(p)) {
       return true;
     }
     const [dir2, dir1, name] = [p.at(-3), p.at(-2), p.at(-1)];
@@ -93,7 +99,7 @@ export function isProtectedWord(word) {
   if (p.length === 0) {
     return false;
   }
-  if (p.includes(QA_DIR_NAME)) {
+  if (p.includes(QA_DIR_NAME) || isLocalSettings(p)) {
     return true;
   }
   const gitAt = p.indexOf(".git");
@@ -154,7 +160,14 @@ function judgeAgentCall(prompt, dirs) {
       `Not a brief path: ${path}. Expected ${BRIEF_DIR}/<issue>-<plan|delivery|replies>.md, built by node scripts/agent-review/brief.mjs <issue> <checkpoint>.`,
     );
   }
-  const candidates = isAbsolute(path) ? [path] : dirs.filter(Boolean).map((dir) => resolve(dir, path));
+  const roots = dirs.filter(Boolean).map((dir) => resolve(dir));
+  const key = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+  if (isAbsolute(path) && !roots.some((root) => key(resolve(path, "..", "..", "..")) === key(root))) {
+    return deny(
+      `Not a brief of this checkout: ${path}. Pass ${BRIEF_DIR}/<issue>-<checkpoint>.md as printed by node scripts/agent-review/brief.mjs.`,
+    );
+  }
+  const candidates = isAbsolute(path) ? [path] : roots.map((root) => resolve(root, path));
   for (const candidate of candidates) {
     let stat;
     try {
@@ -199,15 +212,15 @@ export function withoutQuotedText(command) {
  * agent). `dirs`: directories a relative path resolves against, in order (the
  * input's `cwd`, then the project directory).
  */
-export function judgeToolCall({ toolName, toolInput, dirs }) {
+export function judgeToolCall({ toolName, toolInput, dirs, checkouts }) {
   if (SUBAGENT_TOOLS.has(toolName) && AGENT_NAMES.has(toolInput?.subagent_type)) {
-    return judgeAgentCall(toolInput.prompt, dirs ?? []);
+    return judgeAgentCall(toolInput.prompt, checkouts ?? dirs ?? []);
   }
   if (EDIT_TOOLS.has(toolName)) {
     for (const path of pathValues(toolInput)) {
       if (isProtectedPath(path, dirs ?? [])) {
         return deny(
-          `${path} cannot be edited: briefs are written only by node scripts/agent-review/brief.mjs, answers only by node scripts/agent-review/run.mjs, and the records (faulk-qa in the git directory) only by node scripts/agent-qa/record.mjs. Write your plan or report draft to the .proposal.md file next to the brief.`,
+          `${path} cannot be edited: briefs are written only by node scripts/agent-review/brief.mjs, answers only by node scripts/agent-review/run.mjs, and the records (faulk-qa in the git directory) only by node scripts/agent-qa/record.mjs; .claude/settings.local.json belongs to the user. Write your plan or report draft to the .proposal.md file next to the brief.`,
         );
       }
     }
@@ -223,7 +236,7 @@ export function judgeToolCall({ toolName, toolInput, dirs }) {
     }
     if (!official && forms.some((form) => SHELL_WRITE.test(form)) && words(command).some(isProtectedWord)) {
       return deny(
-        "This command could write or delete a Judge Dredd brief or answer, or the records (faulk-qa in the git directory). Briefs come from node scripts/agent-review/brief.mjs, answers from node scripts/agent-review/run.mjs, records from node scripts/agent-qa/record.mjs: run each alone on its line. Read files with cat, and write your plan or report draft to the .proposal.md file.",
+        "This command could write or delete a Judge Dredd brief or answer, or the records (faulk-qa in the git directory), or the user's .claude/settings.local.json. Briefs come from node scripts/agent-review/brief.mjs, answers from node scripts/agent-review/run.mjs, records from node scripts/agent-qa/record.mjs: run each alone on its line. Read files with cat, and write your plan or report draft to the .proposal.md file.",
       );
     }
   }

@@ -61,6 +61,14 @@ describe("judgeToolCall: calling Judge Dredd", () => {
     });
   }
 
+  it("refuses an absolute brief path outside the session's checkouts", () => {
+    const root = makeRoot();
+    const elsewhere = makeRoot();
+    const outside = join(elsewhere, ".scratch", "judge-dredd", "6-delivery.md");
+    assert.equal(judgeToolCall({ ...dredd(outside, root) }).allow, false);
+    assert.equal(judgeToolCall({ ...dredd(outside, root), checkouts: [root, elsewhere] }).allow, true);
+  });
+
   it("refuses a prompt that is not a string", () => {
     const root = makeRoot();
     assert.equal(judgeToolCall({ toolName: "Agent", toolInput: { subagent_type: "judge-dredd" }, dirs: [root] }).allow, false);
@@ -106,6 +114,10 @@ describe("judgeToolCall: write tools", () => {
     ["../review.json", ["/repo/.git/faulk-qa/sessions"]],
     ["../../.git/faulk-qa/review.json", ["/repo/crates/engine"]],
     ["../6-delivery.answer.md", ["/repo/.scratch/judge-dredd/tmp"]],
+    // The user's switch to turn the hooks off.
+    [".claude/settings.local.json", []],
+    ["C:\\git\\music\\.Claude\\Settings.Local.json", []],
+    ["../.claude/settings.local.json", ["/repo/scripts"]],
   ];
   for (const [path, dirs] of refused) {
     for (const [toolName, key] of [
@@ -117,7 +129,7 @@ describe("judgeToolCall: write tools", () => {
       it(`refuses ${toolName} on ${path}${dirs.length ? ` from ${dirs[0]}` : ""}`, () => {
         const verdict = judgeToolCall({ toolName, toolInput: { [key]: path, content: "{}" }, dirs });
         assert.equal(verdict.allow, false);
-        assert.match(verdict.reason, /node scripts\/agent-qa\/record\.mjs/);
+        assert.match(verdict.reason, /cannot be edited/);
       });
     }
   }
@@ -174,6 +186,10 @@ describe("judgeToolCall: shell commands", () => {
     ["PowerShell", "Copy-Item C:\\tmp\\x .git\\faulk-qa\\review.json"],
     ["PowerShell", "Remove-Item -Recurse C:\\git\\music\\.git\\faulk-qa"],
     ["PowerShell", "[IO.File]::WriteAllText('.git/faulk-qa/last-run.json', '{}')"],
+    // The user's switch to turn the hooks off.
+    ["Bash", `echo '{"disableAllHooks":true}' > .claude/settings.local.json`],
+    ["PowerShell", "Set-Content .claude\\settings.local.json '{}'"],
+    ["Bash", "cp /tmp/off.json ./.claude/settings.local.json"],
     // Quotes and escapes, read the way bash and PowerShell read them.
     ["Bash", 'rm -rf .git/faulk-q""a'],
     ["Bash", "rm -rf .git/faulk-\\qa"],
