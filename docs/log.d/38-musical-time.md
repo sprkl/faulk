@@ -1,0 +1,3 @@
+2026-10-14
+
+- Added the musical time contract (#38, CT-2) as `engine::time`, re-exported by `crates/project`: `Tick` (i64, `PPQ = 960`), `Frame` (u64), `SampleRate`, `Tempo` (f64 BPM, 20 to 999, carries every conversion tick ↔ seconds ↔ samples ↔ frames, nearest-tick rounding, ties away from zero), `TimeSignature`, `Quantize` (none, 1/16, beat, 1, 2, 4, 8 bars; default one bar; next boundary at or after / after a position, `None` beyond `i64::MAX`), `LoopRegion` (`[start, end)`, wrap). Optional `serde` feature on `engine` for `project.json`. The time types are newtypes, not the aliases of `architecture/02-modele-projet.md` § 1.2 (doc to follow in PR-1).
