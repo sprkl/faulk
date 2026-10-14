@@ -303,7 +303,7 @@ Deux insertions qui reçoivent par hasard la même clé d'ordre sont départagé
 | État opaque d'un instrument changé des deux côtés | Conflit, choix d'un côté |
 | Source d'un module Faust modifiée des deux côtés | Fusion texte classique ; si conflit, choix ou édition dans l'Atelier |
 
-Un conflit est toujours **localisé et nommé** (« Basse › Filtre › cutoff : 800 Hz chez vous, 1 200 Hz dans la variante ») et se résout par un choix (« garder le mien », « garder le leur », « garder les deux » quand cela a un sens). Jamais de marqueurs `<<<<<<<` dans un fichier de projet.
+Un conflit est toujours **localisé et nommé** (« Basse › Filter › cutoff : 800 Hz chez vous, 1 200 Hz dans la variante ») et se résout par un choix (« garder le mien », « garder le leur », « garder les deux » quand cela a un sens). Jamais de marqueurs `<<<<<<<` dans un fichier de projet.
 
 ### 4.5 Le pilote de fusion git et le diff lisible
 
