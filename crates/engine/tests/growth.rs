@@ -599,6 +599,7 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             scenes: Table::try_filled(1).unwrap(),
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            graph: Default::default(),
         }),
         grown: Some(Table::try_filled(2).unwrap()),
     });
@@ -626,9 +627,17 @@ fn a_put_on_an_occupied_slot_sends_the_old_value_to_the_garbage() {
             .kind_id,
         GAIN.kind_id
     );
-    // A track created again in its slot replaces it, devices included: one item.
+    // A track created again in its slot replaces it, devices included: the old one fades
+    // out in the graph (MO-3), then comes back through the retire ring: one item.
     let rt = p.prepare(create(0)).unwrap().unwrap();
     assert_no_alloc(|| e.apply(rt));
+    assert_eq!(p.collect(), 0);
+    assert_eq!(e.graph().retiring(), 1);
+    let (mut l, mut r) = (vec![0.0; 128], vec![0.0; 128]);
+    for _ in 0..4 {
+        assert_no_alloc(|| e.render(&mut l, &mut r));
+    }
+    assert_eq!(e.graph().retiring(), 0);
     assert_eq!(p.collect(), 1);
     assert!(e.state().device(T0, DeviceSlot(0)).is_none());
     assert_eq!(e.skipped(), 0);
@@ -960,10 +969,15 @@ fn garbage_round() {
     let done = Arc::new(AtomicBool::new(false));
     let stop = Arc::clone(&done);
     let audio = std::thread::spawn(move || {
+        // The graph renders too: the replaced tracks fade out and retire meanwhile.
+        let (mut l, mut r) = (vec![0.0; 128], vec![0.0; 128]);
         while !stop.load(Ordering::Acquire) {
-            e.begin_block();
+            e.process(&mut l, &mut r);
         }
-        e.begin_block();
+        e.process(&mut l, &mut r);
+        while e.graph().retiring() > 0 {
+            e.process(&mut l, &mut r);
+        }
         e
     });
     let send = |p: &mut Preparer, msg: M| loop {
@@ -997,7 +1011,7 @@ fn garbage_round() {
     assert_eq!(e.skipped(), 0, "no message overtook the one it depends on");
     assert_eq!(e.applied(), 30_000);
     p.collect();
-    // Every create after the first 64 replaced a track: one garbage item each, plus the
+    // Every create after the first 64 replaced a track: one retired track each, plus the
     // grown tables.
     assert!(p.collected() >= 10_000 - 64, "{}", p.collected());
 }

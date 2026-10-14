@@ -75,9 +75,10 @@ fn every_table_grows_during_playback_without_a_gap() {
     assert_eq!(state.tracks.capacity(), 64);
     assert_eq!(
         state.tracks.as_slice().iter().flatten().count(),
-        48,
-        "every track kept its slot"
+        41,
+        "every track kept its slot, but the eight removed and the one created again"
     );
+    assert_eq!(engine.graph().retiring(), 0, "the removed tracks retired");
     let track0 = state.track(TrackSlot(0)).unwrap();
     assert_eq!(track0.devices.capacity(), 16);
     assert_eq!(track0.devices.as_slice().iter().flatten().count(), 10);
