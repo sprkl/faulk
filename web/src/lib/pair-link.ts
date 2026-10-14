@@ -19,14 +19,17 @@ export function pairCodeFromHash(hash: string): string | null {
 
 /**
  * Takes the code out of the current address: returns it (null when the fragment is not
- * a valid pairing link) and removes a pairing fragment from the address, valid or not.
+ * a valid pairing link) and has `clear` replace the address with the same path and
+ * query without the fragment, for a pairing fragment, valid or not. Under SvelteKit,
+ * `clear` goes through its router (`goto` with `shallow` and `replace`): a raw
+ * `history.replaceState` conflicts with it.
  */
 export function takePairLink(
   location: Pick<Location, 'hash' | 'pathname' | 'search'>,
-  history: Pick<History, 'replaceState' | 'state'>,
+  clear: (url: string) => void,
 ): string | null {
   const hash = location.hash
   if (!isPairHash(hash)) return null
-  history.replaceState(history.state, '', location.pathname + location.search)
+  clear(location.pathname + location.search)
   return pairCodeFromHash(hash)
 }

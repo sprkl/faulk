@@ -18,9 +18,9 @@
   --fk-solo: #efcc36;
   --fk-mute: #4baeed;
 
-  --fk-font-display: 'Archivo', 'Arial Black', sans-serif;
-  --fk-font-ui: 'Geist', 'Helvetica Neue', Arial, sans-serif;
-  --fk-font-mono: 'Geist Mono', ui-monospace, monospace;
+  --fk-font-display: 'Archivo Variable', 'Archivo', 'Arial Black', sans-serif;
+  --fk-font-ui: 'Geist Variable', 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --fk-font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
 
   --fk-space-1: 4px;
   --fk-space-2: 8px;
@@ -57,4 +57,16 @@
 [data-density='compact'] {
   --fk-row: 22px;
   --fk-control: 26px;
+}
+
+/* Theme-independent values, for dark panels on the light landing page (artboard "Site · Accueil"). */
+:root {
+  --fk-ink: #131211;
+  --fk-ink-surface: #1a1917;
+  --fk-ink-line: #34312e;
+  --fk-ink-text: #ece9e6;
+  --fk-ink-muted: #8f8a85;
+  --fk-ink-muted-2: #b9b4af;
+  --fk-paper: #fdfcfc;
+  --fk-text-soft: #4f4b47;
 }

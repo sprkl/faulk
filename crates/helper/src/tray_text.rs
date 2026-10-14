@@ -6,8 +6,8 @@
 
 /// Origin of the page the tray opens. Change it when Faulk is served elsewhere.
 pub const APP_ORIGIN: &str = "http://localhost:5173";
-/// Path of the DAW on that origin. Becomes `/app` when a landing page takes `/`.
-pub const APP_PATH: &str = "/";
+/// Path of the DAW on that origin: the landing page takes `/`, the DAW lives at `/app`.
+pub const APP_PATH: &str = "/app";
 
 /// The page the tray opens unless `--app-url` says otherwise.
 pub fn default_app_url() -> String {
@@ -252,6 +252,10 @@ mod tests {
             pairing_url("https://faulk.app/app?x=1#old", "12345678"),
             "https://faulk.app/app?x=1#pair=12345678"
         );
+        assert_eq!(
+            pairing_url(&default_app_url(), "12345678"),
+            "http://localhost:5173/app#pair=12345678"
+        );
         let url = pairing_url(&default_app_url(), "87654321");
         let (before, fragment) = url.split_once('#').unwrap();
         assert!(!before.contains("87654321"));
@@ -260,7 +264,7 @@ mod tests {
 
     #[test]
     fn default_app_url_is_origin_plus_path() {
-        assert_eq!(default_app_url(), "http://localhost:5173/");
+        assert_eq!(default_app_url(), "http://localhost:5173/app");
     }
 
     #[test]
