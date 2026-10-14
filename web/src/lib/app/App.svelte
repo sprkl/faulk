@@ -6,6 +6,7 @@
   import Knob from '../components/Knob.svelte'
   import Meter from '../components/Meter.svelte'
   import PianoStrip from '../components/PianoStrip.svelte'
+  import { incompatibleMessage } from '../engine/helper-client'
   import type { MessageKey } from '../i18n/index'
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../keyboard'
   import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../params'
@@ -138,7 +139,9 @@
         <p class="muted">{t('helper.absent')}</p>
         <button class="ghost" onclick={() => session.checkHelper()}>{t('helper.recheck')}</button>
       {:else if session.helper === 'incompatible'}
-        <p class="muted">{t('helper.incompatible', { v: session.helperProtocol ?? '?' })}</p>
+        <p class="muted" data-testid="helper-incompatible">
+          {t(incompatibleMessage(session.helperProtocol ?? 0), { v: session.helperProtocol ?? '?' })}
+        </p>
       {:else if session.mode === 'native'}
         <button class="ghost" onclick={() => session.enterWeb()}>{t('helper.useWeb')}</button>
       {:else if session.paired}

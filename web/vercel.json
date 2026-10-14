@@ -3,33 +3,27 @@
   "cleanUrls": true,
   "redirects": [
     {
-      "source": "/helper/stable/:file(releases\\.[a-z]+\\.json)",
+      "source": "/helper/:channel(stable|beta)/releases\\.:os(win|linux|osx)\\.json",
       "has": [{ "type": "host", "value": "get.faulk.app" }],
-      "destination": "https://github.com/sprkl/faulk-release/releases/latest/download/:file",
+      "destination": "https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/:os/:channel/releases.:os.json",
       "permanent": false
     },
     {
-      "source": "/helper/beta/:file(releases\\.[a-z]+\\.json)",
+      "source": "/helper/packages/:file(FaulkHelper-\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?-(?:full|delta)\\.nupkg)",
       "has": [{ "type": "host", "value": "get.faulk.app" }],
-      "destination": "https://github.com/sprkl/faulk-release/releases/download/helper-beta/:file",
-      "permanent": false
-    },
-    {
-      "source": "/helper/packages/FaulkHelper-:version(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)-:kind(full|delta)\\.nupkg",
-      "has": [{ "type": "host", "value": "get.faulk.app" }],
-      "destination": "https://github.com/sprkl/faulk-release/releases/download/helper-v:version/FaulkHelper-:version-:kind.nupkg",
+      "destination": "https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/win/packages/:file",
       "permanent": false
     },
     {
       "source": "/helper/windows",
       "has": [{ "type": "host", "value": "get.faulk.app" }],
-      "destination": "https://github.com/sprkl/faulk-release/releases/latest/download/FaulkHelper-win-Setup.exe",
+      "destination": "https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/win/stable/FaulkHelper-win-Setup.exe",
       "permanent": false
     },
     {
       "source": "/:path(.*)",
       "has": [{ "type": "host", "value": "get.faulk.app" }],
-      "destination": "https://github.com/sprkl/faulk-release/releases/latest",
+      "destination": "https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/win/stable/FaulkHelper-win-Setup.exe",
       "permanent": false
     }
   ]

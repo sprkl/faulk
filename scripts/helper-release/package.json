@@ -1,0 +1,10 @@
+{
+  "name": "faulk-helper-release",
+  "private": true,
+  "description": "Publishes the helper's Velopack output to the Vercel Blob store behind get.faulk.app.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@vercel/blob": "2.8.1"
+  }
+}
