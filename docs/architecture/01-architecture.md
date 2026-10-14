@@ -34,10 +34,12 @@ Un seul moteur audio en Rust, compilé pour deux cibles, et une seule couche de 
 
 | Composant | Rôle | Technologies envisagées |
 | --- | --- | --- |
-| `crates/engine` | Graphe audio, transport, horloge, DSP. Pur : aucune entrée-sortie, aucune allocation dans le chemin audio. | Rust |
-| `crates/commands` | Toutes les actions de Faulk, typées : nom, schéma d'entrée et de sortie, description pour les agents, annulation. Source unique dont dérivent les outils MCP et les types TypeScript. | Rust, `serde`, `schemars` |
-| `crates/protocol` | Les messages entre l'interface et un moteur (web ou natif) : commandes, état, retours visuels. | Rust, types TypeScript générés |
-| `crates/engine-wasm` | Le moteur dans un `AudioWorklet`. Exports C simples (`fk_*`), sans `wasm-bindgen` dont le code d'appui ne se charge pas dans un worklet. La page envoie les octets du `.wasm` au worklet, qui le compile lui-même. Les commandes arrivent par `postMessage`. | Rust |
+| `crates/engine` | Graphe audio, transport, horloge, DSP. Pur : aucune entrée-sortie, aucune allocation dans le chemin audio. Pas de capacités fixes : les structures grandissent hors chemin audio et sont échangées sans allocation temps réel (décision du 2026-10-14). | Rust |
+| `crates/project` (décidé le 2026-10-14, à créer) | Le document : projet, pistes MIDI et audio, devices, scènes, clips, notes, arrangement, couloirs d'automation, réglages du transport ; lecture, écriture et validation du [format sur disque](02-modele-projet.md). Pur, sans entrée-sortie. | Rust, `serde` |
+| `crates/commands` | Toutes les actions de Faulk, typées : nom, schéma d'entrée et de sortie, description pour les agents, annulation. Elles modifient le projet, qui produit les messages pour le moteur. Source unique dont dérivent les outils MCP et les types TypeScript. | Rust, `serde`, `schemars` |
+| `crates/project-wasm` (décidé le 2026-10-14, à créer) | Projet et commandes compilés pour le thread principal de la page : **la page possède le projet dans les deux modes** ; en Boost, le helper reçoit les messages moteur et les fichiers texte du projet à écrire (jamais les blobs ni le cache PCM, qu'il produit et lit lui-même), et relaie les appels des agents. | Rust → WASM (`wasm-bindgen`) |
+| `crates/protocol` | Les messages entre l'interface et un moteur (web ou natif) : messages moteur, état, retours visuels, fichiers du projet en mode Boost. | Rust, types TypeScript générés |
+| `crates/engine-wasm` | Le moteur dans un `AudioWorklet`. Exports C simples (`fk_*`), sans `wasm-bindgen` dont le code d'appui ne se charge pas dans un worklet. La page envoie les octets du `.wasm` au worklet, qui le compile lui-même. Aujourd'hui les commandes arrivent par `postMessage` ; la cible (décision du 2026-10-14, isolation cross-origin acceptée) est une mémoire partagée : un Worker prépare les structures, le worklet lit un anneau lock-free. | Rust |
 | `crates/helper` | Le pont local : le moteur natif, l'audio basse latence, le MIDI, les plugins tiers, le serveur MCP, le lancement des agents ACP, et un serveur WebSocket local vers la page. | Rust, `cpal`, `midir`, `clack`, SDK MCP Rust (`rmcp`), ACP |
 | `web/` | L'interface : arrangement, clips, mixer, Atelier, panneau d'agent. | TypeScript, Svelte 5, Vite |
 | `modules/` | Les modules de Faulk. | Faust d'abord (compilation à la volée), Rust → WASM ensuite |
@@ -47,7 +49,7 @@ Un seul moteur audio en Rust, compilé pour deux cibles, et une seule couche de 
 1. **AI first : toute action est une commande.** L'interface n'a aucun accès privilégié : elle appelle les mêmes commandes qu'un agent. Une action disponible dans l'interface mais absente de `crates/commands` est un bug, détecté par un test qui compare la liste des commandes aux outils MCP exposés.
 2. **Un seul moteur.** Toute fonctionnalité du moteur compile et se comporte pareil en WASM et en natif, vérifié par un rendu comparé.
 3. **Le son ne traverse jamais le lien page ↔ helper.** Seuls passent les commandes, l'état et les retours visuels.
-4. **Le helper est un pont, pas une application.** Il n'a pas d'interface propre ni de logique produit : il exécute le moteur, expose les commandes en MCP et relaie les agents vers la page. La logique des commandes vit dans `crates/commands`, partagée avec le build web.
+4. **Le helper est un pont, pas une application.** Il n'a pas d'interface propre ni de logique produit : il exécute le moteur, expose les commandes en MCP et relaie les agents vers la page. La logique des commandes vit dans `crates/commands`, partagée avec le build web. **La page possède le projet dans les deux modes** (décision du 2026-10-14) : en mode Boost, le helper reçoit les messages moteur, lit les fichiers audio du dossier du projet pour le moteur natif et écrit le dossier pour le compte de la page.
 5. **Des projets portables.** Un projet utilisant un plugin tiers reste ouvrable sans helper : la piste est gelée (rendue en audio) et rejouée telle quelle.
 6. **Modules isolés.** Un module en WASM s'exécute isolé : un module bogué ne fait pas planter la session.
 
