@@ -1045,3 +1045,19 @@ pub fn conformance(
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------- factories
+
+/// The factory of each test device: the resolver the cycle tests give
+/// [`crate::engine::channel`] (MO-1).
+pub fn factory(kind: DeviceKind) -> Option<super::Factory> {
+    if kind == TONE.kind_id {
+        Some(TestTone::build)
+    } else if kind == GAIN.kind_id {
+        Some(TestGain::build)
+    } else if kind == TRANSPOSE.kind_id {
+        Some(TestTranspose::build)
+    } else {
+        None
+    }
+}

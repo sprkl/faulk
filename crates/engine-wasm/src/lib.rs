@@ -190,3 +190,104 @@ pub extern "C" fn fk_contract_scenario() -> *const f32 {
 pub extern "C" fn fk_contract_len() -> u32 {
     (2 * engine::device::testing::SCENARIO_FRAMES) as u32
 }
+
+/// The prepare/apply cycle's test host (`engine::engine::cycle::Cycle`, MO-1): both sides
+/// of the channel in this one instance. Only in the test build (`--features engine-cycle`),
+/// for the native/WASM parity and memory growth tests; never in the worklet's module, whose
+/// channel is MO-2's.
+#[cfg(feature = "engine-cycle")]
+pub mod cycle_exports {
+    use engine::engine::cycle::Cycle;
+
+    /// Converts an exported pointer back to the cycle, or `None` when null.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a pointer returned by [`fk_cycle_new`].
+    unsafe fn cycle<'a>(ptr: *mut Cycle) -> Option<&'a mut Cycle> {
+        // SAFETY: the caller guarantees `ptr` is null or a live pointer from
+        // `fk_cycle_new`; the test calls the exports from one thread.
+        unsafe { ptr.as_mut() }
+    }
+
+    /// A cycle at `sample_rate`; null when the memory is refused.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_cycle_new(sample_rate: f32) -> *mut Cycle {
+        match Cycle::new(sample_rate).and_then(engine::msg::try_box) {
+            Ok(cycle) => Box::into_raw(cycle),
+            Err(_) => core::ptr::null_mut(),
+        }
+    }
+
+    /// The address of an inbox of `len` bytes to write a stream into; null when the memory
+    /// is refused (or for a null cycle). The address may change from one call to the next.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_inbox(ptr: *mut Cycle, len: u32) -> *mut u8 {
+        // SAFETY: forwarded from this function's contract.
+        match unsafe { cycle(ptr) }.and_then(|c| c.inbox(len as usize)) {
+            Some(inbox) => inbox.as_mut_ptr(),
+            None => core::ptr::null_mut(),
+        }
+    }
+
+    /// Submits the first `len` bytes of the inbox: 0, or the `MsgError::code` that stopped
+    /// the stream (-8: out of memory).
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_submit(ptr: *mut Cycle, len: u32) -> i32 {
+        // SAFETY: forwarded from this function's contract.
+        match unsafe { cycle(ptr) }.map(|c| c.submit_inbox(len as usize)) {
+            Some(Ok(())) => 0,
+            Some(Err(error)) => error.code(),
+            None => engine::msg::MsgError::NoSuchTarget.code(),
+        }
+    }
+
+    /// Renders one block of `frames`; returns the frames rendered.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_render(ptr: *mut Cycle, frames: u32) -> u32 {
+        // SAFETY: forwarded from this function's contract.
+        unsafe { cycle(ptr) }.map_or(0, |c| c.render(frames as usize) as u32)
+    }
+
+    /// Address of the left output of the last block.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_left(ptr: *mut Cycle) -> *const f32 {
+        // SAFETY: forwarded from this function's contract.
+        unsafe { cycle(ptr) }.map_or(core::ptr::null(), |c| c.left().as_ptr())
+    }
+
+    /// Address of the right output of the last block.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_right(ptr: *mut Cycle) -> *const f32 {
+        // SAFETY: forwarded from this function's contract.
+        unsafe { cycle(ptr) }.map_or(core::ptr::null(), |c| c.right().as_ptr())
+    }
+
+    /// A counter of the cycle, by number (`Cycle::counter`); `u32::MAX` for a null cycle
+    /// or an unknown number.
+    ///
+    /// # Safety
+    /// `ptr` must be null or a live pointer returned by [`fk_cycle_new`].
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn fk_cycle_counter(ptr: *mut Cycle, which: u32) -> u32 {
+        // SAFETY: forwarded from this function's contract.
+        let Some(c) = (unsafe { cycle(ptr) }) else {
+            return u32::MAX;
+        };
+        c.counter(which)
+    }
+}
