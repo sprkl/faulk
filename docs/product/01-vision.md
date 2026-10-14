@@ -50,6 +50,7 @@ Les modules sont l'actif central : portables entre les deux modes et partageable
 ## Décisions prises
 
 - Interface en anglais et en français dès le départ (décision du 2026-10-13).
+- Les noms des devices (instruments, effets audio, effets MIDI) ne sont jamais traduits (décision du 2026-10-14) : chaque device a un seul nom, en anglais, affiché tel quel dans les deux langues de l'interface, pour que francophones et anglophones parlent du même device avec le même mot. Les libellés et descriptions de ses paramètres sont traduits.
 - Interface web en Svelte 5 (décision du 2026-10-13).
 
 Décisions du 2026-10-14 (détail et effets dans le [découpage du MVP](../specs/02-decoupage-mvp.md) § 7) :
