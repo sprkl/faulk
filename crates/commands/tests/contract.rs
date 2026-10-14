@@ -8,8 +8,10 @@ use ::project::TrackId;
 use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
 use commands::{
     Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
-    device, history, live, midi, project, view,
+    device, history, live, midi, mixer, project, view,
 };
+
+mod clip_examples;
 
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -63,6 +65,25 @@ fn examples() -> Vec<(Command, State)> {
             note: 60,
         })),
         on(Command::Live(live::Command::AllNotesOff {})),
+        on(Command::Mixer(mixer::Command::SetVolume {
+            track: f.track.clone(),
+            gain_db: Some(-6.0),
+        })),
+        on(Command::Mixer(mixer::Command::SetPan {
+            track: f.track.clone(),
+            pan: -0.5,
+        })),
+        on(Command::Mixer(mixer::Command::SetMute {
+            track: f.track.clone(),
+            mute: true,
+        })),
+        on(Command::Mixer(mixer::Command::SetMasterVolume {
+            gain_db: Some(-3.0),
+        })),
+        on(Command::Mixer(mixer::Command::SetSolo {
+            track: f.track.clone(),
+            solo: true,
+        })),
         on(Command::History(history::Command::Undo {})),
         (Command::History(history::Command::Redo {}), undone(&f)),
         on(Command::History(history::Command::BeginGroup {})),
@@ -77,6 +98,9 @@ fn examples() -> Vec<(Command, State)> {
         })),
         on(Command::View(view::Command::SelectTrack { track: None })),
     ]
+    .into_iter()
+    .chain(clip_examples::examples())
+    .collect()
 }
 
 #[test]

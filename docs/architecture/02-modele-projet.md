@@ -112,8 +112,10 @@ pub enum ClipContent {
 // The file's metadata in clear, next to its reference (§ 2.2).
 pub struct AudioMedia { pub hash: Hash, pub sample_rate: SampleRate, pub channels: u16, pub frames: Frame, pub name: String }
 
-// Ord compares fields in declaration order: (start, pitch, length, velocity).
-pub struct Note { pub start: Tick, pub pitch: u8, pub length: Tick, pub velocity: u8 }
+// Ord compares fields in declaration order. The last three are optional in the file:
+// absent = default (cents 0, chance 100, repeat 1), so a note has one representation.
+pub struct Note { pub start: Tick, pub pitch: u8, pub length: Tick, pub velocity: u8,
+                  pub cents: i8 /* -50..=50 */, pub chance: u8 /* 0..=100 */, pub repeat: u8 /* 1..=16 */ }
 
 pub struct Placement { pub clip: ClipId, pub start: Tick, pub span: Span }
 
@@ -218,6 +220,14 @@ Mon morceau/
 <placement>	15360	15360	<clip>	0
 ```
 
+**Colonnes optionnelles des notes** (tâche #192, réservées par CL-1) : `cents` (accord fin, -50 à 50), `chance` (0 à 100 %, 100 par défaut) et `repeat` (1 à 16, 1 par défaut). Le TSV étant positionnel, la règle de l'écrivain est celle de l'en-tête : les quatre colonnes de base viennent toujours en premier, puis `cents`, `chance`, `repeat` **seulement si une note du clip a une valeur non par défaut dans cette colonne** ; une colonne présente écrit toutes ses valeurs, y compris les valeurs par défaut de ses autres lignes. Un clip sans note modifiée garde l'en-tête de base et les octets d'aujourd'hui, et un lecteur qui lit l'en-tête accepte n'importe quel sous-ensemble de ces colonnes, dans cet ordre. Exemple :
+
+```
+# faulk-notes 1	start	length	pitch	velocity	chance
+0	240	36	110	100
+480	240	36	100	50
+```
+
 Un diff de notes reste lisible (`-480 240 36 100` / `+480 240 36 90` : la vélocité a baissé), et la vue de diff de Faulk l'affiche graphiquement (§ 4.5).
 
 ### 2.4 Déterminisme : les règles de l'écrivain canonique
@@ -226,7 +236,7 @@ Le même projet produit toujours **exactement les mêmes octets**. Règles, tout
 
 - UTF-8 sans BOM, fin de ligne `\n`, `\n` final ; `.gitattributes` force `eol=lf`.
 - Clés JSON triées par ordre d'octets, une valeur par ligne ; tables indexées par ID plutôt que tableaux.
-- Lignes TSV triées par la clé naturelle (note : start, pitch, length, velocity ; point : tick ; placement : start puis id).
+- Lignes TSV triées par la clé naturelle (note : start, pitch, length, velocity, cents, chance, repeat ; point : tick ; placement : start puis id).
 - **Écriture paresseuse** : seuls les fichiers dont le contenu canonique a changé sont réécrits.
 - Aucune donnée volatile dans les fichiers versionnés : pas de date de sauvegarde, pas de version de l'application hors numéro de format, pas d'état d'écran.
 

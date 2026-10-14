@@ -38,7 +38,125 @@ value: number
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type ClipCommand = never
+export type ClipCommand = ({
+at: ClipTarget
+length?: (Tick | null)
+name?: (string | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.create"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+type: "clip.delete"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+placements: PlacementSnapshot[]
+snapshot: ClipSnapshot
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.restore"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+slot?: (string | null)
+type: "clip.duplicate"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+name: string
+type: "clip.rename"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+length: Tick
+trim?: boolean
+type: "clip.set_length"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+looping?: (TickLoop | null)
+type: "clip.set_loop"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+length: Tick
+looping?: (TickLoop | null)
+notes: Note[]
+type: "clip.set_content"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+notes: Note[]
+type: "clip.notes.add"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+notes: Note[]
+type: "clip.notes.remove"
+} | {
+changes: NoteChange[]
+/**
+ * Identifier of a clip.
+ */
+clip: string
+type: "clip.notes.update"
+})
+/**
+ * Where `clip.create` puts the new clip.
+ */
+export type ClipTarget = ({
+at: "slot"
+/**
+ * Identifier of a scene.
+ */
+scene: string
+} | {
+at: "arrangement"
+start: Tick
+})
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+export type Tick = number
+/**
+ * A colour, written #rrggbb.
+ */
+export type Rgb = string
+/**
+ * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
+ * one bar by default (founder's decision 8).
+ * 
+ * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
+ * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
+ */
+export type Quantize = ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -66,7 +184,44 @@ export type TransportCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type MixerCommand = never
+export type MixerCommand = ({
+/**
+ * Required: `null` is silence, a missing field is an error.
+ */
+gain_db: (number | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_volume"
+} | {
+pan: number
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_pan"
+} | {
+mute: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_mute"
+} | {
+/**
+ * Required: `null` is silence, a missing field is an error.
+ */
+gain_db: (number | null)
+type: "mixer.set_master_volume"
+} | {
+solo: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_solo"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -154,7 +309,76 @@ type: "device.set_param"
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type ClipOutput = never
+export type ClipOutput = ({
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Its placement, when it was created in the arrangement.
+ */
+placement?: (string | null)
+type: "clip.create"
+} | {
+/**
+ * How many placements were removed with the clip.
+ */
+placements: number
+type: "clip.delete"
+} | {
+type: "clip.restore"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+type: "clip.duplicate"
+} | {
+/**
+ * The name before the command.
+ */
+previous: string
+type: "clip.rename"
+} | {
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+previous: number
+type: "clip.set_length"
+} | {
+/**
+ * The loop before the command.
+ */
+previous?: (TickLoop | null)
+type: "clip.set_loop"
+} | {
+/**
+ * How many notes the clip has now.
+ */
+notes: number
+type: "clip.set_content"
+} | {
+/**
+ * How many notes were new.
+ */
+added: number
+type: "clip.notes.add"
+} | {
+/**
+ * How many notes were in the clip.
+ */
+removed: number
+type: "clip.notes.remove"
+} | {
+type: "clip.notes.update"
+/**
+ * How many notes changed.
+ */
+updated: number
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -182,7 +406,37 @@ export type TransportOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type MixerOutput = never
+export type MixerOutput = ({
+/**
+ * The volume before the command, in dB; `null` was silence.
+ */
+previous: (number | null)
+type: "mixer.set_volume"
+} | {
+/**
+ * The pan before the command.
+ */
+previous: number
+type: "mixer.set_pan"
+} | {
+/**
+ * Whether the track was muted before the command.
+ */
+previous: boolean
+type: "mixer.set_mute"
+} | {
+/**
+ * The volume before the command, in dB; `null` was silence.
+ */
+previous: (number | null)
+type: "mixer.set_master_volume"
+} | {
+/**
+ * Whether the track was soloed before the command.
+ */
+previous: boolean
+type: "mixer.set_solo"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -316,6 +570,207 @@ message: string
 type: "error"
 })
 
+/**
+ * A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
+ * belongs to the clip restored: a snapshot cannot place another clip.
+ */
+export interface PlacementSnapshot {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+offset: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+}
+/**
+ * A MIDI clip as `clip.restore` brings it back (everything but its identifier).
+ */
+export interface ClipSnapshot {
+color?: (Rgb | null)
+/**
+ * A per-clip launch quantization, when one was set (the MVP never sets one).
+ */
+launch_quantize?: (Quantize | null)
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+looping?: (TickLoop | null)
+name: string
+notes: Note[]
+/**
+ * The scene of its launch-grid slot, when it sits in one.
+ */
+slot?: (string | null)
+}
+/**
+ * A MIDI clip's loop `[start, end)` in ticks, within `[0, length]`.
+ */
+export interface TickLoop {
+end: Tick
+start: Tick
+}
+/**
+ * A note: a value without an id (CT-4). Its order compares fields in declaration order:
+ * (start, pitch, length, velocity, cents, chance, repeat).
+ * 
+ * The last three fields are optional in the file: a default value is not written, and an
+ * absent one reads as the default, so a note has exactly one representation. `chance` and
+ * `repeat` are stored and edited here; the clip player reads them with #192.
+ */
+export interface Note {
+/**
+ * Fine tuning in cents, -50 to 50 (0 by default).
+ */
+cents?: number
+/**
+ * Probability that the note plays, in percent, 0 to 100 (100 by default).
+ */
+chance?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * MIDI key, 0 to 127.
+ */
+pitch: number
+/**
+ * How many times the note repeats, 1 to 16 (1 by default).
+ */
+repeat?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+/**
+ * Velocity, 1 to 127.
+ */
+velocity: number
+}
+/**
+ * A note to replace by another: `clip.notes.update` addresses a note by its whole value.
+ */
+export interface NoteChange {
+from: Note1
+to: Note2
+}
+/**
+ * A note: a value without an id (CT-4). Its order compares fields in declaration order:
+ * (start, pitch, length, velocity, cents, chance, repeat).
+ * 
+ * The last three fields are optional in the file: a default value is not written, and an
+ * absent one reads as the default, so a note has exactly one representation. `chance` and
+ * `repeat` are stored and edited here; the clip player reads them with #192.
+ */
+export interface Note1 {
+/**
+ * Fine tuning in cents, -50 to 50 (0 by default).
+ */
+cents?: number
+/**
+ * Probability that the note plays, in percent, 0 to 100 (100 by default).
+ */
+chance?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * MIDI key, 0 to 127.
+ */
+pitch: number
+/**
+ * How many times the note repeats, 1 to 16 (1 by default).
+ */
+repeat?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+/**
+ * Velocity, 1 to 127.
+ */
+velocity: number
+}
+/**
+ * A note: a value without an id (CT-4). Its order compares fields in declaration order:
+ * (start, pitch, length, velocity, cents, chance, repeat).
+ * 
+ * The last three fields are optional in the file: a default value is not written, and an
+ * absent one reads as the default, so a note has exactly one representation. `chance` and
+ * `repeat` are stored and edited here; the clip player reads them with #192.
+ */
+export interface Note2 {
+/**
+ * Fine tuning in cents, -50 to 50 (0 by default).
+ */
+cents?: number
+/**
+ * Probability that the note plays, in percent, 0 to 100 (100 by default).
+ */
+chance?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * MIDI key, 0 to 127.
+ */
+pitch: number
+/**
+ * How many times the note repeats, 1 to 16 (1 by default).
+ */
+repeat?: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+/**
+ * Velocity, 1 to 127.
+ */
+velocity: number
+}
 /**
  * A MIDI input as the helper sees it.
  */

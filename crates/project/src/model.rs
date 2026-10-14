@@ -7,10 +7,11 @@
 //! checked by [`Project::validate`] before use.
 
 use crate::blob::Hash;
-use crate::ids::{ClipId, DeviceId, LaneId, PlacementId, ProjectId, SceneId, TrackId};
+use crate::ids::{ClipId, DeviceId, Id, LaneId, PlacementId, ProjectId, SceneId, TrackId};
 use crate::order::{OrderKey, by_order};
 use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -283,7 +284,7 @@ pub struct AudioMedia {
 }
 
 /// A MIDI clip's loop `[start, end)` in ticks, within `[0, length]`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TickLoop {
     pub start: Tick,
@@ -300,14 +301,99 @@ pub struct FrameLoop {
 }
 
 /// A note: a value without an id (CT-4). Its order compares fields in declaration order:
-/// (start, pitch, length, velocity).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// (start, pitch, length, velocity, cents, chance, repeat).
+///
+/// The last three fields are optional in the file: a default value is not written, and an
+/// absent one reads as the default, so a note has exactly one representation. `chance` and
+/// `repeat` are stored and edited here; the clip player reads them with #192.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 pub struct Note {
+    /// Position from the start of the clip, in ticks.
     pub start: Tick,
+    /// MIDI key, 0 to 127.
+    #[schemars(range(min = 0, max = 127))]
     pub pitch: u8,
+    /// Duration in ticks, at least 1.
     pub length: Tick,
+    /// Velocity, 1 to 127.
+    #[schemars(range(min = 1, max = 127))]
     pub velocity: u8,
+    /// Fine tuning in cents, -50 to 50 (0 by default).
+    #[serde(default, skip_serializing_if = "is_default_cents")]
+    #[schemars(range(min = -50, max = 50))]
+    pub cents: i8,
+    /// Probability that the note plays, in percent, 0 to 100 (100 by default).
+    #[serde(
+        default = "Note::default_chance",
+        skip_serializing_if = "is_default_chance"
+    )]
+    #[schemars(range(min = 0, max = 100))]
+    pub chance: u8,
+    /// How many times the note repeats, 1 to 16 (1 by default).
+    #[serde(
+        default = "Note::default_repeat",
+        skip_serializing_if = "is_default_repeat"
+    )]
+    #[schemars(range(min = 1, max = 16))]
+    pub repeat: u8,
+}
+
+fn is_default_cents(v: &i8) -> bool {
+    *v == 0
+}
+
+fn is_default_chance(v: &u8) -> bool {
+    *v == Note::DEFAULT_CHANCE
+}
+
+fn is_default_repeat(v: &u8) -> bool {
+    *v == Note::DEFAULT_REPEAT
+}
+
+impl Note {
+    /// Fine tuning at most this far from the key, in cents, either way.
+    pub const MAX_CENTS: i8 = 50;
+    /// A note plays every time by default.
+    pub const DEFAULT_CHANCE: u8 = 100;
+    /// A note plays once by default.
+    pub const DEFAULT_REPEAT: u8 = 1;
+    /// Most repeats of a note.
+    pub const MAX_REPEAT: u8 = 16;
+
+    fn default_chance() -> u8 {
+        Self::DEFAULT_CHANCE
+    }
+
+    fn default_repeat() -> u8 {
+        Self::DEFAULT_REPEAT
+    }
+
+    /// A note with the default fine tuning, chance and repeat.
+    pub const fn new(start: Tick, pitch: u8, length: Tick, velocity: u8) -> Self {
+        Self {
+            start,
+            pitch,
+            length,
+            velocity,
+            cents: 0,
+            chance: Self::DEFAULT_CHANCE,
+            repeat: Self::DEFAULT_REPEAT,
+        }
+    }
+
+    /// Whether every field is in its range (position and length aside, which depend on
+    /// the clip): pitch at most 127, velocity 1 to 127, cents -50 to 50, chance at most
+    /// 100, repeat 1 to 16.
+    pub fn fields_in_range(&self) -> bool {
+        self.pitch <= 127
+            && (1..=127).contains(&self.velocity)
+            && (-Self::MAX_CENTS..=Self::MAX_CENTS).contains(&self.cents)
+            && self.chance <= 100
+            && (1..=Self::MAX_REPEAT).contains(&self.repeat)
+    }
 }
 
 /// A clip set in the arrangement.
@@ -407,6 +493,22 @@ impl Project {
         self.meter
             .first()
             .map_or(TimeSignature::COMMON, |p| p.signature)
+    }
+
+    /// Whether an entity of the project already has this id: the project itself, a scene,
+    /// a track, a device, a clip, a placement or a lane. Ids are unique across all of
+    /// them ([`Project::validate`] refuses a duplicate), so a command that brings an
+    /// entity back with its old identifier checks this first.
+    pub fn contains_id(&self, id: &Id) -> bool {
+        self.id.0 == *id
+            || self.scenes.keys().any(|k| k.0 == *id)
+            || self.tracks.iter().any(|(k, t)| {
+                k.0 == *id
+                    || t.devices.keys().any(|k| k.0 == *id)
+                    || t.clips.keys().any(|k| k.0 == *id)
+                    || t.placements.keys().any(|k| k.0 == *id)
+                    || t.automation.keys().any(|k| k.0 == *id)
+            })
     }
 
     /// The tracks in display order (order key, then id).

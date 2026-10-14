@@ -42,7 +42,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Clip** : un contenu musical, MIDI (notes, longueur et boucle en ticks) ou audio (plage d'un fichier en frames). Le clip est le contenu ; l'emplacement le met dans la grille, le placement le pose dans l'arrangement. Copier un clip crée un clip indépendant, sauf option « lié ». Code : `Clip`, `ClipContent::{Midi, Audio}`, `AudioMedia`.
 
-**Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité. Code : `Note { start, pitch, length, velocity }` ; le moteur actuel joue des notes par `Synth::note_on` et `Synth::note_off`.
+**Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité, et trois champs optionnels : accord fin en cents (-50 à 50), chance (0 à 100 %) et répétitions (1 à 16), absents du fichier quand ils valent leur défaut. Une note hors de la longueur de son clip est refusée par les commandes, jamais tronquée en silence (seul `clip.set_length` avec `trim` coupe). Code : `Note { start, pitch, length, velocity, cents, chance, repeat }` ; le moteur actuel joue des notes par `Synth::note_on` et `Synth::note_off`.
 
 **Arrangement** : la ligne de temps d'un morceau, propre à chaque piste : l'ensemble de ses placements. Code : `Track::placements` ; `arrangement.tsv` **(prévu)**.
 

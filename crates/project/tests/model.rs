@@ -113,18 +113,8 @@ fn fixture() -> Fx {
                     end: tick(1920),
                 }),
                 notes: BTreeSet::from([
-                    Note {
-                        start: tick(0),
-                        pitch: 36,
-                        length: tick(240),
-                        velocity: 110,
-                    },
-                    Note {
-                        start: tick(3600),
-                        pitch: 48,
-                        length: tick(240),
-                        velocity: 1,
-                    },
+                    Note::new(tick(0), 36, tick(240), 110),
+                    Note::new(tick(3600), 48, tick(240), 1),
                 ]),
             },
         },
@@ -477,12 +467,7 @@ fn notes(fx: &mut Fx) -> &mut BTreeSet<Note> {
 }
 
 fn note(start: i64, pitch: u8, length: i64, velocity: u8) -> Note {
-    Note {
-        start: Tick(start),
-        pitch,
-        length: Tick(length),
-        velocity,
-    }
+    Note::new(Tick(start), pitch, Tick(length), velocity)
 }
 
 type Mutation = Box<dyn Fn(&mut Fx)>;
@@ -748,6 +733,46 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         ("velocity 0", midi_note(note(0, 60, 10, 0)), "BadNote"),
         ("velocity 128", midi_note(note(0, 60, 10, 128)), "BadNote"),
         ("note length 0", midi_note(note(0, 60, 0, 100)), "BadNote"),
+        (
+            "cents 51",
+            midi_note(Note {
+                cents: 51,
+                ..note(0, 60, 10, 100)
+            }),
+            "BadNote",
+        ),
+        (
+            "cents -51",
+            midi_note(Note {
+                cents: -51,
+                ..note(0, 60, 10, 100)
+            }),
+            "BadNote",
+        ),
+        (
+            "chance 101",
+            midi_note(Note {
+                chance: 101,
+                ..note(0, 60, 10, 100)
+            }),
+            "BadNote",
+        ),
+        (
+            "repeat 0",
+            midi_note(Note {
+                repeat: 0,
+                ..note(0, 60, 10, 100)
+            }),
+            "BadNote",
+        ),
+        (
+            "repeat 17",
+            midi_note(Note {
+                repeat: 17,
+                ..note(0, 60, 10, 100)
+            }),
+            "BadNote",
+        ),
         (
             "clip length 0",
             Box::new(|fx| {
@@ -1274,4 +1299,92 @@ fn every_count_limit_has_a_failing_case() {
             "{what}: {violations:?}"
         );
     }
+}
+
+#[test]
+fn a_default_note_writes_no_optional_field_and_a_file_without_them_reads_as_defaults() {
+    let plain = note(480, 60, 240, 100);
+    let json = serde_json::to_value(plain).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"start": 480, "pitch": 60, "length": 240, "velocity": 100})
+    );
+    assert_eq!(serde_json::from_value::<Note>(json).unwrap(), plain);
+    assert_eq!(plain, Note::new(Tick(480), 60, Tick(240), 100));
+    assert_eq!(
+        (plain.cents, plain.chance, plain.repeat),
+        (0, Note::DEFAULT_CHANCE, Note::DEFAULT_REPEAT)
+    );
+}
+
+#[test]
+fn the_optional_note_fields_round_trip_and_only_the_non_default_ones_are_written() {
+    let tuned = Note {
+        cents: -50,
+        ..note(0, 60, 10, 100)
+    };
+    let json = serde_json::to_value(tuned).unwrap();
+    assert_eq!(json["cents"], -50);
+    assert!(json.get("chance").is_none() && json.get("repeat").is_none());
+    let full = Note {
+        cents: 50,
+        chance: 0,
+        repeat: 16,
+        ..note(0, 60, 10, 100)
+    };
+    let json = serde_json::to_string(&full).unwrap();
+    assert!(
+        json.contains(r#""cents":50,"chance":0,"repeat":16"#),
+        "{json}"
+    );
+    assert_eq!(serde_json::from_str::<Note>(&json).unwrap(), full);
+    // Spelling the defaults out reads as the same note, written without them.
+    let spelled: Note = serde_json::from_str(
+        r#"{"start":0,"pitch":60,"length":10,"velocity":100,"cents":0,"chance":100,"repeat":1}"#,
+    )
+    .unwrap();
+    assert_eq!(spelled, note(0, 60, 10, 100));
+    // An unknown field is still refused, and a value out of the type is refused on read.
+    assert!(
+        serde_json::from_str::<Note>(r#"{"start":0,"pitch":60,"length":10,"velocity":100,"x":1}"#)
+            .is_err()
+    );
+    assert!(
+        serde_json::from_str::<Note>(
+            r#"{"start":0,"pitch":60,"length":10,"velocity":100,"cents":300}"#
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn notes_differing_only_by_an_optional_field_are_two_notes() {
+    let a = note(0, 60, 10, 100);
+    let b = Note { chance: 50, ..a };
+    let c = Note { repeat: 2, ..a };
+    let d = Note { cents: 10, ..a };
+    let set: BTreeSet<Note> = [a, b, c, d, a].into_iter().collect();
+    assert_eq!(set.len(), 4);
+}
+
+#[test]
+fn contains_id_finds_every_kind_of_entity_and_nothing_else() {
+    let fx = fixture();
+    let p = &fx.project;
+    let mut every = vec![p.id.0.clone()];
+    every.extend(p.scenes.keys().map(|k| k.0.clone()));
+    for (id, t) in &p.tracks {
+        every.push(id.0.clone());
+        every.extend(t.devices.keys().map(|k| k.0.clone()));
+        every.extend(t.clips.keys().map(|k| k.0.clone()));
+        every.extend(t.placements.keys().map(|k| k.0.clone()));
+        every.extend(t.automation.keys().map(|k| k.0.clone()));
+    }
+    // The fixture uses every kind of entity, each at least once.
+    assert!(every.len() >= 14, "{}", every.len());
+    for id in &every {
+        assert!(p.contains_id(id), "{id}");
+    }
+    let mut ids = IdGenerator::new(1_800_000_000_000, 7);
+    assert!(!p.contains_id(&ClipId::generate(&mut ids).0));
 }

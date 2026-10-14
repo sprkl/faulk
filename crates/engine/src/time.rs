@@ -60,6 +60,7 @@ pub const PPQ: i64 = 960;
 /// project and the UI read it as a plain integer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[repr(transparent)]
 pub struct Tick(pub i64);
 
@@ -486,6 +487,7 @@ impl From<TimeSignature> for TimeSignatureRaw {
     derive(Serialize, Deserialize),
     serde(rename_all = "snake_case")
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Quantize {
     /// No quantization: a launch happens at once.
     None,
