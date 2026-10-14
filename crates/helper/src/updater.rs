@@ -1,12 +1,13 @@
 //! Self-update of the installed helper, built on Velopack.
 //!
 //! The helper reads its updates only from `https://get.faulk.app/helper/...`, which Vercel
-//! redirects to the public releases of `sprkl/faulk-release` (see
-//! `docs/architecture/04-distribution-helper.md` and `web/vercel.json`):
+//! redirects to the public Vercel Blob store the release workflow publishes to (see
+//! `docs/architecture/04-distribution-helper.md`, `web/vercel.json` and
+//! `scripts/helper-release/`):
 //!
 //! - `<base>/stable/releases.<os>.json`: the feed of the newest stable release;
 //! - `<base>/beta/releases.<os>.json`: the feed of the newest pre-release;
-//! - `<base>/packages/<file>.nupkg`: a full or delta package, found in the release of its version.
+//! - `<base>/packages/<file>.nupkg`: a full or delta package, kept for every version.
 //!
 //! A helper on the stable channel reads the stable feed only, and drops every pre-release it may
 //! contain. A helper on the beta channel reads both feeds and takes the newest version.

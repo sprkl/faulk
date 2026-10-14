@@ -18,7 +18,9 @@ const en = {
   'helper.title': 'Native helper',
   'helper.checking': 'Looking for the helper…',
   'helper.absent': 'No helper found. Start faulk-helper for low latency and native MIDI.',
-  'helper.incompatible': 'This helper speaks another protocol version ({v}). Update it.',
+  'helper.helperOlder':
+    'This helper is older than the page (protocol {v}). Restart it to install its update, or download it again from get.faulk.app/helper/windows.',
+  'helper.helperNewer': 'This page is older than your helper (protocol {v}). Reload the page.',
   'helper.pairPrompt': 'Type the code the helper shows.',
   'helper.code': 'Pairing code',
   'helper.pair': 'Pair',
@@ -75,7 +77,9 @@ const fr: Record<MessageKey, string> = {
   'helper.title': 'Helper natif',
   'helper.checking': 'Recherche du helper…',
   'helper.absent': 'Aucun helper trouvé. Lance faulk-helper pour une latence basse et le MIDI natif.',
-  'helper.incompatible': 'Ce helper parle une autre version du protocole ({v}). Mets-le à jour.',
+  'helper.helperOlder':
+    'Ce helper est plus ancien que la page (protocole {v}). Relance-le pour installer sa mise à jour, ou retélécharge-le sur get.faulk.app/helper/windows.',
+  'helper.helperNewer': 'Cette page est plus ancienne que ton helper (protocole {v}). Recharge la page.',
   'helper.pairPrompt': 'Tape le code affiché par le helper.',
   'helper.code': 'Code d’appairage',
   'helper.pair': 'Appairer',

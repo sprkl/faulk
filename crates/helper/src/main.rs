@@ -364,6 +364,7 @@ fn main() {
             app_url: args.app_url.clone(),
             run_command: tray_text::run_command(&exe, &raw_args),
             events: tray_events,
+            updater: &updates,
         });
         if let Err(e) = tray {
             // Without an icon a release build could be neither seen nor quit: stop.
