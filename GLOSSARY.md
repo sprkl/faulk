@@ -56,7 +56,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Blob** : un fichier binaire du projet adressé par son contenu (SHA-256), jamais modifié : audio, automation très dense, état opaque d'un instrument. Code : `Hash`, dossier `blobs/<sha256>` **(prévu)**.
 
-**Session** : l'état qui relève de l'écran ou de la machine et non de la musique : solo, entrée MIDI choisie, sélection, zoom, défilement, pistes repliées. Il est écrit dans `.faulk/`, ignoré par git, restauré à la réouverture et jamais versionné. Le solo est donc un état de session, alors que le mute est dans le projet. À ne pas confondre avec la connexion de pairage entre la page et le helper (`/session`, `crates/protocol`) et de la classe web `Session` (`web/src/lib/session.svelte.ts`), qui porte l'état de la page et son chemin vers le moteur, pas cet état de session. Code : `SessionState`, `.faulk/session.json` **(prévu)**.
+**Session** : l'état qui relève de l'écran ou de la machine et non de la musique : solo, entrée MIDI choisie, sélection, zoom, défilement, pistes repliées. Il est écrit dans `.faulk/`, ignoré par git, restauré à la réouverture et jamais versionné. Le solo est donc un état de session, alors que le mute est dans le projet. À ne pas confondre avec la connexion de pairage entre la page et le helper (`/session`, `crates/protocol`) ni avec les stores web (`web/src/lib/stores/`), qui portent l'état de la page et son chemin vers le moteur, pas cet état de session. Code : `SessionState`, `.faulk/session.json` **(prévu)**.
 
 ## Modes et extensions
 

@@ -36,7 +36,7 @@ Hors MVP (décision 5 du § 7) : l'**enregistrement audio** (il arrive juste apr
 | `Command::apply(&self, synth: &mut Synth)` : les commandes agissent directement sur **un** synthé du moteur. | Il manque un **modèle de projet** distinct du moteur : les commandes modifient le projet, qui produit les messages moteur. |
 | Un seul `enum Command` avec trois `match` (`name`, `apply`, `undo_kind`) dans `crates/commands/src/lib.rs`. | Point chaud de conflits dès que dix agents ajoutent des commandes. |
 | Le mappage commande → moteur est écrit en TypeScript côté Web (`web/src/lib/engine/wasm-ops.ts`) et en Rust côté Boost (`helper/src/audio.rs::engine_event`). | Risque de divergence Web/Boost : il faut **un seul chemin**, en Rust, partagé par les deux cibles. |
-| `Session.run` dans `web/src/lib/session.svelte.ts` est un `switch` par type de commande. | À remplacer par un dispatcher générique. |
+| `Session.run` dans `web/src/lib/session.svelte.ts` est un `switch` par type de commande (depuis UI-1 : `Dispatcher.run`, `web/src/lib/stores/dispatcher.ts`). | À remplacer par un dispatcher générique. |
 | Un export C `fk_*` par opération dans `engine-wasm`. | À remplacer par une boîte de réception binaire unique (`fk_push`) et une boîte d'envoi (`fk_feedback`). |
 | `web/src/lib/i18n.ts` : un seul fichier de chaînes ; `App.svelte` : un seul écran. | Points chauds de conflits pour l'interface. |
 | Pas de temps musical, de piste, de clip, d'identifiant stable. | Tout le socle est à construire avant les fonctions visibles. |
@@ -227,9 +227,9 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **PR-5 — Dispatcher web générique et stores**
-- But : remplacer le `switch` de `Session.run` par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur ; supprimer `wasm-ops.ts`.
+- But : remplacer le `switch` de `Dispatcher.run` (`web/src/lib/stores/dispatcher.ts`) par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur ; supprimer `wasm-ops.ts`.
 - Critères : aucune référence à un type de commande dans le dispatcher ; l'écran actuel (synthé, clavier, MIDI) fonctionne via les nouvelles commandes ; test Playwright : note jouée, son mesuré non nul, aucune erreur console.
-- Touche : `web/src/lib/session*`, `web/src/lib/stores/`, `web/src/lib/engine/`.
+- Touche : `web/src/lib/stores/`, `web/src/lib/engine/`.
 - Dépend de : PR-4, MO-2, UI-1.
 - Phase : 2.
 - Étiquettes : hardware: non, founder: non.
@@ -607,7 +607,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **SV-4 — Chargement d'un projet dans le moteur**
 - But : `project.open` remplace le projet : arrêt, réinitialisation du moteur, instantané rejoué, état de session (`.faulk/session.json` : solo, entrée MIDI) restauré.
 - Critères : rendu d'un projet enregistré puis rouvert identique au rendu d'origine ; aucune note coincée de l'ancien projet ; le solo (`mixer.set_solo`, MX-2) survit à une réouverture sans apparaître dans les fichiers versionnés (test).
-- Touche : `crates/commands/src/project.rs`, `web/src/lib/session*`.
+- Touche : `crates/commands/src/project.rs`, `web/src/lib/stores/`.
 - Dépend de : PR-3, SV-1, PR-5, MX-2.
 - Phase : 3.
 - Étiquettes : hardware: non, founder: non.
@@ -683,7 +683,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **BO-2 — Bascule à chaud avec un projet**
 - But : passer Web ↔ Boost en cours de session : arrêt des notes, instantané rejoué, position et état de lecture conservés.
 - Critères : projet de 8 pistes, bascule pendant la lecture, rendus équivalents après la bascule ; perte du helper → retour Web sans perte du projet ; vérifié sur la machine du fondateur.
-- Touche : `web/src/lib/session*`, `crates/helper`.
+- Touche : `web/src/lib/stores/`, `crates/helper`.
 - Dépend de : BO-1, PR-3, PR-5.
 - Phase : 2.
 - Étiquettes : hardware: oui, founder: non.
@@ -1111,7 +1111,7 @@ Règle pour l'essaim : **une tâche feuille ne modifie jamais un contrat figé.*
 | Fichier | Pourquoi | Parade |
 | --- | --- | --- |
 | `crates/commands/src/lib.rs` (`enum Command` + trois `match`) | Chaque commande y ajoute 3 à 4 lignes | Un module par domaine avec son enum et son `apply` ; l'enum racine ne compte qu'**une ligne par domaine**, figée en PR-2 ; `name()` et `undo_kind()` dérivés par macro ou par le schéma. |
-| `web/src/lib/session.svelte.ts` (`switch` sur les commandes) | Chaque commande y passerait | Dispatcher générique (PR-5). |
+| `web/src/lib/stores/dispatcher.ts` (`switch` sur les commandes) | Chaque commande y passerait | Dispatcher générique (PR-5). |
 | `web/src/lib/engine/wasm-ops.ts`, `crates/helper/src/audio.rs::engine_event` | Deux mappages commande → moteur | Supprimés par MO-2 : le mappage vit en Rust. |
 | `web/src/lib/i18n.ts` | Toutes les chaînes dans un fichier | Un fichier par fonctionnalité (UI-0), test de complétude EN/FR. |
 | `web/src/App.svelte` | Un seul écran | Coquille + registre de vues (UI-0, UI-1) : une vue = un dossier + une ligne au registre. |
