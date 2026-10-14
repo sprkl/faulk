@@ -1,4 +1,4 @@
-name: CI
+name: Web
 
 on:
   push:
@@ -6,80 +6,10 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  agent-scripts:
-    # The agent guardrails (hooks, Judge Dredd brief, verification records) and the helper's
-    # Blob publication (its logic needs no dependency; @vercel/blob is loaded for real uploads only).
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Test the agent scripts
-        run: node --test "scripts/**/*.test.mjs"
-
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Install audio headers
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Includes the native/WASM parity test, which builds the wasm module itself.
-      - name: Test
-        run: cargo test --workspace
-
-      - name: WASM build of the engine
-        run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
-
-  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
-  helper-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy
-        run: cargo clippy -p helper --all-targets -- -D warnings
-
-      - name: Test
-        run: cargo test -p helper
-
-      - name: Release build
-        run: cargo build -p helper --release
-
-      # The defaults a published helper ships with (production origins, "Open Faulk" on the
-      # site) depend on the release profile: test them in that profile too.
-      - name: Release defaults
-        run: cargo test -p helper --release --bin faulk-helper
-
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -108,10 +38,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Generated types are up to date
-        run: |
-          pnpm gen:protocol
-          git diff --exit-code src/lib/generated
+      # `pnpm dev`, `build` and `test` regenerate src/lib/generated/ themselves; this fails when the
+      # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`), never merge by hand.
+      - name: Generated files are up to date
+        run: pnpm gen:check
 
       - run: pnpm typecheck
       - run: pnpm lint
