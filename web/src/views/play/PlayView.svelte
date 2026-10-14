@@ -4,6 +4,7 @@
   import Meter from '../../lib/components/Meter.svelte'
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
+  import { absentHelperMessages } from '../../lib/engine/local-access'
   import type { MessageKey } from '../../lib/i18n/index'
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../../lib/params'
@@ -87,7 +88,9 @@
       {#if engine.helper === 'checking'}
         <p class="muted">{t('helper.checking')}</p>
       {:else if engine.helper === 'absent'}
-        <p class="muted">{t('helper.absent')}</p>
+        {#each absentHelperMessages(engine.localAccess) as key (key)}
+          <p class="muted" data-testid={key}>{t(key)}</p>
+        {/each}
         <button class="ghost" onclick={() => dispatcher.checkHelper()}>{t('helper.recheck')}</button>
       {:else if engine.helper === 'incompatible'}
         <p class="muted" data-testid="helper-incompatible">
