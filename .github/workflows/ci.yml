@@ -112,3 +112,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+      # Real browser checks on the dev server and the built site: cross-origin isolation, helper
+      # sockets, simulated Web MIDI, the landing page (tests/e2e/).
+      - name: Install the Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm test:e2e
