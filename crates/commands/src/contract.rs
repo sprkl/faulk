@@ -12,18 +12,31 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
-use project::{IdGenerator, Project, SessionState, TrackId};
+use project::{DeviceId, IdGenerator, Project, SessionState, TrackId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// What a command applies to: the project document and the session state (founder's
+/// What a command applies to: the project document, the session state (founder's
 /// decision 10: solo, selected MIDI input, selection live in the session, never in the
-/// versioned project). No `Default`: a project is created with its id.
+/// versioned project) and the undo history, which only [`crate::run`] and the
+/// `history.*` commands change. No `Default`: a project is created with its id.
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
     pub project: Project,
     pub session: SessionState,
+    pub history: crate::History,
+}
+
+impl State {
+    /// A state on a project, with an empty session and an empty history.
+    pub fn new(project: Project) -> Self {
+        Self {
+            project,
+            session: SessionState::default(),
+            history: crate::History::default(),
+        }
+    }
 }
 
 /// Who runs a command. Serialized as `user` or `agent:<name>`: the form of the
@@ -167,8 +180,8 @@ pub enum Undo<C> {
 }
 
 /// What the interface learns from an applied command: its mirror of the project is fed
-/// by these events only (spec § 2.6). PR-2 declares the full set; the variants below
-/// are the ones the commands of this crate emit.
+/// by these events only (spec § 2.6). Each task adds the events its commands emit, next
+/// to them in this enum.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProjectEvent {
@@ -176,11 +189,24 @@ pub enum ProjectEvent {
     ProjectRenamed { name: String },
     /// The selected track changed.
     TrackSelected { track: Option<TrackId> },
+    /// A device parameter changed.
+    DeviceParamChanged {
+        device: DeviceId,
+        param: String,
+        value: f64,
+    },
+    /// The chosen MIDI input changed; `null` when none is chosen.
+    MidiInputSelected { id: Option<String> },
+    /// The undo history changed: an entry was recorded, undone or redone, or the
+    /// history was cleared.
+    HistoryChanged { can_undo: bool, can_redo: bool },
 }
 
-/// What the project sends to the engine after a command (spec § 2.3). CT-3 declares
-/// `engine::msg::ControlMsg`; this placeholder has no variant so nothing can be sent
-/// until it exists, and PR-2 replaces it by the engine's type.
+/// What the project sends to the engine after a command (spec § 2.3). CT-3 (#39)
+/// declares `engine::msg::ControlMsg`; until it is merged this placeholder has no
+/// variant, so nothing can be sent, and the hosts translate the `live.*` and
+/// `device.set_param` commands to the engine themselves. PR-3 replaces it by the
+/// engine's type and compiles the project's ids to engine slots.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlMsg {}
 

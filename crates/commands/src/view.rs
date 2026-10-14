@@ -5,8 +5,8 @@
 //! nothing from them. The selected track is a command, `live`, because it decides where
 //! live MIDI goes and an agent must be able to set it and read it.
 
-use crate::v2::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
-use crate::v2::macros::domain;
+use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
+use crate::macros::domain;
 use project::TrackId;
 
 domain! {

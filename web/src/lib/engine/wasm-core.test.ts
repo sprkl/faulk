@@ -1,7 +1,8 @@
 // Runs the real engine.wasm (built by `pnpm test`) through the same code as the worklet.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import type { Command, SynthParam } from '../generated/protocol'
+import { SINGLE_SYNTH, type SynthParam } from '../generated/protocol'
+import { allNotesOff, noteOff, noteOn, setParam } from '../synth-commands'
 import { WasmCore, type EngineExports } from './wasm-core'
 import { commandToOp } from './wasm-ops'
 
@@ -13,7 +14,7 @@ function core() {
   return new WasmCore(instance.exports as unknown as EngineExports, 48_000)
 }
 
-function run(c: WasmCore, command: Command) {
+function run(c: WasmCore, command: Parameters<typeof commandToOp>[0]) {
   const op = commandToOp(command)
   if (op) c.apply(op)
 }
@@ -35,22 +36,22 @@ describe('wasm engine through commands', () => {
   it('is silent without notes and plays a note', () => {
     const c = core()
     expect(peak(renderSeconds(c, 0.1))).toBe(0)
-    run(c, { type: 'note.on', note: 60, velocity: 100 })
+    run(c, noteOn(60, 100))
     expect(peak(renderSeconds(c, 0.2))).toBeGreaterThan(0.05)
     expect(c.activeVoices()).toBe(1)
     expect(c.takePeak()).toBeGreaterThan(0.05)
     expect(c.takePeak()).toBe(0)
   })
 
-  it('releases with note.off and note.all_off', () => {
+  it('releases with live.note_off and live.all_notes_off', () => {
     const c = core()
-    run(c, { type: 'note.on', note: 60, velocity: 100 })
-    run(c, { type: 'note.on', note: 64, velocity: 100 })
+    run(c, noteOn(60, 100))
+    run(c, noteOn(64, 100))
     renderSeconds(c, 0.1)
-    run(c, { type: 'note.off', note: 60 })
+    run(c, noteOff(60))
     renderSeconds(c, 1)
     expect(c.activeVoices()).toBe(1)
-    run(c, { type: 'note.all_off' })
+    run(c, allNotesOff())
     renderSeconds(c, 1)
     expect(c.activeVoices()).toBe(0)
   })
@@ -59,10 +60,10 @@ describe('wasm engine through commands', () => {
     // Each parameter, set through a command, changes the signal in its own way.
     const setAndRender = (param: SynthParam, value: number) => {
       const c = core()
-      run(c, { type: 'synth.set_param', param, value })
-      run(c, { type: 'note.on', note: 57, velocity: 127 })
+      run(c, setParam(param, value))
+      run(c, noteOn(57, 127))
       const held = renderSeconds(c, 0.5)
-      run(c, { type: 'note.off', note: 57 })
+      run(c, noteOff(57))
       const tail = renderSeconds(c, 0.5)
       return { held, tail }
     }
@@ -77,9 +78,9 @@ describe('wasm engine through commands', () => {
     // Sustain 0 with a short decay: the held note decays to silence.
     const decayed = (() => {
       const c = core()
-      run(c, { type: 'synth.set_param', param: 'sustain', value: 0 })
-      run(c, { type: 'synth.set_param', param: 'decay', value: 0.05 })
-      run(c, { type: 'note.on', note: 57, velocity: 127 })
+      run(c, setParam('sustain', 0))
+      run(c, setParam('decay', 0.05))
+      run(c, noteOn(57, 127))
       return renderSeconds(c, 0.5)
     })()
     expect(peak(decayed.subarray(12_000))).toBe(0)
@@ -89,8 +90,12 @@ describe('wasm engine through commands', () => {
     expect(sine.some((s, i) => Math.abs(s - square[i]) > 0.05)).toBe(true)
   })
 
-  it('ignores commands for the page', () => {
+  it('ignores commands for the page and parameters the synth does not have', () => {
     expect(commandToOp({ type: 'midi.list_inputs' })).toBeNull()
     expect(commandToOp({ type: 'midi.select_input', id: null })).toBeNull()
+    expect(commandToOp({ type: 'project.rename', name: 'x' })).toBeNull()
+    expect(commandToOp({ type: 'history.undo' })).toBeNull()
+    expect(commandToOp({ type: 'device.set_param', device: SINGLE_SYNTH.device, param: 'cutoff', value: 1 })).toBeNull()
+    expect(commandToOp({ type: 'device.set_param', device: SINGLE_SYNTH.device, param: 'toString', value: 1 })).toBeNull()
   })
 })

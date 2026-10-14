@@ -4,10 +4,10 @@
 //! example. The harness is generic so that its own rejection branches are tested with
 //! deliberately broken commands (see the tests at the bottom).
 
-use crate::v2::contract::{CommandError, Context, Kind, Meta, Outcome, State, Undo, UndoKind};
+use crate::contract::{CommandError, Context, Kind, Meta, Outcome, State, Undo, UndoKind};
 use std::fmt::Debug;
 
-/// What the harness needs from a command: the root [`crate::v2::Command`], or a fake.
+/// What the harness needs from a command: the root [`crate::Command`], or a fake.
 pub trait Checked: Clone + Debug + PartialEq + Sized {
     type Output: Debug;
     fn meta(&self) -> Meta;
@@ -20,8 +20,8 @@ pub trait Checked: Clone + Debug + PartialEq + Sized {
     fn output_name(output: &Self::Output) -> &'static str;
 }
 
-impl Checked for crate::v2::Command {
-    type Output = crate::v2::Output;
+impl Checked for crate::Command {
+    type Output = crate::Output;
     fn meta(&self) -> Meta {
         Self::meta(self)
     }
@@ -167,16 +167,70 @@ pub fn check_refusal<C: Checked>(
 
 /// The context the examples run with.
 pub fn context() -> Context {
-    Context::new(crate::v2::Author::User, project::IdGenerator::for_tests())
+    Context::new(crate::Author::User, project::IdGenerator::for_tests())
 }
 
-/// The state the examples run from: a valid empty project. Its id comes from a seed of
-/// its own, so it never equals an id the examples' [`context`] generates.
+/// A valid empty project, with an empty session and history. Its id comes from a seed
+/// of its own, so it never equals an id the examples' [`context`] generates.
 pub fn state() -> State {
     let mut ids = project::IdGenerator::new(1_600_000_000_000, 0x00FF_0000_0000_0000_0000);
-    State {
-        project: project::Project::new(project::ProjectId::generate(&mut ids), "Untitled"),
-        session: project::SessionState::default(),
+    State::new(project::Project::new(
+        project::ProjectId::generate(&mut ids),
+        "Untitled",
+    ))
+}
+
+/// The state the examples run from, and the ids it holds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fixture {
+    pub state: State,
+    /// A MIDI track.
+    pub track: project::TrackId,
+    /// The track's instrument, the built-in synth, its parameters at the engine's
+    /// defaults.
+    pub device: project::DeviceId,
+}
+
+/// [`state`] with one MIDI track playing the built-in synth, and one entry in the
+/// history: the project renamed from `Untitled` to `Demo`, by the user. Its ids come
+/// from a seed of their own, apart from [`state`]'s and [`context`]'s.
+pub fn fixture() -> Fixture {
+    let mut ids = project::IdGenerator::new(1_650_000_000_000, 0x00EE_0000_0000_0000_0000);
+    let mut state = state();
+    let track = project::TrackId::generate(&mut ids);
+    let device = project::DeviceId::generate(&mut ids);
+    let mut midi = project::Track::new(
+        project::TrackKind::Midi,
+        "Synth",
+        project::OrderKey::first(),
+    );
+    midi.devices.insert(
+        device.clone(),
+        project::Device {
+            order: project::OrderKey::first(),
+            role: project::DeviceRole::Instrument,
+            enabled: true,
+            source: project::DeviceSource::Builtin {
+                id: crate::device::SYNTH_KIND.into(),
+                version: 1,
+            },
+            params: crate::device::param_defaults()
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), f64::from(value)))
+                .collect(),
+            state: None,
+        },
+    );
+    state.project.tracks.insert(track.clone(), midi);
+    let rename = crate::Command::Project(crate::project::Command::Rename {
+        name: "Demo".into(),
+    });
+    crate::run(&rename, &mut state, &mut context())
+        .unwrap_or_else(|e| panic!("the fixture's rename applies: {e}"));
+    Fixture {
+        state,
+        track,
+        device,
     }
 }
 
@@ -184,7 +238,7 @@ pub fn state() -> State {
 mod tests {
     //! Each rejection branch of the harness, hit by a deliberately broken command.
     use super::*;
-    use crate::v2::contract::ProjectEvent;
+    use crate::contract::ProjectEvent;
 
     /// A fake command whose behaviour is chosen by the test.
     #[derive(Clone, Debug, PartialEq)]

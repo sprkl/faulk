@@ -1,14 +1,14 @@
-//! `device.*`: a track's device chain: insert, remove, move, enable, set a parameter (epic 4, DV; `synth.set_param` of v1 becomes `device.set_param` in PR-2).
+//! `arrangement.*`: placements in a track's timeline: place, move, trim, duplicate (independent copy by default, linked as an option), remove (epic 7, AR).
 //!
 //! Empty skeleton (CT-4): the tasks named above add their commands here, one
 //! `domain!` block each, and implement them in [`apply`]. A command is declared only
 //! once it is implemented: the test rule refuses a declared command without an example.
 
-use crate::v2::contract::{CommandError, Context, Outcome, State};
-use crate::v2::macros::domain;
+use crate::contract::{CommandError, Context, Outcome, State};
+use crate::macros::domain;
 
 domain! {
-    domain = "device", schema = ("DeviceCommand", "DeviceOutput");
+    domain = "arrangement", schema = ("ArrangementCommand", "ArrangementOutput");
 }
 
 /// Applies a command of this domain. No command yet.

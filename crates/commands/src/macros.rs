@@ -4,8 +4,8 @@
 //! extend in three places).
 
 /// Parses a `kind` literal at compile time; a typo is a build error.
-pub const fn parse_kind(s: &str) -> crate::v2::contract::Kind {
-    use crate::v2::contract::Kind;
+pub const fn parse_kind(s: &str) -> crate::contract::Kind {
+    use crate::contract::Kind;
     match s.as_bytes() {
         b"edit" => Kind::Edit,
         b"live" => Kind::Live,
@@ -15,8 +15,8 @@ pub const fn parse_kind(s: &str) -> crate::v2::contract::Kind {
 }
 
 /// Parses an `undo` literal at compile time; a typo is a build error.
-pub const fn parse_undo(s: &str) -> crate::v2::contract::UndoKind {
-    use crate::v2::contract::UndoKind;
+pub const fn parse_undo(s: &str) -> crate::contract::UndoKind {
+    use crate::contract::UndoKind;
     match s.as_bytes() {
         b"inverse" => UndoKind::Inverse,
         b"none" => UndoKind::None,
@@ -79,12 +79,12 @@ macro_rules! domain {
             pub const DOMAIN: &'static str = $domain;
 
             /// The metadata of every command of the domain, in declaration order.
-            pub const METAS: &'static [$crate::v2::contract::Meta] = &[
+            pub const METAS: &'static [$crate::contract::Meta] = &[
                 $(
-                    $crate::v2::contract::Meta {
+                    $crate::contract::Meta {
                         name: $name,
-                        kind: $crate::v2::macros::parse_kind($kind),
-                        undo: $crate::v2::macros::parse_undo($undo),
+                        kind: $crate::macros::parse_kind($kind),
+                        undo: $crate::macros::parse_undo($undo),
                         destructive: $destructive,
                     },
                 )*
@@ -95,13 +95,13 @@ macro_rules! domain {
                 self.meta().name
             }
 
-            pub fn meta(&self) -> $crate::v2::contract::Meta {
+            pub fn meta(&self) -> $crate::contract::Meta {
                 match *self {
                     $(
-                        Self::$Variant { .. } => $crate::v2::contract::Meta {
+                        Self::$Variant { .. } => $crate::contract::Meta {
                             name: $name,
-                            kind: $crate::v2::macros::parse_kind($kind),
-                            undo: $crate::v2::macros::parse_undo($undo),
+                            kind: $crate::macros::parse_kind($kind),
+                            undo: $crate::macros::parse_undo($undo),
                             destructive: $destructive,
                         },
                     )*
@@ -143,7 +143,7 @@ macro_rules! root {
             pub const DOMAINS: &'static [&'static str] = &[ $( $module::Command::DOMAIN, )* ];
 
             /// The metadata of every command of every domain.
-            pub fn metas() -> Vec<$crate::v2::contract::Meta> {
+            pub fn metas() -> Vec<$crate::contract::Meta> {
                 let mut all = Vec::new();
                 $( all.extend_from_slice($module::Command::METAS); )*
                 all
@@ -155,7 +155,7 @@ macro_rules! root {
                 }
             }
 
-            pub fn meta(&self) -> $crate::v2::contract::Meta {
+            pub fn meta(&self) -> $crate::contract::Meta {
                 match self {
                     $( Self::$Variant(c) => c.meta(), )*
                 }
@@ -164,20 +164,20 @@ macro_rules! root {
             /// Applies the command to the state. The frozen signature of the contract.
             pub fn apply(
                 &self,
-                state: &mut $crate::v2::contract::State,
-                ctx: &mut $crate::v2::contract::Context,
-            ) -> Result<$crate::v2::Outcome, $crate::v2::contract::CommandError> {
+                state: &mut $crate::contract::State,
+                ctx: &mut $crate::contract::Context,
+            ) -> Result<$crate::Outcome, $crate::contract::CommandError> {
                 match self {
                     $(
                         Self::$Variant(c) => {
                             let out = $module::apply(c, state, ctx)?;
-                            Ok($crate::v2::contract::Outcome {
+                            Ok($crate::contract::Outcome {
                                 output: Output::$Variant(out.output),
                                 undo: match out.undo {
-                                    $crate::v2::contract::Undo::Inverse(inv) => {
-                                        $crate::v2::contract::Undo::Inverse(Box::new(Self::$Variant(*inv)))
+                                    $crate::contract::Undo::Inverse(inv) => {
+                                        $crate::contract::Undo::Inverse(Box::new(Self::$Variant(*inv)))
                                     }
-                                    $crate::v2::contract::Undo::None => $crate::v2::contract::Undo::None,
+                                    $crate::contract::Undo::None => $crate::contract::Undo::None,
                                 },
                                 events: out.events,
                                 control: out.control,

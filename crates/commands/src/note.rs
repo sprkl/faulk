@@ -1,14 +1,14 @@
-//! `scene.*`: scenes of the launch grid: create, delete, rename, reorder (epic 6, GR).
+//! `note.*`: edits of the notes of a MIDI clip from the piano roll: move, resize, velocity, as remove-and-add of note values (epic 8, PN).
 //!
 //! Empty skeleton (CT-4): the tasks named above add their commands here, one
 //! `domain!` block each, and implement them in [`apply`]. A command is declared only
 //! once it is implemented: the test rule refuses a declared command without an example.
 
-use crate::v2::contract::{CommandError, Context, Outcome, State};
-use crate::v2::macros::domain;
+use crate::contract::{CommandError, Context, Outcome, State};
+use crate::macros::domain;
 
 domain! {
-    domain = "scene", schema = ("SceneCommand", "SceneOutput");
+    domain = "note", schema = ("NoteCommand", "NoteOutput");
 }
 
 /// Applies a command of this domain. No command yet.
