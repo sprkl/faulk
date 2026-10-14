@@ -25,6 +25,8 @@ export class EngineStore {
   midiState = $state<'unknown' | 'ok' | 'unsupported' | 'denied'>('unknown')
   helper = $state<HelperState>('checking')
   helperProtocol = $state<number | null>(null)
+  /** The browser's local network permission, `null` where it does not exist or is unknown. */
+  localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
   notice = $state<MessageKey | null>(null)
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
