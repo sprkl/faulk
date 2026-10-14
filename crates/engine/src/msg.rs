@@ -269,6 +269,7 @@ pub struct SourceSlot(pub u32);
 
 /// Identifier of a parameter inside a device (`Param::id` for the synth).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct ParamId(pub u32);
 
 /// Kind of a track.
@@ -279,8 +280,10 @@ pub enum TrackKind {
     Audio = 1,
 }
 
-/// Kind of a device, as the device registry of CT-5 numbers them (`"faulk.osc_synth"` → id).
+/// Kind of a device, as the device registry of CT-5 numbers them (`"faulk.osc_synth"` → id,
+/// [`crate::device::DeviceDescriptor::kind_id`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct DeviceKind(pub u32);
 
 /// A note of a MIDI clip, as the project stores it (no identifier, CT-4 decides one).

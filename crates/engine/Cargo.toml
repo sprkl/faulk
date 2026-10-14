@@ -10,14 +10,20 @@ description = "Faulk audio engine core: pure DSP, no I/O, no allocation on the a
 # Serialization of the time types (`engine::time`) for the project document.
 # Off by default: the worklet build (`engine-wasm`) carries no dependency.
 serde = ["dep:serde"]
+# JSON Schema of the device descriptors (`engine::device`), for the schema bundle.
+schema = ["serde", "dep:schemars"]
+# The test devices of the device contract (`engine::device::testing`): an instrument, an
+# effect and a MIDI effect that the contract tests and the native/WASM parity test render.
+testing = []
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"], optional = true }
+schemars = { version = "1.2.3", optional = true }
 
 [dev-dependencies]
 rtrb = "0.4.0"
 # The crate itself with `serde` on, so that `cargo test -p engine` runs the serde tests.
-engine = { path = ".", features = ["serde"] }
+engine = { path = ".", features = ["serde", "testing"] }
 assert_no_alloc = "1"
 proptest = "1"
 serde_json = "1.0.154"

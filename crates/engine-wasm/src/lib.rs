@@ -169,3 +169,24 @@ pub unsafe extern "C" fn fk_active_voices(ptr: *mut Instance) -> u32 {
     // SAFETY: forwarded from this function's contract.
     unsafe { instance(ptr) }.map_or(0, |i| i.synth.active_voices() as u32)
 }
+
+/// Renders the device contract's scenario (`engine::device::testing::scenario`) once and
+/// returns the address of its output ([`fk_contract_len`] floats: left, then right), null
+/// if it could not render. Only in the test build (`--features device-contract`), for the
+/// native/WASM parity test of the device contract; never in the worklet's module.
+#[cfg(feature = "device-contract")]
+#[unsafe(no_mangle)]
+pub extern "C" fn fk_contract_scenario() -> *const f32 {
+    let mut out = vec![0.0f32; 2 * engine::device::testing::SCENARIO_FRAMES].into_boxed_slice();
+    if engine::device::testing::scenario(&mut out) == 0 {
+        return core::ptr::null();
+    }
+    Box::leak(out).as_ptr()
+}
+
+/// Floats [`fk_contract_scenario`] writes.
+#[cfg(feature = "device-contract")]
+#[unsafe(no_mangle)]
+pub extern "C" fn fk_contract_len() -> u32 {
+    (2 * engine::device::testing::SCENARIO_FRAMES) as u32
+}

@@ -114,5 +114,9 @@ pub fn schema_bundle() -> serde_json::Value {
         },
         "client_message": schemars::schema_for!(ClientMessage),
         "server_message": schemars::schema_for!(ServerMessage),
+        // The device contract (CT-5): the descriptor of every built-in device, from which
+        // the UI generates the panels and agents learn the parameters, and its schema.
+        "devices": engine::device::builtin_descriptors(),
+        "device_descriptor": schemars::schema_for!(engine::device::DeviceDescriptor),
     })
 }

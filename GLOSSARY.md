@@ -14,11 +14,15 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Piste audio** : une piste dont les clips sont des fichiers audio, lus par le lecteur de clips ; import et lecture seulement dans le MVP, sans enregistrement audio. Code : `TrackKind::Audio`.
 
-**Device** : un maillon de la chaîne d'une piste : un instrument, un effet audio, et plus tard un effet MIDI. Un module de l'Atelier ou un plugin tiers est un device ; une entrée MIDI physique n'en est pas un (c'est un réglage de la session). Un device a un rôle, un état activé ou non, des paramètres et une place dans la chaîne. Son nom est unique et jamais traduit. Code : `Device`, `DeviceRole`, `DeviceSource` ; côté moteur, le trait `Device` et le descripteur par type (`kind`, par exemple `"faulk.osc_synth"`) **(prévu)**.
+**Device** : un maillon de la chaîne d'une piste : un effet MIDI, un instrument ou un effet audio, dans cet ordre. Un module de l'Atelier ou un plugin tiers est un device ; une entrée MIDI physique n'en est pas un (c'est un réglage de la session). Un device a un rôle, un état activé ou non, des paramètres et une place dans la chaîne. Son nom est unique et jamais traduit. Code : `Device`, `DeviceRole`, `DeviceSource` ; côté moteur, le trait `Device`, `engine::device::DeviceRole` et le descripteur par type `DeviceDescriptor` (`kind`, par exemple `"faulk.osc_synth"`), dans `crates/engine/src/device.rs` (contrat CT-5). Le projet ne connaît pas encore le rôle d'effet MIDI.
 
 **Instrument** : le device qui produit le son d'une piste à partir de notes. Code : `DeviceRole::Instrument` ; le synthétiseur actuel est `Synth` (`crates/engine/src/synth.rs`).
 
-**Effet** : un device qui transforme un signal (effet audio) ; un effet MIDI transformera des notes, après le MVP. Code : `DeviceRole::Effect`.
+**Effet** : un device qui transforme un signal (effet audio), après l'instrument. Code : `DeviceRole::Effect`.
+
+**Effet MIDI** : un device qui reçoit des notes et en produit d'autres (transposition, accord, arpège), placé avant l'instrument d'une piste MIDI. Code : `engine::device::DeviceRole::MidiEffect` (contrat CT-5) ; le modèle de projet **(prévu)**.
+
+**Événement** (de device) : ce qu'un device reçoit dans un bloc, daté par un offset en frames : note jouée ou relâchée, valeur de paramètre. Une note porte son identifiant de voix et un accord fin en cents. Code : `Event`, `VoiceId` (`engine::device`).
 
 **Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé par la validation comme instrument d'une piste audio et refusé ailleurs) ; le device lui-même **(prévu)**.
 
