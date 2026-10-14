@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#91): the mixer commands (MX-2): `mixer.set_volume`, `mixer.set_pan`, `mixer.set_mute`, `mixer.set_master_volume` (`edit`, undoable, versioned) and `mixer.set_solo` (`live`, written in the session state, never in the history nor in the project text). Values outside the range are refused, never clamped: gain from -96 to +6 dB (`null` is silence), pan from -1 to 1. A fader gesture is one history group, so one undo. The command events `MixerChanged` and `SoloChanged` are added to the schema bundle.

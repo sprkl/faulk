@@ -195,6 +195,16 @@ pub enum ProjectEvent {
         param: String,
         value: f64,
     },
+    /// A track's or the master's mixer changed: its whole state, so the interface needs
+    /// no merge. `track` is `null` for the master; `gain_db` is `null` for silence.
+    MixerChanged {
+        track: Option<TrackId>,
+        gain_db: Option<f64>,
+        pan: f64,
+        mute: bool,
+    },
+    /// A track was soloed or unsoloed (session state).
+    SoloChanged { track: TrackId, solo: bool },
     /// The chosen MIDI input changed; `null` when none is chosen.
     MidiInputSelected { id: Option<String> },
     /// The undo history changed: an entry was recorded, undone or redone, or the
