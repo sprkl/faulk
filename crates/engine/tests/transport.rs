@@ -538,3 +538,65 @@ fn a_loop_at_a_non_dyadic_tempo_stays_on_the_closed_form_over_many_wraps() {
         );
     }
 }
+
+#[test]
+fn a_loop_that_rounds_to_nothing_in_f64_never_hangs() {
+    // Beyond 2^53 ticks the start and the end of a 5-tick loop are the same f64.
+    let mut rig = Rig::new(48_000);
+    let base = 1i64 << 60;
+    rig.set_loop(base, base + 5);
+    rig.play(base - 1000);
+    rig.block(4096);
+    rig.block(4096);
+    assert!(rig.t.is_running());
+    // A loop long enough for f64 still wraps up there.
+    rig.set_loop(base, base + 1_000_000);
+    rig.seek(base + 999_000);
+    rig.block(48_000);
+}
+
+#[test]
+fn a_loop_that_turns_on_and_off_with_the_tempo_neither_repeats_nor_hangs() {
+    // 8 kHz: a one tick loop is longer than a sample only at slow tempos.
+    let mut rig = Rig::new(8_000);
+    rig.set_loop(0, 1);
+    rig.tempo(120.0);
+    rig.play(0);
+    rig.block(100);
+    rig.tempo(999.0);
+    rig.run(8_000);
+    rig.tempo(120.0);
+    let before = rig.events.len();
+    rig.block(4096);
+    // Playing on past the loop end: strictly increasing ticks, no repeat of tick 0.
+    let ticks: Vec<i64> = rig.events[before..].iter().map(|e| e.0).collect();
+    assert!(ticks.windows(2).all(|w| w[1] == w[0] + 1), "{ticks:?}");
+}
+
+#[test]
+fn tempo_changes_near_loop_seams_deliver_every_tick_exactly_once_in_order() {
+    for rate in RATES {
+        for size in [1usize, 3, 64, 128, 480, 1021] {
+            let mut rig = Rig::new(rate);
+            rig.set_loop(0, 480);
+            rig.play(0);
+            let mut done = 0u64;
+            let mut i = 0;
+            while done < u64::from(rate) * 20 {
+                if i % 37 == 0 {
+                    rig.tempo(60.0 + (i % 11) as f64 * 37.3);
+                }
+                let segments = rig.block(size);
+                rig.check_tiling(&segments, size);
+                done += size as u64;
+                i += 1;
+            }
+            let mut expect = 0;
+            for (tick, _) in &rig.events {
+                assert_eq!(*tick, expect, "rate {rate} size {size}");
+                expect = (expect + 1) % 480;
+            }
+            assert!(rig.events.len() > 480 * 10);
+        }
+    }
+}

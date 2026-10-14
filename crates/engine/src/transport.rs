@@ -45,7 +45,7 @@
 //! never lets it escape. A playhead at or past the loop end when it is decided plays on.
 //! The clock is built with the sample rate of its channel (`Transport::new`) and rebuilt
 //! with it. It is distinct from `crate::device::Transport`, the view devices read; the
-//! position of a segment for `BlockCtx` is `Segment::sample_of`'s inverse (its origin).
+//! position of a segment for `BlockCtx` is `Segment::position_at` its first frame.
 //!
 //! # Saturation
 //!
@@ -83,6 +83,11 @@ impl Segment {
         let last = self.offset + self.frames.saturating_sub(1);
         // `as` saturates and sends NaN to zero.
         (at.floor() as usize).clamp(self.offset, last)
+    }
+
+    /// The playhead, in fractional ticks, at frame `offset` of the block.
+    pub fn position_at(&self, offset: usize) -> f64 {
+        self.origin_tick + (offset as f64 - self.origin_sample) / self.samples_per_tick
     }
 
     /// The fractional position of `tick`, in samples from the block start (not clamped).
@@ -138,6 +143,10 @@ pub struct Transport {
     /// moves it or the loop changes, never again from a computed position (a wrap sample
     /// on a block boundary must not let the playhead escape).
     loop_armed: bool,
+    /// Whether the loop was in force (long enough) when `loop_armed` was last decided.
+    loop_active: bool,
+    /// Wraps taken in the block in progress (bounded by `frames + 1`).
+    wraps: usize,
 }
 
 impl Transport {
@@ -161,6 +170,8 @@ impl Transport {
             open: false,
             loop_region: None,
             loop_armed: false,
+            loop_active: false,
+            wraps: 0,
         }
     }
 
@@ -247,14 +258,17 @@ impl Transport {
                 self.next_tick = tick;
             }
         }
-        if loop_changed || cue.is_some() || !was_running {
+        let loop_active = self.active_loop().is_some();
+        if loop_changed || cue.is_some() || !was_running || loop_active != self.loop_active {
             self.loop_armed = self.running
                 && self
                     .active_loop()
                     .is_some_and(|r| self.position_at(total) < r.end().0 as f64);
         }
+        self.loop_active = loop_active;
         self.frames = frames;
         self.cursor = 0;
+        self.wraps = 0;
         self.open = true;
     }
 
@@ -280,6 +294,15 @@ impl Transport {
                     (reaches <= block_end).then_some((region, reaches))
                 });
 
+            // A wrap that would not advance (an `f64` loop that rounds to nothing) is
+            // refused after `frames + 1` of them: the block always ends.
+            let wrap = wrap.filter(|_| {
+                self.wraps += 1;
+                self.wraps <= self.frames + 1
+            });
+            if wrap.is_none() && self.wraps > self.frames + 1 {
+                self.loop_armed = false;
+            }
             let segment = if let Some((region, reaches)) = wrap {
                 // The frames that start before the wrap play the end of the loop; the
                 // loop start is anchored at the fractional wrap sample.
@@ -336,7 +359,8 @@ impl Transport {
     /// The loop that is in force: none when shorter than one sample at the current tempo.
     fn active_loop(&self) -> Option<LoopRegion> {
         let region = self.loop_region?;
-        (region.len().0 as f64 * self.samples_per_tick >= 1.0).then_some(region)
+        let len = region.end().0 as f64 - region.start().0 as f64;
+        (len * self.samples_per_tick >= 1.0).then_some(region)
     }
 
     fn position_at(&self, sample: f64) -> f64 {
