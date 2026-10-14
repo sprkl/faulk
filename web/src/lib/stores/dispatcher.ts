@@ -1,68 +1,35 @@
-import type { Engine, EngineEvents, EngineStatus } from './engine/engine'
-import { probeHelper, pairHelper } from './engine/helper-client'
-import { NativeEngine } from './engine/native-engine'
-import { WebEngine } from './engine/web-engine'
-import type { Command, MidiInput, SynthParam } from './generated/protocol'
-import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from './i18n/index'
-import { WebMidiHost } from './midi/web-midi'
-import { takePairLink } from './pair-link'
-import { DEFAULT_PARAMS } from './params'
-
-
-const TOKEN_KEY = 'faulk.helperToken'
-
-type HelperState = 'checking' | 'absent' | 'incompatible' | 'available' | 'connecting' | 'connected'
-
-function storage(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage
-  } catch {
-    return null
-  }
-}
+import type { Engine, EngineEvents } from '../engine/engine'
+import { probeHelper, pairHelper } from '../engine/helper-client'
+import { NativeEngine } from '../engine/native-engine'
+import { WebEngine } from '../engine/web-engine'
+import type { Command, SynthParam } from '../generated/protocol'
+import { WebMidiHost } from '../midi/web-midi'
+import { takePairLink } from '../pair-link'
+import type { EngineStore, HelperState } from './engine.svelte'
+import type { ProjectStore } from './project.svelte'
+import { storage, TOKEN_KEY } from './storage'
 
 /**
- * The page's state and the only path from the UI to an engine: every user action is a
- * `Command` passed to `run`.
+ * The only path from the UI to an engine: every user action is a `Command` passed to `run`.
+ * It owns the engines and Web MIDI, and is the only writer of the project and engine stores;
+ * the views read the stores. It also moves playback between the page (Web) and the helper
+ * (Boost) and pairs with the helper.
  */
-export class Session {
-  lang = $state<Lang>(defaultLang(storage()?.getItem(LANG_STORAGE_KEY) ?? null, globalThis.navigator?.language))
-  started = $state(false)
-  starting = $state(false)
-  status = $state<EngineStatus | null>(null)
-  params = $state<Record<SynthParam, number>>({ ...DEFAULT_PARAMS })
-  inputs = $state<MidiInput[]>([])
-  selectedInput = $state<string | null>(null)
-  midiState = $state<'unknown' | 'ok' | 'unsupported' | 'denied'>('unknown')
-  activeNotes = $state<number[]>([])
-  peak = $state(0)
-  voices = $state(0)
-  helper = $state<HelperState>('checking')
-  helperProtocol = $state<number | null>(null)
+export class Dispatcher {
   /** Counts probes, so a late answer from an older probe never overwrites a newer one. */
   private probes = 0
-  paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
-  /** Which engine plays: the page's (Web) or the helper's (Boost). */
-  mode = $state<'web' | 'native'>('web')
-  notice = $state<MessageKey | null>(null)
-  pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
-  /** Code from a `#pair=` link, used once audio has started (browsers need a click). */
-  pendingPairCode = $state<string | null>(null)
   /** Code from a `#pair=` link whose pairing reached no helper, tried again on access. */
   private linkCodeToRetry: string | null = null
-
   /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
   private lastWebInput: string | null = null
   private web: WebEngine | null = null
   private native: NativeEngine | null = null
   private midi: WebMidiHost | null = null
 
-  t = (key: MessageKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars)
-
-  setLang(lang: Lang) {
-    this.lang = lang
-    storage()?.setItem(LANG_STORAGE_KEY, lang)
-  }
+  constructor(
+    private readonly project: ProjectStore,
+    private readonly state: EngineStore,
+  ) {}
 
   private get engine(): Engine | null {
     return this.native ?? this.web
@@ -72,33 +39,33 @@ export class Session {
     const current = () => this.engine?.kind === kind
     return {
       onStatus: (status) => {
-        if (current()) this.status = status
+        if (current()) this.state.status = status
       },
       onMeter: (peak, voices) => {
         if (!current()) return
-        this.peak = peak
-        this.voices = voices
+        this.state.peak = peak
+        this.state.voices = voices
       },
       onMidiInputs: (inputs, selected) => {
         if (kind !== 'native' || !current()) return
-        this.inputs = inputs
-        this.selectedInput = selected
+        this.state.inputs = inputs
+        this.state.selectedInput = selected
       },
       onMidiActivity: (note, velocity) => this.markNote(note, velocity),
       onError: (code) => {
-        if (code === 'session.replaced') this.notice = 'helper.replaced'
-        else if (code === 'midi.connect') this.notice = 'midi.connectError'
+        if (code === 'session.replaced') this.state.notice = 'helper.replaced'
+        else if (code === 'midi.connect') this.state.notice = 'midi.connectError'
         else if (code === 'audio.stream' && kind === 'native') {
           // The helper's output stopped (device unplugged or changed): play in the page.
-          this.notice = 'audio.error'
+          this.state.notice = 'audio.error'
           void this.enterWeb()
         }
       },
       onClosed: () => {
         if (kind !== 'native' || !this.native) return
         this.native = null
-        this.mode = 'web'
-        if (this.notice !== 'helper.replaced') this.notice = 'helper.lost'
+        this.state.mode = 'web'
+        if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
         void this.enterWeb()
         void this.checkHelper()
       },
@@ -107,24 +74,24 @@ export class Session {
 
   /** Starts the Web engine and Web MIDI. Call from a click. */
   async start() {
-    if (this.started || this.starting) return
-    this.starting = true
+    if (this.state.started || this.state.starting) return
+    this.state.starting = true
     try {
       this.web = await WebEngine.create(this.events('web'))
-      this.started = true
-      this.notice = null
+      this.state.started = true
+      this.state.notice = null
       this.replayParams(this.web)
       await this.enableWebMidi()
     } catch (error) {
       console.error(error)
-      this.notice = 'start.failed'
+      this.state.notice = 'start.failed'
       return
     } finally {
-      this.starting = false
+      this.state.starting = false
     }
     // Outside the try: a pairing problem is not an audio start failure.
-    const code = this.pendingPairCode
-    this.pendingPairCode = null
+    const code = this.state.pendingPairCode
+    this.state.pendingPairCode = null
     if (code) await this.pairFromLink(code)
   }
 
@@ -139,35 +106,35 @@ export class Session {
       await this.pair(code)
     } catch (error) {
       console.error(error)
-      this.pairingMessage = { key: 'helper.failed' }
+      this.state.pairingMessage = { key: 'helper.failed' }
     }
-    if (this.pairingMessage?.key === 'helper.failed') this.linkCodeToRetry = code
+    if (this.state.pairingMessage?.key === 'helper.failed') this.linkCodeToRetry = code
   }
 
   private async enableWebMidi() {
     if (!WebMidiHost.supported()) {
-      this.midiState = 'unsupported'
+      this.state.midiState = 'unsupported'
       return
     }
     this.midi ??= new WebMidiHost({
       onInputs: (inputs, selected) => {
-        if (this.mode !== 'web') return
-        this.inputs = inputs
-        this.selectedInput = selected
+        if (this.state.mode !== 'web') return
+        this.state.inputs = inputs
+        this.state.selectedInput = selected
       },
       onCommand: (command) => {
-        if (this.mode === 'web') this.run(command)
+        if (this.state.mode === 'web') this.run(command)
       },
       onActivity: (note, velocity) => this.markNote(note, velocity),
     })
-    this.midiState = (await this.midi.enable()) ? 'ok' : 'denied'
+    this.state.midiState = (await this.midi.enable()) ? 'ok' : 'denied'
   }
 
   /** The single entry point for user actions. */
   run(command: Command) {
     switch (command.type) {
       case 'synth.set_param':
-        this.params[command.param] = command.value
+        this.project.params[command.param] = command.value
         this.engine?.run(command)
         break
       case 'midi.list_inputs':
@@ -188,19 +155,19 @@ export class Session {
         break
       case 'note.all_off':
         this.engine?.run(command)
-        this.activeNotes = []
+        this.state.activeNotes = []
         break
     }
   }
 
   /** Records which notes sound, for the piano strip and the MIDI activity light. */
   private markNote(note: number, velocity: number) {
-    const others = this.activeNotes.filter((n) => n !== note)
-    this.activeNotes = velocity > 0 ? [...others, note] : others
+    const others = this.state.activeNotes.filter((n) => n !== note)
+    this.state.activeNotes = velocity > 0 ? [...others, note] : others
   }
 
   private replayParams(engine: Engine) {
-    for (const [param, value] of Object.entries(this.params) as [SynthParam, number][]) {
+    for (const [param, value] of Object.entries(this.project.params) as [SynthParam, number][]) {
       engine.run({ type: 'synth.set_param', param, value })
     }
   }
@@ -212,14 +179,14 @@ export class Session {
    */
   async checkHelper(): Promise<HelperState> {
     const probe = ++this.probes
-    this.helper = 'checking'
+    this.state.helper = 'checking'
     const result = await probeHelper()
-    if (this.native) return this.helper
+    if (this.native) return this.state.helper
     const found: HelperState =
       result.status === 'available' ? 'available' : result.status === 'incompatible' ? 'incompatible' : 'absent'
     if (probe !== this.probes) return found
-    this.helper = found
-    if (result.status === 'incompatible') this.helperProtocol = result.protocol
+    this.state.helper = found
+    if (result.status === 'incompatible') this.state.helperProtocol = result.protocol
     return found
   }
 
@@ -229,11 +196,11 @@ export class Session {
    * retry a pairing link that could not reach the helper.
    */
   async onLocalAccessGranted() {
-    if (this.native || (this.helper !== 'absent' && this.helper !== 'checking')) return
+    if (this.native || (this.state.helper !== 'absent' && this.state.helper !== 'checking')) return
     if ((await this.checkHelper()) !== 'available') return
     const code = this.linkCodeToRetry
     this.linkCodeToRetry = null
-    if (code && this.started && !this.paired && !this.native) await this.pairFromLink(code)
+    if (code && this.state.started && !this.state.paired && !this.native) await this.pairFromLink(code)
   }
 
   /**
@@ -244,22 +211,22 @@ export class Session {
   takePairLink(location: Pick<Location, 'hash' | 'pathname' | 'search'>, clear: (url: string) => void) {
     const code = takePairLink(location, clear)
     if (code === null) return
-    if (this.started) void this.pairFromLink(code)
-    else this.pendingPairCode = code
+    if (this.state.started) void this.pairFromLink(code)
+    else this.state.pendingPairCode = code
   }
 
   async pair(code: string) {
-    this.pairingMessage = null
+    this.state.pairingMessage = null
     const result = await pairHelper(code)
     if (result.status === 'paired') {
       storage()?.setItem(TOKEN_KEY, result.token)
-      this.paired = true
+      this.state.paired = true
       await this.enterBoost()
     } else if (result.status === 'refused') {
-      this.pairingMessage =
+      this.state.pairingMessage =
         result.attemptsLeft > 0 ? { key: 'helper.refused', n: result.attemptsLeft } : { key: 'helper.refusedNew' }
     } else {
-      this.pairingMessage = { key: 'helper.failed' }
+      this.state.pairingMessage = { key: 'helper.failed' }
     }
   }
 
@@ -267,18 +234,18 @@ export class Session {
   async enterBoost() {
     const token = storage()?.getItem(TOKEN_KEY)
     if (!token || this.native) return
-    this.helper = 'connecting'
-    this.notice = null
+    this.state.helper = 'connecting'
+    this.state.notice = null
     this.web?.run({ type: 'note.all_off' })
-    this.activeNotes = []
+    this.state.activeNotes = []
     await this.midi?.releaseAll()
-    this.selectedInput = null
+    this.state.selectedInput = null
     try {
       const native = await NativeEngine.connect(token, this.events('native'))
       this.native = native
-      this.mode = 'native'
-      this.status = native.status
-      this.helper = 'connected'
+      this.state.mode = 'native'
+      this.state.status = native.status
+      this.state.helper = 'connected'
       this.replayParams(native)
       // The helper's first MIDI list may arrive before this engine became current.
       native.run({ type: 'midi.list_inputs' })
@@ -290,7 +257,7 @@ export class Session {
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
       if ((await this.checkHelper()) === 'available') {
         storage()?.removeItem(TOKEN_KEY)
-        this.paired = false
+        this.state.paired = false
       }
     }
   }
@@ -300,14 +267,14 @@ export class Session {
     if (this.native) {
       const native = this.native
       this.native = null
-      this.mode = 'web'
+      this.state.mode = 'web'
       await native.close()
-      this.helper = 'available'
+      this.state.helper = 'available'
     }
-    this.activeNotes = []
+    this.state.activeNotes = []
     if (!this.web) return
     await this.web.resume()
-    this.status = this.web.status()
+    this.state.status = this.web.status()
     this.replayParams(this.web)
     // Reopen the input that was playing before Boost (the helper had it meanwhile).
     this.midi?.select(this.lastWebInput)

@@ -4,6 +4,7 @@
 //! The same code runs natively in the helper and as WebAssembly in an `AudioWorklet`.
 
 mod synth;
+pub mod time;
 
 pub use synth::{MAX_VOICES, Param, Synth, Waveform};
 pub mod msg;
