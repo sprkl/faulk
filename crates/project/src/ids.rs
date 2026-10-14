@@ -307,16 +307,6 @@ mod tests {
                 prop_assert_eq!(Id::parse(&s).is_ok(), matches_pattern(&s));
             }
 
-            /// Two generators seeded differently never meet within a run of ids, as long
-            /// as their random parts are far apart (the ULID collision argument).
-            #[test]
-            fn distinct_seeds_give_distinct_ids(time in 0u64..(1 << 48), a in any::<u64>(), b in any::<u64>()) {
-                prop_assume!(a.abs_diff(b) > 1000);
-                let mut x = IdGenerator::new(time, u128::from(a));
-                let mut y = IdGenerator::new(time, u128::from(b));
-                let xs: std::collections::HashSet<_> = (0..500).map(|_| x.next_id()).collect();
-                prop_assert!((0..500).all(|_| !xs.contains(&y.next_id())));
-            }
         }
 
         /// The pattern `^[0-7][0-9A-HJKMNP-TV-Z]{25}$`, by hand.

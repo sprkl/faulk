@@ -3,7 +3,8 @@
 //! These are not product limits: they are set far above what a person or an agent builds
 //! (the load bench QA-7 targets 100 tracks, 200 000 notes and 6 million automation points
 //! in a whole project), and exist only so that a corrupt or hostile file cannot make the
-//! page allocate without bound or overflow a position. [`crate::Project::validate`]
+//! page build structures without bound or overflow a position. They are checked once the
+//! document is read: reading itself holds at most what the input's size allows. [`crate::Project::validate`]
 //! refuses a project beyond them, so that a command is refused with a typed error before
 //! it reaches the engine, which never fails in real time (MVP breakdown § 2.3).
 //!
@@ -19,7 +20,7 @@ pub const MAX_TICK: i64 = 1 << 40;
 /// Largest frame index or frame count in an audio clip: 2^40 (about 260 days at 48 kHz).
 pub const MAX_FRAME: u64 = 1 << 40;
 
-/// Longest name (project, track, scene, clip, audio file, MIDI input), in characters.
+/// Longest name (project, track, scene, clip, module, audio file), in characters.
 pub const MAX_NAME_CHARS: usize = 200;
 
 /// Longest identifier string inside the document (parameter id, built-in device id), in
@@ -64,3 +65,41 @@ pub const MAX_CHANNELS: u16 = 64;
 
 /// Most count-in bars of the metronome.
 pub const MAX_COUNT_IN_BARS: u8 = 16;
+
+/// Lowest and highest sample rate of an audio file, in hertz.
+pub const SAMPLE_RATES: std::ops::RangeInclusive<u32> = 8_000..=768_000;
+
+/// The count limits [`crate::Project::validate_with`] applies. [`Limits::SAFETY`] holds
+/// the constants above and is what [`crate::Project::validate`] uses; smaller limits let
+/// a test reach each count check without building millions of elements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub tracks: usize,
+    pub scenes: usize,
+    pub devices_per_track: usize,
+    pub params_per_device: usize,
+    pub clips_per_track: usize,
+    pub placements_per_track: usize,
+    pub lanes_per_track: usize,
+    pub notes_per_clip: usize,
+    pub points_per_lane: usize,
+    pub notes: usize,
+    pub points: usize,
+}
+
+impl Limits {
+    /// The safety limits of the document.
+    pub const SAFETY: Limits = Limits {
+        tracks: MAX_TRACKS,
+        scenes: MAX_SCENES,
+        devices_per_track: MAX_DEVICES_PER_TRACK,
+        params_per_device: MAX_PARAMS_PER_DEVICE,
+        clips_per_track: MAX_CLIPS_PER_TRACK,
+        placements_per_track: MAX_PLACEMENTS_PER_TRACK,
+        lanes_per_track: MAX_LANES_PER_TRACK,
+        notes_per_clip: MAX_NOTES_PER_CLIP,
+        points_per_lane: MAX_POINTS_PER_LANE,
+        notes: MAX_NOTES,
+        points: MAX_POINTS,
+    };
+}

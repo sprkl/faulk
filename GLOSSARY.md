@@ -10,7 +10,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Projet** : le morceau en cours de travail, un dossier regroupé par piste. Ce qui fait la musique y est écrit ; ce qui relève de l'écran ou de la machine va dans la session. Il porte un identifiant stable créé une fois. Code : `Project`, `ProjectId` ; `project.json` **(prévu)**.
 
-**Piste MIDI** : une piste dont les clips contiennent des notes et dont la chaîne de devices commence par un instrument. Code : `Track` avec `TrackKind::Midi`.
+**Piste MIDI** : une piste dont les clips contiennent des notes et dont la chaîne de devices commence par un instrument (une piste MIDI peut n'en avoir aucun tant qu'il n'est pas choisi). Code : `Track` avec `TrackKind::Midi`.
 
 **Piste audio** : une piste dont les clips sont des fichiers audio, lus par le lecteur de clips ; import et lecture seulement dans le MVP, sans enregistrement audio. Code : `TrackKind::Audio`.
 
@@ -20,7 +20,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Effet** : un device qui transforme un signal (effet audio) ; un effet MIDI transformera des notes, après le MVP. Code : `DeviceRole::Effect`.
 
-**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, le seul instrument que la validation admet sur une piste audio, et refusé ailleurs) ; le device lui-même **(prévu)**.
+**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé par la validation comme instrument d'une piste audio et refusé ailleurs) ; le device lui-même **(prévu)**.
 
 **Scène** : une ligne de la grille de lancement ; lancer une scène lance les clips de ses emplacements. Code : `Scene` ; commandes `scene.*` et `launch.scene` **(prévu)**.
 

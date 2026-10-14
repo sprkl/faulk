@@ -520,11 +520,15 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         WrongInstrument => "WrongInstrument",
         BadChannels => "BadChannels",
         CountIn => "CountIn",
+        MissingInstrument => "MissingInstrument",
+        BadSampleRate => "BadSampleRate",
         TooMany { .. } => "TooMany",
     }
 }
 
-const ALL_KINDS: [&str; 28] = [
+const ALL_KINDS: [&str; 30] = [
+    "MissingInstrument",
+    "BadSampleRate",
     "Format",
     "EmptyName",
     "UntrimmedName",
@@ -977,6 +981,32 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "PanOutOfRange",
         ),
         (
+            "audio track without the clip player",
+            Box::new(|fx| {
+                let p = fx.player.clone();
+                audio_track(fx).devices.remove(&p);
+            }),
+            "MissingInstrument",
+        ),
+        (
+            "audio file at 4 kHz",
+            Box::new(|fx| {
+                if let ClipContent::Audio { media, .. } = audio_content(fx) {
+                    media.sample_rate = SampleRate::new(4_000).unwrap();
+                }
+            }),
+            "BadSampleRate",
+        ),
+        (
+            "audio placement ending past the limit",
+            Box::new(|fx| {
+                for p in audio_track(fx).placements.values_mut() {
+                    p.start = Tick(MAX_TICK - 1);
+                }
+            }),
+            "BadPosition",
+        ),
+        (
             "pan automation point at -2",
             Box::new(|fx| {
                 let lane = AutomationLane {
@@ -1162,4 +1192,86 @@ fn the_format_is_read_before_the_strict_document() {
     assert!(serde_json::from_value::<Project>(value.clone()).is_err());
     let probe: FormatProbe = serde_json::from_value(value).unwrap();
     assert_eq!(probe, FormatProbe { format: 2 });
+}
+
+#[test]
+fn every_count_limit_has_a_failing_case() {
+    // The fixture: 2 tracks, 2 scenes; the MIDI track has 2 devices (the synth with 2
+    // parameters), 1 clip of 2 notes, 1 placement, 2 lanes (2 points on one); 2 notes and
+    // 2 points in the whole project. Each limit set one below is refused at its path.
+    let fx = fixture();
+    let s = Limits::SAFETY;
+    let midi = format!("tracks/{}", fx.midi);
+    let cases: [(&str, Limits, String); 11] = [
+        ("tracks", Limits { tracks: 1, ..s }, "tracks".into()),
+        ("scenes", Limits { scenes: 1, ..s }, "scenes".into()),
+        (
+            "devices",
+            Limits {
+                devices_per_track: 1,
+                ..s
+            },
+            midi.clone(),
+        ),
+        (
+            "params",
+            Limits {
+                params_per_device: 1,
+                ..s
+            },
+            format!("{midi}/devices/{}", fx.synth),
+        ),
+        (
+            "clips",
+            Limits {
+                clips_per_track: 0,
+                ..s
+            },
+            midi.clone(),
+        ),
+        (
+            "placements",
+            Limits {
+                placements_per_track: 0,
+                ..s
+            },
+            midi.clone(),
+        ),
+        (
+            "lanes",
+            Limits {
+                lanes_per_track: 1,
+                ..s
+            },
+            midi.clone(),
+        ),
+        (
+            "notes per clip",
+            Limits {
+                notes_per_clip: 1,
+                ..s
+            },
+            format!("{midi}/clips/{}", fx.midi_clip),
+        ),
+        (
+            "points per lane",
+            Limits {
+                points_per_lane: 1,
+                ..s
+            },
+            format!("{midi}/automation/{}", fx.lane),
+        ),
+        ("notes", Limits { notes: 1, ..s }, "tracks".into()),
+        ("points", Limits { points: 1, ..s }, "tracks".into()),
+    ];
+    assert_eq!(fx.project.validate_with(&s), Ok(()));
+    for (what, limits, path) in cases {
+        let violations = fx.project.validate_with(&limits).expect_err(what);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.path == path && matches!(v.kind, ViolationKind::TooMany { .. })),
+            "{what}: {violations:?}"
+        );
+    }
 }

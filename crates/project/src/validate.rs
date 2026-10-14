@@ -83,6 +83,11 @@ pub enum ViolationKind {
     BadChannels,
     /// More count-in bars than [`MAX_COUNT_IN_BARS`].
     CountIn,
+    /// An audio track without the clip player (a MIDI track may have an empty chain until
+    /// an instrument is chosen).
+    MissingInstrument,
+    /// An audio file's sample rate outside [`SAMPLE_RATES`].
+    BadSampleRate,
     /// More elements than a safety limit allows.
     TooMany { limit: usize },
 }
@@ -94,6 +99,7 @@ impl fmt::Display for Violation {
 }
 
 struct Checker<'p> {
+    limits: Limits,
     out: Vec<Violation>,
     seen: HashSet<&'p Id>,
 }
@@ -180,7 +186,13 @@ fn frame_ok(f: Frame) -> bool {
 impl Project {
     /// Checks every invariant of the document and returns all the violations found.
     pub fn validate(&self) -> Result<(), Vec<Violation>> {
+        self.validate_with(&Limits::SAFETY)
+    }
+
+    /// [`Project::validate`] with other count limits (tests, load bench).
+    pub fn validate_with(&self, limits: &Limits) -> Result<(), Vec<Violation>> {
         let mut c = Checker {
+            limits: *limits,
             out: Vec::new(),
             seen: HashSet::new(),
         };
@@ -204,22 +216,22 @@ impl Project {
         self.validate_transport(&mut c);
         c.mixer(&self.master, "master");
 
-        c.count(self.scenes.len(), MAX_SCENES, "scenes");
+        c.count(self.scenes.len(), c.limits.scenes, "scenes");
         for (id, scene) in &self.scenes {
             let path = format!("scenes/{id}");
             c.id(&id.0, &path);
             c.name(&scene.name, &path, false);
         }
 
-        c.count(self.tracks.len(), MAX_TRACKS, "tracks");
+        c.count(self.tracks.len(), c.limits.tracks, "tracks");
         let (mut notes, mut points) = (0usize, 0usize);
         for (id, track) in &self.tracks {
             let path = format!("tracks/{id}");
             c.id(&id.0, &path);
             self.validate_track(&mut c, track, &path, &mut notes, &mut points);
         }
-        c.count(notes, MAX_NOTES, "tracks");
-        c.count(points, MAX_POINTS, "tracks");
+        c.count(notes, c.limits.notes, "tracks");
+        c.count(points, c.limits.points, "tracks");
 
         if c.out.is_empty() { Ok(()) } else { Err(c.out) }
     }
@@ -255,13 +267,18 @@ impl Project {
         c.mixer(&track.mixer, path);
 
         // The chain.
-        c.count(track.devices.len(), MAX_DEVICES_PER_TRACK, path);
+        c.count(track.devices.len(), c.limits.devices_per_track, path);
         let chain = track.devices_in_order();
         let instruments = chain
             .iter()
             .filter(|(_, d)| d.role == DeviceRole::Instrument)
             .count();
         c.check(instruments <= 1, path, ViolationKind::TooManyInstruments);
+        c.check(
+            track.kind == TrackKind::Midi || instruments > 0,
+            path,
+            ViolationKind::MissingInstrument,
+        );
         for (i, (id, device)) in chain.iter().enumerate() {
             let path = format!("{path}/devices/{id}");
             c.id(&id.0, &path);
@@ -285,7 +302,7 @@ impl Project {
                     c.name(name, &path, true);
                 }
             }
-            c.count(device.params.len(), MAX_PARAMS_PER_DEVICE, &path);
+            c.count(device.params.len(), c.limits.params_per_device, &path);
             for (param, value) in &device.params {
                 c.check(is_key(param), &path, ViolationKind::BadKey);
                 c.check(value.is_finite(), &path, ViolationKind::NotFinite);
@@ -293,7 +310,7 @@ impl Project {
         }
 
         // Clips.
-        c.count(track.clips.len(), MAX_CLIPS_PER_TRACK, path);
+        c.count(track.clips.len(), c.limits.clips_per_track, path);
         let mut slots = HashSet::new();
         for (id, clip) in &track.clips {
             let path = format!("{path}/clips/{id}");
@@ -316,15 +333,15 @@ impl Project {
         }
 
         // Arrangement.
-        c.count(track.placements.len(), MAX_PLACEMENTS_PER_TRACK, path);
+        c.count(track.placements.len(), c.limits.placements_per_track, path);
         for (id, placement) in &track.placements {
             let path = format!("{path}/placements/{id}");
             c.id(&id.0, &path);
-            validate_placement(c, placement, &track.clips, &path);
+            validate_placement(c, placement, &track.clips, self.tempo(), &path);
         }
 
         // Automation.
-        c.count(track.automation.len(), MAX_LANES_PER_TRACK, path);
+        c.count(track.automation.len(), c.limits.lanes_per_track, path);
         for (id, lane) in &track.automation {
             let path = format!("{path}/automation/{id}");
             c.id(&id.0, &path);
@@ -340,7 +357,7 @@ impl Project {
                 );
                 c.check(is_key(param), &path, ViolationKind::BadKey);
             }
-            c.count(lane.points.len(), MAX_POINTS_PER_LANE, &path);
+            c.count(lane.points.len(), c.limits.points_per_lane, &path);
             *points = points.saturating_add(lane.points.len());
             for (tick, point) in &lane.points {
                 c.tick(*tick, &path);
@@ -374,7 +391,7 @@ fn validate_content(c: &mut Checker<'_>, content: &ClipContent, path: &str, note
                     ViolationKind::BadLoop,
                 );
             }
-            c.count(clip_notes.len(), MAX_NOTES_PER_CLIP, path);
+            c.count(clip_notes.len(), c.limits.notes_per_clip, path);
             *notes = notes.saturating_add(clip_notes.len());
             for n in clip_notes {
                 let ok = n.pitch <= 127 && (1..=127).contains(&n.velocity) && n.length.get() > 0;
@@ -401,6 +418,11 @@ fn validate_content(c: &mut Checker<'_>, content: &ClipContent, path: &str, note
                 ViolationKind::BadChannels,
             );
             c.check(frame_ok(media.frames), path, ViolationKind::BadLength);
+            c.check(
+                SAMPLE_RATES.contains(&media.sample_rate.hz()),
+                path,
+                ViolationKind::BadSampleRate,
+            );
             c.check(
                 frames.get() > 0 && frame_ok(*frames),
                 path,
@@ -430,6 +452,7 @@ fn validate_placement(
     c: &mut Checker<'_>,
     placement: &Placement,
     clips: &BTreeMap<crate::ids::ClipId, Clip>,
+    tempo: engine::time::Tempo,
     path: &str,
 ) {
     c.tick(placement.start, path);
@@ -464,12 +487,17 @@ fn validate_placement(
                 ViolationKind::BadRange,
             );
         }
-        (Span::Frames { length, offset }, ClipContent::Audio { frames, .. }) => {
+        (Span::Frames { length, offset }, ClipContent::Audio { frames, media, .. }) => {
             c.check(
                 length.get() > 0 && frame_ok(*length),
                 path,
                 ViolationKind::BadLength,
             );
+            // The end tick, computed at the project's tempo (no tick length is stored).
+            let end = placement
+                .start
+                .saturating_add(tempo.frames_to_ticks(*length, media.sample_rate));
+            c.check(end.get() <= MAX_TICK, path, ViolationKind::BadPosition);
             c.check(*offset < *frames, path, ViolationKind::BadRange);
         }
         _ => c.push(path, ViolationKind::KindMismatch),
