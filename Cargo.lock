@@ -466,6 +466,7 @@ dependencies = [
  "engine",
  "proptest",
  "rtrb",
+ "schemars",
  "serde",
  "serde_json",
 ]
@@ -1422,6 +1423,7 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "commands",
+ "engine",
  "project",
  "schemars",
  "serde",

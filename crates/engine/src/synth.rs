@@ -2,6 +2,9 @@
 
 use core::f32::consts::TAU;
 
+use crate::device::{DeviceDescriptor, DeviceRole, ParamDescriptor, Scale, Unit};
+use crate::msg::{DeviceKind, ParamId};
+
 /// Number of voices allocated at construction. Notes beyond this steal a voice.
 pub const MAX_VOICES: usize = 16;
 
@@ -23,6 +26,79 @@ const SUSTAIN_SLEW_SECONDS: f32 = 0.005;
 /// A smoothed gain closer than this to its target snaps to it (keeps the gain state
 /// out of the subnormal range when the target is 0).
 const GAIN_SNAP: f32 = 1e-6;
+
+/// The descriptor of the synth (CT-5): `faulk.osc_synth`, displayed "Oscillator". Ids are
+/// [`Param::id`], keys the v1 parameter names, ranges the clamps of [`Synth::set_param`],
+/// defaults the values of [`Synth::new`] (tested). The smoothing times are the contract's
+/// linear ramps the synth must follow once it is a [`crate::device::Device`] (DV-1, AM-3);
+/// today its gain follows a one-pole of time constant 10 ms and its sustain a fixed slope
+/// that crosses the whole range in 5 ms, so neither lands as the descriptor declares.
+pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.osc_synth",
+    kind_id: DeviceKind(1),
+    version: 1,
+    name: "Oscillator",
+    role: DeviceRole::Instrument,
+    memory_bytes: size_of::<Synth>() as u64,
+    midi_output: None,
+    params: &[
+        ParamDescriptor {
+            id: ParamId(0),
+            key: "waveform",
+            unit: Unit::None,
+            min: 0.0,
+            max: 3.0,
+            default: 1.0,
+            scale: Scale::Linear,
+            step: 1.0,
+            smoothing_seconds: 0.0,
+            values: &["sine", "saw", "square", "triangle"],
+        },
+        envelope_time(1, "attack", 0.005),
+        envelope_time(2, "decay", 0.2),
+        ParamDescriptor {
+            id: ParamId(3),
+            key: "sustain",
+            unit: Unit::None,
+            min: 0.0,
+            max: 1.0,
+            default: 0.7,
+            scale: Scale::Linear,
+            step: 0.0,
+            smoothing_seconds: 0.005,
+            values: &[],
+        },
+        envelope_time(4, "release", 0.3),
+        ParamDescriptor {
+            id: ParamId(5),
+            key: "gain",
+            unit: Unit::None,
+            min: 0.0,
+            max: 1.0,
+            default: 0.8,
+            scale: Scale::Linear,
+            step: 0.0,
+            smoothing_seconds: 0.01,
+            values: &[],
+        },
+    ],
+};
+
+/// An envelope time: read when a stage starts, so never smoothed.
+const fn envelope_time(id: u32, key: &'static str, default: f64) -> ParamDescriptor {
+    ParamDescriptor {
+        id: ParamId(id),
+        key,
+        unit: Unit::Seconds,
+        min: 0.002,
+        max: 30.0,
+        default,
+        scale: Scale::Log,
+        step: 0.0,
+        smoothing_seconds: 0.0,
+        values: &[],
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Waveform {
@@ -205,7 +281,10 @@ impl Synth {
         }
         let seconds = value.clamp(MIN_ENVELOPE_SECONDS, MAX_ENVELOPE_SECONDS);
         match param {
-            Param::Waveform => self.waveform = Waveform::from_index(value.max(0.0) as u32),
+            // Rounded and clamped to the four waveforms, as the descriptor's step says.
+            Param::Waveform => {
+                self.waveform = Waveform::from_index(value.round().clamp(0.0, 3.0) as u32)
+            }
             Param::Attack => self.envelope.attack = seconds,
             Param::Decay => self.envelope.decay = seconds,
             Param::Sustain => self.envelope.sustain = value.clamp(0.0, 1.0),

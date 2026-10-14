@@ -121,3 +121,68 @@ fn a_command_cannot_be_smuggled_into_pairing() {
     let json = r#"{"type":"pair","code":"1","command":{"type":"live.all_notes_off"}}"#;
     assert!(serde_json::from_str::<ClientMessage>(json).is_err());
 }
+
+#[test]
+fn bundle_exports_the_device_descriptors() {
+    let bundle = schema_bundle();
+    let devices = bundle["devices"].as_array().unwrap();
+    let synth = devices
+        .iter()
+        .find(|d| d["kind"] == "faulk.osc_synth")
+        .expect("the current synth is exported");
+    assert_eq!(synth["name"], "Oscillator");
+    assert_eq!(synth["role"], "instrument");
+    assert_eq!(synth["kind_id"], 1);
+    assert!(synth["midi_output"].is_null());
+    let params = synth["params"].as_array().unwrap();
+    // The same ids and defaults as the v1 export the web app reads today.
+    assert_eq!(params.len(), bundle["param_ids"].as_object().unwrap().len());
+    for p in params {
+        let key = p["key"].as_str().unwrap();
+        assert_eq!(p["id"], bundle["param_ids"][key], "id of {key}");
+        assert_eq!(
+            p["default"], bundle["param_defaults"][key],
+            "default of {key}"
+        );
+        assert!(p["step"].is_number() && p["smoothing_seconds"].is_number());
+    }
+    assert_eq!(params[0]["values"][1], "saw");
+    assert_eq!(params[5]["smoothing_seconds"], 0.01);
+    assert_eq!(params[1]["unit"], "seconds");
+    assert_eq!(params[1]["scale"], "log");
+    // The test devices are not built-in devices.
+    assert!(
+        devices
+            .iter()
+            .all(|d| !d["kind"].as_str().unwrap().contains("test"))
+    );
+    // The descriptor's schema describes what is exported.
+    let schema = &bundle["device_descriptor"];
+    for field in [
+        "kind",
+        "kind_id",
+        "version",
+        "name",
+        "role",
+        "memory_bytes",
+        "midi_output",
+        "params",
+    ] {
+        assert!(schema["properties"][field].is_object(), "schema of {field}");
+    }
+    let param = &schema["$defs"]["ParamDescriptor"]["properties"];
+    for field in [
+        "id",
+        "key",
+        "unit",
+        "min",
+        "max",
+        "default",
+        "scale",
+        "step",
+        "smoothing_seconds",
+        "values",
+    ] {
+        assert!(param[field].is_object(), "schema of param {field}");
+    }
+}

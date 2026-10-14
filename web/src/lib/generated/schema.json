@@ -9622,6 +9622,303 @@
       "title": "Output"
     }
   },
+  "device_descriptor": {
+    "$defs": {
+      "DeviceRole": {
+        "description": "What a device does in a track's chain.",
+        "oneOf": [
+          {
+            "const": "instrument",
+            "description": "Notes in, stereo audio out: the sound of the track. At most one per track.",
+            "type": "string"
+          },
+          {
+            "const": "effect",
+            "description": "Stereo audio in place, after the instrument.",
+            "type": "string"
+          },
+          {
+            "const": "midi_effect",
+            "description": "Notes in, notes out, before the instrument (MIDI tracks only).",
+            "type": "string"
+          }
+        ]
+      },
+      "MidiOutput": {
+        "description": "The bounds a MIDI effect declares on its output, for the host to size the buffer.",
+        "properties": {
+          "per_block": {
+            "description": "Most events written per block on top of those (an arpeggiator's own notes).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "per_input": {
+            "description": "Most events written for one input event (1 for a transposer, the voices of a chord).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "per_input",
+          "per_block"
+        ],
+        "type": "object"
+      },
+      "ParamDescriptor": {
+        "description": "One parameter of a device kind.",
+        "properties": {
+          "default": {
+            "format": "double",
+            "type": "number"
+          },
+          "id": {
+            "description": "Stable numeric id, the one events and `ControlMsg::ParamSet` carry.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key": {
+            "description": "Stable string id: the key of the project's parameter map and of the translated\nlabel and description in the UI.",
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "type": "number"
+          },
+          "min": {
+            "format": "double",
+            "type": "number"
+          },
+          "scale": {
+            "$ref": "#/$defs/Scale"
+          },
+          "smoothing_seconds": {
+            "description": "Time a new value takes to be reached (linear ramp), in seconds; 0 applies the value\nat its exact offset.",
+            "format": "double",
+            "type": "number"
+          },
+          "step": {
+            "description": "Smallest change of the value; 0 for a continuous parameter.",
+            "format": "double",
+            "type": "number"
+          },
+          "unit": {
+            "$ref": "#/$defs/Unit"
+          },
+          "values": {
+            "description": "For an enumerated parameter, the key of each value from `min` to `max` (translated\nby the UI); empty otherwise.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "unit",
+          "min",
+          "max",
+          "default",
+          "scale",
+          "step",
+          "smoothing_seconds",
+          "values"
+        ],
+        "type": "object"
+      },
+      "Scale": {
+        "description": "How a control maps its travel to the value.",
+        "oneOf": [
+          {
+            "enum": [
+              "linear"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "log",
+            "description": "Logarithmic travel (frequencies, times); requires `min > 0`.",
+            "type": "string"
+          }
+        ]
+      },
+      "Unit": {
+        "description": "The unit of a parameter's value.",
+        "oneOf": [
+          {
+            "enum": [
+              "seconds",
+              "hertz",
+              "decibels",
+              "semitones",
+              "cents",
+              "percent"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "none",
+            "description": "A plain number (a linear gain, a level from 0 to 1, an index).",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "The static description of a device kind: exported in the schema bundle, so that the UI\ngenerates the device's panel and agents know its parameters.",
+    "properties": {
+      "kind": {
+        "description": "Stable type id, `faulk.<name>`: `DeviceSource::Builtin::id` in the project.",
+        "type": "string"
+      },
+      "kind_id": {
+        "description": "The number `ControlMsg::DeviceInsert` carries; never reused nor renumbered.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "memory_bytes": {
+        "description": "Most memory an instance takes, in bytes, at [`MAX_SAMPLE_RATE`] and\n[`limits::MAX_BLOCK_FRAMES`].",
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "midi_output": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/MidiOutput"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The bounds of a MIDI effect's output; `None` for the other roles."
+      },
+      "name": {
+        "description": "The displayed name: one English name, never translated.",
+        "type": "string"
+      },
+      "params": {
+        "items": {
+          "$ref": "#/$defs/ParamDescriptor"
+        },
+        "type": "array"
+      },
+      "role": {
+        "$ref": "#/$defs/DeviceRole"
+      },
+      "version": {
+        "description": "Version of the kind (`DeviceSource::Builtin::version`), raised when its parameters\nchange meaning.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "kind",
+      "kind_id",
+      "version",
+      "name",
+      "role",
+      "memory_bytes",
+      "params"
+    ],
+    "title": "DeviceDescriptor",
+    "type": "object"
+  },
+  "devices": [
+    {
+      "kind": "faulk.osc_synth",
+      "kind_id": 1,
+      "memory_bytes": 816,
+      "midi_output": null,
+      "name": "Oscillator",
+      "params": [
+        {
+          "default": 1,
+          "id": 0,
+          "key": "waveform",
+          "max": 3,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "saw",
+            "square",
+            "triangle"
+          ]
+        },
+        {
+          "default": 0.005,
+          "id": 1,
+          "key": "attack",
+          "max": 30,
+          "min": 0.002,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.2,
+          "id": 2,
+          "key": "decay",
+          "max": 30,
+          "min": 0.002,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.7,
+          "id": 3,
+          "key": "sustain",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.005,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0.3,
+          "id": 4,
+          "key": "release",
+          "max": 30,
+          "min": 0.002,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.8,
+          "id": 5,
+          "key": "gain",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.01,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "instrument",
+      "version": 1
+    }
+  ],
   "param_defaults": {
     "attack": 0.005,
     "decay": 0.2,
