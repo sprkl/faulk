@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn default_app_url_is_origin_plus_path() {
+    fn app_url_is_origin_plus_path() {
         assert_eq!(app_url(false), "http://localhost:5173/app");
     }
 

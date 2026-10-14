@@ -113,7 +113,7 @@ Trois façons de lancer :
 
 ## La page que le helper sert et ouvre
 
-Depuis la 0.1.1 (#138), un helper publié travaille avec le site de production. La 0.1.0 gardait les réglages de développement : elle refusait `https://www.faulk.app` et « Ouvrir Faulk » ouvrait `http://localhost:5173/app`.
+Depuis #138 (version suivant la 0.1.0, prévue en 0.1.1 ; le numéro publié est celui du tag `helper-v<version>`, voir [Publier une version](#publier-une-version)), un helper publié travaille avec le site de production. La 0.1.0 gardait les réglages de développement : elle refusait `https://www.faulk.app` et « Ouvrir Faulk » ouvrait `http://localhost:5173/app`.
 
 - **Origines acceptées par défaut**, dans toutes les versions : `https://www.faulk.app`, `https://faulk.app` (le domaine nu redirige aujourd'hui vers `www` par une redirection 308 du domaine sur Vercel, hors dépôt ; il est accepté au cas où cela change), puis les origines de développement `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:4173` et `http://127.0.0.1:4173` (`DEFAULT_ORIGINS`, `crates/helper/src/main.rs`). L'origine est comparée octet par octet à l'en-tête `Origin` que le navigateur envoie.
 - **Page ouverte par « Ouvrir Faulk »** : `https://www.faulk.app/app` dans un build de release, `http://localhost:5173/app` dans un build de debug (`tray_text::app_url`). La règle est `cfg!(debug_assertions)`, le même interrupteur que la fenêtre de console et le détecteur d'allocations : la CI empaquette `cargo build --release`, et `cargo run` sert au développement à côté de `pnpm dev`. Conséquence : `cargo run --release -p helper` ouvre lui aussi le site de production ; `--app-url http://localhost:5173/app` ramène la page locale.
@@ -130,6 +130,7 @@ Constaté le 14 octobre 2026 avec Chrome 155.0.8059.41 et Edge 155.0.4283.45 sou
 - **Allow** (cliqué à la main dans la bulle de Chrome lors d'un premier essai, puis posé par le protocole de débogage, `Browser.setPermission`, dans les autres) : les deux permissions passent à `granted` et sont retenues pour le site. La page en production ne sonde pas de nouveau d'elle-même : il faut « Check again », puis l'appairage et le passage en Boost fonctionnent (note jouée, `voices: 1` dans le retour du helper). Depuis #138, la page sonde de nouveau dès que la permission passe à `granted` (`web/src/lib/engine/local-access.ts`) ;
 - **Block** (posé par `Browser.setPermission`) : chaque connexion échoue aussitôt avec `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` et la page affiche « No helper found », ce qui est trompeur : le helper tourne, c'est le navigateur qui bloque. Revenir en arrière passe par les réglages du site (icône à gauche de l'adresse) ;
 - une page servie en local (`http://localhost:4173/app`) joint le helper sans aucune demande.
+- sans helper à l'écoute, la sonde échoue aussitôt (`net::ERR_CONNECTION_REFUSED`) et la permission reste `prompt` : un visiteur sans helper ne voit pas la bulle (constaté avec Chrome 155).
 
 L'interface doit expliquer cette demande (`constraints/01-contraintes.md`). Ce sont de nouveaux textes d'interface : ils attendent la validation du fondateur, proposés dans la pull request de #138.
 

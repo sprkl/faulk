@@ -197,18 +197,22 @@ export class Session {
     }
   }
 
-  /** Probes for the helper; returns what was found. Only the latest probe decides. */
+  /**
+   * Probes for the helper; returns what this probe found. Only the latest probe writes
+   * the state: an older one that answers late (a probe that gave up behind the browser's
+   * prompt) never overwrites a newer answer.
+   */
   async checkHelper(): Promise<HelperState> {
     const probe = ++this.probes
     this.helper = 'checking'
     const result = await probeHelper()
-    if (this.native || probe !== this.probes) return this.helper
-    if (result.status === 'available') this.helper = 'available'
-    else if (result.status === 'incompatible') {
-      this.helper = 'incompatible'
-      this.helperProtocol = result.protocol
-    } else this.helper = 'absent'
-    return this.helper
+    if (this.native) return this.helper
+    const found: HelperState =
+      result.status === 'available' ? 'available' : result.status === 'incompatible' ? 'incompatible' : 'absent'
+    if (probe !== this.probes) return found
+    this.helper = found
+    if (result.status === 'incompatible') this.helperProtocol = result.protocol
+    return found
   }
 
   /**

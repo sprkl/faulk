@@ -137,6 +137,18 @@ describe('probing again once the browser allows local access', () => {
     expect(session.helper).toBe('available')
   })
 
+  it('returns what an older probe found even when a newer probe decides the state', async () => {
+    const session = new Session()
+    let answer: (p: Probe) => void = () => {}
+    probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (answer = r)))
+    probeHelper.mockReturnValueOnce(new Promise<Probe>(() => {}))
+    const older = session.checkHelper()
+    session.onLocalAccessGranted()
+    answer({ status: 'available' })
+    expect(await older).toBe('available')
+    expect(session.helper).toBe('checking')
+  })
+
   it('does not probe when the helper is already found', async () => {
     const session = new Session()
     await session.checkHelper()
