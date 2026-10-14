@@ -27,6 +27,7 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
 | `web/` | The UI: one web app for both modes. | TypeScript, Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
+| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). | Node 24, ESM, no dependency, `node --test` |
 
 Core rules:
 
@@ -92,7 +93,9 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 - **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
 - **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
 
-Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Briefs are built by `scripts/agent-review/brief.mjs` and the delivery review runs through `scripts/agent-review/run.mjs`. Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+
+A `Stop` hook enforces this: a turn in which the session's own tool calls changed the guarded code (`crates/`, `web/`, `modules/`, `scripts/`…) ends only once the checks are recorded for its current state (`node scripts/agent-qa/record.mjs verified …`, `docs/agents/verification.md`) and the branch's delivery review is recorded (`node scripts/agent-qa/record.mjs reviewed …`). To stop mid-task only to ask the user a question, `node scripts/agent-qa/record.mjs deferred --reason "<question>"` lets one stop through per user message. A session whose own tool calls change no guarded file is not blocked, except in the cases listed in `docs/agents/verification.md` > Limits (another writer's edit during one of its shell calls is counted as its own). The guardrails stop an honest agent that forgets a step, not a deliberately evasive one.
 
 Before reporting a task as done:
 
