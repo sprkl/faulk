@@ -2,7 +2,7 @@
 
 Le vocabulaire du domaine de Faulk. Un terme par entrée, en français, avec son identifiant de code en anglais (`CLAUDE.md` > Language). Les termes audio qui sont anglais dans le métier (clip, track, device, take) restent anglais dans la prose.
 
-Statut des identifiants : la crate `crates/project` n'existe pas encore (tâche CT-1). Les identifiants marqués **(prévu)** viennent du modèle de projet et du découpage du MVP, dans le dossier [`docs/`](docs/) ; ceux qui ne le sont pas existent dans le code. Le code a toujours raison : en cas de désaccord, suivre le code et signaler la définition périmée.
+Statut des identifiants : la crate `crates/project` existe (tâche CT-1) et ne contient encore que le temps musical (`engine::time`, tâche CT-2). Les identifiants marqués **(prévu)** viennent du modèle de projet et du découpage du MVP, dans le dossier [`docs/`](docs/) ; ceux qui ne le sont pas existent dans le code. Le code a toujours raison : en cas de désaccord, suivre le code et signaler la définition périmée.
 
 Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les deux langues de l'interface. Les libellés et descriptions de ses paramètres, eux, sont traduits.
 
@@ -26,6 +26,16 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Emplacement de clip** : la case de la grille de lancement, à l'intersection d'une piste et d'une scène ; elle contient au plus un clip. Code : `Clip::slot` (identifiant de la scène) **(prévu)**.
 
+**Tick** : l'unité du temps musical, un entier, 960 par noire (`PPQ`) ; positions et durées musicales sont en ticks, jamais en secondes. Code : `Tick`, `PPQ` (`engine::time`).
+
+**Frame** : l'unité du temps d'un fichier audio, un index d'échantillon entier qui ne dépend pas du tempo. Code : `Frame` (`engine::time`).
+
+**Tempo** : la vitesse du morceau en noires par minute, constante dans le MVP, de 20 à 999 ; il porte les conversions ticks ↔ secondes ↔ échantillons. Code : `Tempo` (`engine::time`).
+
+**Signature rythmique** : le nombre de temps par mesure et la valeur d'un temps (4/4 par défaut) ; le temps est la valeur du dénominateur (en 6/8, une croche). Code : `TimeSignature` (`engine::time`).
+
+**Région de boucle** : la plage `[début, fin)` en ticks que le transport répète. Code : `LoopRegion` (`engine::time`).
+
 **Clip** : un contenu musical, MIDI (notes, longueur et boucle en ticks) ou audio (plage d'un fichier en frames). Le clip est le contenu ; l'emplacement le met dans la grille, le placement le pose dans l'arrangement. Copier un clip crée un clip indépendant, sauf option « lié ». Code : `Clip`, `ClipContent::{Midi, Audio}` **(prévu)**.
 
 **Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité. Code : `Note { start, pitch, length, velocity }` **(prévu)** ; le moteur actuel joue des notes par `Synth::note_on` et `Synth::note_off`.
@@ -36,7 +46,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Lancement** : démarrer ou arrêter un clip ou une scène depuis la grille ; il s'exécute à la prochaine limite de quantification. L'état de lecture est éphémère, jamais enregistré. Code : commandes `launch.clip`, `launch.scene`, `launch.stop_track`, `launch.stop_all` **(prévu)**.
 
-**Quantification** (de lancement) : la durée sur laquelle un lancement s'aligne : aucune, 1/16, 1 temps, 1, 2, 4 ou 8 mesures. Elle est globale au projet, 1 mesure par défaut ; un réglage par clip viendra après le MVP. Code : `Quantize`, `TransportSettings::launch_quantize`, commande `transport.set_launch_quantization` **(prévu)**.
+**Quantification** (de lancement) : la durée sur laquelle un lancement s'aligne : aucune, 1/16, 1 temps, 1, 2, 4 ou 8 mesures. Elle est globale au projet, 1 mesure par défaut ; un réglage par clip viendra après le MVP. Code : `Quantize` (`engine::time`, sept valeurs, `next_boundary_at_or_after` donne la prochaine limite) ; `TransportSettings::launch_quantize` et la commande `transport.set_launch_quantization` **(prévu)**.
 
 **Armement** : l'état d'une piste prête à enregistrer ; le MIDI joué en direct va à la piste sélectionnée et aux pistes armées. Code : commande `track.arm` **(prévu)**.
 

@@ -6,5 +6,17 @@ license.workspace = true
 publish.workspace = true
 description = "Faulk audio engine core: pure DSP, no I/O, no allocation on the audio path."
 
+[features]
+# Serialization of the time types (`engine::time`) for the project document.
+# Off by default: the worklet build (`engine-wasm`) carries no dependency.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+
 [dev-dependencies]
+# The crate itself with `serde` on, so that `cargo test -p engine` runs the serde tests.
+engine = { path = ".", features = ["serde"] }
 assert_no_alloc = "1"
+proptest = "1"
+serde_json = "1.0.154"
