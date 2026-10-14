@@ -6,14 +6,27 @@
 
 use crate::updater::UpdateStatus;
 
-/// Origin of the page the tray opens. Change it when Faulk is served elsewhere.
-pub const APP_ORIGIN: &str = "http://localhost:5173";
+/// Origin of the page a release build opens: the production site.
+pub const RELEASE_APP_ORIGIN: &str = "https://www.faulk.app";
+/// Origin of the page a debug build opens: the web app's dev server (`pnpm dev`).
+pub const DEV_APP_ORIGIN: &str = "http://localhost:5173";
 /// Path of the DAW on that origin: the landing page takes `/`, the DAW lives at `/app`.
 pub const APP_PATH: &str = "/app";
 
-/// The page the tray opens unless `--app-url` says otherwise.
+/// The DAW's address for a release build (`release`) or a debug build.
+pub fn app_url(release: bool) -> String {
+    let origin = if release {
+        RELEASE_APP_ORIGIN
+    } else {
+        DEV_APP_ORIGIN
+    };
+    format!("{origin}{APP_PATH}")
+}
+
+/// The page the tray opens unless `--app-url` says otherwise: the production site in a
+/// release build (what the installer ships), the dev server in a debug build.
 pub fn default_app_url() -> String {
-    format!("{APP_ORIGIN}{APP_PATH}")
+    app_url(!cfg!(debug_assertions))
 }
 
 /// Language of the tray texts.
@@ -504,18 +517,18 @@ mod tests {
             "https://faulk.app/app?x=1#pair=12345678"
         );
         assert_eq!(
-            pairing_url(&default_app_url(), "12345678"),
+            pairing_url(&app_url(false), "12345678"),
             "http://localhost:5173/app#pair=12345678"
         );
-        let url = pairing_url(&default_app_url(), "87654321");
+        let url = pairing_url(&app_url(true), "87654321");
         let (before, fragment) = url.split_once('#').unwrap();
         assert!(!before.contains("87654321"));
         assert_eq!(fragment, "pair=87654321");
     }
 
     #[test]
-    fn default_app_url_is_origin_plus_path() {
-        assert_eq!(default_app_url(), "http://localhost:5173/app");
+    fn app_url_is_origin_plus_path() {
+        assert_eq!(app_url(false), "http://localhost:5173/app");
     }
 
     #[test]

@@ -563,7 +563,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assert_no_alloc",
  "commands",
@@ -1302,6 +1302,17 @@ checksum = "f676f11eb0b3e2ea0fbaee218fa6b806689e2297b8c8adc5bf73df465c4f6171"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "project"
+version = "0.1.0"
+
+[[package]]
+name = "project-wasm"
+version = "0.1.0"
+dependencies = [
+ "project",
 ]
 
 [[package]]

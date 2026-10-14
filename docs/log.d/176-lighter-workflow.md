@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#176): lighter agent workflow (founder's decision of 2026-10-14). A pull request adds a log fragment `log.d/<issue>-<slug>.md` instead of editing `log.md` (`log.d/README.md`); Judge Dredd's plan review is required only for a task that changes a contract, the real-time audio path, the guardrails or more than ~10 files, the delivery review stays mandatory; Copilot review is optional and a quota refusal does not block the merge. `CLAUDE.md`, `agents/issue-tracker.md` and `agents/judge-dredd.md` follow.

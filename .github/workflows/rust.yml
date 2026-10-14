@@ -1,0 +1,70 @@
+name: Rust
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Install audio headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Includes the native/WASM parity test, which builds the wasm module itself.
+      - name: Test
+        run: cargo test --workspace
+
+      - name: WASM build of the engine
+        run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+
+      - name: WASM build of the project
+        run: cargo build -p project-wasm --target wasm32-unknown-unknown --release
+
+  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
+  helper-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -p helper --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test -p helper
+
+      - name: Release build
+        run: cargo build -p helper --release
+
+      # The defaults a published helper ships with (production origins, "Open Faulk" on the
+      # site) depend on the release profile: test them in that profile too.
+      - name: Release defaults
+        run: cargo test -p helper --release --bin faulk-helper

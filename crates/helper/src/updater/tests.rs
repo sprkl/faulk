@@ -1322,7 +1322,10 @@ fn the_download_link_and_everything_else_go_to_the_windows_installer() {
 /// be a real route to the installer.
 #[test]
 fn the_download_address_in_the_page_texts_is_a_real_route() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/lib/i18n/app.ts");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../web/src/lib/i18n/helper.ts"
+    );
     let text = std::fs::read_to_string(path).unwrap();
     let found: Vec<&str> = text
         .match_indices("get.faulk.app")

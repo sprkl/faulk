@@ -30,7 +30,7 @@ Une latence n'est jamais annoncée sans mesure.
   - **`require-corp` plutôt que `credentialless`** : `credentialless` n'existe pas dans Safari, et tout est de même origine ; `Document-Isolation-Policy` reste propre à Chromium et n'est pas utilisée ;
   - les WebSockets vers le helper (`ws://127.0.0.1:47800`) ne sont pas soumis à COEP : sonde, appairage et session fonctionnent sous isolation (tests `web/tests/e2e/helper.spec.ts`, et helper réel vérifié dans Chrome et Edge le 2026-10-14).
 - Chrome ne transmet pas un `WebAssembly.Module` compilé à un `AudioWorklet` : on envoie les octets du module.
-- Le helper sur `localhost` déclenche une demande d'autorisation d'accès au réseau local dans Chrome : l'interface doit l'expliquer.
+- Le helper sur `localhost` déclenche, depuis une page publique comme `https://www.faulk.app`, une demande d'autorisation d'accès au réseau local dans Chrome et Edge (Local Network Access, WebSockets compris depuis Chrome 147 ; constatée avec Chrome et Edge 155, voir [Distribution du helper](../architecture/04-distribution-helper.md#laccès-au-réseau-local-dans-chrome-et-edge)) : l'interface doit l'expliquer. Une page servie en local n'en déclenche pas.
 
 ## Sécurité du pont local
 

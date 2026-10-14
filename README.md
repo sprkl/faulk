@@ -28,7 +28,7 @@ cargo run -p helper             # debug : console, le code d'appairage s'y affic
 cargo run --release -p helper   # release : sans console, icône dans la zone de notification
 ```
 
-Sous Windows, le helper vit dans la zone de notification : son état, le code d'appairage (un clic le copie), « Ouvrir Faulk » qui ouvre la page et l'appaire sans saisie, le lancement au démarrage de Windows et « Quitter ». Le journal est dans `%APPDATA%\faulk\logs\helper.log`. Sous macOS et Linux, il n'y a pas encore d'icône : le helper tourne dans son terminal et y affiche le code. Une seule instance par port : relancer le helper ouvre simplement Faulk. L'option `--app-url` change la page ouverte (par défaut `http://localhost:5173/app`, le DAW).
+Sous Windows, le helper vit dans la zone de notification : son état, le code d'appairage (un clic le copie), « Ouvrir Faulk » qui ouvre la page et l'appaire sans saisie, le lancement au démarrage de Windows et « Quitter ». Le journal est dans `%APPDATA%\faulk\logs\helper.log`. Sous macOS et Linux, il n'y a pas encore d'icône : le helper tourne dans son terminal et y affiche le code. Une seule instance par port : relancer le helper ouvre simplement Faulk. L'option `--app-url` change la page ouverte : par défaut `http://localhost:5173/app` (le DAW du serveur de développement) pour un build de debug, `https://www.faulk.app/app` pour un build de release, `cargo run --release` compris (ajouter `-- --app-url http://localhost:5173/app` pour rester en local). Le helper accepte par défaut le site de production et les serveurs de développement et de prévisualisation ; `--allow-origin` remplace cette liste.
 
 ## Travailler sur le projet
 
