@@ -7,6 +7,10 @@ export const helper = defineFeature(
     'helper.title': 'Native helper',
     'helper.checking': 'Looking for the helper…',
     'helper.absent': 'No helper found. Start faulk-helper for low latency and native MIDI.',
+    'helper.localAccessPending':
+      'Your browser may ask to let Faulk reach apps on this device. Allow it so the page can find the helper.',
+    'helper.localAccessBlocked':
+      'Your browser blocks access to apps on this device, so the page cannot reach the helper. Allow it in the site settings (icon left of the address), then check again.',
     'helper.helperOlder':
       'This helper is older than the page (protocol {v}). Restart it to install its update, or download it again from get.faulk.app/helper/windows.',
     'helper.helperNewer': 'This page is older than your helper (protocol {v}). Reload the page.',
@@ -26,6 +30,10 @@ export const helper = defineFeature(
     'helper.title': 'Helper natif',
     'helper.checking': 'Recherche du helper…',
     'helper.absent': 'Aucun helper trouvé. Lance faulk-helper pour une latence basse et le MIDI natif.',
+    'helper.localAccessPending':
+      'Ton navigateur peut te demander d’autoriser Faulk à joindre les applications de cet appareil. Autorise-le pour que la page trouve le helper.',
+    'helper.localAccessBlocked':
+      'Ton navigateur bloque l’accès aux applications de cet appareil : la page ne peut pas joindre le helper. Autorise-le dans les paramètres du site (icône à gauche de l’adresse), puis vérifie à nouveau.',
     'helper.helperOlder':
       'Ce helper est plus ancien que la page (protocole {v}). Relance-le pour installer sa mise à jour, ou retélécharge-le sur get.faulk.app/helper/windows.',
     'helper.helperNewer': 'Cette page est plus ancienne que ton helper (protocole {v}). Recharge la page.',
