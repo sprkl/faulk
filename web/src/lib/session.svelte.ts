@@ -39,6 +39,8 @@ export class Session {
   voices = $state(0)
   helper = $state<HelperState>('checking')
   helperProtocol = $state<number | null>(null)
+  /** Counts probes, so a late answer from an older probe never overwrites a newer one. */
+  private probes = 0
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
   /** Which engine plays: the page's (Web) or the helper's (Boost). */
   mode = $state<'web' | 'native'>('web')
@@ -46,6 +48,8 @@ export class Session {
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
   /** Code from a `#pair=` link, used once audio has started (browsers need a click). */
   pendingPairCode = $state<string | null>(null)
+  /** Code from a `#pair=` link whose pairing reached no helper, tried again on access. */
+  private linkCodeToRetry: string | null = null
 
   /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
   private lastWebInput: string | null = null
@@ -124,14 +128,20 @@ export class Session {
     if (code) await this.pairFromLink(code)
   }
 
-  /** Pairs with a code from a link; a failure is a pairing failure, never thrown. */
+  /**
+   * Pairs with a code from a link; a failure is a pairing failure, never thrown. A code
+   * that reached no helper (the browser's local network prompt still open) is kept for
+   * one more try once the user allows (`onLocalAccessGranted`).
+   */
   private async pairFromLink(code: string) {
+    this.linkCodeToRetry = null
     try {
       await this.pair(code)
     } catch (error) {
       console.error(error)
       this.pairingMessage = { key: 'helper.failed' }
     }
+    if (this.pairingMessage?.key === 'helper.failed') this.linkCodeToRetry = code
   }
 
   private async enableWebMidi() {
@@ -195,17 +205,35 @@ export class Session {
     }
   }
 
-  /** Probes for the helper; returns what was found. */
+  /**
+   * Probes for the helper; returns what this probe found. Only the latest probe writes
+   * the state: an older one that answers late (a probe that gave up behind the browser's
+   * prompt) never overwrites a newer answer.
+   */
   async checkHelper(): Promise<HelperState> {
+    const probe = ++this.probes
     this.helper = 'checking'
     const result = await probeHelper()
     if (this.native) return this.helper
-    if (result.status === 'available') this.helper = 'available'
-    else if (result.status === 'incompatible') {
-      this.helper = 'incompatible'
-      this.helperProtocol = result.protocol
-    } else this.helper = 'absent'
-    return this.helper
+    const found: HelperState =
+      result.status === 'available' ? 'available' : result.status === 'incompatible' ? 'incompatible' : 'absent'
+    if (probe !== this.probes) return found
+    this.helper = found
+    if (result.status === 'incompatible') this.helperProtocol = result.protocol
+    return found
+  }
+
+  /**
+   * The browser now lets the page reach this device (`engine/local-access.ts`): probe
+   * again if the last probe found nothing or is still waiting behind the prompt, then
+   * retry a pairing link that could not reach the helper.
+   */
+  async onLocalAccessGranted() {
+    if (this.native || (this.helper !== 'absent' && this.helper !== 'checking')) return
+    if ((await this.checkHelper()) !== 'available') return
+    const code = this.linkCodeToRetry
+    this.linkCodeToRetry = null
+    if (code && this.started && !this.paired && !this.native) await this.pairFromLink(code)
   }
 
   /**

@@ -27,7 +27,7 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
 | `web/` | One web app for both modes: the public landing page at `/` (prerendered, light theme; its only client JavaScript is the lazily loaded WebGL animation of the sound objects, `src/lib/landing/anim/`) and the DAW at `/app` (client-only, dark theme). | TypeScript, SvelteKit 3 (adapter-static), Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
-| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). | Node 24, ESM, no dependency, `node --test` |
+| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). The helper's publication to the Vercel Blob store behind `get.faulk.app` (`helper-release/`, used by `release-helper.yml`). | Node 24, ESM, `node --test`; no dependency except `@vercel/blob` in `helper-release/` (pinned, loaded only for a real upload) |
 
 Core rules:
 
@@ -57,6 +57,7 @@ Known exception, until the shared-memory channel of the MVP plan is built (cross
 - **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
 - **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
 - The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n/` in both languages (`app.ts` for the DAW, `landing.ts` for the landing page).
+- Device names (instruments, audio effects, MIDI effects) are never translated (founder's decision of 2026-10-14): each device has one English name, shown as is in both UI languages, so French and English speakers use the same name. Their parameter labels and descriptions are translated (EN and FR). The catalogues list their device-name keys (`DEVICE_NAME_KEYS` in `app.ts`, `LANDING_DEVICE_NAME_KEYS` in `landing.ts`), and a test checks that each one is the same in both languages.
 
 When the audience or the language of a text is unclear, ask before writing it; never deduce.
 

@@ -78,8 +78,8 @@ Un fichier `module.json`, validé par un schéma JSON généré depuis une struc
 ```json
 {
   "faulk_module": "0.1",
-  "id": "local.sous-tractif",
-  "name": { "fr": "Sous-tractif", "en": "Subtractive" },
+  "id": "local.subtractive",
+  "name": "Subtractive",
   "kind": "instrument",
   "source": { "lang": "faust", "entry": "main.dsp", "compiler": "faust 2.x (to pin)" },
   "binary": { "flavor": "faust-wasm", "sha256": "…" },
@@ -88,11 +88,11 @@ Un fichier `module.json`, validé par un schéma JSON généré depuis une struc
   "params": [
     {
       "id": "cutoff",
-      "path": "/Sous-tractif/Cutoff",
+      "path": "/Subtractive/Cutoff",
       "name": { "fr": "Coupure", "en": "Cutoff" },
       "min": 40, "max": 18000, "default": 1200,
       "unit": "Hz", "scale": "log", "smoothing_ms": 10,
-      "automatable": true, "modulatable": true, "group": "Filtre",
+      "automatable": true, "modulatable": true, "group": { "fr": "Filtre", "en": "Filter" },
       "description": "Low-pass cutoff before resonance."
     }
   ],
@@ -109,6 +109,7 @@ Règles :
 
 - **L'identifiant d'un paramètre est stable** d'une version à l'autre (dérivé du chemin Faust, figé à la première version) : rechargement à chaud sans perdre automation ni réglages, comparaison A/B paramètre par paramètre. C'est le même identifiant que celui du fichier de device du projet ([modèle de projet](../architecture/02-modele-projet.md)).
 - **La description des paramètres est écrite pour un agent**, comme celle des commandes.
+- **Le nom d'un module n'est pas traduit** : une seule chaîne, affichée telle quelle dans les deux langues de l'interface, comme le nom d'un device (décision du fondateur du 2026-10-14) ; les modules de Faulk portent un nom anglais. Les noms et les groupes des paramètres (`params[].name`, `params[].group`) sont traduits (EN, FR), comme toute description montrée à l'utilisateur ; le champ `description` du manifeste, écrit pour les agents, reste en anglais comme celui des commandes.
 - `budget.cpu_us_per_128` est **mesuré** par Faulk à la compilation (§ 5), jamais déclaré par l'auteur.
 
 ## 2. Synthèse et effets
@@ -335,10 +336,10 @@ Les noms exacts des fonctions Faust sont à confirmer au premier compile ; la fa
 
 Esquisses : la structure est le message, les signatures exactes seront validées par le compilateur. Ils servent aussi de **tests de référence** : rendus hors ligne dans les deux modes, ils fondent les tests de parité et de non-régression.
 
-**1. Sous-tractif (instrument).** Deux oscillateurs désaccordés + bruit, passe-bas résonant avec enveloppe de filtre, ADSR d'amplitude, LFO sur la coupure.
+**1. Subtractive (instrument).** Deux oscillateurs désaccordés + bruit, passe-bas résonant avec enveloppe de filtre, ADSR d'amplitude, LFO sur la coupure.
 
 ```faust
-declare name "Sous-tractif";
+declare name "Subtractive";
 declare options "[midi:on][nvoices:8]";
 import("stdfaust.lib");
 
@@ -364,10 +365,10 @@ process = oscs * 0.33 : fi.resonlp(fc, reso, 1) : *(ampEnv * gain) <: _, _;
 effect = _, _;   // global, after voices: e.g. fk.reverb later
 ```
 
-**2. Echo (effet).** Temps en division de noire calé sur le tempo de l'hôte, rétroaction filtrée, mélange.
+**2. Slapback (effet).** Temps en division de noire calé sur le tempo de l'hôte, rétroaction filtrée, mélange.
 
 ```faust
-declare name "Echo";
+declare name "Slapback";
 import("stdfaust.lib");
 
 bpm = hslider("bpm[hide:1][faulk:host:bpm]", 120, 20, 300, 0.01);

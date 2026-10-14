@@ -18,7 +18,9 @@ const en = {
   'helper.title': 'Native helper',
   'helper.checking': 'Looking for the helper…',
   'helper.absent': 'No helper found. Start faulk-helper for low latency and native MIDI.',
-  'helper.incompatible': 'This helper speaks another protocol version ({v}). Update it.',
+  'helper.helperOlder':
+    'This helper is older than the page (protocol {v}). Restart it to install its update, or download it again from get.faulk.app/helper/windows.',
+  'helper.helperNewer': 'This page is older than your helper (protocol {v}). Reload the page.',
   'helper.pairPrompt': 'Type the code the helper shows.',
   'helper.code': 'Pairing code',
   'helper.pair': 'Pair',
@@ -75,7 +77,9 @@ const fr: Record<MessageKey, string> = {
   'helper.title': 'Helper natif',
   'helper.checking': 'Recherche du helper…',
   'helper.absent': 'Aucun helper trouvé. Lance faulk-helper pour une latence basse et le MIDI natif.',
-  'helper.incompatible': 'Ce helper parle une autre version du protocole ({v}). Mets-le à jour.',
+  'helper.helperOlder':
+    'Ce helper est plus ancien que la page (protocole {v}). Relance-le pour installer sa mise à jour, ou retélécharge-le sur get.faulk.app/helper/windows.',
+  'helper.helperNewer': 'Cette page est plus ancienne que ton helper (protocole {v}). Recharge la page.',
   'helper.pairPrompt': 'Tape le code affiché par le helper.',
   'helper.code': 'Code d’appairage',
   'helper.pair': 'Appairer',
@@ -93,7 +97,7 @@ const fr: Record<MessageKey, string> = {
   'midi.unsupported': 'Ce navigateur n’a pas Web MIDI. Utilise Chrome, Edge ou Firefox, ou le mode Boost.',
   'midi.denied': 'L’accès MIDI a été refusé.',
   'midi.connectError': 'Impossible d’ouvrir cette entrée MIDI.',
-  'synth.title': 'Oscillateur',
+  'synth.title': 'Oscillator',
   'synth.waveform': 'Forme d’onde',
   'synth.sine': 'Sinus',
   'synth.saw': 'Dent de scie',
@@ -115,6 +119,13 @@ const fr: Record<MessageKey, string> = {
 }
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, fr }
+
+/**
+ * Names of devices (the title of a device's panel). A device name is one English name, never
+ * translated (founder's decision of 2026-10-14): the same text in every language. Parameter labels
+ * and descriptions are translated.
+ */
+export const DEVICE_NAME_KEYS: readonly MessageKey[] = ['synth.title']
 
 export function translate(lang: Lang, key: MessageKey, vars: Record<string, string | number> = {}): string {
   return fill(messages[lang][key], vars)

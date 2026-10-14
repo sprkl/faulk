@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { landingMessages, NON_LATENCY_MS_KEYS, type LandingKey } from '../i18n/landing'
+import { LANDING_DEVICE_NAME_KEYS, landingMessages, NON_LATENCY_MS_KEYS, type LandingKey } from '../i18n/landing'
 
 const dir = new URL('./', import.meta.url)
 const components = readdirSync(dir).filter((f) => f.endsWith('.svelte'))
@@ -35,6 +35,15 @@ describe('landing components', () => {
       expect(source.match(/\b(aria-label|alt|title|placeholder)="[^"{][^"]*"/g) ?? []).toEqual([])
     })
   }
+})
+
+describe('landing device names', () => {
+  it('lists every library card name as a device name (one name in every language)', () => {
+    const source = readFileSync(new URL('Library.svelte', dir), 'utf8')
+    const names = [...source.matchAll(/\bname:\s*['"`]([\w.]+)['"`]/g)].map((m) => m[1])
+    expect(names.length).toBeGreaterThan(0)
+    for (const name of names) expect(LANDING_DEVICE_NAME_KEYS, name).toContain(name)
+  })
 })
 
 describe('landing honesty', () => {

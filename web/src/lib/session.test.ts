@@ -2,9 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const pairHelper = vi.fn()
+type Probe = { status: 'absent' } | { status: 'available' }
+const probeHelper = vi.fn<() => Promise<Probe>>(() => Promise.resolve({ status: 'available' }))
 vi.mock('./engine/helper-client', () => ({
   pairHelper: (code: string) => pairHelper(code),
-  probeHelper: () => Promise.resolve({ status: 'available' }),
+  probeHelper: () => probeHelper(),
 }))
 vi.mock('./engine/web-engine', () => ({
   WebEngine: {
@@ -103,5 +105,112 @@ describe('pairing link in the session', () => {
     expect(session.pendingPairCode).toBeNull()
     await session.start()
     expect(pairHelper).not.toHaveBeenCalled()
+  })
+})
+
+describe('probing again once the browser allows local access', () => {
+  beforeEach(() => {
+    probeHelper.mockReset()
+    probeHelper.mockResolvedValue({ status: 'available' })
+  })
+
+  it('probes again when the last probe found nothing', async () => {
+    const session = new Session()
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    await session.checkHelper()
+    expect(session.helper).toBe('absent')
+    session.onLocalAccessGranted()
+    await vi.waitFor(() => expect(session.helper).toBe('available'))
+    expect(probeHelper).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets the newer probe decide when the probe behind the prompt gives up later', async () => {
+    const session = new Session()
+    let giveUp: (p: Probe) => void = () => {}
+    probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (giveUp = r)))
+    const first = session.checkHelper()
+    expect(session.helper).toBe('checking')
+    session.onLocalAccessGranted()
+    await vi.waitFor(() => expect(session.helper).toBe('available'))
+    giveUp({ status: 'absent' })
+    await first
+    expect(session.helper).toBe('available')
+  })
+
+  it('returns what an older probe found even when a newer probe decides the state', async () => {
+    const session = new Session()
+    let answer: (p: Probe) => void = () => {}
+    probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (answer = r)))
+    probeHelper.mockReturnValueOnce(new Promise<Probe>(() => {}))
+    const older = session.checkHelper()
+    session.onLocalAccessGranted()
+    answer({ status: 'available' })
+    expect(await older).toBe('available')
+    expect(session.helper).toBe('checking')
+  })
+
+  it('does not probe when the helper is already found', async () => {
+    const session = new Session()
+    await session.checkHelper()
+    expect(session.helper).toBe('available')
+    session.onLocalAccessGranted()
+    expect(probeHelper).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a pairing link that could not reach the helper behind the prompt', () => {
+  beforeEach(() => {
+    probeHelper.mockReset()
+    probeHelper.mockResolvedValue({ status: 'available' })
+    pairHelper.mockReset()
+    localStorage.clear()
+  })
+
+  async function startedWithFailedLink() {
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    pairHelper.mockResolvedValueOnce({ status: 'failed' })
+    const session = new Session()
+    await session.checkHelper()
+    const { location, clear } = address('#pair=12345678')
+    session.takePairLink(location, clear)
+    await session.start()
+    expect(session.pairingMessage).toEqual({ key: 'helper.failed' })
+    return session
+  }
+
+  it('pairs again with the same code once access is granted and the helper is found', async () => {
+    const session = await startedWithFailedLink()
+    pairHelper.mockResolvedValueOnce({ status: 'refused', attemptsLeft: 4 })
+    await session.onLocalAccessGranted()
+    expect(pairHelper).toHaveBeenCalledTimes(2)
+    expect(pairHelper).toHaveBeenLastCalledWith('12345678')
+  })
+
+  it('tries the code only once more', async () => {
+    const session = await startedWithFailedLink()
+    pairHelper.mockResolvedValueOnce({ status: 'refused', attemptsLeft: 4 })
+    await session.onLocalAccessGranted()
+    session.helper = 'absent'
+    await session.onLocalAccessGranted()
+    expect(pairHelper).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a code the helper refused', async () => {
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    pairHelper.mockResolvedValueOnce({ status: 'refused', attemptsLeft: 4 })
+    const session = new Session()
+    await session.checkHelper()
+    const { location, clear } = address('#pair=12345678')
+    session.takePairLink(location, clear)
+    await session.start()
+    await session.onLocalAccessGranted()
+    expect(pairHelper).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry while the helper is still out of reach', async () => {
+    const session = await startedWithFailedLink()
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    await session.onLocalAccessGranted()
+    expect(pairHelper).toHaveBeenCalledTimes(1)
   })
 })
