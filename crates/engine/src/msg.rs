@@ -1,10 +1,10 @@
-//! Project → engine synchronisation contract (CT-3, `docs/specs/02-decoupage-mvp.md` § 2.3).
+//! Project → engine synchronisation contract (CT-3, `docs/specs/02-decoupage-mvp.md` § 2.3),
+//! and its payload codecs (MO-1, [`codec`] module doc).
 //!
-//! This module declares the types of the contract, the binary header of the control
-//! stream and the growth mechanism ([`Table`]); it holds no engine logic. The payload
-//! codecs, `Engine::prepare`, `Engine::apply` and the rings are MO-1's; the channel of each
-//! target (helper thread + `rtrb`, prepare Worker + shared memory) is MO-2's. Until then
-//! nothing in the engine consumes these types.
+//! This module declares the types of the contract, the binary format of the control stream
+//! and the growth mechanism ([`Table`], [`Put`], [`PagedPut`]). The two sides of the cycle,
+//! `Preparer::prepare` and `Engine::apply`, live in [`crate::engine`] (MO-1); the channel
+//! of each target (helper thread + `rtrb`, prepare Worker + shared memory) is MO-2's.
 //!
 //! # The three message kinds
 //!
@@ -14,8 +14,9 @@
 //!    thread in Boost mode). Every structure it names is an engine **slot** (`u32` index)
 //!    assigned by the project, which keeps the correspondence with its stable identifiers
 //!    (§ 2.4): the engine never sees a `TrackId`.
-//! 2. [`RtMsg`], what `Engine::prepare(ControlMsg)` produces **off the audio path** (it may
-//!    allocate) and `Engine::apply(RtMsg)` consumes **on the audio path** (it never
+//! 2. [`RtMsg`], what `prepare` (the spec's `Engine::prepare`, [`crate::engine::Preparer`])
+//!    produces **off the audio path** (it may allocate, fallibly) and `apply`
+//!    ([`crate::engine::Engine::apply`]) consumes **on the audio path** (it never
 //!    allocates nor frees): a Rust value, never serialized, moved through a lock-free
 //!    single-producer single-consumer ring. Natively the ring is `rtrb`; in the web build
 //!    the same Rust ring lives inside the shared linear memory, pushed by the prepare
@@ -29,43 +30,51 @@
 //! # From `ControlMsg` to `RtMsg`
 //!
 //! `prepare` turns each control message into **at most one** rt message (the garbage
-//! invariant below depends on it):
+//! invariant below depends on it); a growth travels inside the message that needs it:
 //!
 //! | `ControlMsg` | `RtMsg` |
 //! |---|---|
-//! | `Reset { epoch }` | `Swap(Everything)`: a fresh engine state, the old one is one garbage item |
+//! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item |
 //! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
-//! | `TrackCreate` | `Swap(Track)`, or `Swap(Tracks)` first when the track table is full |
-//! | `TrackRemove` | `Remove(Track)`: the track owns its devices and buffers, one garbage item |
-//! | `TrackSetMix/Solo/Arm/Monitor`, `DeviceSetEnabled`, `ParamSet`, `SceneSetSlot`, `ClipAudioSet` | the same, copied |
-//! | `DeviceInsert` | `Swap(Device)` (built by `prepare`) |
-//! | `DeviceRemove` | `Remove(Device)` |
-//! | `ClipNotesUpload` (last chunk) | `Swap(ClipNotes)`: the whole table, built from the chunks |
-//! | `AutomationLaneUpload` (last chunk) | `Swap(LanePoints)` |
-//! | `TrackPlacementsUpload` (last chunk) | `Swap(TrackPlacements)` |
-//! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `Remove(…)` |
-//! | `AudioSourceDeclare` | `Swap(AudioSource)`: the streaming buffers, built by `prepare` (AU-3) |
+//! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it |
+//! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables, one garbage item |
+//! | `TrackSetMix/Solo/Arm/Monitor`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
+//! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
+//! | `DeviceRemove` | `DeviceRemove` |
+//! | `ClipNotesUpload` (last chunk), `ClipAudioSet` | `ClipPut`: the whole clip, and the page or the grown directory of the clip table |
+//! | `AutomationLaneUpload` (last chunk) | `LanePut`, paged like the clips |
+//! | `TrackPlacementsUpload` (last chunk) | `PlacementsSet`: the whole arrangement of the track |
+//! | `SceneSetSlot` | `SceneSet`, and the grown scene row of the track |
+//! | `AudioSourceDeclare` | `SourcePut` (AU-3 adds the streaming buffers) |
+//! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `ClipRemove`, `LaneRemove`, `SourceRemove` |
 //! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement` | `Launch(…)` |
 //! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
-//! | `NoteOn`, `NoteOff`, `AllNotesOff` | the live queue, never `prepare` |
+//! | `NoteOn`, `NoteOff`, `AllNotesOff` | a [`LiveEvent`] on the live queue, never `prepare` |
+//!
+//! Every rt message takes effect at the start of the block that applies it (a `ParamSet`
+//! is `Device::set_param`, offset 0 of the block, CT-5); sample-accurate events are MO-4's.
 //!
 //! **Backpressure, no loss.** When the rt ring is full, the prepare side keeps the rt
-//! message in its own ordered queue (it may allocate: it is off the audio path) and
-//! pushes it as soon as a slot frees; control messages are never dropped nor reordered.
-//! That queue is bounded too ([`limits::PENDING_QUEUE_CAPACITY`]): beyond it the engine
-//! is not consuming (audio context suspended, device lost) and `prepare` returns
-//! [`MsgError::EngineBusy`] to the project, which shows the stalled engine, stops sending,
-//! and resyncs with a `Reset` once the engine runs again. In web mode the page knows its
-//! `AudioContext` is suspended (background tab) and stops sending before that point. The
-//! memory of the tables parked in the queue is bounded only by the fallible allocation of
-//! `prepare` ([`MsgError::OutOfMemory`]), never by a trap.
+//! message in its own ordered queue (off the audio path; reserved whole when the channel is
+//! built) and pushes it as soon as a slot frees: a new message goes behind the queue
+//! whenever the queue is not empty, so control messages are never dropped nor reordered.
+//! The host calls `Preparer::flush` regularly (MO-2's control thread), so the queue drains
+//! even when the project sends nothing. That queue is bounded too
+//! ([`limits::PENDING_QUEUE_CAPACITY`]): beyond it the engine is not consuming (audio
+//! context suspended, device lost) and `prepare` returns [`MsgError::EngineBusy`] to the
+//! project, before anything is prepared or committed; the project shows the stalled engine,
+//! stops sending, and resyncs with a `Reset` once the engine runs again. In web mode the
+//! page knows its `AudioContext` is suspended (background tab) and stops sending before
+//! that point. The memory of the tables parked in the queue is bounded only by the
+//! fallible allocation of `prepare` ([`MsgError::OutOfMemory`]), never by a trap.
 //!
 //! **Chunked uploads.** Notes, points and placements arrive in chunks (`first`, `total`)
-//! staged on the prepare side per slot. A chunk whose `first` is not the staged length, or
-//! whose `total` differs from the staged one, restarts the staging from that chunk and is
-//! counted as rejected; the table is built and swapped only when `first + len == total`.
-//! `Reset` and the `Remove` of the slot discard its staging. A partial upload never reaches
-//! the audio side.
+//! staged on the prepare side per slot (the whole `total` reserved at the first chunk). A
+//! chunk whose `first` is not the staged length, or whose `total` differs from the staged
+//! one, is counted as rejected and drops the staging; when it is a first chunk
+//! (`first == 0`) the staging restarts from it. The table is built and swapped only when
+//! `first + len == total`. `Reset` and the `Remove` of the slot (of the track, for its
+//! placements) discard its staging. A partial upload never reaches the audio side.
 //!
 //! # Growth without a visible cap (decision 7)
 //!
@@ -77,21 +86,31 @@
 //!   track) are immutable snapshots of the project's data: `prepare` builds the whole table
 //!   from the upload and `apply` swaps a pointer. They never grow in place: an edit is a new
 //!   upload. The cost on the audio thread does not depend on the table's size.
-//! - **Runtime tables** (tracks, audio sources: state the audio thread mutates) are
-//!   **slot arrays**: every slot exists (`len == capacity`, built by
-//!   [`Table::try_filled`]), an empty slot holds `None`, and a message addresses a slot
-//!   directly (the project assigns slots, reuses freed ones, never above the limit). When
-//!   a message names a slot at or beyond the capacity, `prepare` first builds the next
-//!   table, empty, with the capacity doubled until the slot fits; `apply` moves the entries
-//!   into it ([`Table::take_from`]: one pointer per slot, bounded by the limit of that
-//!   table, measured by `msg_cost` and by the e2e suite), swaps, and pushes the old table
-//!   to [`Garbage`]. A slot beyond the capacity in `apply` is a contract violation: the
-//!   message is skipped and counted, never a panic.
+//! - **Runtime tables** (state the audio thread mutates) are **slot arrays**: every slot
+//!   exists (`len == capacity`, built by [`Table::try_filled`]), an empty slot holds
+//!   `None`, and a message addresses a slot directly (the project assigns slots, reuses
+//!   freed ones, never above the limit). The prepare side keeps a shadow of their
+//!   capacities. When a message names a slot at or beyond the capacity, `prepare` builds
+//!   the next table, empty, with the capacity doubled until the slot fits, and sends it
+//!   **in the same rt message** as the item ([`Put`]); `apply` moves the entries into it
+//!   ([`Table::take_slots_from`]: one pointer per slot), swaps, puts the item, and sends
+//!   the old table to the garbage. The tracks (4 096), the sources (4 096), and per track
+//!   the device row (1 024) and the scene row (4 096) grow this way: a growth moves at most
+//!   4 096 pointers, the case CT-3 measured. The clips (1 048 576) and the lanes (65 536)
+//!   are too large for that: they are **paged** ([`PagedPut`], `crate::engine::Paged`), a
+//!   directory of pages of [`PAGE_SLOTS`] slots; `prepare` sends a page the first time one
+//!   of its slots is used, and a larger directory when the page is beyond it, so a growth
+//!   moves at most `limit / PAGE_SLOTS` (1 024) pointers.
+//!
+//! A slot beyond the table in `apply`, or a "grown" table that is not larger than the live
+//! one, is a contract violation: the message is skipped and counted, what it carried goes
+//! to the garbage, no live entry is lost, never a panic.
 //!
 //! Every allocation of `prepare` is **fallible**: [`Table::try_with_capacity`] and
 //! [`try_box`], never `Box::new` nor `handle_alloc_error`. A refused allocation
 //! (`memory.grow` refused, machine out of memory) is [`MsgError::OutOfMemory`], reported
-//! to the project and shown, never a trap nor a silence.
+//! to the project and shown, never a trap nor a silence; `prepare` allocates everything
+//! before it commits anything, so the refused message can be sent again as is.
 //!
 //! Nothing is ever freed on the audio thread: what `apply` replaces or removes goes back
 //! as **one** [`Garbage`] item per rt message on the second ring, and the prepare side drops
@@ -101,7 +120,8 @@
 //! garbage ring before each push. After a drain at most `RT_RING_CAPACITY` messages are in
 //! flight; the audio side may apply one of them and push its garbage before the push that
 //! follows the drain lands, so the garbage ring never holds more than
-//! `RT_RING_CAPACITY + 1` items: there is always a free slot for `apply`.
+//! `RT_RING_CAPACITY + 1` items: there is always a free slot for `apply`. Should it ever be
+//! full, `apply` leaks the item and counts it rather than free it.
 //!
 //! Above the tables stand the **safety limits** of [`limits`], very high and checked by the
 //! project before a message is sent ([`MsgError::LimitExceeded`]): the engine itself never
@@ -123,7 +143,8 @@
 //!
 //! Clip and automation events never cross a bounded queue: the engine reads them in their
 //! tables while rendering. Only the live input (MIDI, keyboard: [`ControlMsg::NoteOn`],
-//! [`ControlMsg::NoteOff`], [`ControlMsg::AllNotesOff`]) is queued, in
+//! [`ControlMsg::NoteOff`], [`ControlMsg::AllNotesOff`], carried as [`LiveEvent`]s) is
+//! queued, in
 //! [`limits::LIVE_QUEUE_CAPACITY`] slots, far beyond what a human produces between two
 //! blocks. On overflow the event is dropped and the producer increments [`LiveOverflow`];
 //! the audio side, at the start of every block, first drains the live queue and applies
@@ -169,7 +190,14 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use crate::engine::{Clip, DeviceEntry, Lane, Source, State, Track};
 use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+
+pub mod codec;
+pub use codec::{
+    NOTE_WIRE_BYTES, PLACEMENT_WIRE_BYTES, POINT_WIRE_BYTES, STATE_PAIR_BYTES, encode_state,
+    encode_stream, state_pairs,
+};
 
 /// Version of the `ControlMsg` binary format ([`Header::version`]).
 pub const MSG_VERSION: u8 = 1;
@@ -414,7 +442,8 @@ pub enum ControlMsg {
         track: TrackSlot,
         device: DeviceSlot,
         kind: DeviceKind,
-        /// Opaque initial state of the device (its parameters, CT-5).
+        /// Initial state of the device: its parameter values, `(param id, value)` pairs
+        /// ([`codec::encode_state`]).
         state: Vec<u8>,
     },
     DeviceRemove {
@@ -883,8 +912,51 @@ pub enum MsgError {
     },
     /// `prepare` could not get the memory (allocation or `memory.grow` refused).
     OutOfMemory { bytes: usize },
-    /// The rt ring is full: the prepare side queues the message and retries, never blocks.
+    /// The rt ring and the prepare side's queue are full: the engine is not consuming.
     EngineBusy,
+    /// A known tag whose payload is malformed or out of range (codec module doc): the
+    /// message is skipped by its length and counted, the stream goes on.
+    BadPayload { tag: u16 },
+    /// A `DeviceInsert` of a kind no factory builds: skipped and counted.
+    UnknownDevice(DeviceKind),
+    /// A message naming a track, or a device of a track, that does not exist on the
+    /// prepare side: skipped and counted.
+    NoSuchTarget,
+}
+
+impl MsgError {
+    /// Whether the error stops the stream ([`Preparer::submit`](crate::engine::Preparer::submit)
+    /// returns it): a corrupt stream, a refused allocation, a stalled engine. The others are
+    /// rejections of one message, skipped and counted while the stream goes on.
+    pub fn stops_the_stream(&self) -> bool {
+        matches!(
+            self,
+            MsgError::Truncated { .. }
+                | MsgError::UnsupportedVersion(_)
+                | MsgError::Corrupt
+                | MsgError::TooLarge(_)
+                | MsgError::OutOfMemory { .. }
+                | MsgError::EngineBusy
+        )
+    }
+
+    /// A stable negative number for a C ABI (the web module's exports): one per variant.
+    pub fn code(&self) -> i32 {
+        match self {
+            MsgError::Truncated { .. } => -1,
+            MsgError::UnsupportedVersion(_) => -2,
+            MsgError::UnknownTag { .. } => -3,
+            MsgError::Corrupt => -4,
+            MsgError::TooLarge(_) => -5,
+            MsgError::StaleEpoch { .. } => -6,
+            MsgError::LimitExceeded { .. } => -7,
+            MsgError::OutOfMemory { .. } => -8,
+            MsgError::EngineBusy => -9,
+            MsgError::BadPayload { .. } => -10,
+            MsgError::UnknownDevice(_) => -11,
+            MsgError::NoSuchTarget => -12,
+        }
+    }
 }
 
 impl Header {
@@ -1064,6 +1136,22 @@ impl<T: Default> Table<T> {
 }
 
 impl<T> Table<T> {
+    /// A full table of the items of `items` (a content table built by `prepare`): its
+    /// storage becomes the table's, without a copy when its capacity is its length.
+    pub fn from_vec(items: Vec<T>) -> Self {
+        let items = items.into_boxed_slice();
+        let len = items.len();
+        Self { items, len }
+    }
+
+    /// Empties a table of plain values on the audio path: no drop, no free.
+    pub fn clear(&mut self)
+    where
+        T: Copy,
+    {
+        self.len = 0;
+    }
+
     pub fn capacity(&self) -> usize {
         self.items.len()
     }
@@ -1100,65 +1188,100 @@ impl<T> Table<T> {
     }
 }
 
-/// An opaque engine structure built by `prepare` (a track with its devices, a device, the
-/// whole engine state): the concrete types are MO-3's and CT-5's.
-pub type Opaque = Box<dyn core::any::Any + Send>;
+/// A runtime table: a slot array (`len == capacity`), an empty slot holds `None`.
+pub type Slots<T> = Table<Option<T>>;
 
-/// Which engine structure a [`Swap`] or a [`RtMsg::Remove`] targets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TableKind {
-    /// The whole engine state (`Reset`).
-    Everything,
-    /// The runtime table of the tracks (grown when full).
-    Tracks,
-    Track(TrackSlot),
-    Device(TrackSlot, DeviceSlot),
-    /// The notes of one clip (content snapshot).
-    ClipNotes(ClipSlot),
-    /// The points of one lane (content snapshot).
-    LanePoints(LaneSlot),
-    /// The arrangement of one track (content snapshot).
-    TrackPlacements(TrackSlot),
-    /// The runtime table of the audio sources (grown when full).
-    AudioSources,
-    AudioSource(SourceSlot),
-}
-
-/// A structure `prepare` built, carried into `apply` by [`RtMsg::Swap`]. Runtime tables
-/// hold one boxed entry per slot ([`Opaque`]); content tables hold the values.
+/// Puts `value` in slot `slot` of a runtime table, growing it first when `grown` is set:
+/// `apply` moves the entries of the current table into `grown` (one move per slot), swaps,
+/// then puts the value. The growth and the item travel in **one** rt message, so a
+/// `ControlMsg` still yields at most one `RtMsg` (module doc).
 #[derive(Debug)]
-pub enum Prepared {
-    Everything(Opaque),
-    Tracks(Table<Option<Opaque>>),
-    Track(Opaque),
-    Device(Opaque),
-    ClipNotes(Table<Note>),
-    LanePoints(Table<AutomationPoint>),
-    TrackPlacements(Table<Placement>),
-    AudioSources(Table<Option<Opaque>>),
-    AudioSource(Opaque),
+pub struct Put<T> {
+    pub slot: u32,
+    pub value: T,
+    pub grown: Option<Slots<T>>,
 }
 
-/// What `apply` sends back on the garbage ring, one per rt message, dropped on the
-/// prepare side only. A removed track carries its devices and buffers inside its box.
+/// What one `apply` of a [`Put`] or a remove leaves for the garbage: the replaced table
+/// (emptied by the move) and the replaced value, or the value `apply` could not place (a
+/// slot beyond the table, a contract violation). One garbage item whatever happened.
+#[derive(Debug)]
+pub struct Spare<T> {
+    pub table: Option<Slots<T>>,
+    pub item: Option<T>,
+}
+
+impl<T> Spare<T> {
+    pub const NONE: Spare<T> = Spare {
+        table: None,
+        item: None,
+    };
+
+    /// Nothing to free: `apply` pushes no garbage item.
+    pub fn is_empty(&self) -> bool {
+        self.table.is_none() && self.item.is_none()
+    }
+}
+
+/// Slots of one page of a paged runtime table (clips, lanes).
+pub const PAGE_SLOTS: usize = 1024;
+
+/// A page of a paged runtime table: [`PAGE_SLOTS`] slots.
+pub type Page<T> = Slots<T>;
+
+/// What a [`PagedPut`] may carry to make room: a larger directory of pages, the page of
+/// the slot. Boxed so that the rt message stays small; `apply` takes its parts out and
+/// sends the box back to the garbage holding what they replaced.
+#[derive(Debug)]
+pub struct PagedGrowth<T> {
+    pub directory: Option<Slots<Page<T>>>,
+    pub page: Option<Page<T>>,
+}
+
+/// Puts `value` in slot `slot` of a paged runtime table (clips, lanes): the large tables
+/// grow by pages, so a growth moves one pointer per page, never one per slot.
+#[derive(Debug)]
+pub struct PagedPut<T> {
+    pub slot: u32,
+    pub value: T,
+    pub growth: Option<Box<PagedGrowth<T>>>,
+}
+
+/// What one `apply` of a [`PagedPut`] or a paged remove leaves for the garbage: the growth
+/// box (holding the replaced directory, or a page or directory `apply` could not use) and
+/// the replaced or refused value.
+#[derive(Debug)]
+pub struct PagedSpare<T> {
+    pub growth: Option<Box<PagedGrowth<T>>>,
+    pub item: Option<T>,
+}
+
+impl<T> PagedSpare<T> {
+    pub const NONE: PagedSpare<T> = PagedSpare {
+        growth: None,
+        item: None,
+    };
+
+    pub fn is_empty(&self) -> bool {
+        self.growth.is_none() && self.item.is_none()
+    }
+}
+
+/// What `apply` sends back on the garbage ring, at most one per rt message, dropped on the
+/// prepare side only. A removed track carries its devices and its tables inside its box.
 #[derive(Debug)]
 pub enum Garbage {
-    Everything(Opaque),
-    Tracks(Table<Option<Opaque>>),
-    Track(Opaque),
-    Device(Opaque),
-    ClipNotes(Table<Note>),
-    LanePoints(Table<AutomationPoint>),
-    TrackPlacements(Table<Placement>),
-    AudioSources(Table<Option<Opaque>>),
-    AudioSource(Opaque),
-}
-
-/// Replaces one engine structure in one block.
-#[derive(Debug)]
-pub struct Swap {
-    pub kind: TableKind,
-    pub next: Prepared,
+    /// The whole previous state (`Reset`).
+    State(Box<State>),
+    Tracks(Spare<Box<Track>>),
+    Devices(Spare<Box<DeviceEntry>>),
+    Clips(PagedSpare<Box<Clip>>),
+    Lanes(PagedSpare<Box<Lane>>),
+    Sources(Spare<Box<Source>>),
+    /// A replaced arrangement of a track (or the refused new one).
+    Placements(Table<Placement>),
+    /// A replaced (grown) scene row of a track.
+    Scenes(Slots<ClipSlot>),
 }
 
 /// Transport order carried to the audio thread.
@@ -1182,13 +1305,11 @@ pub enum LaunchMsg {
 }
 
 /// What `prepare` hands to `apply`: a Rust value moved through the ring, never serialized.
-/// `offset` is the frame in the next block where the message takes effect (0: block start).
+/// Every variant takes effect at the start of the block that applies it.
 #[derive(Debug)]
 pub enum RtMsg {
-    /// Replaces a structure (a grown table, a new device); the old one goes to [`Garbage`].
-    Swap(Swap),
-    /// Removes a structure; what it held goes to [`Garbage`].
-    Remove(TableKind),
+    /// A fresh engine state; the old one goes to [`Garbage::State`].
+    Reset(Box<State>),
     SetTransport {
         tempo: Tempo,
         signature: TimeSignature,
@@ -1203,6 +1324,9 @@ pub enum RtMsg {
         gain: f32,
         mute: bool,
     },
+    /// A new track (its devices, scenes and placements empty), in its slot.
+    TrackPut(Put<Box<Track>>),
+    TrackRemove(TrackSlot),
     TrackSetMix {
         track: TrackSlot,
         gain: f32,
@@ -1224,46 +1348,75 @@ pub enum RtMsg {
     SelectTrack {
         track: Option<TrackSlot>,
     },
+    /// A device built by `prepare`, in its slot of the track's chain.
+    DevicePut {
+        track: TrackSlot,
+        put: Put<Box<DeviceEntry>>,
+    },
+    DeviceRemove {
+        track: TrackSlot,
+        device: DeviceSlot,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
         enabled: bool,
     },
+    /// A parameter set by hand or by an agent: `Device::set_param`, which behaves as a
+    /// value at offset 0 of the block (CT-5).
     ParamSet {
         track: TrackSlot,
         device: DeviceSlot,
         param: ParamId,
         value: f32,
-        offset: u16,
     },
-    SceneSetSlot {
+    /// A clip's content (a completed notes upload, or an audio range), replacing the slot.
+    ClipPut(PagedPut<Box<Clip>>),
+    ClipRemove(ClipSlot),
+    SourcePut(Put<Box<Source>>),
+    SourceRemove(SourceSlot),
+    /// The arrangement of a track (a completed upload), swapped by pointer.
+    PlacementsSet {
+        track: TrackSlot,
+        placements: Table<Placement>,
+    },
+    LanePut(PagedPut<Box<Lane>>),
+    LaneRemove(LaneSlot),
+    /// A slot of a track's row of the launch grid, the row grown first when `grown` is set.
+    SceneSet {
         track: TrackSlot,
         scene: SceneSlot,
         clip: Option<ClipSlot>,
-    },
-    ClipAudioSet {
-        clip: ClipSlot,
-        source: SourceSlot,
-        start: Frame,
-        length: Frame,
+        grown: Option<Slots<ClipSlot>>,
     },
     Transport(TransportMsg),
     Launch(LaunchMsg),
-    /// Live note, from the live queue.
+}
+
+/// A note played live (MIDI, keyboard): the only events that cross a bounded queue, the
+/// live queue, never `prepare` (module doc, live input).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveEvent {
     NoteOn {
         track: TrackSlot,
         pitch: u8,
         velocity: u8,
-        offset: u16,
     },
     NoteOff {
         track: TrackSlot,
         pitch: u8,
-        offset: u16,
     },
     AllNotesOff {
         track: TrackSlot,
     },
+}
+
+impl Default for LiveEvent {
+    fn default() -> Self {
+        LiveEvent::AllNotesOff {
+            track: TrackSlot(0),
+        }
+    }
 }
 
 /// Counter of the live events dropped because the live queue was full, incremented by the

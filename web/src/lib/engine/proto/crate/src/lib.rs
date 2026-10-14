@@ -17,12 +17,189 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use engine::msg::{
-    Garbage, Note, Opaque, ParamId, Prepared, RtMsg, Swap, Table, TableKind, TrackSlot, limits,
-};
+use engine::msg::{Note, ParamId, Table, TrackSlot, limits};
 use engine::time::Tick;
 use engine_wasm::Instance;
+use proto_msg::{Garbage, Opaque, Prepared, RtMsg, Swap, TableKind};
 use rtrb::{Consumer, Producer, RingBuffer};
+
+/// The rt message types CT-3 measured with, kept here as they were: MO-1 (#54) replaced
+/// them in `engine::msg` by concrete ones, and this prototype stays the reference of CT-3's
+/// numbers.
+#[allow(dead_code)]
+mod proto_msg {
+    use engine::msg::{
+        AutomationPoint, ClipSlot, DeviceSlot, LaneSlot, Note, ParamId, Placement, SceneSlot,
+        SourceSlot, Table, TrackSlot,
+    };
+    use engine::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+
+    /// An opaque engine structure built by `prepare` (a track with its devices, a device, the
+    /// whole engine state): the concrete types are MO-3's and CT-5's.
+    pub type Opaque = Box<dyn core::any::Any + Send>;
+
+    /// Which engine structure a [`Swap`] or a [`RtMsg::Remove`] targets.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TableKind {
+        /// The whole engine state (`Reset`).
+        Everything,
+        /// The runtime table of the tracks (grown when full).
+        Tracks,
+        Track(TrackSlot),
+        Device(TrackSlot, DeviceSlot),
+        /// The notes of one clip (content snapshot).
+        ClipNotes(ClipSlot),
+        /// The points of one lane (content snapshot).
+        LanePoints(LaneSlot),
+        /// The arrangement of one track (content snapshot).
+        TrackPlacements(TrackSlot),
+        /// The runtime table of the audio sources (grown when full).
+        AudioSources,
+        AudioSource(SourceSlot),
+    }
+
+    /// A structure `prepare` built, carried into `apply` by [`RtMsg::Swap`]. Runtime tables
+    /// hold one boxed entry per slot ([`Opaque`]); content tables hold the values.
+    #[derive(Debug)]
+    pub enum Prepared {
+        Everything(Opaque),
+        Tracks(Table<Option<Opaque>>),
+        Track(Opaque),
+        Device(Opaque),
+        ClipNotes(Table<Note>),
+        LanePoints(Table<AutomationPoint>),
+        TrackPlacements(Table<Placement>),
+        AudioSources(Table<Option<Opaque>>),
+        AudioSource(Opaque),
+    }
+
+    /// What `apply` sends back on the garbage ring, one per rt message, dropped on the
+    /// prepare side only. A removed track carries its devices and buffers inside its box.
+    #[derive(Debug)]
+    pub enum Garbage {
+        Everything(Opaque),
+        Tracks(Table<Option<Opaque>>),
+        Track(Opaque),
+        Device(Opaque),
+        ClipNotes(Table<Note>),
+        LanePoints(Table<AutomationPoint>),
+        TrackPlacements(Table<Placement>),
+        AudioSources(Table<Option<Opaque>>),
+        AudioSource(Opaque),
+    }
+
+    /// Replaces one engine structure in one block.
+    #[derive(Debug)]
+    pub struct Swap {
+        pub kind: TableKind,
+        pub next: Prepared,
+    }
+
+    /// Transport order carried to the audio thread.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TransportMsg {
+        Play { from: Tick },
+        Stop,
+        Seek { tick: Tick },
+        SetLoop { region: Option<LoopRegion> },
+        SetRecording { recording: bool },
+    }
+
+    /// Launch order carried to the audio thread (executed at the next quantization boundary).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LaunchMsg {
+        Clip { track: TrackSlot, scene: SceneSlot },
+        Scene { scene: SceneSlot },
+        StopTrack { track: TrackSlot },
+        StopAll,
+        BackToArrangement,
+    }
+
+    /// What `prepare` hands to `apply`: a Rust value moved through the ring, never serialized.
+    /// `offset` is the frame in the next block where the message takes effect (0: block start).
+    #[derive(Debug)]
+    pub enum RtMsg {
+        /// Replaces a structure (a grown table, a new device); the old one goes to [`Garbage`].
+        Swap(Swap),
+        /// Removes a structure; what it held goes to [`Garbage`].
+        Remove(TableKind),
+        SetTransport {
+            tempo: Tempo,
+            signature: TimeSignature,
+            launch_quantize: Quantize,
+        },
+        SetMetronome {
+            enabled: bool,
+            volume: f32,
+            count_in_bars: u8,
+        },
+        SetMaster {
+            gain: f32,
+            mute: bool,
+        },
+        TrackSetMix {
+            track: TrackSlot,
+            gain: f32,
+            pan: f32,
+            mute: bool,
+        },
+        TrackSetSolo {
+            track: TrackSlot,
+            solo: bool,
+        },
+        TrackArm {
+            track: TrackSlot,
+            armed: bool,
+        },
+        TrackSetMonitor {
+            track: TrackSlot,
+            monitor: bool,
+        },
+        SelectTrack {
+            track: Option<TrackSlot>,
+        },
+        DeviceSetEnabled {
+            track: TrackSlot,
+            device: DeviceSlot,
+            enabled: bool,
+        },
+        ParamSet {
+            track: TrackSlot,
+            device: DeviceSlot,
+            param: ParamId,
+            value: f32,
+            offset: u16,
+        },
+        SceneSetSlot {
+            track: TrackSlot,
+            scene: SceneSlot,
+            clip: Option<ClipSlot>,
+        },
+        ClipAudioSet {
+            clip: ClipSlot,
+            source: SourceSlot,
+            start: Frame,
+            length: Frame,
+        },
+        Transport(TransportMsg),
+        Launch(LaunchMsg),
+        /// Live note, from the live queue.
+        NoteOn {
+            track: TrackSlot,
+            pitch: u8,
+            velocity: u8,
+            offset: u16,
+        },
+        NoteOff {
+            track: TrackSlot,
+            pitch: u8,
+            offset: u16,
+        },
+        AllNotesOff {
+            track: TrackSlot,
+        },
+    }
+}
 
 thread_local! {
     /// 0: unknown, 1: prepare side, 2: render side (set by `fk_proto_set_role`).

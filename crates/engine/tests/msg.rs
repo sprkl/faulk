@@ -1,12 +1,14 @@
 //! The frozen parts of `engine::msg` (CT-3): header codec, tags, limits, sizes.
 
+use engine::engine::{Clip, DeviceEntry, Lane, Source, Track};
 use engine::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg,
     DeviceKind, DeviceSlot, FEEDBACK_HEADER_BYTES, Feedback, HEADER_BYTES, Header, LaneSlot,
-    MSG_ALIGN, MSG_VERSION, MsgError, Note, Opaque, ParamId, Placement, RECORDED_NOTE_WIRE_BYTES,
+    MSG_ALIGN, MSG_VERSION, MsgError, Note, ParamId, Placement, RECORDED_NOTE_WIRE_BYTES,
     RecordedNote, RtMsg, SceneSlot, SourceSlot, TRACK_METER_BYTES, Tag, TrackKind, TrackMeter,
     TrackSlot, limits,
 };
+use engine::msg::{Garbage, LiveEvent};
 use engine::time::{Frame, Quantize, Tempo, Tick, TimeSignature};
 
 fn header(tag: Tag, len: u32) -> Header {
@@ -330,20 +332,28 @@ fn limits_fit_under_the_wasm32_cap() {
     let notes = u64::from(MAX_NOTES) * size_of::<Note>() as u64;
     let points = u64::from(MAX_AUTOMATION_POINTS) * size_of::<AutomationPoint>() as u64;
     let placements = u64::from(MAX_PLACEMENTS) * size_of::<Placement>() as u64;
-    let clips = u64::from(MAX_CLIPS) * 64;
-    let lanes = u64::from(MAX_LANES) * 64;
-    let sources = u64::from(MAX_AUDIO_SOURCES) * size_of::<Option<Opaque>>() as u64;
-    // Per track: its entry, its mix state, two stereo block buffers for the chain, the
-    // grid slots.
-    let per_track = size_of::<Option<Opaque>>() as u64
-        + 256
+    // The runtime tables as MO-1 builds them: a slot (a pointer) per entry plus the boxed
+    // entry; clips and lanes in pages (their directory is a pointer per page).
+    let boxed = |n: u32, entry: usize| u64::from(n) * (size_of::<Option<Box<u8>>>() + entry) as u64;
+    let clips = boxed(MAX_CLIPS, size_of::<Clip>());
+    let lanes = boxed(MAX_LANES, size_of::<Lane>());
+    let sources = boxed(MAX_AUDIO_SOURCES, size_of::<Source>());
+    // Per track: its slot and box, two stereo block buffers for the chain (MO-3), its row
+    // of device slots with their boxed entries (the devices themselves count against the
+    // engine budget by their declared sizes), its row of grid slots.
+    let per_track = (size_of::<Option<Box<Track>>>() + size_of::<Track>()) as u64
         + 4 * (MAX_BLOCK_FRAMES as u64) * 4
-        + u64::from(MAX_SCENES) * 8;
+        + u64::from(MAX_DEVICES_PER_TRACK)
+            * (size_of::<Option<Box<DeviceEntry>>>() + size_of::<DeviceEntry>()) as u64
+        + u64::from(MAX_SCENES) * size_of::<Option<ClipSlot>>() as u64;
     let tracks = u64::from(MAX_TRACKS) * per_track;
     let largest = notes.max(points).max(placements);
     let tables = notes + points + placements + clips + lanes + sources + tracks;
-    let rings = 2 * (RT_RING_CAPACITY as u64) * size_of::<RtMsg>() as u64
-        + (LIVE_QUEUE_CAPACITY as u64) * size_of::<RtMsg>() as u64;
+    // The rt ring and the prepare side's queue, the garbage ring, the live queue and the
+    // block's copy of it.
+    let rings = (RT_RING_CAPACITY + PENDING_QUEUE_CAPACITY) as u64 * size_of::<RtMsg>() as u64
+        + (GARBAGE_RING_CAPACITY as u64) * size_of::<Garbage>() as u64
+        + 2 * (LIVE_QUEUE_CAPACITY as u64) * size_of::<LiveEvent>() as u64;
     let inbox = u64::from(MAX_CONTROL_MSG_BYTES) * 2;
     let feedback = Feedback::max_size_for(MAX_TRACKS as usize) as u64;
     let total = 2 * tables + largest + rings + inbox + feedback;
@@ -395,4 +405,240 @@ fn an_rt_message_is_small_and_sent_by_move() {
     );
     // The largest report of the largest session stays small enough for a WebSocket frame.
     assert!(Feedback::max_size_for(limits::MAX_TRACKS as usize) < 256 << 10);
+}
+
+// ---------------------------------------------------------------- payload codecs (MO-1)
+
+/// The samples with their lists filled, so that the round trip covers list items too.
+fn rich_samples() -> Vec<ControlMsg> {
+    use engine::msg::{Curve, Span};
+    let mut out = samples();
+    out.push(ControlMsg::ClipNotesUpload {
+        clip: ClipSlot(7),
+        length: Tick(-5),
+        looped: false,
+        first: 3,
+        total: 9,
+        notes: vec![
+            Note {
+                start: Tick(i64::MIN),
+                length: Tick(i64::MAX),
+                pitch: 127,
+                velocity: 0,
+            };
+            3
+        ],
+    });
+    out.push(ControlMsg::TrackPlacementsUpload {
+        track: TrackSlot(u32::MAX),
+        first: 0,
+        total: 2,
+        placements: vec![
+            Placement {
+                placement: engine::msg::PlacementSlot(4),
+                clip: ClipSlot(5),
+                start: Tick(960),
+                span: Span::Frames {
+                    offset: Frame(u64::MAX),
+                    length: Frame(3),
+                },
+            },
+            Placement::default(),
+        ],
+    });
+    out.push(ControlMsg::AutomationLaneUpload {
+        lane: LaneSlot(1),
+        track: TrackSlot(2),
+        target: AutomationTarget::DeviceParam {
+            device: DeviceSlot(u16::MAX),
+            param: ParamId(9),
+        },
+        first: 0,
+        total: 1,
+        points: vec![AutomationPoint {
+            tick: Tick(1),
+            value: -0.5,
+            curve: Curve::Linear,
+        }],
+    });
+    out.push(ControlMsg::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(3),
+        kind: DeviceKind(0xFFFF_0001),
+        state: engine::msg::encode_state(&[(ParamId(0), 0.25), (ParamId(1), -1.0)]),
+    });
+    out.push(ControlMsg::SetLoop {
+        region: engine::time::LoopRegion::new(Tick(-960), Tick(3840)),
+    });
+    out.push(ControlMsg::SelectTrack { track: None });
+    out.push(ControlMsg::SceneSetSlot {
+        track: TrackSlot(1),
+        scene: SceneSlot(2),
+        clip: Some(ClipSlot(3)),
+    });
+    out
+}
+
+#[test]
+fn every_variant_round_trips_through_its_payload_codec() {
+    let samples = rich_samples();
+    let mut tags: Vec<u16> = samples.iter().map(|m| m.tag() as u16).collect();
+    tags.sort_unstable();
+    tags.dedup();
+    assert_eq!(tags.len(), Tag::ALL.len(), "every variant is encoded");
+    let mut stream = Vec::new();
+    for (seq, msg) in samples.iter().enumerate() {
+        let start = stream.len();
+        msg.encode(5, seq as u32, &mut stream).unwrap();
+        assert_eq!((stream.len() - start) % MSG_ALIGN, 0, "{msg:?} is padded");
+        // A Reset is read against an older epoch.
+        let current = if msg.tag() == Tag::Reset { 0 } else { 5 };
+        let header = Header::decode(&stream[start..], current).unwrap();
+        assert_eq!(header.seq, seq as u32);
+        let payload = &stream[start + HEADER_BYTES..start + HEADER_BYTES + header.len as usize];
+        assert_eq!(ControlMsg::decode(&header, payload).as_ref(), Ok(msg));
+        // One byte more or less is a bad payload, never a panic nor a wrong message.
+        let tag = msg.tag() as u16;
+        if !payload.is_empty() {
+            let short = Header {
+                len: header.len - 1,
+                ..header
+            };
+            assert_eq!(
+                ControlMsg::decode(&short, &payload[..payload.len() - 1]),
+                Err(MsgError::BadPayload { tag })
+            );
+        }
+        let mut long = payload.to_vec();
+        long.push(0);
+        let longer = Header {
+            len: header.len + 1,
+            ..header
+        };
+        assert_eq!(
+            ControlMsg::decode(&longer, &long),
+            Err(MsgError::BadPayload { tag }),
+            "{msg:?} with a trailing byte"
+        );
+    }
+}
+
+#[test]
+fn out_of_range_values_are_bad_payloads() {
+    let decode = |msg: &ControlMsg, at: usize, value: &[u8]| {
+        let mut bytes = Vec::new();
+        msg.encode(0, 0, &mut bytes).unwrap();
+        let header =
+            Header::decode(&bytes, if msg.tag() == Tag::Reset { 65535 } else { 0 }).unwrap();
+        let mut payload = bytes[HEADER_BYTES..HEADER_BYTES + header.len as usize].to_vec();
+        payload[at..at + value.len()].copy_from_slice(value);
+        ControlMsg::decode(&header, &payload)
+    };
+    let bad = |tag: Tag| Err(MsgError::BadPayload { tag: tag as u16 });
+    let solo = ControlMsg::TrackSetSolo {
+        track: TrackSlot(0),
+        solo: true,
+    };
+    assert_eq!(decode(&solo, 4, &[2]), bad(Tag::TrackSetSolo));
+    let create = ControlMsg::TrackCreate {
+        track: TrackSlot(0),
+        kind: TrackKind::Midi,
+    };
+    assert_eq!(decode(&create, 4, &[2]), bad(Tag::TrackCreate));
+    let master = ControlMsg::SetMaster {
+        gain: 1.0,
+        mute: false,
+    };
+    assert_eq!(
+        decode(&master, 0, &f32::NAN.to_le_bytes()),
+        bad(Tag::SetMaster)
+    );
+    assert_eq!(
+        decode(&master, 0, &f32::INFINITY.to_le_bytes()),
+        bad(Tag::SetMaster)
+    );
+    let transport = ControlMsg::SetTransport {
+        tempo: Tempo::clamped(120.0),
+        signature: TimeSignature::COMMON,
+        launch_quantize: Quantize::Bar,
+    };
+    assert_eq!(
+        decode(&transport, 0, &5.0f64.to_le_bytes()),
+        bad(Tag::SetTransport),
+        "tempo below 20"
+    );
+    assert_eq!(
+        decode(&transport, 9, &[3]),
+        bad(Tag::SetTransport),
+        "3 is not a power of two"
+    );
+    assert_eq!(
+        decode(&transport, 10, &[7]),
+        bad(Tag::SetTransport),
+        "no 8th quantize"
+    );
+    let on = ControlMsg::NoteOn {
+        track: TrackSlot(0),
+        pitch: 60,
+        velocity: 1,
+    };
+    assert_eq!(decode(&on, 4, &[128]), bad(Tag::NoteOn));
+    let looped = ControlMsg::SetLoop {
+        region: engine::time::LoopRegion::new(Tick(0), Tick(1)),
+    };
+    assert_eq!(
+        decode(&looped, 9, &0i64.to_le_bytes()),
+        bad(Tag::SetLoop),
+        "end <= start"
+    );
+    // A list whose count does not match the bytes left, before anything is allocated.
+    let upload = ControlMsg::ClipNotesUpload {
+        clip: ClipSlot(0),
+        length: Tick(1),
+        looped: false,
+        first: 0,
+        total: 1,
+        notes: vec![Note::default()],
+    };
+    assert_eq!(
+        decode(&upload, 21, &u32::MAX.to_le_bytes()),
+        bad(Tag::ClipNotesUpload)
+    );
+    // A device state that is not whole pairs.
+    let mut bytes = Vec::new();
+    ControlMsg::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(0),
+        kind: DeviceKind(1),
+        state: vec![1, 2, 3],
+    }
+    .encode(0, 0, &mut bytes)
+    .unwrap();
+    let header = Header::decode(&bytes, 0).unwrap();
+    assert_eq!(
+        ControlMsg::decode(
+            &header,
+            &bytes[HEADER_BYTES..HEADER_BYTES + header.len as usize]
+        ),
+        bad(Tag::DeviceInsert)
+    );
+}
+
+#[test]
+fn a_payload_over_the_limit_is_refused_by_the_encoder() {
+    let notes = (limits::MAX_CONTROL_MSG_BYTES as usize) / engine::msg::NOTE_WIRE_BYTES + 1;
+    let msg = ControlMsg::ClipNotesUpload {
+        clip: ClipSlot(0),
+        length: Tick(1),
+        looped: false,
+        first: 0,
+        total: notes as u32,
+        notes: vec![Note::default(); notes],
+    };
+    let mut out = vec![9];
+    assert!(matches!(
+        msg.encode(0, 0, &mut out),
+        Err(MsgError::TooLarge(_))
+    ));
+    assert_eq!(out, vec![9], "nothing appended");
 }
