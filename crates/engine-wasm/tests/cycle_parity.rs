@@ -103,9 +103,9 @@ impl Wasm {
             .inbox
             .call(&mut self.store, (self.cycle, bytes.len() as i32))
             .unwrap();
-        if at == 0 {
-            return MsgError::OutOfMemory { bytes: bytes.len() }.code();
-        }
+        // The inbox must fit: an `OutOfMemory` code must come from `prepare`, not from
+        // the host's own buffer.
+        assert_ne!(at, 0, "the inbox of {} bytes was refused", bytes.len());
         self.memory
             .write(&mut self.store, at as usize, bytes)
             .unwrap();

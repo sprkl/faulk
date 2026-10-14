@@ -102,9 +102,11 @@
 //!   of its slots is used, and a larger directory when the page is beyond it, so a growth
 //!   moves at most `limit / PAGE_SLOTS` (1 024) pointers.
 //!
-//! A slot beyond the table in `apply`, or a "grown" table that is not larger than the live
-//! one, is a contract violation: the message is skipped and counted, what it carried goes
-//! to the garbage, no live entry is lost, never a panic.
+//! A slot beyond the table in `apply` is a contract violation: the item goes to the
+//! garbage and the message is counted as skipped. A "grown" table that is not larger than
+//! the live one is one too: the swap is refused (moving into it would lose live entries),
+//! that table goes to the garbage, the item is still put when its slot fits, and the
+//! message is counted. Never a panic.
 //!
 //! Every allocation of `prepare` is **fallible**: [`Table::try_with_capacity`] and
 //! [`try_box`], never `Box::new` nor `handle_alloc_error`. A refused allocation

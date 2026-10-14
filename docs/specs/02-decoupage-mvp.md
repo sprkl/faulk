@@ -330,7 +330,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 
 **MO-2 — Un seul canal vers le moteur, dans les deux cibles**
 - But : `engine-wasm` expose `fk_push(ptr, len)` et `fk_feedback()` ; le worklet devient générique (octets in, octets out) par la voie que CT-3 a retenue (anneau en mémoire partagée écrit par le Worker de `prepare`, ou boîte de réception préallouée alimentée entre deux quanta) ; le helper consomme le même flux (thread de contrôle + `rtrb`).
-- Critères : `worklet.ts` ne connaît aucun type de commande ; test de parité natif/WASM sur un flux de messages enregistré ; anciens exports `fk_note_on`… supprimés ; aucune allocation dans `process` ; le coût par message sur le thread de rendu est mesuré et tient dans le budget fixé par CT-3.
+- Critères : `worklet.ts` ne connaît aucun type de commande ; test de parité natif/WASM sur un flux de messages enregistré ; anciens exports `fk_note_on`… supprimés ; aucune allocation dans `process` ; le coût par message sur le thread de rendu est mesuré et tient dans le budget fixé par CT-3 ; le test de croissance de MO-1 (`crates/engine-wasm/tests/cycle_parity.rs`) repris sur la cible retenue : une croissance de la mémoire partagée déclenchée par le Worker de `prepare` pendant que le worklet rend ne produit ni bloc silencieux ni plantage (vues reprises), et un `memory.grow` refusé remonte en erreur typée.
 - Touche : `crates/engine-wasm`, `web/src/lib/engine/`, `crates/helper/src/audio.rs`.
 - Dépend de : MO-1, AU-0.
 - Phase : 1.

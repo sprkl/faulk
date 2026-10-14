@@ -946,6 +946,13 @@ fn a_full_queue_is_engine_busy_with_nothing_committed_then_resumes() {
 
 #[test]
 fn the_garbage_ring_never_fills_under_a_concurrent_audio_thread() {
+    // Several rounds: one round caught a removed drain in two runs out of three.
+    for _ in 0..5 {
+        garbage_round();
+    }
+}
+
+fn garbage_round() {
     // A small ring, an audio thread applying as fast as it can, a control side flooding
     // messages that each yield garbage, and copies that depend on the message before them:
     // apply must never find the garbage ring full, nor a message overtake another.
