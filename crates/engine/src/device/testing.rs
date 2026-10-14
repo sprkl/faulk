@@ -885,7 +885,7 @@ pub const CONFORMANCE_MAX_FRAMES: usize = 2048;
 /// events that break every host guarantee the contract tolerates (offsets beyond the block
 /// and unsorted, unknown parameter ids, NaN, infinities, values far out of range, velocities
 /// and tunings out of range), random `set_param` and `reset` calls between blocks, and a
-/// noise input for effects. The output must stay finite, without denormals, and a MIDI
+/// noise input for effects with NaN, infinities, huge and subnormal samples in it. The output must stay finite, without denormals, and a MIDI
 /// effect's output must stay sorted and inside the block. Allocates nothing: run it under
 /// the allocation detector.
 pub fn conformance(
@@ -981,11 +981,14 @@ pub fn conformance(
             device.reset();
         }
         for (i, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
-            let noise = if desc.role == DeviceRole::Effect {
+            let noise = if desc.role != DeviceRole::Effect {
+                0.0
+            } else if next().is_multiple_of(97) {
+                // Hostile input: NaN, infinities, huge, subnormal.
+                WILD[(next() % 8) as usize]
+            } else {
                 ((next() % 2001) as f32 / 1000.0 - 1.0)
                     * if i.is_multiple_of(2) { 1.0 } else { 0.5 }
-            } else {
-                0.0
             };
             *l = noise;
             *r = noise;

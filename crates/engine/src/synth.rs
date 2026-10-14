@@ -29,9 +29,10 @@ const GAIN_SNAP: f32 = 1e-6;
 
 /// The descriptor of the synth (CT-5): `faulk.osc_synth`, displayed "Oscillator". Ids are
 /// [`Param::id`], keys the v1 parameter names, ranges the clamps of [`Synth::set_param`],
-/// defaults the values of [`Synth::new`], smoothing times its own constants (all tested).
-/// The synth becomes a [`crate::device::Device`] with DV-1; until AM-3 its gain follows a
-/// one-pole of that time constant rather than the declared linear ramp.
+/// defaults the values of [`Synth::new`] (tested). The smoothing times are the contract's
+/// linear ramps the synth must follow once it is a [`crate::device::Device`] (DV-1, AM-3);
+/// today its gain follows a one-pole of time constant 10 ms and its sustain a fixed slope
+/// that crosses the whole range in 5 ms, so neither lands as the descriptor declares.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     kind: "faulk.osc_synth",
     kind_id: DeviceKind(1),

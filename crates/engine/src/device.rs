@@ -22,11 +22,14 @@
 //! block size. The host (MO-4) guarantees, for the slice a device receives:
 //!
 //! - offsets are sorted (non-decreasing) and below [`BlockCtx::frames`];
-//! - at the same offset, note-offs come first, then parameter values, then note-ons and
-//!   all-notes-offs **in the order they were issued** ([`Event::rank`]): a note-off and a
-//!   note-on at one offset is a retrigger, a note starts with the values set at its offset,
-//!   a note-on issued before a release (CT-3's live overflow, an overflowed MIDI effect
-//!   output) is released by it, and a note-on issued after a transport stop still plays;
+//! - at the same offset, parameter values come first, then the note events (`NoteOn`,
+//!   `NoteOff`, `AllNotesOff`) **in the order they were issued** ([`Event::rank`]): a note
+//!   starts with the values set at its offset; a note-off then a note-on is a retrigger; a
+//!   note-on then a note-off of the same voice (a tap shorter than a block, a zero gate) is
+//!   a note that ends at once, never a stuck one; a note-on issued before a release (CT-3's
+//!   live overflow, an overflowed MIDI effect output) is released by it, and one issued
+//!   after a transport stop still plays. A MIDI effect writes its notes in the order it
+//!   means them; its output, sorted by offset, needs no other sorting;
 //! - a device only receives what is addressed to it: its own parameters, and notes for a
 //!   MIDI effect or an instrument (an audio effect receives no notes);
 //! - a block never crosses a loop wrap or a seek: the host splits it, so the transport
@@ -201,14 +204,13 @@ impl Event {
         }
     }
 
-    /// Rank of the event among events of the same offset: `NoteOff` (0), `ParamValue`
-    /// (1), then `NoteOn` and `AllNotesOff` (2) in the order they were issued. A merge of
-    /// sorted streams is by `(offset, rank)` and stable.
+    /// Rank of the event among events of the same offset: `ParamValue` (0), then every
+    /// note event (1) in the order it was issued. A merge of sorted streams is by
+    /// `(offset, rank)` and stable.
     pub const fn rank(&self) -> u8 {
         match self {
-            Event::NoteOff { .. } => 0,
-            Event::ParamValue { .. } => 1,
-            Event::NoteOn { .. } | Event::AllNotesOff { .. } => 2,
+            Event::ParamValue { .. } => 0,
+            Event::NoteOn { .. } | Event::NoteOff { .. } | Event::AllNotesOff { .. } => 1,
         }
     }
 

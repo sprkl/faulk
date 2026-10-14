@@ -474,15 +474,55 @@ fn event_fits_in_24_bytes_and_voice_ids_have_24_bits() {
 }
 
 #[test]
-fn rank_orders_offs_params_then_ons_and_releases_in_issue_order() {
-    let ons = [on(5, 1, 60, 0.0), Event::AllNotesOff { offset: 5 }];
+fn rank_puts_params_first_and_keeps_notes_in_issue_order() {
     let params = [pv(5, tone::GAIN, 1.0)];
-    let offs = [off(5, 2)];
+    // Issue order: an off, an on, the same voice's off, a release.
+    let notes = [
+        off(5, 2),
+        on(5, 1, 60, 0.0),
+        off(5, 1),
+        Event::AllNotesOff { offset: 5 },
+    ];
     let mut merged = EventBuffer::try_with_capacity(16).unwrap();
-    // The notes stream holds off, on, release in issue order; params merged in.
-    let notes = [offs[0], ons[0], ons[1]];
     testing::merge(notes.iter(), params.iter(), &mut merged);
-    assert_eq!(merged.events(), [offs[0], params[0], ons[0], ons[1]]);
+    assert_eq!(
+        merged.events(),
+        [params[0], notes[0], notes[1], notes[2], notes[3]]
+    );
+}
+
+#[test]
+fn a_note_on_and_off_of_one_voice_at_one_offset_never_sticks() {
+    // A tap shorter than a block: both land at the block start, in issue order.
+    let mut t = TestTone::new(&setup());
+    let out = run(
+        &mut t,
+        128,
+        2,
+        &[(0, on(0, 1, 69, 0.0)), (0, off(0, 1))],
+        0.0,
+    );
+    assert_eq!(t.active_voices(), 0);
+    assert!(out.iter().all(|s| *s == 0.0));
+    // The same through the whole chain (the MIDI effect passes them on in order).
+    let script = [
+        Scheduled {
+            frame: 64,
+            target: Target::Transpose,
+            event: on(0, 1, 69, 0.0),
+        },
+        Scheduled {
+            frame: 64,
+            target: Target::Transpose,
+            event: off(0, 1),
+        },
+    ];
+    let mut chain = Chain::new(&setup()).unwrap();
+    let mut l = vec![0.0f32; 1024];
+    let mut r = vec![0.0f32; 1024];
+    assert_no_alloc(|| chain.render(&script, &[128], &mut l, &mut r));
+    assert_eq!(chain.tone.active_voices(), 0);
+    assert!(l.iter().all(|s| *s == 0.0));
 }
 
 #[test]
