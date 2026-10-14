@@ -58,7 +58,7 @@ test.describe('the DAW (/app)', () => {
   test('shares memory with an AudioWorklet (the engine thread)', async ({ page }) => {
     await page.goto('/app')
     // A click gives the page the user activation an AudioContext needs to run its render thread.
-    await page.getByRole('button', { name: 'Start audio' }).click()
+    await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
     const value = await page.evaluate(async () => {
       const processor = `registerProcessor('e2e-shared', class extends AudioWorkletProcessor {
@@ -152,8 +152,8 @@ test.describe('the DAW (/app)', () => {
     const { errors, requests } = watch(page)
     await page.goto('/app')
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)
-    await page.getByRole('button', { name: 'Start audio' }).click()
-    await expect(page.getByTestId('engine-mode')).toHaveText('Web')
+    await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+    await expect(page.getByTestId('engine-mode')).toContainText('Web')
     await page.getByRole('radio', { name: 'E2E Keys' }).check()
     const send = (bytes: number[]) =>
       page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
