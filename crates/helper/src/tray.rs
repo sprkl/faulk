@@ -134,7 +134,10 @@ fn forget_run_value(name: &str, exe: &str) -> std::io::Result<bool> {
         Ok(stored) if crate::tray_text::run_command_starts(&stored, exe) => {
             set_run_value(name, None).map(|()| true)
         }
-        _ => Ok(false),
+        Ok(_) => Ok(false),
+        // No key or no value: nothing to remove. Any other error is reported.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
@@ -365,5 +368,11 @@ mod tests {
             !forget_run_value(&name, installed).unwrap(),
             "absent: nothing to do"
         );
+        // A value that cannot be read as a string is an error, not an absence.
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(RUN_KEY)
+            .unwrap();
+        key.set_value(&name, &1u32).unwrap();
+        assert!(forget_run_value(&name, installed).is_err());
     }
 }
