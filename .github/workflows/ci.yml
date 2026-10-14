@@ -10,6 +10,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  agent-scripts:
+    # The agent guardrails (hooks, Judge Dredd brief, verification records).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the agent scripts
+        run: node --test "scripts/**/*.test.mjs"
+
   rust:
     runs-on: ubuntu-latest
     steps:

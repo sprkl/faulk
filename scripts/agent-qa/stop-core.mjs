@@ -1,0 +1,170 @@
+/**
+ * Decisions of the end-of-turn guard, without input or output: a turn that
+ * leaves the code changed ends only with, for the current state of the code, a
+ * recorded verification and a delivery review of the task's branch. A deferral
+ * lets exactly one stop through, the one where the agent asks the user a
+ * question.
+ *
+ * @doc docs/agents/verification.md
+ * @doc docs/agents/judge-dredd.md
+ */
+
+/**
+ * Evidence `record.mjs verified` requires, by area of the code
+ * (`docs/agents/verification.md`). `applies` receives a changed file path with
+ * forward slashes.
+ */
+export const EVIDENCE = [
+  {
+    flag: "rust",
+    what: "cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and the WASM build of the engine, with their results",
+    applies: (file) =>
+      file.startsWith("crates/") ||
+      file === "Cargo.toml" ||
+      file === "Cargo.lock" ||
+      (file.startsWith("modules/") && (file.endsWith(".rs") || file.endsWith("/Cargo.toml"))),
+  },
+  {
+    flag: "render",
+    what: "offline render tests asserting on the signal, the allocation detector on the audio path, native/WASM parity, with their results",
+    applies: (file) => /^crates\/engine[^/]*\//.test(file) || file.startsWith("modules/"),
+  },
+  {
+    flag: "commands",
+    what: "schema, description and undo tests of each changed command, the command/MCP tool parity test, the command run from a real agent",
+    applies: (file) => file.startsWith("crates/commands/") || file.startsWith("crates/helper/"),
+  },
+  {
+    flag: "web",
+    what: "typecheck, lint and tests of the web app, with their results",
+    applies: (file) => file.startsWith("web/") || file.startsWith("site/"),
+  },
+  {
+    flag: "browser",
+    what: "the Playwright check in a real browser: audio context started, acceptance criteria and changed screens exercised, console read",
+    applies: (file) => file.startsWith("web/") || file.startsWith("site/"),
+  },
+  {
+    flag: "exploration",
+    what: "what you tried beyond the scripted flow (double clicks, reload during playback, helper connected then disconnected, tab in the background) and what you saw",
+    applies: (file) => file.startsWith("web/") || file.startsWith("site/"),
+  },
+  {
+    flag: "scripts",
+    what: "the result of node --test 'scripts/**/*.test.mjs', and how the changed hooks or scripts were tried",
+    applies: (file) => file.startsWith("scripts/") || file.startsWith(".claude/"),
+  },
+  {
+    flag: "latency",
+    what: "the output latency (and round trip with input) measured in both modes with the method, or 'not measured: <why>'; never a number you did not measure",
+    applies: (file) =>
+      /^crates\/(helper|protocol|engine-wasm)\//.test(file) || (file.startsWith("web/") && /worklet/i.test(file)),
+  },
+];
+
+const FLAGS = EVIDENCE.map((e) => e.flag);
+
+/** Flags `record.mjs verified` requires for these changed files, in `EVIDENCE` order. */
+export function requiredEvidence(files) {
+  const normalized = files.map((file) => file.replaceAll("\\", "/"));
+  return EVIDENCE.filter((e) => normalized.some((file) => e.applies(file))).map((e) => e.flag);
+}
+
+/** Required flags missing (absent or blank) from `values`. */
+export function missingEvidence(files, values) {
+  return requiredEvidence(files).filter((flag) => typeof values[flag] !== "string" || values[flag].trim() === "");
+}
+
+export { FLAGS as EVIDENCE_FLAGS };
+
+/** The issue of a task branch named by the convention (`feat|fix|spike/<issue>-<slug>`), or `null`. */
+export function taskBranchIssue(branch) {
+  return (typeof branch === "string" && branch.match(/^(?:feat|fix|spike)\/(\d+)-/)?.[1]) || null;
+}
+
+/**
+ * A task branch named by the convention, where a review names the task. On
+ * any other branch (`develop`, `main`, a detached head, a free name) a review
+ * holds only for the state it reviewed.
+ */
+export const isTaskBranch = (branch) => taskBranchIssue(branch) !== null;
+
+/**
+ * Decision for one checkout. `writer`: one of this session's own tool calls
+ * changed the guarded code there; a session that did not is never blocked,
+ * whatever other sessions or the user changed. `baseline`: the fingerprint the
+ * first time the hooks saw this checkout in this session.
+ *
+ * Returns `{ allow, consumeDeferral?, missing? }`.
+ */
+export function stopDecision({ fingerprint, writer, baseline, branch, verification, review, deferral }) {
+  if (fingerprint === null || !writer) {
+    return { allow: true };
+  }
+  if (baseline !== undefined && baseline !== "unknown" && baseline === fingerprint) {
+    // The session undid its own changes.
+    return { allow: true };
+  }
+  const verified = verification?.fingerprint === fingerprint && verification.status === "verified";
+  // Judge Dredd reviews a task once, at the end: the review stays valid for
+  // later fixes on the same task branch, which only need a new verification.
+  const reviewed =
+    review?.status === "reviewed" &&
+    (review.fingerprint === fingerprint || (isTaskBranch(branch) && review.branch === branch));
+  if (verified && reviewed) {
+    return { allow: true };
+  }
+  if (deferral?.status === "deferred" && deferral.fingerprint === fingerprint && !deferral.consumedAt) {
+    return { allow: true, consumeDeferral: true };
+  }
+  const missing = [];
+  if (!verified) {
+    missing.push("verification");
+  }
+  if (!reviewed) {
+    missing.push("review");
+  }
+  return { allow: false, missing };
+}
+
+/**
+ * One deferral per user prompt: once a deferral has let a stop through, the
+ * next one needs the user to have written since. Without this rule, a blocked
+ * agent would defer at each stop (after touching the code, if the rule were per
+ * state) and never verify.
+ */
+export function canDefer(existing, lastPromptAt) {
+  if (!existing?.consumedAt) {
+    return true;
+  }
+  return typeof lastPromptAt === "string" && existing.consumedAt < lastPromptAt;
+}
+
+const quote = (flag) => `--${flag} "<${EVIDENCE.find((e) => e.flag === flag).what}>"`;
+
+/** The exact `record.mjs verified` command for these changed files. */
+export function verifiedCommand(files) {
+  const flags = requiredEvidence(files);
+  return ["node scripts/agent-qa/record.mjs verified", ...flags.map(quote)].join(" ");
+}
+
+/** The message the Stop hook gives the agent when it blocks. */
+export function blockReason({ root, fingerprint, files, missing }) {
+  const steps = [];
+  if (missing.includes("verification")) {
+    steps.push(
+      `run the checks of docs/agents/verification.md for the changed areas, then record them: ${verifiedCommand(files)}`,
+    );
+  }
+  if (missing.includes("review")) {
+    steps.push(
+      'this branch has no delivery review yet: once the task is done and before opening its pull request (docs/agents/judge-dredd.md), write your report draft to .scratch/judge-dredd/<issue>-delivery.proposal.md, run node scripts/agent-review/brief.mjs <issue> delivery, then node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-delivery.md, show the user every finding with your opinion, then: node scripts/agent-qa/record.mjs reviewed --brief .scratch/judge-dredd/<issue>-delivery.md --dispositions "<each finding: fixed, or rejected and why>". One review per task branch: later fixes on the same branch only need a new verification',
+    );
+  }
+  const shown = files.slice(0, 10).join(", ") + (files.length > 10 ? `, and ${files.length - 10} more` : "");
+  return [
+    `The code changed by this session in ${root ?? "this checkout"} (fingerprint ${fingerprint}: ${shown}) is not cleared to end the turn.`,
+    `Before ending, from that directory: ${steps.join("; and ")}.`,
+    'Only if you are stopping to ask the user a question mid-task: node scripts/agent-qa/record.mjs deferred --reason "<the question>"; a deferral lets exactly one stop through. Never defer at the end of a task.',
+  ].join(" ");
+}
