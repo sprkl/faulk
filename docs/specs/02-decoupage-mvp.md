@@ -337,7 +337,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 ### Épopée 4 — Instruments et effets (DV)
 
 **DV-1 — Registre de devices et synthé porté**
-- Nom affiché : Oscillator.
+- Nom affiché : Oscillator. Le panneau prend ce nom dans le descripteur ; la clé `synth.title` du catalogue web (et son entrée dans `DEVICE_NAME_KEYS`) disparaît alors, pour garder une seule source.
 - But : registre des devices ; le synthé oscillateur actuel devient le device `faulk.osc_synth` avec son descripteur ; descripteurs exportés dans le schéma.
 - Critères : rendu identique à l'ancien synthé (rendu de référence) ; aucun identifiant de paramètre écrit en dur côté web.
 - Touche : `crates/engine/src/devices/`, `crates/protocol`.

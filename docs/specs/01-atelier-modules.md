@@ -92,7 +92,7 @@ Un fichier `module.json`, validé par un schéma JSON généré depuis une struc
       "name": { "fr": "Coupure", "en": "Cutoff" },
       "min": 40, "max": 18000, "default": 1200,
       "unit": "Hz", "scale": "log", "smoothing_ms": 10,
-      "automatable": true, "modulatable": true, "group": "Filtre",
+      "automatable": true, "modulatable": true, "group": { "fr": "Filtre", "en": "Filter" },
       "description": "Low-pass cutoff before resonance."
     }
   ],
@@ -109,7 +109,7 @@ Règles :
 
 - **L'identifiant d'un paramètre est stable** d'une version à l'autre (dérivé du chemin Faust, figé à la première version) : rechargement à chaud sans perdre automation ni réglages, comparaison A/B paramètre par paramètre. C'est le même identifiant que celui du fichier de device du projet ([modèle de projet](../architecture/02-modele-projet.md)).
 - **La description des paramètres est écrite pour un agent**, comme celle des commandes.
-- **Le nom d'un module n'est pas traduit** : une seule chaîne, affichée telle quelle dans les deux langues de l'interface, comme le nom d'un device (décision du fondateur du 2026-10-14) ; les modules de Faulk portent un nom anglais. Les noms des paramètres (`params[].name`) sont traduits (EN, FR).
+- **Le nom d'un module n'est pas traduit** : une seule chaîne, affichée telle quelle dans les deux langues de l'interface, comme le nom d'un device (décision du fondateur du 2026-10-14) ; les modules de Faulk portent un nom anglais. Les noms et les groupes des paramètres (`params[].name`, `params[].group`) sont traduits (EN, FR).
 - `budget.cpu_us_per_128` est **mesuré** par Faulk à la compilation (§ 5), jamais déclaré par l'auteur.
 
 ## 2. Synthèse et effets

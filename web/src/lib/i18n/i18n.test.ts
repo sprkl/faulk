@@ -33,7 +33,10 @@ describe('i18n', () => {
       expect(keys.length).toBeGreaterThan(0)
       const en = catalogue.en as Record<string, string>
       const fr = catalogue.fr as Record<string, string>
-      for (const key of keys) expect(fr[key], key).toBe(en[key])
+      for (const key of keys) {
+        expect(en[key]?.trim(), key).toBeTruthy()
+        expect(fr[key], key).toBe(en[key])
+      }
     }
   })
 
