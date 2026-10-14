@@ -12,8 +12,8 @@ The lead reviews its own work with the assumptions it used to write it. Judge Dr
 
 | Checkpoint | When | Command |
 |---|---|---|
-| `plan` | once, before starting an issue | write the plan to `.scratch/judge-dredd/<issue>-plan.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> plan` |
-| `delivery` | once, as the last step before opening the pull request, after the lead's own reviews (`/code-review`) and their fixes | write the report draft (the claims) to `.scratch/judge-dredd/<issue>-delivery.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> delivery` |
+| `plan` | once, before starting an issue that changes a contract (commands, protocol, device contract, project model, engine sync, a `CT-*` task), the real-time audio path, the guardrails (`scripts/agent-*`, `.claude/`) or more than ~10 files; optional for any other issue | write the plan to `.scratch/judge-dredd/<issue>-plan.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> plan` |
+| `delivery` | mandatory for every issue, once, as the last step before opening the pull request, after the lead's own reviews (`/code-review`) and their fixes | write the report draft (the claims) to `.scratch/judge-dredd/<issue>-delivery.proposal.md`, then `node scripts/agent-review/brief.mjs <issue> delivery` |
 | `replies` | optional, only if the user asks for it | `node scripts/agent-review/brief.mjs <issue> replies --pr <n>` |
 
 Judge Dredd does not run inside the lead's own work, test and fix loop, and is not run again for the fixes of its own findings. The `reviewed` record needs a brief built for the current state of the code: run the delivery review once the code is final, and record it before making any fix it brings.

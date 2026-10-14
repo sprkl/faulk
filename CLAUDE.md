@@ -10,7 +10,7 @@ This project follows two protocols. Both are mandatory for any agent working her
 - **Open Knowledge Format v0.2** for everything in `docs/` (the bundle root). When you add or change a document:
   - put it in the matching sub-folder (`product/`, `architecture/`, `constraints/`, `design/`, `specs/`, `spikes/`, `agents/`);
   - give it frontmatter with `type`, `title` and `description`, plus `status: draft` until it is checked against the code;
-  - update that folder's `index.md` and add a dated entry to `docs/log.md`.
+  - update that folder's `index.md` and add one log fragment `docs/log.d/<issue>-<slug>.md` holding the dated entry (never edit `docs/log.md` in a pull request: `docs/log.d/README.md`).
 
 The project is worked on with Claude Code only; this file is the agents' entry point.
 
@@ -75,14 +75,14 @@ The code is always right; documentation, `docs/` included, may be stale. When a 
 
 An issue is carried through autonomously, from plan to a reviewed pull request, without waiting for the user's go-ahead between steps. The detailed steps are in `docs/agents/issue-tracker.md` > Working on a task.
 
-1. **Plan**: read the issue, its spec and the code, write the plan, have Judge Dredd review it, and settle its findings.
+1. **Plan**: read the issue, its spec and the code, write the plan, and settle Judge Dredd's findings when its review is required (task that changes a contract, the real-time audio path, the guardrails or more than ~10 files; optional otherwise).
 2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
 3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
-4. **Copilot review**, when Copilot code review is enabled on the repository: request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most).
+4. **Copilot review**, optional: when Copilot code review is enabled on the repository and its quota allows, request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most). A quota refusal is noted in the pull request and does not block the merge.
 5. **Merge** when the pull request is ready (see below), with a merge commit.
 6. **Close the loop**: update the issue, then send the final message.
 
-Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, Judge Dredd and Copilot findings settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. Releases to `main` stay with the founder.
+Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, the findings of the reviews that ran (Judge Dredd, Copilot) settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. Releases to `main` stay with the founder.
 
 ## Definition of done
 
@@ -94,7 +94,7 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 - **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
 - **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
 
-Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Briefs are built by `scripts/agent-review/brief.mjs` and the delivery review runs through `scripts/agent-review/run.mjs`. Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+Judge Dredd, an impartial read-only reviewer subagent, judges the delivery of every task, once, as the last step before opening the pull request, and the plan before starting when the task changes a contract (commands, protocol, device contract, project model, engine sync, a `CT-*` task), the real-time audio path, the guardrails (`scripts/agent-*`, `.claude/`), or more than ~10 files (optional otherwise) (`docs/agents/judge-dredd.md`). Briefs are built by `scripts/agent-review/brief.mjs` and the delivery review runs through `scripts/agent-review/run.mjs`. Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
 
 A `Stop` hook enforces this: a turn in which the session's own tool calls changed the guarded code (`crates/`, `web/`, `modules/`, `scripts/`…) ends only once the checks are recorded for its current state (`node scripts/agent-qa/record.mjs verified …`, `docs/agents/verification.md`) and the branch's delivery review is recorded (`node scripts/agent-qa/record.mjs reviewed …`). To stop mid-task only to ask the user a question, `node scripts/agent-qa/record.mjs deferred --reason "<question>"` lets one stop through per user message. A session whose own tool calls change no guarded file is not blocked, except in the cases listed in `docs/agents/verification.md` > Limits (another writer's edit during one of its shell calls is counted as its own). The guardrails stop an honest agent that forgets a step, not a deliberately evasive one.
 
