@@ -34,10 +34,10 @@
 //!
 //! | `ControlMsg` | `RtMsg` |
 //! |---|---|
-//! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item |
+//! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
 //! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
-//! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it |
-//! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables, one garbage item |
+//! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
+//! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
 //! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
 //! | `DeviceRemove` | `DeviceRemove` |

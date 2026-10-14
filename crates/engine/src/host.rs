@@ -8,17 +8,16 @@
 //!   [`Prepare::submit`] takes a `ControlMsg` byte stream, [`Prepare::flush`] pushes what
 //!   waited and drops the garbage; both publish the counters the audio side reports.
 //! - [`Host`], on the audio path: [`Host::pump`] applies what arrived
-//!   (`Engine::begin_block`), [`Host::render_block`] renders the tracks, and
-//!   [`Host::render`] does both; about 30 times per second it writes the [`Feedback`]
-//!   report (layout of `crate::msg`) into a region the page reads without stopping it.
-//!   Nothing here allocates, frees, locks or panics.
+//!   (`Engine::begin_block`), [`Host::render_block`] renders the track graph
+//!   (`Engine::render`, MO-3), and [`Host::render`] does both; about 30 times per second it
+//!   writes the [`Feedback`] report (layout of `crate::msg`) into a region the page reads
+//!   without stopping it. Nothing here allocates, frees, locks or panics.
 //!
-//! Two parts are interim and documented as such:
+//! Interim, documented as such:
 //!
-//! - **The render** is a stand-in for MO-3's graph: each track's instrument receives that
-//!   track's live notes at offset 0, its enabled audio effects follow (MIDI effects are
-//!   skipped), the tracks are summed with their gain and mute, then the master's. MO-3
-//!   replaces it.
+//! - **The report's meters**: the graph has no per-track meters yet (MO-5), so the report
+//!   carries one meter, the output's (after the master), as its only "track" meter, and
+//!   the synth's voice count in the word at offset 52.
 //! - **[`SynthDevice`]** wraps the existing [`Synth`] behind the device contract (CT-5) so
 //!   that the page's synth plays through the channel; DV-1 registers the synth as a device
 //!   of its own and retires the adapter. [`factory`] resolves its kind (`faulk.osc_synth`).
@@ -30,13 +29,12 @@ use core::sync::atomic::{AtomicU32, Ordering, fence};
 use std::sync::Arc;
 
 use crate::device::{
-    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, EventBuffer,
-    Factory, VoiceId, event_frame,
+    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceSetup, Event, Factory, event_frame,
 };
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
-    DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, LiveEvent, MsgError, ParamId,
-    TRACK_METER_BYTES, TrackSlot, TransportState, limits, try_box,
+    DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, MsgError, ParamId,
+    TRACK_METER_BYTES, TransportState, limits, try_box,
 };
 use crate::{OSC_SYNTH, Param, Synth};
 
@@ -207,13 +205,10 @@ pub struct Host {
     engine: Engine,
     status: Arc<Status>,
     sample_rate: f32,
-    events: EventBuffer,
-    scratch: EventBuffer,
-    track_left: Box<[f32]>,
-    track_right: Box<[f32]>,
     left: Box<[f32]>,
     right: Box<[f32]>,
-    meters: Box<[MeterAcc]>,
+    /// The output's meter over the reporting period.
+    meter: MeterAcc,
     meter_frames: u32,
     /// Voices of the last block, and the most of the reporting period.
     voices: u32,
@@ -261,13 +256,9 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         engine,
         status: Arc::clone(&status),
         sample_rate,
-        events: EventBuffer::try_with_capacity(limits::LIVE_QUEUE_CAPACITY + 2)?,
-        scratch: EventBuffer::try_with_capacity(1)?,
-        track_left: try_slice(frames, 0.0)?,
-        track_right: try_slice(frames, 0.0)?,
         left: try_slice(frames, 0.0)?,
         right: try_slice(frames, 0.0)?,
-        meters: try_slice(limits::MAX_TRACKS as usize, MeterAcc::default())?,
+        meter: MeterAcc::default(),
         meter_frames: 0,
         voices: 0,
         period_voices: 0,
@@ -288,11 +279,6 @@ fn report_frames(sample_rate: f32) -> u32 {
     } else {
         1600
     }
-}
-
-/// The voice id of a live note: its key, plus one (0 is not a voice id).
-fn voice(pitch: u8) -> Option<VoiceId> {
-    VoiceId::new(u32::from(pitch) + 1)
 }
 
 /// A word of the region holding four little-endian bytes, whatever the host's endianness.
@@ -326,104 +312,14 @@ impl Host {
     pub fn render_block(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
-        left.fill(0.0);
-        right.fill(0.0);
-        let ctx = BlockCtx {
-            sample_rate: self.sample_rate,
-            frames: frames as u32,
-            transport: Default::default(),
-        };
-        let release = self.engine.release_live();
         let _ = BLOCK_VOICES.try_with(|v| v.set(0));
-        let tracks = self.engine.state().tracks.capacity();
-        for slot in 0..tracks {
-            let slot = TrackSlot(slot as u32);
-            if self.engine.state().track(slot).is_none() {
-                continue;
+        self.engine.render(left, right);
+        let acc = &mut self.meter;
+        for (i, s) in [left.iter(), right.iter()].into_iter().enumerate() {
+            for s in s {
+                acc.peak[i] = acc.peak[i].max(s.abs());
+                acc.squares[i] += s * s;
             }
-            self.events.clear();
-            for event in self.engine.live_events() {
-                let event = match *event {
-                    LiveEvent::NoteOn {
-                        track,
-                        pitch,
-                        velocity,
-                    } if track == slot => voice(pitch).map(|voice| Event::NoteOn {
-                        offset: 0,
-                        voice,
-                        key: pitch,
-                        velocity: f32::from(velocity) / 127.0,
-                        tune_cents: 0.0,
-                    }),
-                    LiveEvent::NoteOff { track, pitch } if track == slot => {
-                        voice(pitch).map(|voice| Event::NoteOff {
-                            offset: 0,
-                            voice,
-                            key: pitch,
-                        })
-                    }
-                    LiveEvent::AllNotesOff { track } if track == slot => {
-                        Some(Event::AllNotesOff { offset: 0 })
-                    }
-                    _ => None,
-                };
-                if let Some(event) = event {
-                    self.events.push(event);
-                }
-            }
-            if release {
-                self.events.push(Event::AllNotesOff { offset: 0 });
-            }
-            self.events.finish();
-            let Some(track) = self.engine.state_mut().track_mut(slot) else {
-                continue;
-            };
-            let (tl, tr) = (
-                &mut self.track_left[..frames],
-                &mut self.track_right[..frames],
-            );
-            tl.fill(0.0);
-            tr.fill(0.0);
-            for entry in track.devices.as_mut_slice().iter_mut().flatten() {
-                if !entry.enabled {
-                    continue;
-                }
-                let events = match entry.device.descriptor().role {
-                    DeviceRole::Instrument => self.events.events(),
-                    DeviceRole::Effect => &[],
-                    DeviceRole::MidiEffect => continue,
-                };
-                self.scratch.clear();
-                let mut io = AudioIo {
-                    left: tl,
-                    right: tr,
-                    events_out: &mut self.scratch,
-                };
-                entry.device.process(&ctx, events, &mut io);
-            }
-            let gain = if track.mute { 0.0 } else { track.gain };
-            let meter = self.meters.get_mut(slot.0 as usize);
-            let mut acc = meter.as_deref().copied().unwrap_or_default();
-            for (out, s) in left.iter_mut().zip(tl.iter()) {
-                let s = s * gain;
-                *out += s;
-                acc.peak[0] = acc.peak[0].max(s.abs());
-                acc.squares[0] += s * s;
-            }
-            for (out, s) in right.iter_mut().zip(tr.iter()) {
-                let s = s * gain;
-                *out += s;
-                acc.peak[1] = acc.peak[1].max(s.abs());
-                acc.squares[1] += s * s;
-            }
-            if let Some(meter) = meter {
-                *meter = acc;
-            }
-        }
-        let master = self.engine.state().master;
-        let gain = if master.mute { 0.0 } else { master.gain };
-        for s in left.iter_mut().chain(right.iter_mut()) {
-            *s *= gain;
         }
         self.voices = BLOCK_VOICES.try_with(Cell::get).unwrap_or(0);
         self.period_voices = self.period_voices.max(self.voices);
@@ -463,7 +359,7 @@ impl Host {
     ///
     /// Written: version, epoch and the counters the prepare side published, the most voices
     /// sounding during the period (offset 52, interim until DV-1, `crate::msg`), and one
-    /// meter per track slot up to the highest track that exists (an empty slot reads zero).
+    /// meter: the output's, after the master (interim until MO-5's track meters).
     /// Not produced yet, written as zero: the transport state and playhead (TR-1), the CPU
     /// load, the disk underruns (AU-3), the active clips (LA), the recorded notes (RE-2).
     pub fn write_feedback(&mut self) {
@@ -477,15 +373,6 @@ impl Host {
         put(4, seq);
         fence(Ordering::Release);
 
-        let tracks = self
-            .engine
-            .state()
-            .tracks
-            .as_slice()
-            .iter()
-            .rposition(Option::is_some)
-            .map_or(0, |last| last + 1)
-            .min(self.meters.len());
         let epoch = self.status.epoch.load(Ordering::Relaxed) as u16;
         let [e0, e1] = epoch.to_le_bytes();
         put(
@@ -497,19 +384,17 @@ impl Host {
         }
         put(28, self.status.live_overflows.load(Ordering::Relaxed));
         put(32, self.status.rejected.load(Ordering::Relaxed));
-        put(40, tracks as u32);
+        // One meter, the output's (module doc), until MO-5 meters the tracks.
+        put(40, 1);
         put(52, self.period_voices);
         let period = self.meter_frames.max(1) as f32;
-        for (i, acc) in self.meters[..tracks].iter().enumerate() {
-            let at = FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES;
-            put(at, acc.peak[0].to_bits());
-            put(at + 4, acc.peak[1].to_bits());
-            put(at + 8, (acc.squares[0] / period).sqrt().to_bits());
-            put(at + 12, (acc.squares[1] / period).sqrt().to_bits());
-        }
-        for acc in self.meters.iter_mut() {
-            *acc = MeterAcc::default();
-        }
+        let acc = self.meter;
+        let at = FEEDBACK_HEADER_BYTES;
+        put(at, acc.peak[0].to_bits());
+        put(at + 4, acc.peak[1].to_bits());
+        put(at + 8, (acc.squares[0] / period).sqrt().to_bits());
+        put(at + 12, (acc.squares[1] / period).sqrt().to_bits());
+        self.meter = MeterAcc::default();
         self.meter_frames = 0;
         self.period_voices = self.voices;
 

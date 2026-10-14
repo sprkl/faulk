@@ -71,6 +71,10 @@ fn param(param: Param, value: f32) -> M {
 #[test]
 fn the_adapter_renders_the_synth_sample_for_sample() {
     let mut session = Session::new();
+    // The new track fades in over 5 ms (MO-3's graph): let it reach unity first.
+    for _ in 0..4 {
+        session.host.render(128);
+    }
     let mut synth = Synth::new(RATE);
     let (mut l, mut r) = (vec![0.0; 128], vec![0.0; 128]);
     // (block, what happens at its start)
@@ -183,7 +187,7 @@ fn the_report_holds_the_meters_and_the_counters() {
     assert_eq!(fb.epoch, 1);
     assert_eq!(fb.seq % 2, 0);
     assert_eq!(fb.rejected, 1);
-    assert_eq!(fb.meters.len(), 1);
+    assert_eq!(fb.meters.len(), 1, "one meter: the output's");
     let m = fb.meters[0];
     assert!(m.peak_l > 0.05 && m.peak_r > 0.05);
     assert!(m.rms_l > 0.0 && m.rms_l <= m.peak_l);

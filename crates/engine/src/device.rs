@@ -314,6 +314,20 @@ impl EventBuffer {
         }
     }
 
+    /// Keeps the note events only, in their order, in place (no allocation): the host
+    /// forwards nothing else of a MIDI effect's output to the next device.
+    pub fn retain_notes(&mut self) {
+        let mut kept = 0;
+        for i in 0..self.len {
+            let event = self.events[i];
+            if event.is_note() {
+                self.events[kept] = event;
+                kept += 1;
+            }
+        }
+        self.len = kept;
+    }
+
     /// Pushes refused since the last [`EventBuffer::clear`].
     pub fn overflowed(&self) -> u32 {
         self.overflowed
