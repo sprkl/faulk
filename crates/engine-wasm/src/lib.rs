@@ -498,3 +498,34 @@ pub mod cycle_exports {
         c.counter(which)
     }
 }
+
+/// The transport clock's test scenario (`engine::transport::testing::scenario`), computed
+/// once and kept: the address of its `i64` output ([`fk_transport_len`] values), null when
+/// empty. Only in the test build (`--features transport-scenario`), for the native/WASM
+/// parity test; never in the worklet's module.
+#[cfg(feature = "transport-scenario")]
+pub mod transport_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [i64] {
+        static OUT: OnceLock<Box<[i64]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::transport::testing::scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_transport_scenario() -> *const i64 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `i64` values [`fk_transport_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_transport_len() -> u32 {
+        scenario().len() as u32
+    }
+}
