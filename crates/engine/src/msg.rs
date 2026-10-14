@@ -1521,7 +1521,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///     40    4 tracks (u32)
 ///     44    4 active_clips (u32, at most 2 per track: one playing, one queued)
 ///     48    4 recorded (u32, notes recorded since the last report, drained)
-///     52    4 reserved
+///     52    4 voices (u32, interim, MO-2: the most voices sounding in the synth during the
+///             period, `crate::host`; reserved again once DV-1 and MO-3 report otherwise)
 ///     56      TrackMeter × tracks (16 bytes each)
 ///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,

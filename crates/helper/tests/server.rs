@@ -32,7 +32,7 @@ async fn start() -> Harness {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let meter = Arc::new(Meter::default());
-    let (core, sender) = audio_core(48_000.0, meter.clone());
+    let (core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
     let sender = Arc::new(Mutex::new(sender));
     let (activity_tx, activity_rx) = mpsc::channel();
     let midi = MidiManager::new(sender.clone(), activity_tx);
