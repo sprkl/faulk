@@ -22,8 +22,8 @@ pub const MAX_FRAME: u64 = 1 << 40;
 /// Longest name (project, track, scene, clip, audio file, MIDI input), in characters.
 pub const MAX_NAME_CHARS: usize = 200;
 
-/// Longest identifier string inside the document (parameter id, built-in device id,
-/// module name), in bytes.
+/// Longest identifier string inside the document (parameter id, built-in device id), in
+/// bytes. A module's name is a display name ([`MAX_NAME_CHARS`]).
 pub const MAX_KEY_LEN: usize = 128;
 
 /// Most tracks in a project.

@@ -9,7 +9,7 @@
 use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, LaneId, PlacementId, ProjectId, SceneId, TrackId};
 use crate::order::{OrderKey, by_order};
-use crate::serde_util::{Rgb, db, finite, finite_map, unique_map};
+use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +19,15 @@ pub const FORMAT_VERSION: u32 = 1;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
+
+/// The first thing a reader takes from `project.json`: its format version alone, every
+/// other field ignored. [`Project`] refuses unknown fields, so a newer format would fail
+/// with an opaque serde error; reading this first tells "migrate" or "newer than this
+/// build" (`format` other than [`FORMAT_VERSION`]) apart from "corrupt".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct FormatProbe {
+    pub format: u32,
+}
 
 /// The project document: what makes the music, saved and versioned.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -243,6 +252,7 @@ pub enum ClipContent {
     Midi {
         length: Tick,
         looping: Option<TickLoop>,
+        #[serde(deserialize_with = "unique_set")]
         notes: BTreeSet<Note>,
     },
     /// Source time: a range `[start, start + frames)` of an audio file, in frames. No

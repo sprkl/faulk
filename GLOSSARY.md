@@ -20,7 +20,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Effet** : un device qui transforme un signal (effet audio) ; un effet MIDI transformera des notes, après le MVP. Code : `DeviceRole::Effect`.
 
-**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé comme instrument d'une piste audio par la validation) ; le device lui-même **(prévu)**.
+**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, le seul instrument que la validation admet sur une piste audio, et refusé ailleurs) ; le device lui-même **(prévu)**.
 
 **Scène** : une ligne de la grille de lancement ; lancer une scène lance les clips de ses emplacements. Code : `Scene` ; commandes `scene.*` et `launch.scene` **(prévu)**.
 

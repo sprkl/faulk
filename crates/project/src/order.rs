@@ -58,7 +58,12 @@ impl fmt::Display for OrderKeyError {
 impl std::error::Error for OrderKeyError {}
 
 fn digit(b: u8) -> Option<usize> {
-    DIGITS.iter().position(|&d| d == b)
+    match b {
+        b'0'..=b'9' => Some(usize::from(b - b'0')),
+        b'A'..=b'Z' => Some(usize::from(b - b'A') + 10),
+        b'a'..=b'z' => Some(usize::from(b - b'a') + 36),
+        _ => None,
+    }
 }
 
 /// Length of the integer part announced by its head.
@@ -71,11 +76,7 @@ fn integer_len(head: u8) -> Option<usize> {
 }
 
 /// The smallest integer part, `A` then 26 zeros: a key equal to it has no key before it.
-fn smallest_integer() -> Vec<u8> {
-    let mut v = vec![b'A'];
-    v.extend(std::iter::repeat_n(ZERO, 26));
-    v
-}
+const SMALLEST_INTEGER: &[u8] = b"A00000000000000000000000000";
 
 /// Splits a valid key into (integer, fraction).
 fn split(key: &[u8]) -> (&[u8], &[u8]) {
@@ -97,7 +98,7 @@ fn validate(key: &[u8]) -> bool {
     if frac.last() == Some(&ZERO) {
         return false;
     }
-    !(frac.is_empty() && int == smallest_integer().as_slice())
+    !(frac.is_empty() && int == SMALLEST_INTEGER)
 }
 
 /// A key strictly between the fractions `a` and `b` (`b = None`: no upper bound), with
@@ -237,12 +238,18 @@ impl OrderKey {
             (Some(a), Some(b)) if a >= b => return Err(OrderKeyError::NotOrdered),
             (None, Some(b)) => {
                 let (ib, fb) = split(b.0.as_bytes());
-                if ib == smallest_integer().as_slice() {
+                if ib == SMALLEST_INTEGER {
                     concat(ib, &midpoint(&[], Some(fb)))
                 } else if !fb.is_empty() {
                     ib.to_vec()
                 } else {
-                    decrement_integer(ib).ok_or(OrderKeyError::Exhausted)?
+                    let i = decrement_integer(ib).ok_or(OrderKeyError::Exhausted)?;
+                    if i == SMALLEST_INTEGER {
+                        // The smallest integer alone is not a key: give it a fraction.
+                        concat(&i, &midpoint(&[], None))
+                    } else {
+                        i
+                    }
                 }
             }
             (Some(a), None) => {
@@ -267,11 +274,12 @@ impl OrderKey {
                 }
             }
         };
-        let key = String::from_utf8(key).expect("keys are ASCII");
-        if key.len() > MAX_ORDER_KEY_LEN {
+        // Every key made here is checked like a key read from disk, so whatever `between`
+        // returns reads back.
+        if !validate(&key) {
             return Err(OrderKeyError::Exhausted);
         }
-        Ok(Self(key))
+        Ok(Self(String::from_utf8(key).expect("keys are ASCII")))
     }
 
     /// The key that puts a new element at `index` (0 = first, `keys.len()` or more =
@@ -405,6 +413,14 @@ mod tests {
         let before = OrderKey::between(None, Some(&smallest)).unwrap();
         assert!(before < smallest);
         assert!(OrderKey::parse(before.as_str()).is_ok());
+        // One integer above the smallest: decrementing reaches the smallest integer,
+        // which alone is not a key; the result carries a fraction and reads back.
+        let next = k("A00000000000000000000000001");
+        let before = OrderKey::between(None, Some(&next)).unwrap();
+        assert!(before < next);
+        assert_eq!(OrderKey::parse(before.as_str()), Ok(before.clone()));
+        let first = OrderKey::between(None, Some(&before)).unwrap();
+        assert!(first < before && OrderKey::parse(first.as_str()).is_ok());
     }
 
     #[test]

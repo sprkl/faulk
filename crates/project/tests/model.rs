@@ -977,6 +977,27 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "PanOutOfRange",
         ),
         (
+            "pan automation point at -2",
+            Box::new(|fx| {
+                let lane = AutomationLane {
+                    target: AutomationTarget::Mixer {
+                        param: MixerParam::Pan,
+                    },
+                    points: BTreeMap::from([(
+                        Tick(0),
+                        AutomationPoint {
+                            value: -2.0,
+                            shape: Shape::Step,
+                        },
+                    )]),
+                };
+                midi_track(fx)
+                    .automation
+                    .insert(LaneId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(), lane);
+            }),
+            "PanOutOfRange",
+        ),
+        (
             "two instruments",
             Box::new(|fx| {
                 let f = fx.filter.clone();
@@ -1117,4 +1138,28 @@ fn the_limits_hold_the_load_bench() {
     const { assert!(MAX_NOTES >= 200_000 && MAX_NOTES_PER_CLIP >= 200_000) };
     const { assert!(MAX_POINTS >= 6_000_000 && MAX_POINTS_PER_LANE >= 6_000_000) };
     const { assert!(MAX_NOTES_PER_CLIP <= MAX_NOTES && MAX_POINTS_PER_LANE <= MAX_POINTS) };
+}
+
+#[test]
+fn reading_refuses_a_duplicate_note() {
+    let fx = fixture();
+    let json = serde_json::to_string(&fx.project).unwrap();
+    let note = r#"{"start":0,"pitch":36,"length":240,"velocity":110}"#;
+    assert!(json.contains(note));
+    let bad = json.replacen(note, &format!("{note},{note}"), 1);
+    let err = serde_json::from_str::<Project>(&bad).unwrap_err();
+    assert!(err.to_string().contains("duplicate value"), "{err}");
+}
+
+#[test]
+fn the_format_is_read_before_the_strict_document() {
+    // A newer format with a field this build does not know: the strict read fails, the
+    // probe still reads the version, so the reader can say "newer format".
+    let fx = fixture();
+    let mut value = serde_json::to_value(&fx.project).unwrap();
+    value["format"] = 2.into();
+    value["tempo_curve"] = serde_json::json!([]);
+    assert!(serde_json::from_value::<Project>(value.clone()).is_err());
+    let probe: FormatProbe = serde_json::from_value(value).unwrap();
+    assert_eq!(probe, FormatProbe { format: 2 });
 }

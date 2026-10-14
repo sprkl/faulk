@@ -46,6 +46,27 @@ where
     deserializer.deserialize_map(UniqueMap(PhantomData))
 }
 
+/// Reads a set and refuses a value that appears twice: a duplicate note in the text (a
+/// line merge of two branches that added the same note) is refused like a duplicate id,
+/// instead of being merged silently and dropped on the next write.
+pub fn unique_set<'de, D, T>(deserializer: D) -> Result<std::collections::BTreeSet<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Ord + fmt::Debug,
+{
+    let items = Vec::<T>::deserialize(deserializer)?;
+    let mut out = std::collections::BTreeSet::new();
+    for item in items {
+        if out.contains(&item) {
+            return Err(serde::de::Error::custom(format_args!(
+                "duplicate value {item:?}"
+            )));
+        }
+        out.insert(item);
+    }
+    Ok(out)
+}
+
 /// Writes a finite number, `-0` as `0` (project model § 2.5); refuses NaN and infinities
 /// instead of letting `serde_json` write them as `null`, which would hide a corrupt value.
 fn write_finite<S: Serializer>(v: f64, s: S) -> Result<S::Ok, S::Error> {

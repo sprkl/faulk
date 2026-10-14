@@ -47,7 +47,8 @@ pub enum ViolationKind {
     /// reverse), or a placement whose span does not match its clip (ticks for MIDI,
     /// frames for audio).
     KindMismatch,
-    /// A parameter id, built-in device id or module name that is not well formed.
+    /// A parameter id or built-in device id that is not well formed (a module's name is a
+    /// display name, checked like the other names).
     BadKey,
     /// A note outside `[0, clip length]`.
     NoteOutsideClip,
@@ -69,7 +70,7 @@ pub enum ViolationKind {
     MeterMap,
     /// NaN or an infinity where a finite number is required (a gain may be `-inf`).
     NotFinite,
-    /// A pan outside `[-1, 1]`.
+    /// A pan outside `[-1, 1]`, on a mixer or on a pan automation point.
     PanOutOfRange,
     /// More than one instrument in a chain.
     TooManyInstruments,
@@ -92,12 +93,12 @@ impl fmt::Display for Violation {
     }
 }
 
-struct Checker {
+struct Checker<'p> {
     out: Vec<Violation>,
-    seen: HashSet<Id>,
+    seen: HashSet<&'p Id>,
 }
 
-impl Checker {
+impl<'p> Checker<'p> {
     fn push(&mut self, path: &str, kind: ViolationKind) {
         self.out.push(Violation {
             path: path.to_owned(),
@@ -111,8 +112,8 @@ impl Checker {
         }
     }
 
-    fn id(&mut self, id: &Id, path: &str) {
-        if !self.seen.insert(id.clone()) {
+    fn id(&mut self, id: &'p Id, path: &str) {
+        if !self.seen.insert(id) {
             self.push(path, ViolationKind::DuplicateId(id.clone()));
         }
     }
@@ -223,7 +224,7 @@ impl Project {
         if c.out.is_empty() { Ok(()) } else { Err(c.out) }
     }
 
-    fn validate_transport(&self, c: &mut Checker) {
+    fn validate_transport(&self, c: &mut Checker<'_>) {
         let t = &self.transport;
         if let Some(region) = t.loop_region {
             c.tick(region.start(), "transport/loop_region");
@@ -242,10 +243,10 @@ impl Project {
         );
     }
 
-    fn validate_track(
-        &self,
-        c: &mut Checker,
-        track: &Track,
+    fn validate_track<'p>(
+        &'p self,
+        c: &mut Checker<'p>,
+        track: &'p Track,
         path: &str,
         notes: &mut usize,
         points: &mut usize,
@@ -327,6 +328,10 @@ impl Project {
         for (id, lane) in &track.automation {
             let path = format!("{path}/automation/{id}");
             c.id(&id.0, &path);
+            let pan = lane.target
+                == AutomationTarget::Mixer {
+                    param: MixerParam::Pan,
+                };
             if let AutomationTarget::Device { device, param } = &lane.target {
                 c.check(
                     track.devices.contains_key(device),
@@ -340,12 +345,19 @@ impl Project {
             for (tick, point) in &lane.points {
                 c.tick(*tick, &path);
                 c.check(point.value.is_finite(), &path, ViolationKind::NotFinite);
+                if pan && point.value.is_finite() {
+                    c.check(
+                        (-1.0..=1.0).contains(&point.value),
+                        &path,
+                        ViolationKind::PanOutOfRange,
+                    );
+                }
             }
         }
     }
 }
 
-fn validate_content(c: &mut Checker, content: &ClipContent, path: &str, notes: &mut usize) {
+fn validate_content(c: &mut Checker<'_>, content: &ClipContent, path: &str, notes: &mut usize) {
     match content {
         ClipContent::Midi {
             length,
@@ -415,7 +427,7 @@ fn validate_content(c: &mut Checker, content: &ClipContent, path: &str, notes: &
 }
 
 fn validate_placement(
-    c: &mut Checker,
+    c: &mut Checker<'_>,
     placement: &Placement,
     clips: &BTreeMap<crate::ids::ClipId, Clip>,
     path: &str,
