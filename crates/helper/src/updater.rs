@@ -57,7 +57,7 @@ const PACKAGE_TIMEOUT_MS: u64 = 10 * 60_000;
 /// helper is not installed.
 pub fn startup() {
     install_logger();
-    let lock = match InstanceLock::take(&instance_lock_path(), LOCK_PATIENCE) {
+    let lock = match take_waiting(&instance_lock_path()) {
         Ok(lock) => {
             if !lock.alone() {
                 eprintln!(
@@ -82,8 +82,24 @@ pub fn startup() {
     }
 }
 
-/// How long a starting helper waits for another one to finish deciding whether to apply.
+/// How long a starting helper waits for another one to finish deciding whether to apply,
+/// before saying so; it then keeps waiting.
 const LOCK_PATIENCE: Duration = Duration::from_secs(10);
+
+/// Takes the instance lock, waiting as long as another helper holds it exclusively: a helper
+/// that ran without the lock would be invisible to the others, and one of them could apply an
+/// update under it. The exclusive hold lasts the startup decision of a helper, or its apply,
+/// which ends the process; a process that dies releases it.
+fn take_waiting(path: &Path) -> std::io::Result<InstanceLock> {
+    loop {
+        match InstanceLock::take(path, LOCK_PATIENCE) {
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                eprintln!("update: another helper is updating, waiting for it");
+            }
+            other => return other,
+        }
+    }
+}
 
 static INSTANCE_LOCK: OnceLock<Arc<InstanceLock>> = OnceLock::new();
 
@@ -127,7 +143,8 @@ impl InstanceLock {
     /// helper holds it, it is held exclusively and [`InstanceLock::alone`] is true; call
     /// [`InstanceLock::share`] once the startup decision is made. Otherwise it is held shared.
     /// A helper that holds it exclusively (deciding, or applying an update and about to exit)
-    /// is waited for, at most `patience`; after that this one runs unprotected and not alone.
+    /// is waited for, at most `patience`; after that, an error of kind `TimedOut`: this helper
+    /// holds nothing and must not run as if it did.
     pub fn take(path: &Path, patience: Duration) -> std::io::Result<InstanceLock> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -165,12 +182,10 @@ impl InstanceLock {
                 }
             }
             if start.elapsed() >= patience {
-                eprintln!("update: another helper keeps the instance lock, running without it");
-                return Ok(InstanceLock {
-                    file,
-                    gate,
-                    alone_at_start: false,
-                });
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "another helper holds the instance lock exclusively",
+                ));
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -400,6 +415,8 @@ pub enum UpdateError {
     Network(String),
     /// The feed does not exist (no release published yet, or the redirect is missing).
     FeedNotFound,
+    /// A package listed in the feed is missing (incomplete release, or a broken redirect).
+    PackageNotFound(String),
     /// The feed or a package could not be read.
     InvalidFeed(String),
     /// A downloaded package does not match the feed (checksum or size).
@@ -413,6 +430,10 @@ impl std::fmt::Display for UpdateError {
         match self {
             UpdateError::Network(m) => write!(f, "network error: {m}"),
             UpdateError::FeedNotFound => write!(f, "no update feed published yet"),
+            UpdateError::PackageNotFound(name) => write!(
+                f,
+                "update package {name} not found (incomplete release or broken redirect)"
+            ),
             UpdateError::InvalidFeed(m) => write!(f, "invalid update feed: {m}"),
             UpdateError::Corrupt(m) => write!(f, "corrupt download: {m}"),
             UpdateError::Other(m) => write!(f, "{m}"),
@@ -428,6 +449,9 @@ pub fn classify(error: &velopack::Error) -> UpdateError {
             NetworkError::Http(ureq::Error::StatusCode(404)) => UpdateError::FeedNotFound,
             other => UpdateError::Network(other.to_string()),
         },
+        E::Other(m) if m.starts_with(PACKAGE_NOT_FOUND) => {
+            UpdateError::PackageNotFound(m[PACKAGE_NOT_FOUND.len()..].to_owned())
+        }
         E::Json(e) => UpdateError::InvalidFeed(e.to_string()),
         E::Semver(e) => UpdateError::InvalidFeed(e.to_string()),
         E::InvalidPackage(m) => UpdateError::InvalidFeed(m.clone()),
@@ -435,6 +459,9 @@ pub fn classify(error: &velopack::Error) -> UpdateError {
         other => UpdateError::Other(other.to_string()),
     }
 }
+
+/// Marks a package download that answered 404, which [`classify`] tells from a missing feed.
+const PACKAGE_NOT_FOUND: &str = "update package not found: ";
 
 fn is_not_found(error: &velopack::Error) -> bool {
     classify(error) == UpdateError::FeedNotFound
@@ -535,6 +562,13 @@ impl<S: UpdateSource> UpdateSource for ChannelSource<S> {
         }
         self.packages
             .download_release_entry(asset, local_file, progress)
+            .map_err(|e| {
+                if is_not_found(&e) {
+                    velopack::Error::Other(format!("{PACKAGE_NOT_FOUND}{}", asset.FileName))
+                } else {
+                    e
+                }
+            })
     }
 }
 

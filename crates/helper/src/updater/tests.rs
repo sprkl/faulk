@@ -352,6 +352,24 @@ fn a_real_404_is_a_missing_feed() {
 }
 
 #[test]
+fn a_package_404_is_not_a_missing_feed() {
+    let base = serve_status(404);
+    let source = ChannelSource::http(Channel::Stable, &FeedUrls::new(&base));
+    let dir = std::env::temp_dir().join(format!("faulk-pkg-404-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let err = source
+        .download_release_entry(&asset("0.2.0", "Full"), &dir.join("p.nupkg"), None)
+        .unwrap_err();
+    let error = classify(&err);
+    assert!(
+        matches!(&error, UpdateError::PackageNotFound(name) if name.ends_with(".nupkg")),
+        "{error:?}"
+    );
+    assert!(error.to_string().contains("not found"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_real_server_error_or_closed_port_is_a_network_error() {
     let base = serve_status(500);
     let err = HttpSource::new(format!("{base}/stable"))
@@ -451,10 +469,13 @@ fn a_helper_starting_while_another_decides_waits_for_it() {
     sharer.join().unwrap();
     // B now holds the lock: A is not alone any more.
     assert!(!a.claim_alone().unwrap());
-    // Out of patience, a helper runs unprotected and never believes itself alone.
+    // Out of patience, taking fails: a helper never runs as if it held the lock.
     let a2 = InstanceLock::take(&lock_path("wait2"), QUICK).unwrap();
-    let late = InstanceLock::take(&lock_path("wait2"), QUICK).unwrap();
-    assert!(!late.alone());
+    let late = InstanceLock::take(&lock_path("wait2"), QUICK);
+    assert_eq!(
+        late.err().map(|e| e.kind()),
+        Some(std::io::ErrorKind::TimedOut)
+    );
     drop(a2);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
     let _ = std::fs::remove_dir_all(lock_path("wait2").parent().unwrap());
@@ -480,10 +501,8 @@ fn claiming_keeps_others_out_until_shared_again() {
     let path = lock_path("claim");
     let a = started(&path);
     assert!(a.claim_alone().unwrap());
-    // A helper starting while A applies waits, then runs without believing itself alone.
-    let b = InstanceLock::take(&path, QUICK).unwrap();
-    assert!(!b.alone());
-    drop(b);
+    // A helper starting while A applies waits for it.
+    assert!(InstanceLock::take(&path, QUICK).is_err());
     a.share();
     let b = started(&path);
     // A's failed claim keeps its shared hold: B is still not alone.
