@@ -27,7 +27,7 @@ Objectif du fondateur : **arriver à la création d'un projet multi-pistes avec 
 10. enregistrer le projet dans un dossier, le rouvrir, et obtenir le même rendu ;
 11. faire tout cela par commandes typées, exposées en outils MCP.
 
-Hors MVP (décision 5 du § 7) : l'**enregistrement audio** (il arrive juste après le MVP ; le format et le stockage lui réservent déjà sa place), le **recalage temporel** des clips audio (warping, audio élastique : hors MVP sauf s'il se révèle trivial, ce qui n'est pas attendu ; les clips audio sont non élastiques, voir [modèle de projet](../architecture/02-modele-projet.md) § 1.2), l'Atelier et la compilation Faust à la volée ([spec de l'Atelier](01-atelier-modules.md)), les sessions ACP (qui arrivent avec l'Atelier), les changements de tempo dans le temps, les envois et retours, les plugins tiers CLAP/VST3, WebMCP, les versions et variantes dans l'application.
+Hors MVP (décision 5 du § 7) : l'**enregistrement audio** (il arrive juste après le MVP ; le format et le stockage lui réservent déjà sa place), le **recalage temporel** des clips audio (warping, audio élastique : hors MVP sauf s'il se révèle trivial, ce qui n'est pas attendu ; les clips audio sont non élastiques, voir [modèle de projet](../architecture/02-modele-projet.md) § 1.2), l'Atelier et la compilation Faust à la volée ([spec de l'Atelier](01-atelier-modules.md)), les sessions ACP (qui arrivent avec l'Atelier), les changements de tempo dans le temps, les envois et retours, les plugins tiers CLAP/VST3, WebMCP, les versions et variantes dans l'application, et avec elles la **fusion à trois points et le binaire `faulk` pilote de git** (`merge`, `diff`, `git setup`) que le [modèle de projet](../architecture/02-modele-projet.md) § 4 et § 8 proposait dans son MVP : aucune tâche de ce découpage ne les construit, le format v1 reste seulement *prêt pour git* ; ce point de périmètre est signalé au fondateur.
 
 ## 1. Constat sur le code de l'issue #2
 
@@ -78,7 +78,7 @@ Par cible :
 - **WASM** : le `onmessage` d'un `AudioWorklet` s'exécute **sur le thread de rendu**, comme `process` ; y appeler un `prepare` qui alloue violerait la règle « hors chemin audio ». L'isolation cross-origin étant acceptée (décision 4, tâche AU-0), **CT-3 tranche par prototype et mesure entre deux voies** :
   - (b) **mémoire partagée** : `prepare` tourne dans un Worker dédié qui partage la mémoire du moteur (`WebAssembly.Memory` partagée) et le worklet ne lit qu'un anneau lock-free, comme dans le helper. Ce que cette voie implique, et que le prototype doit régler : un build WASM avec atomics (aujourd'hui la bibliothèque standard précompilée de la cible `wasm32-unknown-unknown` sur la chaîne `stable` épinglée par `rust-toolchain.toml` n'en a pas ; passer par `build-std` sur `nightly` est un choix pour tout le dépôt, présenté au fondateur dans la PR de CT-3), deux instances du même module sur une mémoire (pile et stockage local de thread distincts, segments de données initialisés une seule fois, sans `wasm-bindgen`), et un allocateur partagé qu'aucune libération ne doit verrouiller sur le thread de rendu ;
   - (a) **sans mémoire partagée** : `onmessage` copie des octets bornés dans une boîte de réception préallouée du worklet, et une structure qui grandit est construite dans le worklet **entre deux quanta de rendu, hors de `process`**, par un message dédié ; le coût sur le thread de rendu (objets `MessageEvent` du navigateur, allocation entre deux quanta) est mesuré et doit tenir sous un budget que CT-3 fixe.
-  Dans les deux cas, `process` n'alloue jamais, le module réserve sa mémoire au démarrage, et le critère de MO-2 s'énonce par rapport à la voie retenue.
+  Dans les deux cas, `process` n'alloue jamais et le critère de MO-2 s'énonce par rapport à la voie retenue. **Mémoire linéaire** : le module réserve une mémoire initiale au démarrage et **grandit hors chemin audio** (`memory.grow` appelé par `prepare`, dans le Worker ou entre deux quanta, jamais dans `process`) ; après une croissance, les vues typées du worklet sur la mémoire sont réobtenues en début de bloc (comparaison de `memory.buffer`, coût constant) ; un `memory.grow` refusé (plafond de 4 Gio de wasm32, mémoire de la machine) est une erreur typée renvoyée au projet et affichée, jamais un plantage ni un silence. Les limites de sûreté de CT-3 tiennent sous ce plafond, budget PCM (AU-3) compris.
 - Le mappage commande → messages vit en Rust (`crates/commands`), jamais en TypeScript.
 
 ### 2.4 Contrat de commande v2
@@ -137,11 +137,11 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 
 **CT-3 — Contrat : synchronisation projet → moteur (prepare/apply, croissance sans plafond, feedback)**
 - But : figer § 2.3.
-- Critères : énumérations `ControlMsg`, `RtMsg`, `Feedback` déclarées (variantes du MVP listées, même vides, y compris automation et sources audio), format binaire décrit (en-tête, version, endianness) ; mécanisme de croissance des structures écrit (table pleine → `prepare` construit la suivante → `apply` échange → ancienne aux déchets) et limites de sûreté chiffrées ; voie WASM choisie par un prototype mesuré des deux voies du § 2.3 (pour (b) : chaîne d'outils avec atomics, deux instances sur une mémoire, allocateur partagé ; pour (a) : coût par message et par croissance sur le thread de rendu), avec le budget que MO-2 devra tenir ; si la voie retenue impose de quitter la chaîne `stable`, ce choix est présenté au fondateur dans la PR ; attaque écrite : file d'entrée live pleine, message inconnu, limite de sûreté atteinte, croissance pendant la lecture, bascule de moteur en cours de message, libération sur le thread de rendu.
+- Critères : énumérations `ControlMsg`, `RtMsg`, `Feedback` déclarées (variantes du MVP listées, même vides, y compris automation et sources audio), format binaire décrit (en-tête, version, endianness) ; mécanisme de croissance des structures écrit (table pleine → `prepare` construit la suivante → `apply` échange → ancienne aux déchets) et limites de sûreté chiffrées ; voie WASM choisie par un prototype mesuré des deux voies du § 2.3 (pour (b) : chaîne d'outils avec atomics, deux instances sur une mémoire, allocateur partagé ; pour (a) : coût par message et par croissance sur le thread de rendu), avec le budget que MO-2 devra tenir ; si la voie retenue impose de quitter la chaîne `stable`, ce choix est présenté au fondateur dans la PR ; attaque écrite : file d'entrée live pleine, message inconnu, limite de sûreté atteinte, croissance pendant la lecture, `memory.grow` pendant que le worklet tient des vues, `memory.grow` refusé, plafond de 4 Gio atteint, bascule de moteur en cours de message, libération sur le thread de rendu.
 - Touche : `crates/engine/src/msg.rs` (types seulement), `web/src/lib/engine/` (prototype).
 - Dépend de : CT-1, AU-0.
 - Phase : 0.
-- Étiquettes : hardware: non, founder: non.
+- Étiquettes : hardware: non, founder: oui (chaîne d'outils : si la voie retenue impose de quitter `stable`, le fondateur valide ce choix dans la PR).
 
 **CT-4 — Contrat : contrat de commande v2**
 - But : figer § 2.4 ; choisir entre le modèle mutable à inverses et le modèle persistant à instantanés (§ 2.1) ; trancher l'état de vue, l'existence et la **largeur** du `NoteId` (l'ABI des modules de l'Atelier n'a que 24 bits pour l'identifiant de note, voir la [spec de l'Atelier](01-atelier-modules.md) § 1.3).
@@ -194,7 +194,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 ### Épopée 1 — Projet et couche de commandes (PR)
 
 **PR-1 — Modèle de projet**
-- But : implémenter `crates/project` selon le [modèle de projet](../architecture/02-modele-projet.md) : projet, pistes (MIDI, audio), devices, scènes, emplacements de clips, clips MIDI et audio (référence de blob, plage en frames), notes, placements, couloirs d'automation, réglages du transport (quantification globale), identifiants stables, clés d'ordre fractionnaires, limites de sûreté.
+- But : implémenter `crates/project` selon le [modèle de projet](../architecture/02-modele-projet.md) : projet, pistes (MIDI, audio), devices, scènes, emplacements de clips, clips MIDI et audio (référence de blob, plage en frames, boucle), notes, placements, couloirs d'automation, réglages du transport (quantification globale), identifiants stables, clés d'ordre fractionnaires, limites de sûreté ; plus l'**état de session** (`SessionState` : solo par piste, entrée MIDI choisie), distinct du document et jamais sérialisé avec lui (décision 10).
 - Critères : invariants vérifiés par `validate()` (identifiants uniques, références valides, notes dans la longueur du clip, au plus un point par tick, limites de sûreté) ; sérialisation aller-retour ; tests de propriétés sur la génération d'identifiants et de clés d'ordre.
 - Touche : `crates/project`.
 - Dépend de : CT-1, CT-2, CT-4.
@@ -261,7 +261,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 
 **MO-1 — Messages moteur et cycle prepare/apply**
 - But : `ControlMsg` (encodage et décodage binaires), `Engine::prepare`, `Engine::apply`, file de déchets, croissance des structures hors chemin audio (§ 2.3).
-- Critères : décodage de n'importe quels octets sans panique (fuzz ou proptest) ; `apply` sous détecteur d'allocation, y compris pendant l'échange d'une table pleine contre une plus grande ; même comportement en natif et en WASM.
+- Critères : décodage de n'importe quels octets sans panique (fuzz ou proptest) ; `apply` sous détecteur d'allocation, y compris pendant l'échange d'une table pleine contre une plus grande ; en WASM, une croissance de la mémoire linéaire déclenchée par `prepare` pendant la lecture ne produit ni trou ni plantage (test), et un `memory.grow` refusé remonte en erreur typée ; même comportement en natif et en WASM.
 - Touche : `crates/engine/src/msg.rs`, `crates/engine/src/engine.rs`.
 - Dépend de : CT-3.
 - Phase : 1.
@@ -522,7 +522,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 ### Épopée 9 — Enregistrement MIDI (RE)
 
 **RE-1 — Armement, monitoring et MIDI live vers les pistes**
-- But : `track.arm`, `track.set_monitor` ; le MIDI live (Web MIDI, MIDI natif, clavier de l'ordinateur) va à la piste sélectionnée et aux pistes armées ; les messages de contrôle (CC) sont décodés et disponibles pour l'automation (AM-5).
+- But : `track.arm`, `track.set_monitor` ; le MIDI live (Web MIDI, MIDI natif, clavier de l'ordinateur) va à la piste sélectionnée et aux pistes armées ; l'entrée MIDI choisie est écrite dans le `SessionState` (PR-1), que SV-1 enregistre ; les messages de contrôle (CC) sont décodés et disponibles pour l'automation (AM-5).
 - Critères : changer de piste pendant une note tenue ne coince pas la note ; fonctionne en Web et en Boost (MIDI simulé dans les tests).
 - Touche : `crates/commands/src/record.rs`, `crates/engine`, `web/src/lib/midi/`, `crates/helper/src/midi.rs`.
 - Dépend de : MO-4, PR-8.
@@ -572,7 +572,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **MX-2 — Commandes de mixage**
-- But : `mixer.set_volume`, `mixer.set_pan`, `mixer.set_mute`, `mixer.set_master_volume` (`edit`, versionnées) et `mixer.set_solo` (décision 10 : état de session, `x-kind: live`, porté par un `SessionState` de `crates/project` distinct du document ; SV-1 l'écrit dans `.faulk/session.json` et SV-4 le restaure).
+- But : `mixer.set_volume`, `mixer.set_pan`, `mixer.set_mute`, `mixer.set_master_volume` (`edit`, versionnées) et `mixer.set_solo` (décision 10 : état de session, `x-kind: live`, écrit dans le `SessionState` de PR-1 ; SV-1 l'écrit dans `.faulk/session.json` et SV-4 le restaure).
 - Critères : un geste de fader = un groupe d'annulation ; valeurs hors bornes refusées ou bornées selon le contrat ; le solo n'apparaît ni dans l'historique ni dans la sérialisation du projet (test) ; le mute est versionné.
 - Touche : `crates/commands/src/mixer.rs`, `crates/project` (état de session).
 - Dépend de : PR-2.
@@ -599,9 +599,9 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 
 **SV-4 — Chargement d'un projet dans le moteur**
 - But : `project.open` remplace le projet : arrêt, réinitialisation du moteur, instantané rejoué, état de session (`.faulk/session.json` : solo, entrée MIDI) restauré.
-- Critères : rendu d'un projet enregistré puis rouvert identique au rendu d'origine ; aucune note coincée de l'ancien projet ; le solo survit à une réouverture sans apparaître dans les fichiers versionnés (test).
+- Critères : rendu d'un projet enregistré puis rouvert identique au rendu d'origine ; aucune note coincée de l'ancien projet ; le solo (`mixer.set_solo`, MX-2) survit à une réouverture sans apparaître dans les fichiers versionnés (test).
 - Touche : `crates/commands/src/project.rs`, `web/src/lib/session*`.
-- Dépend de : PR-3, SV-1, PR-5.
+- Dépend de : PR-3, SV-1, PR-5, MX-2.
 - Phase : 3.
 - Étiquettes : hardware: non, founder: non.
 
@@ -614,10 +614,10 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: oui.
 
 **SV-3 — Repli OPFS et export `.faulkpack`**
-- But : appliquer la décision 3 hors Chrome et Edge (Firefox, Safari, ou dossier refusé) : implémentation OPFS de `ProjectStore`, `navigator.storage.persist()`, avertissement « vos projets sont dans le navigateur ; exportez-les », export et import `.faulkpack` (archive zip du dossier, lisible par l'implémentation dossier réel), quota dépassé géré, transfert d'un projet OPFS vers un dossier réel ou vers le helper (fichiers par le WebSocket) avant une bascule en Boost.
-- Critères : test Playwright du repli (navigateur sans `showDirectoryPicker`) : modifier, recharger, retrouver, exporter, importer dans un dossier réel simulé et obtenir le même projet octet pour octet ; quota plein signalé sans corruption ; transfert vers le helper testé avec le helper en CI.
-- Touche : `web/src/lib/storage/`, `web/src/views/projects/`.
-- Dépend de : SV-2.
+- But : appliquer la décision 3 hors Chrome et Edge (Firefox, Safari, ou dossier refusé) : implémentation OPFS de `ProjectStore`, `navigator.storage.persist()`, avertissement « vos projets sont dans le navigateur ; exportez-les », export et import `.faulkpack` (archive zip du dossier, lisible par l'implémentation dossier réel), quota dépassé géré. Un projet OPFS passe en Boost par **export `.faulkpack` puis ouverture du dossier par le helper** (AU-7) : aucun fichier de projet, et surtout aucun blob, ne traverse le WebSocket.
+- Critères : test Playwright du repli (navigateur sans `showDirectoryPicker`) : modifier, recharger, retrouver, exporter, importer dans un dossier réel simulé et obtenir le même projet octet pour octet ; quota plein signalé sans corruption ; un `.faulkpack` exporté depuis l'OPFS s'ouvre par le helper (test avec le helper en CI) et rend le même projet.
+- Touche : `web/src/lib/storage/`, `web/src/views/projects/`, `crates/helper/src/disk.rs` (ouverture d'un `.faulkpack`).
+- Dépend de : SV-2, AU-7.
 - Phase : 6.
 - Étiquettes : hardware: non, founder: oui.
 
@@ -744,17 +744,17 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 Décision 5 : import et lecture de fichiers audio (échantillons, boucles, stems), lus en flux depuis le disque selon le [stockage local](../architecture/03-stockage-local.md) ; **pas d'enregistrement audio dans le MVP** (il suit immédiatement) ; **pas de recalage temporel** (warping), sauf s'il se révèle trivial, ce qui n'est pas attendu. Une piste audio est une piste dont l'instrument est le lecteur de clips (`faulk.clip_player`) ; elle a sa chaîne d'effets, son mixage et son automation comme une piste MIDI. AU-0 est en phase 0 (§ Épopée 0).
 
 **AU-1 — Import d'un fichier audio : empreinte, blob, PCM**
-- But : pipeline d'import dans un Worker : lecture du fichier, SHA-256 en flux, rangement des octets d'origine dans `blobs/<sha256>` par le `ProjectStore` (décision 12), lecture des métadonnées (fréquence, canaux, frames, nom d'origine) écrites dans le JSON du clip, décodage en PCM float32 rangé dans `.faulk/cache/` (régénérable, jamais versionné : c'est la proposition par défaut du [stockage local](../architecture/03-stockage-local.md) § 6, que la PR présente au fondateur avec son coût, un décodage par machine, contre celui d'un second blob versionné). WAV et AIFF décodés directement ; formats compressés (FLAC, MP3, Opus, AAC) par **un même décodeur Rust (`symphonia`) compilé en WASM pour la page et en natif pour le helper**, pour que les deux modes produisent le même PCM (WebCodecs n'est qu'un repli, dont la parité serait à tolérance) ; le rééchantillonnage est fait à la lecture (AU-4), jamais à l'import, puisque la fréquence du moteur dépend du périphérique.
-- Critères : importer deux fois le même fichier ne crée qu'un blob ; l'empreinte est celle de `sha256sum` sur le fichier d'origine ; décodage de fichiers de référence comparé à un décodage de référence (tolérance notée) et identique entre page et helper pour le même blob compressé (test de parité, décalages d'amorce compris) ; fichier corrompu ou format inconnu → erreur typée, jamais de plantage ; progression visible pour un fichier d'une heure ; le cache absent se régénère à l'ouverture.
-- Touche : `web/src/lib/audio/import/`, `crates/project` (blobs), `crates/audio-decode` (ou module de `crates/engine`), `web/src/lib/storage/`.
-- Dépend de : SV-1, SV-2.
+- But : pipeline d'import écrit **une fois en Rust** (`crates/audio-import` : SHA-256 en flux, décodage, métadonnées, crêtes pour AU-2) et exécuté **là où sont les octets** : dans un Worker de la page en mode Web (WASM), **dans le helper en mode Boost** (natif), parce que le son et les fichiers audio ne traversent jamais le lien page ↔ helper (`CLAUDE.md`, [architecture](../architecture/01-architecture.md) principe 3). En Web, la page lit le fichier ; en Boost, la page demande au helper d'importer un chemin natif (sélecteur de fichiers du helper, ou chemin déposé quand le navigateur le fournit) et ne reçoit que des métadonnées et des crêtes. Le pipeline range les octets d'origine dans `blobs/<sha256>` par le `ProjectStore` (décision 12), écrit les métadonnées (fréquence, canaux, frames, nom d'origine) dans le JSON du clip, et décode en PCM float32 dans `.faulk/cache/` (régénérable, jamais versionné : c'est la proposition par défaut du [stockage local](../architecture/03-stockage-local.md) § 6, que la PR présente au fondateur avec son coût, un décodage par machine, contre celui d'un second blob versionné). WAV et AIFF décodés directement ; formats compressés (FLAC, MP3, Opus, AAC) par le même décodeur Rust (`symphonia`) dans les deux cibles, pour que les deux modes produisent le même PCM (WebCodecs n'est qu'un repli, dont la parité serait à tolérance) ; le rééchantillonnage est fait à la lecture (AU-4), jamais à l'import, puisque la fréquence du moteur dépend du périphérique.
+- Critères : importer deux fois le même fichier ne crée qu'un blob ; l'empreinte est celle de `sha256sum` sur le fichier d'origine ; décodage de fichiers de référence comparé à un décodage de référence (tolérance notée) et identique entre page et helper pour le même blob compressé (test de parité, décalages d'amorce compris) ; en Boost, aucun octet de fichier audio ne traverse le WebSocket (test sur un import d'une heure : seuls métadonnées et crêtes passent) ; fichier corrompu ou format inconnu → erreur typée, jamais de plantage ; progression visible pour un fichier d'une heure ; le cache absent se régénère à l'ouverture, dans la cible qui tient le disque.
+- Touche : `crates/audio-import`, `web/src/lib/audio/import/`, `crates/helper/src/import.rs`, `crates/project` (blobs), `crates/protocol`, `web/src/lib/storage/`.
+- Dépend de : SV-1, SV-2, BO-1.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: oui.
 
 **AU-2 — Cache d'aperçus de forme d'onde**
-- But : à l'import, calcul des crêtes (min/max par bloc de 256 échantillons, niveaux réduits ×4, ×16, ×64) dans le Worker, rangées dans `.faulk/cache/` ; composant `Waveform` qui dessine depuis ce cache au niveau adapté au zoom.
-- Critères : environ 45 Ko par minute au niveau le plus fin (mesuré) ; cache absent → régénéré sans bloquer l'interface ; rendu d'une heure d'audio à 60 images/s au défilement (mesuré dans Playwright) ; test de conformité des crêtes sur un signal connu.
-- Touche : `web/src/lib/audio/peaks/`, `web/src/lib/components/Waveform.svelte`.
+- But : à l'import, calcul des crêtes (min/max par bloc de 256 échantillons, niveaux réduits ×4, ×16, ×64) par le pipeline AU-1 (Worker en Web, helper en Boost, qui les envoie à la page : ce sont des données visuelles), rangées dans `.faulk/cache/` ; composant `Waveform` qui dessine depuis ce cache au niveau adapté au zoom.
+- Critères : environ 45 Ko par minute au niveau le plus fin (mesuré) ; cache absent → régénéré sans bloquer l'interface ; rendu d'une heure d'audio à 60 images/s au défilement (mesuré dans Playwright) ; test de conformité des crêtes sur un signal connu ; mêmes crêtes en Web et en Boost pour le même blob (test).
+- Touche : `crates/audio-import` (crêtes), `web/src/lib/audio/peaks/`, `web/src/lib/components/Waveform.svelte`.
 - Dépend de : AU-1.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: non.
@@ -792,10 +792,10 @@ Décision 5 : import et lecture de fichiers audio (échantillons, boucles, stems
 - Étiquettes : hardware: non, founder: oui.
 
 **AU-7 — Le helper et le dossier du projet en mode Boost**
-- But : en Boost, la page reste propriétaire du projet (décision 1) et le helper est la seule autorité qui écrit le dossier : implémentation `ProjectStore` « helper » (fichiers lus et écrits par le WebSocket, jamais de son), rapprochement du dossier par l'identifiant du projet ou choix par un sélecteur natif (tranché dans le plan de la tâche), résolution des blobs et du cache PCM par chemin natif pour le streaming du helper. Les messages de fichiers sont **confinés à la racine du projet** et soumis au même jeton d'appairage que le reste de la session ([contraintes](../constraints/01-contraintes.md), sécurité du pont local) : chemins relatifs normalisés, `..`, chemins absolus, lettres de lecteur et chemins UNC refusés, liens symboliques qui sortent du dossier refusés, écriture atomique dans `.faulk/tmp/` puis déplacement.
-- Critères : ouvrir un projet dans la page puis basculer en Boost : le helper joue les clips audio depuis le disque sans que l'audio traverse le lien (test : le WebSocket ne porte aucune trame PCM) ; une modification faite en Boost est écrite dans le dossier et relue en Web ; deux dossiers de même identifiant → le helper demande, jamais de choix silencieux ; tests d'attaque : lecture et écriture avec `..`, chemin absolu, lecteur, UNC, lien symbolique vers l'extérieur, et sans jeton, toutes refusées par une erreur typée sans toucher au disque.
+- But : en Boost, la page reste propriétaire du projet (décision 1) et le helper est la seule autorité qui écrit le dossier : implémentation `ProjectStore` « helper » pour les **fichiers texte du projet seulement** (JSON, TSV, état de session, lus et écrits par le WebSocket) ; les blobs et le cache PCM ne traversent jamais le lien, ils sont écrits et lus par le helper lui-même (import natif AU-1, streaming natif AU-4) ; rapprochement du dossier par l'identifiant du projet ou choix par un sélecteur natif (tranché dans le plan de la tâche), résolution des blobs et du cache PCM par chemin natif pour le streaming du helper. Les messages de fichiers sont **confinés à la racine du projet** et soumis au même jeton d'appairage que le reste de la session ([contraintes](../constraints/01-contraintes.md), sécurité du pont local) : chemins relatifs normalisés, `..`, chemins absolus, lettres de lecteur et chemins UNC refusés, liens symboliques qui sortent du dossier refusés, écriture atomique dans `.faulk/tmp/` puis déplacement.
+- Critères : ouvrir un projet dans la page puis basculer en Boost : le helper joue les clips audio depuis le disque sans que l'audio traverse le lien (test : le WebSocket ne porte ni trame PCM ni octet de blob, en lecture comme à l'import) ; un message de fichier qui vise `blobs/` ou `.faulk/cache/` est refusé ; une modification faite en Boost est écrite dans le dossier et relue en Web ; deux dossiers de même identifiant → le helper demande, jamais de choix silencieux ; tests d'attaque : lecture et écriture avec `..`, chemin absolu, lecteur, UNC, lien symbolique vers l'extérieur, et sans jeton, toutes refusées par une erreur typée sans toucher au disque.
 - Touche : `crates/helper/src/disk.rs`, `crates/helper/src/server.rs`, `crates/helper/src/security.rs`, `crates/protocol`, `web/src/lib/storage/`.
-- Dépend de : BO-1, SV-2, AU-4.
+- Dépend de : BO-1, SV-2, AU-1, AU-4.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: oui.
 
@@ -823,7 +823,7 @@ Décision 5 : couloirs d'automation sur les paramètres des devices et du mixeur
 - But : le moteur reçoit les couloirs par `prepare` (tables échangées dans `apply`, comme les notes), évalue chaque couloir par bloc, interpole entre les points et émet des `ParamValue` datés vers le device ou le mixeur ; parité. Comportement proposé, **à valider par le fondateur dans la PR** (comportement produit) : pendant la lecture, le couloir a la main et un geste manuel sur un paramètre automatisé est appliqué jusqu'au point suivant puis repris par le couloir ; à l'arrêt, le dernier geste manuel reste.
 - Critères : automation de volume de −∞ à 0 dB sur une mesure → rampe mesurée à l'échantillon près (rendu hors ligne) ; seek au milieu d'une rampe → valeur correcte au premier bloc ; 100 couloirs sur 1 000 points sans allocation dans `process` ; parité natif/WASM ; la règle geste manuel / couloir est écrite et testée.
 - Touche : `crates/engine/src/automation.rs`, `crates/commands` (compilateur).
-- Dépend de : AM-1, AM-3, MO-4, TR-1, PR-3.
+- Dépend de : AM-1, AM-3, MO-4, TR-1, PR-3, MX-1.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: oui.
 
@@ -839,7 +839,7 @@ Décision 5 : couloirs d'automation sur les paramètres des devices et du mixeur
 - But : couloirs dépliables sous chaque piste de la timeline (choix du paramètre parmi les descripteurs), dessin de points (clic), déplacement, suppression, sélection multiple, courbe par point, ligne de valeur affichée en unité naturelle ; `TimeGrid` partagée.
 - Critères : chaque geste = une commande, un glisser = un groupe ; fluide avec 10 000 points affichés (mesuré) ; test Playwright : dessiner trois points, lire, voir le paramètre bouger dans le panneau de devices, annuler.
 - Touche : `web/src/views/arrangement/automation/`, `web/src/lib/i18n/automation.ts`.
-- Dépend de : AM-1, AR-4, DV-9.
+- Dépend de : AM-1, AM-2, AR-4, DV-9.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: oui.
 
@@ -939,7 +939,7 @@ Après PR-5 (« la page envoie n'importe quelle commande, le projet produit les 
 
 ### 4.2 Chemin critique jusqu'au MVP
 
-Méthode : un script lit les lignes `Dépend de` de chaque tâche du § 3 (une arête par prérequis), vérifie que le graphe est sans cycle et qu'aucune tâche ne dépend d'une tâche d'une phase postérieure, puis calcule pour chaque tâche sa **profondeur** (plus long chemin depuis une tâche sans prérequis, en nombre de tâches) et sa **hauteur** (plus long chemin jusqu'à une tâche terminale). La longueur du chemin critique est la profondeur maximale ; une tâche est critique (marge nulle) si profondeur + hauteur − 1 égale cette longueur. Le même script engendre le graphe Mermaid du § 4.3 depuis ces arêtes, ce qui garantit l'égalité des deux ; au dernier calcul (2026-10-14) : 96 tâches, 205 arêtes. (BO-4 est l'issue #10 ; ses prérequis BO-1 et MO-5 sont dans le graphe.)
+Méthode : un script lit les lignes `Dépend de` de chaque tâche du § 3 (une arête par prérequis), vérifie que le graphe est sans cycle et qu'aucune tâche ne dépend d'une tâche d'une phase postérieure, puis calcule pour chaque tâche sa **profondeur** (plus long chemin depuis une tâche sans prérequis, en nombre de tâches) et sa **hauteur** (plus long chemin jusqu'à une tâche terminale). La longueur du chemin critique est la profondeur maximale ; une tâche est critique (marge nulle) si profondeur + hauteur − 1 égale cette longueur. Le même script engendre le graphe Mermaid du § 4.3 depuis ces arêtes, ce qui garantit l'égalité des deux ; au dernier calcul (2026-10-14) : 96 tâches, 211 arêtes. (BO-4 est l'issue #10 ; ses prérequis BO-1 et MO-5 sont dans le graphe.)
 
 <!-- critical-path:start -->
 **Longueur : 16 tâches en série.** Plusieurs chemins ont cette longueur ; les tâches sans marge, par profondeur :
@@ -958,13 +958,13 @@ Méthode : un script lit les lignes `Dépend de` de chaque tâche du § 3 (une a
 11 AU-1 | AU-3
 12 AU-2 | AU-4 | AU-5
 13 AU-6 | AU-7
-14 AU-8
+14 SV-3 | AU-8
 15 QA-6
 16 DOC-1
 ```
 <!-- critical-path:end -->
 
-Les chemins critiques passent donc par le socle, puis par la sauvegarde et les pistes audio : CT-1 ou AU-0 → (CT-3 → MO-1 → MO-2, ou CT-2/CT-4 → PR-1 → PR-2) → QA-1 → PR-3 → PR-4 → PR-5 → SV-4 → SV-2 → (AU-1 → AU-2 ou AU-5 → AU-6, ou AU-3 → AU-4 → AU-6 ou AU-7) → AU-8 → QA-6 → DOC-1. L'étude du 2026-10-13 comptait 13 tâches en série : les pistes audio en ajoutent trois, parce qu'elles attendent le dossier réel (SV-2) et que leur scénario (AU-8) précède celui du MVP. Toute autre tâche a au moins une tâche de marge : l'automation (AM-1 à AM-6), l'enregistrement MIDI, la grille et la timeline tournent en parallèle sans allonger le MVP, tant qu'elles ne prennent pas de retard. Ce chiffre est à recalculer à chaque changement de dépendance.
+Les chemins critiques passent donc par le socle, puis par la sauvegarde et les pistes audio : CT-1 ou AU-0 → (CT-3 → MO-1 → MO-2, ou CT-2/CT-4 → PR-1 → PR-2) → QA-1 → PR-3 → PR-4 → PR-5 → SV-4 → SV-2 → (AU-1 → AU-2 ou AU-5 → AU-6, ou AU-3 → AU-4 → AU-6 ou AU-7) → (AU-8, ou SV-3 après AU-7) → QA-6 → DOC-1. L'étude du 2026-10-13 comptait 13 tâches en série : les pistes audio en ajoutent trois, parce qu'elles attendent le dossier réel (SV-2) et que leur scénario (AU-8) précède celui du MVP. Toute autre tâche a au moins une tâche de marge : l'automation (AM-1 à AM-6), l'enregistrement MIDI, la grille et la timeline tournent en parallèle sans allonger le MVP, tant qu'elles ne prennent pas de retard. Ce chiffre est à recalculer à chaque changement de dépendance.
 
 ### 4.3 Graphe des dépendances
 
@@ -1033,7 +1033,7 @@ graph LR
   RE2 & GR1 --> RE3["RE-3 prise en grille"]
   RE3 & TR4 --> RE5["RE-5 UI enregistrement"]
   PR1 & QA7 --> SV1["SV-1 format projet"]
-  PR3 & SV1 & PR5 --> SV4["SV-4 chargement"]
+  PR3 & SV1 & PR5 & MX2 --> SV4["SV-4 chargement"]
   SV1 & SV4 --> SV2["SV-2 dossier réel + autosave"]
   PR2 & PR5 & BO1 --> AG1["AG-1 serveur MCP"]
   AG1 --> AG2["AG-2 parité MCP"]
@@ -1051,20 +1051,20 @@ graph LR
   RE2 & BO1 --> BO3["BO-3 MIDI natif horodaté"]
   MO3 & DV6 & DV3 & DV4 & DV5 --> QA5["QA-5 perf"]
   %% Phase 5
-  SV1 & SV2 --> AU1["AU-1 import audio"]
+  SV1 & SV2 & BO1 --> AU1["AU-1 import audio"]
   AU1 --> AU2["AU-2 forme d'onde"]
   AU0 & MO2 & SV2 --> AU3["AU-3 streaming disque"]
   MO4 & AU3 & DV1 --> AU4["AU-4 lecteur clips audio"]
   CL1 & AU1 & PR8 --> AU5["AU-5 cmd pistes audio"]
   AU4 & AU5 & AU2 & GR3 & AR4 --> AU6["AU-6 clips audio UI"]
-  BO1 & SV2 & AU4 --> AU7["AU-7 helper + dossier"]
+  BO1 & SV2 & AU1 & AU4 --> AU7["AU-7 helper + dossier"]
   AU6 & AU7 & SV4 & QA1 & QA3 --> AU8["AU-8 scénario audio"]
   PR2 & DV8 & MX2 --> AM1["AM-1 cmd automation"]
-  AM1 & AM3 & MO4 & TR1 & PR3 --> AM2["AM-2 lecture automation"]
-  AM1 & AR4 & DV9 --> AM4["AM-4 édition points"]
+  AM1 & AM3 & MO4 & TR1 & PR3 & MX1 --> AM2["AM-2 lecture automation"]
+  AM1 & AM2 & AR4 & DV9 --> AM4["AM-4 édition points"]
   AM2 & AM4 & QA1 & SV4 --> AM6["AM-6 scénario automation"]
   %% Phase 6
-  SV2 --> SV3["SV-3 repli OPFS + export"]
+  SV2 & AU7 --> SV3["SV-3 repli OPFS + export"]
   PR7 & AG1 --> AG3["AG-3 tour d'agent"]
   AG1 --> AG4["AG-4 confirmation"]
   AG1 & GR2 & DV8 & AR1 & AU5 & AM1 --> AG5["AG-5 scénario agent"]
@@ -1091,7 +1091,7 @@ graph LR
 | Identifiants stables et clés d'ordre | `project` | PR-1 | Commandes, MCP, interface, format |
 | Trait `Device`, descripteur de paramètres, événements `ParamValue` datés, lissage | `engine::device` | CT-5, DV-1, AM-3 | Devices, panneau généré, agents, automation, futurs modules de l'Atelier |
 | `ProjectEvent` (miroir de l'interface) | `commands` | PR-2 | Stores web, vues |
-| Format de projet v1 (arborescence par piste, règle texte / blobs, seuils, état de session) | `project::file` | QA-7, SV-1 | Enregistrement, tests de référence, pilote de fusion git, import audio |
+| Format de projet v1 (arborescence par piste, règle texte / blobs, seuils, état de session) | `project::file` | QA-7, SV-1 | Enregistrement, tests de référence, import audio (et, après le MVP, le pilote de fusion git) |
 | `ProjectStore` (dossier réel, OPFS, helper) | `web/src/lib/storage/` | SV-2 | Sauvegarde, import audio, streaming, Boost |
 | Protocole page ↔ helper v2 (octets moteur, requêtes MCP corrélées, fichiers du projet) | `protocol` | BO-1, AG-1, AU-7 | Helper, page |
 | Stores web (`project`, `engine`) et `run()` | `web/src/lib/stores/` | PR-5 | Toutes les vues |
@@ -1169,4 +1169,4 @@ Les quinze décisions, et ce qu'elles changent dans ce plan :
 | 14 | Fusion des PR de l'essaim : le lead fusionne les PR prêtes (CI, Judge Dredd, Copilot), feuilles comme contrats et colonne vertébrale. | § 5.3. |
 | 15 | Où tournent les agents : dans le cloud pour l'essaim ; en local pour les tâches qui touchent l'audio ou le MIDI réels. | § 3 (étiquette `hardware`), § 5.3. |
 
-Restent à trancher, dans les tâches de contrat (choix techniques, pas des décisions du fondateur) : l'état de vue comme commande et la largeur du `NoteId` (CT-4) ; le modèle mutable ou persistant (CT-4) ; les chiffres des limites de sûreté (CT-3) ; le décodeur des formats compressés et le rééchantillonnage (AU-1) ; le choix du dossier en Boost, sélecteur natif ou rapprochement par identifiant (AU-7). Le format des prises audio (FLAC ou WAV) sera décidé avec l'enregistrement audio, après le MVP.
+Restent à trancher, dans les tâches de contrat (choix techniques, pas des décisions du fondateur) : l'état de vue comme commande et la largeur du `NoteId` (CT-4) ; le modèle mutable ou persistant (CT-4) ; les chiffres des limites de sûreté et la voie WASM (CT-3) ; le cache PCM régénérable plutôt qu'un second blob (AU-1, proposition par défaut présentée au fondateur) ; le choix du dossier en Boost, sélecteur natif ou rapprochement par identifiant (AU-7). Le format des prises audio (FLAC ou WAV) sera décidé avec l'enregistrement audio, après le MVP.

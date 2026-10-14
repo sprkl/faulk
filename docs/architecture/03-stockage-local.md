@@ -161,8 +161,8 @@ La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffe
   1. l'utilisateur ouvre le projet par un sélecteur natif du helper (ou en collant un chemin) ; la page reçoit les données du projet par le WebSocket. Simple et fiable ;
   2. **rapprochement par identité** : `project.json` porte l'`id` stable du projet (ULID obligatoire, défini dans le [modèle de projet](02-modele-projet.md) § 1.3) ; la page l'envoie au helper, qui le cherche parmi ses projets récents. Deux dossiers de même `id` (une copie faite hors de Faulk) ne sont jamais choisis au hasard : le helper demande lequel ouvrir. Utile pour basculer à chaud.
 - **Identité des fichiers audio** : l'empreinte SHA-256 du blob. La page (poignées) et le helper (chemins natifs) résolvent le même blob par `blobs/<sha256>`, chemins relatifs à la racine et en `/`.
-- **Écritures concurrentes** : en mode Boost, une seule autorité écrit le dossier, le helper ; la page reste propriétaire du modèle (décision du 2026-10-14, [modèle de projet](02-modele-projet.md) § 5.4) et lui envoie les fichiers sales à écrire. C'est l'implémentation « helper » de `ProjectStore` (tâche AU-7 du [découpage du MVP](../specs/02-decoupage-mvp.md)) : des données de fichiers passent par le WebSocket, jamais du son.
-- **Projets en OPFS** : le helper n'y a pas accès. Passer en Boost depuis un projet OPFS impose un export vers un dossier réel, ou un transfert des fichiers par le WebSocket (des données de fichier, jamais du son en temps réel).
+- **Écritures concurrentes** : en mode Boost, une seule autorité écrit le dossier, le helper ; la page reste propriétaire du modèle (décision du 2026-10-14, [modèle de projet](02-modele-projet.md) § 5.4) et lui envoie les fichiers sales à écrire. C'est l'implémentation « helper » de `ProjectStore` (tâche AU-7 du [découpage du MVP](../specs/02-decoupage-mvp.md)) : seuls les fichiers texte du projet passent par le WebSocket ; ni le son, ni les blobs, ni le cache PCM ne traversent le lien (règle de `CLAUDE.md`), l'import (AU-1) et le streaming (AU-4) s'exécutant dans le helper en Boost.
+- **Projets en OPFS** : le helper n'y a pas accès. Passer en Boost depuis un projet OPFS passe par un export `.faulkpack` que le helper ouvre comme dossier (tâche SV-3) : aucun fichier audio ne traverse le WebSocket.
 
 ## 5. Proposition pour le MVP
 
@@ -195,7 +195,7 @@ Les études divergent ; la proposition à trancher :
 
 - **Le blob garde les octets d'origine** de l'import, pour que l'empreinte corresponde au fichier de l'utilisateur et que la déduplication fonctionne ([modèle de projet](02-modele-projet.md) § 3).
 - **Fichiers compressés (MP3, AAC, Opus, Ogg, FLAC)** : pour streamer sans coût de décodage dans le chemin de lecture, deux options. (a) Décoder une fois à l'import vers un PCM rangé comme *second blob* référencé par le clip (double espace, mais versionné et identique sur toutes les machines). (b) Décoder vers un PCM dans `.faulk/cache/`, régénérable (pas de double espace dans git, mais un coût au premier chargement sur une nouvelle machine). **Décision à prendre.**
-- **Rééchantillonnage** : à la lecture, dans le Worker, vers la fréquence du contexte (le projet reste juste si la fréquence de l'interface change) ; ou, plus simple, à l'import vers une fréquence de projet fixe (48 kHz) qu'on ne change plus. **Décision à prendre.**
+- **Rééchantillonnage** : **à la lecture** (tâche AU-4 du [découpage du MVP](../specs/02-decoupage-mvp.md)), dans le lecteur de clips du moteur, vers la fréquence du moteur (contexte audio en Web, périphérique en Boost, qui peut changer en cours de session) ; jamais à l'import, parce qu'une fréquence de projet fixe ne supprimerait pas ce besoin.
 
 ### 5.4 En mémoire et streamé
 
@@ -247,7 +247,6 @@ Le seuil par clip ne suffit pas à tenir ce budget : beaucoup de clips courts pe
 - Dossier réel : Chrome et Edge bureau uniquement. Firefox et Safari : OPFS + export, sans dossier visible, sans git, sans surveillance des changements.
 - Pas de mobile.
 - Formats d'import : WAV et AIFF directs ; compressés selon la décision du § 5.3.
-- Une fréquence d'échantillonnage par projet, si l'option « rééchantillonner à l'import » est retenue.
 - Pas d'écriture concurrente page + helper : une seule autorité d'écriture.
 
 ## 6. Décisions du fondateur (2026-10-14) et questions restantes
@@ -259,8 +258,8 @@ Décidé :
 
 Choix techniques, tranchés dans les tâches du [découpage du MVP](../specs/02-decoupage-mvp.md) :
 
-2. Fréquence d'échantillonnage : fixe par projet (rééchantillonnage à l'import) ou rééchantillonnage à la lecture ? Tâche AU-1 ; le PCM décodé d'un fichier compressé va dans `.faulk/cache/` (régénérable), le blob gardant les octets d'origine.
-3. PCM décodé d'un fichier compressé : second blob versionné, ou cache régénérable ? Proposition retenue par défaut : cache régénérable (AU-1 confirme).
+2. Fréquence d'échantillonnage : rééchantillonnage **à la lecture**, dans le moteur (§ 5.3, tâche AU-4) ; pas de fréquence de projet fixe.
+3. PCM décodé d'un fichier compressé : second blob versionné, ou cache régénérable ? Proposition retenue par défaut : cache régénérable dans `.faulk/cache/`, le blob gardant les octets d'origine ; la PR d'AU-1 présente ce choix et son coût au fondateur.
 5. En mode Boost, qui ouvre le projet : le sélecteur natif du helper ou le rapprochement par identifiant ? Tâche AU-7.
 6. Débit réel de lecture par plages (File System Access et OPFS) et latence de démarrage d'une voix : **à mesurer**, tâches AU-3 et AU-8.
 7. `FileSystemHandle.move()` sur un dossier choisi par l'utilisateur : comportement à vérifier dans Chrome stable, tâche SV-2.

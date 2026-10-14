@@ -103,7 +103,7 @@ pub enum ClipContent {
     // Musical time: length and loop in ticks.
     Midi { length: Tick, looping: Option<Loop>, notes: BTreeSet<Note> },
     // Source time: a range of the audio file in frames; no length in ticks is stored.
-    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64 },
+    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64, looping: Option<Loop> },
 }
 
 // Ord compares fields in declaration order: (start, pitch, length, velocity).
@@ -413,6 +413,8 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 **Banc de charge** (tâche QA-7 du [découpage du MVP](../specs/02-decoupage-mvp.md), phase 1) : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) et mesurer l'ouverture, l'enregistrement, la mémoire et les opérations git, dans le navigateur et en natif. Ses chiffres fixent les seuils du format (densité d'automation qui bascule en blob, utilité de l'instantané de cache, éventuelle subdivision de `blobs/`).
 
 ## 8. Proposition de MVP
+
+> Le [découpage du MVP](../specs/02-decoupage-mvp.md) (2026-10-14) ne planifie pas les points 1 (fusion à trois points) et 4 (binaire `faulk`, pilotes git) ni la part « fusion » du point 5 : le format v1 est *prêt pour git* (texte canonique, blobs LFS, `.gitattributes`), la fusion sémantique et le pilote viennent après le MVP, avec les versions et variantes. Ce point de périmètre est signalé au fondateur ; les points 2 et 3 sont couverts par SV-1, SV-2, SV-4 et AU-1.
 
 1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, fusion à trois points, migrations.
 2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7.
