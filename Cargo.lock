@@ -1305,6 +1305,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "project"
+version = "0.1.0"
+
+[[package]]
+name = "project-wasm"
+version = "0.1.0"
+dependencies = [
+ "project",
+]
+
+[[package]]
 name = "protocol"
 version = "0.1.0"
 dependencies = [

@@ -22,7 +22,9 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 |---|---|---|
 | `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
 | `crates/commands` | Every user action as a typed command: name, input and output schema, description for agents, undo. The single source for MCP tools and TypeScript types. | Rust (`serde`, `schemars`) |
+| `crates/project` | The project document: tracks, clips, devices, automation, transport settings; pure Rust, `serde`, no I/O. Skeleton for now. | Rust (`serde` to come) |
 | `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. Plain C ABI exports (`fk_*`), no `wasm-bindgen`: its glue does not load in an `AudioWorkletGlobalScope`. | Rust → WASM |
+| `crates/project-wasm` | Project and commands compiled for the page's main thread (not the worklet): the page owns the project in both modes. Skeleton for now. | Rust → WASM |
 | `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
 | `web/` | One web app for both modes: the public landing page at `/` (prerendered, light theme; its only client JavaScript is the lazily loaded WebGL animation of the sound objects, `src/lib/landing/anim/`) and the DAW at `/app` (client-only, dark theme). | TypeScript, SvelteKit 3 (adapter-static), Svelte 5, Vite, Vitest, pnpm |
@@ -32,7 +34,8 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 Core rules:
 
 - **AI first: every action is a command.** Anything a user can do goes through `crates/commands`; the UI has no private path to the engine or the project. A feature that adds a UI action without its command, schema, description and undo is not done. MCP tools are generated from the commands, never written by hand.
-- **One engine, two targets.** Any engine feature must build and behave the same in `engine-wasm` and in `helper`. Audio never crosses the UI ↔ helper link: only commands and visual feedback do.
+- **The page owns the project, in both modes.** The helper relays (engine messages, project text files to write, agents' tool calls) and never owns the project nor runs product logic on it.
+- **One engine, two targets.** Any engine feature must build and behave the same in `engine-wasm` and in `helper`. Audio never crosses the UI ↔ helper link: only engine messages (control messages, not commands), project text files to write and visual feedback do.
 
 ## Real-time audio rules
 
@@ -88,7 +91,7 @@ Stop for the user only on a decision that is theirs: product behaviour, sound or
 
 Checks depend on what the task touches (`docs/agents/verification.md` gives the commands):
 
-- **Rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and the WASM build of the engine.
+- **Rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and the WASM builds of the engine and of the project (`project-wasm`).
 - **Engine and modules**: offline render tests that assert on the signal (level, spectrum, silence, no NaN/denormals), the allocation detector on the audio path, and parity between the native and WASM builds on the same render.
 - **Web**: typecheck, lint, tests, then a check in a real browser with Playwright (audio context started, no console error, the changed screens exercised).
 - **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
