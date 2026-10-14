@@ -264,7 +264,9 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
     };
     // Shows, retitles or removes "Restart to update to {version}" as the updater goes.
     let follow_updates = |entry: &mut RestartEntry| {
-        let result = match entry.follow_status(lang, &updater.status()) {
+        let status = updater.status();
+        restart.set_enabled(RestartEntry::clickable(&status));
+        let result = match entry.follow_status(lang, &status) {
             EntryChange::Keep => Ok(()),
             EntryChange::Show(text) => {
                 restart.set_text(text);

@@ -17,6 +17,12 @@ import { createHash } from 'node:crypto'
 
 export const PACK_ID = 'FaulkHelper'
 export const OS_CHANNELS = ['win', 'linux', 'osx']
+/**
+ * The systems that may be published. The helper asks for its packages at
+ * `get.faulk.app/helper/packages/<file>`, without the system, and web/vercel.json sends that to
+ * the Windows packages: macOS and Linux need a client change before they are published.
+ */
+export const PUBLISHED_OS = ['win']
 /** Packages never change once published: cached for a year. */
 export const IMMUTABLE_MAX_AGE = 31536000
 /** The feed and the latest installer change at each release: Blob's minimum, 60 s. */
@@ -150,6 +156,9 @@ function contentType(name) {
  */
 export async function publish({ files, version, os, store, expectedOrigin, packId = PACK_ID, log = () => {} }) {
   if (!OS_CHANNELS.includes(os)) throw new Error(`unknown OS channel ${os}`)
+  if (!PUBLISHED_OS.includes(os)) {
+    throw new Error(`${os} is not published yet: its packages would not be reachable (see PUBLISHED_OS)`)
+  }
   const channel = channelOf(version)
   const parts = classify([...files.keys()], { os, packId })
   const feed = parseFeed(files.get(parts.feed), `local ${parts.feed}`)
@@ -159,6 +168,15 @@ export async function publish({ files, version, os, store, expectedOrigin, packI
   }
   for (const a of feed.Assets) {
     if (a.PackageId !== packId) throw new Error(`${parts.feed} lists another package id: ${a.PackageId}`)
+  }
+  // Only this version's packages are uploaded, and only those the feed cites: a stray package
+  // would become an immutable, year-cached blob that a later real publication could not fix.
+  // Packages of other versions the feed cites (the delta base) must already be in the store.
+  for (const name of parts.packages) {
+    const cited = feed.Assets.find((a) => a.FileName === name)
+    if (!cited || cited.Version !== version) {
+      throw new Error(`${name} is not a package of ${version} cited by ${parts.feed}: remove it from the folder`)
+    }
   }
   const checkOrigin = (url, path) => {
     const origin = new URL(url).origin
@@ -233,19 +251,23 @@ export async function publish({ files, version, os, store, expectedOrigin, packI
 }
 
 /**
- * The delta base: the newest full package of the stable feed, checked against the feed's
- * SHA-256. Returns `{ name, bytes }`, or null when the store has no stable feed yet.
+ * The delta base: the newest full package of the stable feed older than `below` (the version
+ * being built), checked against the feed's SHA-256. Returns `{ name, bytes }`, or null when
+ * there is none (first release, or a hotfix older than every published version).
  */
-export async function previousFull({ store, os, log = () => {} }) {
+export async function previousFull({ store, os, below, log = () => {} }) {
+  if (!parseVersion(below)) throw new Error(`previous needs the version being built, got '${below}'`)
   const feedPath = channelPath(os, 'stable', feedName(os))
   const bytes = await store.read(feedPath)
   if (!bytes) {
     log(`warning: no ${feedPath} in the store: this version gets no delta package`)
     return null
   }
-  const fulls = parseFeed(bytes, feedPath).Assets.filter((a) => a.Type === 'Full')
+  const fulls = parseFeed(bytes, feedPath).Assets.filter(
+    (a) => a.Type === 'Full' && compareVersions(a.Version, below) < 0,
+  )
   if (!fulls.length) {
-    log(`warning: ${feedPath} lists no full package: this version gets no delta package`)
+    log(`warning: ${feedPath} lists no full package older than ${below}: this version gets no delta package`)
     return null
   }
   fulls.sort((a, b) => compareVersions(b.Version, a.Version))

@@ -97,6 +97,8 @@ jobs:
               *) echo "::error::mirror '$MIRROR': expected a tag helper-v<version>"; exit 1 ;;
             esac
             # Mirroring builds nothing, but it moves a channel: from the release branches only.
+            # A stable tag may be mirrored from develop: its release was only created from a
+            # commit of main (the tag rule below), and the mirror republishes its files as is.
             if [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/develop ]; then
               echo "::error::a mirror is dispatched from main or develop only (ref: $REF)"
               exit 1
@@ -181,13 +183,10 @@ jobs:
         shell: bash
         run: dotnet tool install -g vpk --version "$VPK_VERSION"
 
+      # The dry run needs no dependency; `previous` installs @vercel/blob itself.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Install the publication script
-        working-directory: scripts/helper-release
-        run: npm ci
 
       - name: Test
         run: cargo test -p helper
@@ -234,7 +233,8 @@ jobs:
             echo "::warning::no HELPER_RELEASES_READ_WRITE_TOKEN: no previous package, no delta (the release job will refuse to publish anyway)"
             exit 0
           fi
-          node scripts/helper-release/publish.mjs previous --os win --out releases
+          (cd scripts/helper-release && npm ci)
+          node scripts/helper-release/publish.mjs previous --os win --version "$VERSION" --out releases
           ls -la releases
 
       - name: Package
@@ -340,6 +340,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # One publication per channel at a time: the channel guard reads the feed, then writes.
+    # GitHub keeps one pending job per group: a third run cancels the one waiting, which then
+    # shows as cancelled. Re-run that job alone: the publication is idempotent.
     concurrency:
       group: helper-blob-${{ needs.version.outputs.channel }}
       cancel-in-progress: false
@@ -363,6 +365,32 @@ jobs:
         with:
           name: helper-win-${{ needs.version.outputs.value }}
           path: dist
+
+      - name: Draft, nothing published to Blob
+        if: inputs.draft
+        run: echo "::notice title=Draft::$TAG is a draft release; nothing was published to the Blob store, no installed helper sees it."
+
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.draft }}
+        with:
+          node-version: 24
+
+      # Before the GitHub release: a refused publication (a full re-run rebuilt other bytes) must
+      # not replace the archive's files either. Packages first, the feed last; an older version
+      # than the channel's feed uploads its packages only. Re-running only this job reuses the built files and completes a partial
+      # publication; a full re-run rebuilds different bytes and is refused (bump the version).
+      - name: Publish to the Blob store
+        if: ${{ !inputs.draft }}
+        shell: bash
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.HELPER_RELEASES_READ_WRITE_TOKEN }}
+        run: |
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "::error::the secret HELPER_RELEASES_READ_WRITE_TOKEN does not exist: nothing published, no installed helper sees $VERSION"
+            exit 1
+          fi
+          (cd scripts/helper-release && npm ci)
+          node scripts/helper-release/publish.mjs publish --dir dist --os win --version "$VERSION"
 
       # GitHub makes every new non-prerelease "latest" by default; re-running an older tag
       # would then mark it latest. Only a version newer than the current latest takes it.
@@ -400,31 +428,6 @@ jobs:
             --title "Faulk Helper $VERSION" \
             --generate-notes \
             "${f[@]}"
-
-      - name: Draft, nothing published to Blob
-        if: inputs.draft
-        run: echo "::notice title=Draft::$TAG is a draft release; nothing was published to the Blob store, no installed helper sees it."
-
-      - uses: actions/setup-node@v4
-        if: ${{ !inputs.draft }}
-        with:
-          node-version: 24
-
-      # Packages first, the feed last; an older version than the channel's feed uploads its
-      # packages only. Re-running only this job reuses the built files and completes a partial
-      # publication; a full re-run rebuilds different bytes and is refused (bump the version).
-      - name: Publish to the Blob store
-        if: ${{ !inputs.draft }}
-        shell: bash
-        env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.HELPER_RELEASES_READ_WRITE_TOKEN }}
-        run: |
-          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
-            echo "::error::the secret HELPER_RELEASES_READ_WRITE_TOKEN does not exist: nothing published, no installed helper sees $VERSION"
-            exit 1
-          fi
-          (cd scripts/helper-release && npm ci)
-          node scripts/helper-release/publish.mjs publish --dir dist --os win --version "$VERSION"
 
   # ---------------------------------------------------------------------------
   # A release made before Blob (helper-v0.1.0), published to Blob from its files here.

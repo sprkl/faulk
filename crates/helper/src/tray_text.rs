@@ -163,6 +163,15 @@ impl RestartEntry {
         change
     }
 
+    /// Whether the shown entry can be clicked: while the updater checks or downloads, an apply
+    /// is refused (busy), so the entry stays, greyed, rather than answer a click with nothing.
+    pub fn clickable(status: &UpdateStatus) -> bool {
+        !matches!(
+            status,
+            UpdateStatus::Checking | UpdateStatus::Downloading { .. }
+        )
+    }
+
     pub fn is_shown(&self) -> bool {
         self.shown.is_some()
     }
@@ -425,6 +434,18 @@ mod tests {
                 "{settled:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_restart_entry_is_greyed_while_the_updater_is_busy() {
+        assert!(!RestartEntry::clickable(&UpdateStatus::Checking));
+        assert!(!RestartEntry::clickable(&UpdateStatus::Downloading {
+            version: "0.2.1".into(),
+            percent: 3
+        }));
+        assert!(RestartEntry::clickable(&UpdateStatus::Ready {
+            version: "0.2.0".into()
+        }));
     }
 
     #[test]

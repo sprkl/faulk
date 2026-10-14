@@ -182,6 +182,24 @@ describe('publish', () => {
     await assert.rejects(run(memoryStore(ORIGIN), '0.2.0', other), /another package id/)
   })
 
+  it('refuses a stray package: not of this version, or not cited by the feed', async () => {
+    const withBase = output('0.2.0', { previous: '0.1.0' })
+    withBase.set('FaulkHelper-0.1.0-full.nupkg', Buffer.from('full 0.1.0'))
+    const store = memoryStore(ORIGIN)
+    await assert.rejects(run(store, '0.2.0', withBase), /FaulkHelper-0.1.0-full.nupkg is not a package of 0.2.0/)
+    const extra = output('0.2.0')
+    extra.set('FaulkHelper-0.2.0-delta.nupkg', Buffer.from('not cited'))
+    await assert.rejects(run(store, '0.2.0', extra), /not a package of 0.2.0 cited/)
+    assert.equal(puts(store).length, 0, 'nothing written')
+  })
+
+  it('publishes Windows only: other systems would have unreachable packages', async () => {
+    const store = memoryStore(ORIGIN)
+    await assert.rejects(publish({ files: output('0.2.0'), version: '0.2.0', os: 'linux', store, expectedOrigin: ORIGIN }), /linux is not published yet/)
+    await assert.rejects(publish({ files: output('0.2.0'), version: '0.2.0', os: 'beos', store, expectedOrigin: ORIGIN }), /unknown OS channel/)
+    assert.equal(puts(store).length, 0)
+  })
+
   it('refuses a feed that walks paths', async () => {
     const files = output('0.2.0')
     const json = JSON.parse(files.get('releases.win.json').toString().slice(1))
@@ -194,7 +212,7 @@ describe('publish', () => {
 describe('previousFull', () => {
   it('returns nothing when the store has no stable feed', async () => {
     const lines = []
-    assert.equal(await previousFull({ store: memoryStore(ORIGIN), os: 'win', log: (l) => lines.push(l) }), null)
+    assert.equal(await previousFull({ store: memoryStore(ORIGIN), os: 'win', below: '0.2.0', log: (l) => lines.push(l) }), null)
     assert.match(lines[0], /no delta package/)
   })
 
@@ -202,23 +220,38 @@ describe('previousFull', () => {
     const store = memoryStore(ORIGIN)
     await run(store, '0.1.0')
     await run(store, '0.2.0', output('0.2.0', { previous: '0.1.0' }))
-    const found = await previousFull({ store, os: 'win' })
+    const found = await previousFull({ store, os: 'win', below: '0.3.0' })
     assert.equal(found.name, 'FaulkHelper-0.2.0-full.nupkg')
     assert.equal(found.bytes.toString(), 'full 0.2.0')
+  })
+
+  it('never takes the version being built, nor a newer one', async () => {
+    const store = memoryStore(ORIGIN)
+    await run(store, '0.1.0')
+    await run(store, '0.2.0', output('0.2.0', { previous: '0.1.0' }))
+    // A hotfix 0.1.1 built after 0.2.0: its base is 0.1.0.
+    assert.equal((await previousFull({ store, os: 'win', below: '0.1.1' })).name, 'FaulkHelper-0.1.0-full.nupkg')
+    // A re-run of 0.2.0: its own package is not its base.
+    assert.equal((await previousFull({ store, os: 'win', below: '0.2.0' })).name, 'FaulkHelper-0.1.0-full.nupkg')
+    // Older than everything published: no delta.
+    const lines = []
+    assert.equal(await previousFull({ store, os: 'win', below: '0.0.9', log: (l) => lines.push(l) }), null)
+    assert.match(lines[0], /older than 0.0.9/)
+    await assert.rejects(previousFull({ store, os: 'win' }), /needs the version being built/)
   })
 
   it('refuses a package that does not match the feed', async () => {
     const store = memoryStore(ORIGIN)
     await run(store, '0.1.0')
     store.blobs.set('helper/win/packages/FaulkHelper-0.1.0-full.nupkg', Buffer.from('tampered'))
-    await assert.rejects(previousFull({ store, os: 'win' }), /does not match the SHA-256/)
+    await assert.rejects(previousFull({ store, os: 'win', below: '0.2.0' }), /does not match the SHA-256/)
   })
 
   it('refuses a feed that cites a missing package', async () => {
     const store = memoryStore(ORIGIN)
     await run(store, '0.1.0')
     store.blobs.delete('helper/win/packages/FaulkHelper-0.1.0-full.nupkg')
-    await assert.rejects(previousFull({ store, os: 'win' }), /not in the store/)
+    await assert.rejects(previousFull({ store, os: 'win', below: '0.2.0' }), /not in the store/)
   })
 })
 

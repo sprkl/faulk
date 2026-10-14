@@ -2,12 +2,13 @@
 // Command line of the helper's Blob publication (logic in publish-core.mjs).
 //
 //   node scripts/helper-release/publish.mjs publish --dir <velopack output> --os win --version <X.Y.Z[-pre]> [--dry-run]
-//   node scripts/helper-release/publish.mjs previous --os win --out <dir>
+//   node scripts/helper-release/publish.mjs previous --os win --version <X.Y.Z> --out <dir>
 //
-// `publish` uploads one release; `previous` downloads the newest stable full package into
-// <dir>, so that `vpk pack` builds a delta from it. Both read the store with the token in
+// `publish` uploads one release; `previous` downloads the newest stable full package older than
+// --version into <dir>, so that `vpk pack` builds a delta from it. Both read the store with the token in
 // BLOB_READ_WRITE_TOKEN, except `publish --dry-run`, which runs against an empty in-memory
-// store and prints what it would write. `--vercel-json` (default web/vercel.json) gives the
+// store and prints what it would write (an output with a delta stops at the check of its
+// base package, which the empty store lacks: the guard working). `--vercel-json` (default web/vercel.json) gives the
 // Blob origin get.faulk.app redirects to; a token for another store is refused.
 // `@vercel/blob` is loaded only for a real run: `npm ci` in this folder first.
 
@@ -103,8 +104,8 @@ async function main() {
       break
     }
     case 'previous': {
-      if (!values.out) throw new Error('previous needs --out')
-      const found = await previousFull({ store: await blobStore(), os: values.os, log })
+      if (!values.out || !values.version) throw new Error('previous needs --out and --version')
+      const found = await previousFull({ store: await blobStore(), os: values.os, below: values.version, log })
       if (found) writeFileSync(join(values.out, found.name), found.bytes)
       break
     }
