@@ -1211,3 +1211,60 @@ fn the_clips_and_placements_per_track_limits_refuse_with_a_limit_error() {
     let err = check_refusal(&at_start, &state, &context()).unwrap();
     assert_eq!(err.code(), "limit", "{err}");
 }
+
+#[test]
+fn duplicate_without_a_slot_takes_the_next_free_one_below_or_is_refused() {
+    let f = fx();
+    // `clip` sits in scene_a; scene_b is taken by `placed`, so the copy goes to scene_free.
+    let dup = c(clip::Command::Duplicate {
+        clip: f.clip.clone(),
+        slot: None,
+    });
+    check(&dup, &f.state, &context()).unwrap();
+    let mut state = f.state.clone();
+    let out = run(&dup, &mut state, &mut context()).unwrap();
+    let Output::Clip(clip::Output::Duplicate { clip: copy }) = out.output else {
+        panic!()
+    };
+    assert_eq!(
+        state.project.tracks[&f.track].clips[&copy].slot,
+        Some(f.scene_free.clone())
+    );
+    state.project.validate().unwrap();
+    // Every slot is now taken: the next duplicate is refused and changes nothing.
+    let err = check_refusal(&dup, &state, &context()).unwrap();
+    assert_eq!(err.code(), "invalid");
+    // The copy of the clip in the last scene has nothing below it.
+    let last = c(clip::Command::Duplicate {
+        clip: copy.clone(),
+        slot: None,
+    });
+    assert_eq!(
+        check_refusal(&last, &state, &context()).unwrap().code(),
+        "invalid"
+    );
+    // Undo removes the copy and frees the slot again.
+    let Undo::Inverse(inverse) = out.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut context()).unwrap();
+    assert_eq!(state.project, f.state.project);
+    // A source above a free slot that is not directly below it skips the taken one.
+    let mut gap = f.state.clone();
+    gap.project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .clips
+        .get_mut(&f.placed)
+        .unwrap()
+        .slot = None;
+    let out = run(&dup, &mut gap, &mut context()).unwrap();
+    let Output::Clip(clip::Output::Duplicate { clip: copy }) = out.output else {
+        panic!()
+    };
+    assert_eq!(
+        gap.project.tracks[&f.track].clips[&copy].slot,
+        Some(f.scene_b.clone())
+    );
+}

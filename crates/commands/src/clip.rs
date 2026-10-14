@@ -133,11 +133,12 @@ domain! {
     } => {};
 
     /// Copy a MIDI clip into a new, independent clip: same name, colour, length, loop
-    /// and notes; editing one never changes the other. The copy goes into the launch
-    /// grid slot `slot` of the same track when given (the slot must be free), otherwise
-    /// into no slot, where the arrangement commands can place it. A second placement of
-    /// the same clip is an option of the arrangement commands, not of this one. Undo:
-    /// `clip.delete` of the copy.
+    /// and notes; editing one never changes the other. The copy always sits in a
+    /// launch-grid slot of the same track: `slot` when given (it must be free),
+    /// otherwise the next free slot below the source's scene. Refused, with no effect,
+    /// when the track has no free slot to give. A second placement of the same clip is
+    /// an option of the arrangement commands, not of this one. Undo: `clip.delete` of
+    /// the copy.
     "clip.duplicate" (kind = "edit", undo = "inverse", destructive = false)
     Duplicate {
         clip: ClipId,
@@ -506,6 +507,24 @@ fn check_slot(
     Ok(())
 }
 
+/// The first scene, in display order, after `after` (from the top when the source has no
+/// slot) whose slot is free in the track.
+fn next_free_slot(
+    project: &Project,
+    track: &Track,
+    after: Option<&SceneId>,
+) -> Result<SceneId, CommandError> {
+    let scenes = project.scenes_in_order();
+    let from = after
+        .and_then(|a| scenes.iter().position(|(id, _)| *id == a))
+        .map_or(0, |i| i + 1);
+    scenes[from..]
+        .iter()
+        .map(|(id, _)| (*id).clone())
+        .find(|id| !track.clips.values().any(|c| c.slot.as_ref() == Some(id)))
+        .ok_or_else(|| invalid("slot", "the track has no free slot below the source"))
+}
+
 /// A placement on the timeline: inside `[0, MAX_TICK]`, overlapping none of `taken`,
 /// which it joins.
 fn check_span(
@@ -841,11 +860,15 @@ fn duplicate(
         notes.len(),
         project_notes(project).saturating_add(notes.len()),
     )?;
-    if let Some(scene) = slot {
-        check_slot(project, track, scene, "slot")?;
-    }
+    let target = match slot {
+        Some(scene) => {
+            check_slot(project, track, scene, "slot")?;
+            scene.clone()
+        }
+        None => next_free_slot(project, track, source.slot.as_ref())?,
+    };
     let mut copy = source.clone();
-    copy.slot = slot.cloned();
+    copy.slot = Some(target);
     let new_id = ClipId::generate(&mut ctx.ids);
     state
         .project

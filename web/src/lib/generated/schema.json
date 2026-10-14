@@ -112,7 +112,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+            "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -1190,7 +1190,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -2772,7 +2772,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -4364,7 +4364,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -5977,7 +5977,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -7561,7 +7561,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -9036,7 +9036,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+        "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -9151,7 +9151,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -10743,7 +10743,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -12329,7 +12329,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -13919,7 +13919,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -15516,7 +15516,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -17121,7 +17121,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -18712,7 +18712,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -20303,7 +20303,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -21894,7 +21894,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -23463,7 +23463,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -25047,7 +25047,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -26636,7 +26636,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -28218,7 +28218,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -29787,7 +29787,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -31375,7 +31375,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -32963,7 +32963,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -34539,7 +34539,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -36115,7 +36115,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -37701,7 +37701,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy goes into the launch\ngrid slot `slot` of the same track when given (the slot must be free), otherwise\ninto no slot, where the arrangement commands can place it. A second placement of\nthe same clip is an option of the arrangement commands, not of this one. Undo:\n`clip.delete` of the copy.",
+              "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
