@@ -70,7 +70,7 @@ export type MixerCommand = ({
 /**
  * Required: `null` is silence, a missing field is an error.
  */
-gain_db: number
+gain_db: (number | null)
 /**
  * Identifier of a track.
  */
@@ -94,7 +94,7 @@ type: "mixer.set_mute"
 /**
  * Required: `null` is silence, a missing field is an error.
  */
-gain_db: number
+gain_db: (number | null)
 type: "mixer.set_master_volume"
 } | {
 solo: boolean

@@ -34,7 +34,7 @@ domain! {
         track: TrackId,
         /// Required: `null` is silence, a missing field is an error.
         #[serde(deserialize_with = "Option::deserialize")]
-        #[schemars(required, range(min = -96.0, max = 6.0))]
+        #[schemars(required, schema_with = "nullable_gain")]
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
@@ -72,7 +72,7 @@ domain! {
     SetMasterVolume {
         /// Required: `null` is silence, a missing field is an error.
         #[serde(deserialize_with = "Option::deserialize")]
-        #[schemars(required, range(min = -96.0, max = 6.0))]
+        #[schemars(required, schema_with = "nullable_gain")]
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
@@ -268,8 +268,9 @@ fn mixer_changed(track: Option<TrackId>, mixer: &Mixer) -> ProjectEvent {
 }
 
 /// The outcome of a gain edit. A previous gain the contract would refuse (a document
-/// edited by hand beyond the range) cannot be restored by a command: the edit then has
-/// no inverse.
+/// edited by hand beyond the range) cannot be written back by a command: the inverse
+/// restores the nearest gain in range instead, so the edit stays undoable and the
+/// history stays coherent.
 fn gain_outcome(
     previous: f64,
     db: f64,
@@ -283,15 +284,23 @@ fn gain_outcome(
     if previous == db {
         return unchanged(output);
     }
-    let restorable = to_db(before).is_ok();
+    let restored = before.map(|g| g.clamp(MIN_GAIN_DB, MAX_GAIN_DB));
     Outcome {
         output,
-        undo: if restorable {
-            Undo::Inverse(Box::new(inverse(before)))
-        } else {
-            Undo::None
-        },
+        undo: Undo::Inverse(Box::new(inverse(restored))),
         events: vec![mixer_changed(track, mixer)],
         control: vec![],
     }
+}
+
+/// The schema of a gain: a number from [`MIN_GAIN_DB`] to [`MAX_GAIN_DB`], or `null` for
+/// silence (the derived schema of an optional field drops the `null`).
+fn nullable_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": ["number", "null"],
+        "format": "double",
+        "minimum": MIN_GAIN_DB,
+        "maximum": MAX_GAIN_DB,
+        "description": "Required: `null` is silence, a missing field is an error."
+    })
 }

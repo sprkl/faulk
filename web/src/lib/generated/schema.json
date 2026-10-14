@@ -329,7 +329,10 @@
                 "format": "double",
                 "maximum": 6,
                 "minimum": -96,
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "track": {
                 "$ref": "#/$defs/TrackId"
@@ -411,7 +414,10 @@
                 "format": "double",
                 "maximum": 6,
                 "minimum": -96,
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "type": {
                 "const": "mixer.set_master_volume",
@@ -856,7 +862,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -938,7 +947,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -1787,7 +1799,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -1869,7 +1884,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -2728,7 +2746,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -2810,7 +2831,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -2938,7 +2962,10 @@
               "format": "double",
               "maximum": 6,
               "minimum": -96,
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             },
             "track": {
               "$ref": "#/$defs/TrackId"
@@ -3669,7 +3696,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -3751,7 +3781,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -4608,7 +4641,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -4690,7 +4726,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -5543,7 +5582,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -5625,7 +5667,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -5753,7 +5798,10 @@
               "format": "double",
               "maximum": 6,
               "minimum": -96,
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             }
           },
           "required": [
@@ -6480,7 +6528,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -6562,7 +6613,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -7415,7 +7469,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -7497,7 +7554,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -8333,7 +8393,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -8415,7 +8478,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -9266,7 +9332,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -9348,7 +9417,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -10204,7 +10276,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -10286,7 +10361,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -11135,7 +11213,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -11217,7 +11298,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -12053,7 +12137,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -12135,7 +12222,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -12990,7 +13080,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -13072,7 +13165,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -13927,7 +14023,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -14009,7 +14108,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -14852,7 +14954,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -14934,7 +15039,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -15777,7 +15885,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "track": {
                       "$ref": "#/$defs/TrackId"
@@ -15859,7 +15970,10 @@
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -16712,7 +16826,10 @@
                   "format": "double",
                   "maximum": 6,
                   "minimum": -96,
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -16794,7 +16911,10 @@
                   "format": "double",
                   "maximum": 6,
                   "minimum": -96,
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": {
                   "const": "mixer.set_master_volume",

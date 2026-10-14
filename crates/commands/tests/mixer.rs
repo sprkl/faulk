@@ -226,15 +226,28 @@ fn undo_restores_silence_and_the_master() {
 }
 
 #[test]
-fn a_previous_gain_beyond_the_range_has_no_inverse_but_the_edit_applies() {
-    // A document edited by hand: +20 dB. The command cannot restore it, so it carries
-    // no inverse rather than one that would be refused.
+fn a_previous_gain_beyond_the_range_is_undone_to_the_nearest_gain_in_range() {
+    // A document edited by hand: +20 dB, which `validate` accepts. A command cannot
+    // write it back, so undo restores +6 dB; the edit stays in the history.
     let f = fixture();
     let mut s = f.state.clone();
     s.project.tracks.get_mut(&f.track).unwrap().mixer.gain_db = 20.0;
-    let outcome = Command::apply(&volume(&f.track, Some(0.0)), &mut s, &mut context()).unwrap();
-    assert_eq!(outcome.undo, commands::Undo::None);
-    assert_eq!(s.project.tracks[&f.track].mixer.gain_db, 0.0);
+    let depth = s.history.undo.len();
+    run(&volume(&f.track, Some(0.0)), &mut s, &mut context()).unwrap();
+    assert_eq!(s.history.undo.len(), depth + 1, "the edit is recorded");
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.tracks[&f.track].mixer.gain_db, mixer::MAX_GAIN_DB);
+    assert_eq!(
+        s.history.undo.len(),
+        depth,
+        "the undo took this edit, not an older one"
+    );
+    s.project.validate().unwrap();
+    // Below the floor, the same with the floor.
+    s.project.master.gain_db = -120.0;
+    run(&master(Some(0.0)), &mut s, &mut context()).unwrap();
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.master.gain_db, mixer::MIN_GAIN_DB);
 }
 
 #[test]
@@ -308,9 +321,18 @@ fn the_schema_states_the_ranges_and_the_kinds() {
         (pan["minimum"].as_f64(), pan["maximum"].as_f64()),
         (Some(-1.0), Some(1.0))
     );
-    let gain = &tool("mixer.set_volume").input_schema["properties"]["gain_db"];
-    let text = gain.to_string();
-    assert!(text.contains("-96") && text.contains('6'), "{text}");
+    for n in ["mixer.set_volume", "mixer.set_master_volume"] {
+        let gain = &tool(n).input_schema["properties"]["gain_db"];
+        assert_eq!(
+            (gain["minimum"].as_f64(), gain["maximum"].as_f64()),
+            (Some(-96.0), Some(6.0)),
+            "{n}"
+        );
+        assert!(
+            gain["type"].as_array().unwrap().iter().any(|t| t == "null"),
+            "{n}: silence is null, the schema must allow it"
+        );
+    }
     assert!(
         tool("mixer.set_volume").input_schema["required"]
             .as_array()
