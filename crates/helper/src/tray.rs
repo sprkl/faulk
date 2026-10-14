@@ -103,6 +103,22 @@ pub fn set_start_at_login(command: Option<&str>) -> std::io::Result<()> {
     set_run_value(RUN_VALUE, command)
 }
 
+/// For the uninstaller: removes the Run value when it starts this executable, and says so
+/// in the log file (the uninstall hook runs before `main` opens it, so it is opened here).
+pub fn forget_own_start_at_login() {
+    if let Some(dir) = dirs::config_dir() {
+        let _ = crate::log::init(&dir.join("faulk").join("logs"), false);
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match forget_start_at_login(&exe.display().to_string()) {
+        Ok(true) => crate::log!("uninstall: start with Windows removed"),
+        Ok(false) => {}
+        Err(e) => crate::log!("uninstall: cannot remove start with Windows: {e}"),
+    }
+}
+
 /// Removes the Run value when it starts `exe`; returns whether it did. Called by the
 /// uninstaller, which deletes the executable the value would start. A value that starts
 /// another copy of the helper is left alone.

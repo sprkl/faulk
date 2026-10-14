@@ -26,6 +26,7 @@ use helper::midi::MidiManager;
 use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
+use helper::updater::{self, Config, UpdateStatus, Updater};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -151,7 +152,7 @@ fn release_all_voices(sender: &Mutex<EventSender>, meter: &Meter, limit: Duratio
 fn main() {
     // First: the installer and the updater run the executable with `--veloapp-*` arguments
     // and expect it to exit at once, before any argument parsing, port claim or window.
-    helper::updater::startup();
+    updater::startup();
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let lang = ui_lang();
     let config_dir = dirs::config_dir()
@@ -334,8 +335,8 @@ fn main() {
     runtime.spawn(serve(listener, shared));
 
     // Updates of the installed helper, on their own thread; disabled when run from cargo.
-    let updater = helper::updater::Updater::start(helper::updater::Config::from_env());
-    if let helper::updater::UpdateStatus::Disabled { reason } = updater.status() {
+    let updates = Updater::start(Config::from_env());
+    if let UpdateStatus::Disabled { reason } = updates.status() {
         log!("update: disabled ({reason})");
     }
 
@@ -368,7 +369,7 @@ fn main() {
     }
     drop(stream);
     // Does not wait: a check or a download in progress is abandoned with the process.
-    drop(updater);
+    drop(updates);
     log!("stopped");
 }
 

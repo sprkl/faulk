@@ -124,8 +124,8 @@ pub fn run_command(exe: &str, args: &[String]) -> String {
     line
 }
 
-/// Whether a command stored in the Run key starts `exe` (compared without case, as
-/// Windows compares paths). The uninstaller removes only such a value: one left by
+/// Whether a command stored in the Run key starts `exe` (ASCII letters compared without
+/// case; both sides come from `current_exe()`, so other letters match as written). The uninstaller removes only such a value: one left by
 /// another copy of the helper, a development build for instance, is not its to remove.
 pub fn run_command_starts(stored: &str, exe: &str) -> bool {
     let quoted = format!("\"{exe}\"");

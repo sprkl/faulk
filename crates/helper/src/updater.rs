@@ -81,23 +81,11 @@ pub fn startup() {
     // would be left pointing at nothing.
     #[cfg(windows)]
     {
-        app = app.on_before_uninstall_fast_callback(|_| forget_start_at_login());
+        app = app.on_before_uninstall_fast_callback(|_| crate::tray::forget_own_start_at_login());
     }
     app.run();
     if let Some(lock) = lock {
         lock.share();
-    }
-}
-
-#[cfg(windows)]
-fn forget_start_at_login() {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    match crate::tray::forget_start_at_login(&exe.display().to_string()) {
-        Ok(true) => crate::log!("uninstall: start with Windows removed"),
-        Ok(false) => {}
-        Err(e) => crate::log!("uninstall: cannot remove start with Windows: {e}"),
     }
 }
 
