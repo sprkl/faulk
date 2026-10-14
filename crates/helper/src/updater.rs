@@ -316,13 +316,21 @@ pub fn resolve_base_url(override_url: Option<&str>) -> (String, Option<String>) 
     let Some(raw) = override_url.map(str::trim).filter(|s| !s.is_empty()) else {
         return (DEFAULT_BASE_URL.to_owned(), None);
     };
+    // The feed and package paths are appended to the base: a query or a fragment would swallow
+    // them.
+    let plain = |url: &url::Url| url.query().is_none() && url.fragment().is_none();
     match url::Url::parse(raw) {
-        Ok(url) if url.scheme() == "https" && url.host().is_some() => (raw.to_owned(), None),
-        Ok(url) if url.scheme() == "http" && is_loopback(&url) => (raw.to_owned(), None),
+        Ok(url) if plain(&url) && url.scheme() == "https" && url.host().is_some() => {
+            (raw.to_owned(), None)
+        }
+        Ok(url) if plain(&url) && url.scheme() == "http" && is_loopback(&url) => {
+            (raw.to_owned(), None)
+        }
         _ => (
             DEFAULT_BASE_URL.to_owned(),
             Some(format!(
-                "{BASE_URL_ENV}={raw} ignored: only https:// or http:// to a loopback address"
+                "{BASE_URL_ENV}={raw} ignored: only https:// or http:// to a loopback address, \
+                 without query or fragment"
             )),
         ),
     }
@@ -935,7 +943,12 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
         }
     };
     let version = update.TargetFullRelease.Version.clone();
-    if ready_before.as_deref() == Some(version.as_str()) {
+    // Already downloaded: skip, but only while the package is still there (it may have been
+    // cleaned up, or consumed by a failed apply).
+    let still_pending = backend
+        .pending()
+        .is_some_and(|asset| asset.Version == version);
+    if ready_before.as_deref() == Some(version.as_str()) && still_pending {
         set(status, UpdateStatus::Ready { version });
         return;
     }

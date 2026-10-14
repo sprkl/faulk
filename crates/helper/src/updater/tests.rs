@@ -187,6 +187,9 @@ fn base_override_accepts_https_and_loopback_http_only() {
         "ftp://127.0.0.1",
         "file:///C:/feed",
         "not a url",
+        "https://updates.example.org/helper?token=x",
+        "https://updates.example.org/helper#stable",
+        "http://127.0.0.1:8000/?x=1",
     ] {
         let (base, warning) = resolve_base_url(Some(refused));
         assert_eq!(base, DEFAULT_BASE_URL, "{refused}");
@@ -1045,6 +1048,25 @@ fn apply_is_refused_while_a_download_runs() {
     );
     updater.apply_and_restart().unwrap();
     assert_eq!(backend.applied.lock().unwrap()[0].0, "0.3.0");
+    updater.shutdown();
+}
+
+#[test]
+fn a_ready_update_whose_package_vanished_is_downloaded_again() {
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some("0.2.0".into());
+    let updater = Updater::start_with(backend.clone(), NEVER);
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    // The package is cleaned up; the same version is still offered.
+    *backend.pending.lock().unwrap() = None;
+    let (open, gate) = mpsc::channel();
+    *backend.gate.lock().unwrap() = Some(gate);
+    updater.check_now();
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Downloading { .. }));
+    open.send(()).unwrap();
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    assert!(backend.pending().is_some());
+    updater.apply_and_restart().unwrap();
     updater.shutdown();
 }
 

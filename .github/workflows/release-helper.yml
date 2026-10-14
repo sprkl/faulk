@@ -20,6 +20,11 @@ on:
       - '.github/workflows/release-helper.yml'
       - 'crates/helper/src/updater.rs'
       - 'crates/helper/src/updater/**'
+      # The wiring (#12) and the Velopack version: the trial build runs the wiring gate.
+      - 'crates/helper/src/main.rs'
+      - 'crates/helper/src/lib.rs'
+      - 'crates/helper/Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       version:

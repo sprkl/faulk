@@ -73,7 +73,7 @@ Le test `crates/helper/src/updater/tests.rs` lit `web/vercel.json` et vérifie q
 - **Audio** : l'updater ne s'exécute jamais sur le thread audio et ne partage aucun état avec lui. Ses seuls effets sur le son sont les deux sorties de processus ci-dessus.
 - **Journal** : les lignes `update: ...` sur la sortie d'erreur, et les avertissements et erreurs de Velopack (cible `velopack*` seulement), qui passent par un petit journal `log` installé par `startup()`. Ce journal vaut pour tout le processus : si un autre journal `log` est installé avant, celui-ci ne l'est pas, sans erreur ; s'il l'est après, l'autre doit tolérer l'échec de `set_logger` (`env_logger::init()` paniquerait, `try_init()` non).
 - **Vie privée** : chaque lecture du flux porte `?localVersion=<version>&id=FaulkHelper&stagingId=<identifiant>`. Ce paramètre est ajouté par Velopack ; `stagingId` est un identifiant aléatoire propre à l'installation, prévu pour les déploiements progressifs. Il arrive à Vercel et, par la redirection, à GitHub.
-- **Tests de pointage** : la variable `FAULK_UPDATE_URL` remplace `https://get.faulk.app/helper` par une adresse `https://` (n'importe quel hôte) ou `http://` vers la boucle locale seulement (`127.0.0.1`, `localhost`, `[::1]`). Les paquets ne sont vérifiés que contre le flux servi par cette même adresse : qui peut écrire l'environnement de l'utilisateur choisit le code installé. C'est accepté, car qui peut écrire cet environnement peut déjà exécuter du code sous ce compte ; la signature de code (plus bas) fermera ce point.
+- **Tests de pointage** : la variable `FAULK_UPDATE_URL` remplace `https://get.faulk.app/helper` par une adresse `https://` (n'importe quel hôte) ou `http://` vers la boucle locale seulement (`127.0.0.1`, `localhost`, `[::1]`), sans requête ni fragment (les chemins du flux et des paquets y sont ajoutés). Les paquets ne sont vérifiés que contre le flux servi par cette même adresse : qui peut écrire l'environnement de l'utilisateur choisit le code installé. C'est accepté, car qui peut écrire cet environnement peut déjà exécuter du code sous ce compte ; la signature de code (plus bas) fermera ce point.
 
 ### Le câblage dans `main.rs`
 
@@ -108,7 +108,7 @@ Trois façons de lancer :
 
 - la voie normale : `git tag helper-v0.2.0 && git push origin helper-v0.2.0` ;
 - sans tag : `gh workflow run release-helper.yml --ref main -f version=0.2.0` ;
-- un build d'essai : `gh workflow run release-helper.yml` sans version, ou toute pull request qui modifie ce workflow ou l'updater.
+- un build d'essai : `gh workflow run release-helper.yml` sans version, ou toute pull request qui modifie ce workflow, l'updater, `main.rs`, `lib.rs`, `crates/helper/Cargo.toml` ou `Cargo.lock` (le câblage et la version de Velopack passent ainsi la garde dès la PR).
 
 `gh workflow run` ne fonctionne qu'une fois le workflow présent sur la branche par défaut (`develop`).
 
