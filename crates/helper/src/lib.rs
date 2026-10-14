@@ -9,3 +9,4 @@ pub mod server;
 #[cfg(windows)]
 pub mod tray;
 pub mod tray_text;
+pub mod updater;

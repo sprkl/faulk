@@ -124,6 +124,19 @@ pub fn run_command(exe: &str, args: &[String]) -> String {
     line
 }
 
+/// Whether a command stored in the Run key starts `exe` (ASCII letters compared without
+/// case; both sides come from `current_exe()`, so other letters match as written). The uninstaller removes only such a value: one left by
+/// another copy of the helper, a development build for instance, is not its to remove.
+pub fn run_command_starts(stored: &str, exe: &str) -> bool {
+    let quoted = format!("\"{exe}\"");
+    match stored.get(..quoted.len()) {
+        Some(head) if head.eq_ignore_ascii_case(&quoted) => {
+            matches!(stored[quoted.len()..].chars().next(), None | Some(' '))
+        }
+        _ => false,
+    }
+}
+
 /// Quotes one argument the way Windows programs split their command line
 /// (`CommandLineToArgvW`, the C runtime): backslashes are literal except before a
 /// quote, where they are doubled, and quotes are escaped.
@@ -158,6 +171,32 @@ mod tests {
     use super::*;
 
     const LANGS: [Lang; 2] = [Lang::En, Lang::Fr];
+
+    #[test]
+    fn a_run_command_starts_its_own_executable_only() {
+        let exe = r"C:\Users\u\AppData\Local\FaulkHelper\current\faulk-helper.exe";
+        let own = run_command(exe, &["--port".into(), "47801".into()]);
+        assert!(run_command_starts(&own, exe));
+        assert!(
+            run_command_starts(&format!("\"{exe}\""), exe),
+            "no arguments"
+        );
+        assert!(
+            run_command_starts(&own.to_uppercase(), exe),
+            "paths compare without case"
+        );
+        assert!(!run_command_starts(
+            r#""C:\git\music\target\release\faulk-helper.exe" --port 47801"#,
+            exe
+        ));
+        assert!(
+            !run_command_starts(&format!("\"{exe}.old\""), exe),
+            "a longer path is another file"
+        );
+        assert!(!run_command_starts(&format!("\"{exe}\"x"), exe));
+        assert!(!run_command_starts("", exe));
+        assert!(!run_command_starts("\"C:\\é", exe), "short, non-ASCII");
+    }
 
     #[test]
     fn french_for_every_french_locale_english_otherwise() {

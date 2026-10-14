@@ -103,6 +103,44 @@ pub fn set_start_at_login(command: Option<&str>) -> std::io::Result<()> {
     set_run_value(RUN_VALUE, command)
 }
 
+/// For the uninstaller: removes the Run value when it starts this executable, and says so
+/// in the log file (the uninstall hook runs before `main` opens it, so it is opened here).
+pub fn forget_own_start_at_login() {
+    if let Some(dir) = dirs::config_dir() {
+        let _ = crate::log::init(&dir.join("faulk").join("logs"), false);
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match forget_start_at_login(&exe.display().to_string()) {
+        Ok(true) => crate::log!("uninstall: start with Windows removed"),
+        Ok(false) => {}
+        Err(e) => crate::log!("uninstall: cannot remove start with Windows: {e}"),
+    }
+}
+
+/// Removes the Run value when it starts `exe`; returns whether it did. Called by the
+/// uninstaller, which deletes the executable the value would start. A value that starts
+/// another copy of the helper is left alone.
+pub fn forget_start_at_login(exe: &str) -> std::io::Result<bool> {
+    forget_run_value(RUN_VALUE, exe)
+}
+
+fn forget_run_value(name: &str, exe: &str) -> std::io::Result<bool> {
+    let stored = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(RUN_KEY)
+        .and_then(|key| key.get_value::<String, _>(name));
+    match stored {
+        Ok(stored) if crate::tray_text::run_command_starts(&stored, exe) => {
+            set_run_value(name, None).map(|()| true)
+        }
+        Ok(_) => Ok(false),
+        // No key or no value: nothing to remove. Any other error is reported.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 fn run_value_is(name: &str, command: &str) -> bool {
     RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(RUN_KEY)
@@ -274,6 +312,7 @@ mod tests {
     fn the_run_value_is_written_compared_and_removed() {
         // A throwaway value next to the real one, removed at the end.
         let name = format!("FaulkHelperTest{}", std::process::id());
+        let _cleanup = RemoveRunValue(name.clone());
         let command = r#""C:\Faulk\faulk-helper.exe" --port 47801"#;
         assert!(!run_value_is(&name, command), "absent reads as off");
         set_run_value(&name, Some(command)).unwrap();
@@ -285,5 +324,55 @@ mod tests {
         set_run_value(&name, None).unwrap();
         assert!(!run_value_is(&name, command), "removed reads as off");
         set_run_value(&name, None).expect("removing an absent value is fine");
+    }
+
+    /// Removes a throwaway Run value when dropped, even after a failed assertion: a value
+    /// left behind would run at every log-in.
+    struct RemoveRunValue(String);
+
+    impl Drop for RemoveRunValue {
+        fn drop(&mut self) {
+            let _ = set_run_value(&self.0, None);
+        }
+    }
+
+    #[test]
+    fn a_failed_test_still_removes_its_run_value() {
+        let name = format!("FaulkHelperGuardTest{}", std::process::id());
+        let inner = name.clone();
+        let result = std::thread::spawn(move || {
+            let _cleanup = RemoveRunValue(inner.clone());
+            set_run_value(&inner, Some(r#""C:\FaulkTestNowhere\x.exe""#)).unwrap();
+            panic!("a failing assertion");
+        })
+        .join();
+        assert!(result.is_err());
+        assert!(!run_value_is(&name, r#""C:\FaulkTestNowhere\x.exe""#));
+    }
+
+    #[test]
+    fn the_uninstaller_forgets_only_the_value_of_its_own_executable() {
+        let name = format!("FaulkHelperForgetTest{}", std::process::id());
+        let _cleanup = RemoveRunValue(name.clone());
+        // Paths that do not exist: a value left behind starts nothing.
+        let installed = r"C:\FaulkTestNowhere\FaulkHelper\current\faulk-helper.exe";
+        let dev = r#""C:\FaulkTestNowhere\dev\faulk-helper.exe" --port 47801"#;
+        set_run_value(&name, Some(dev)).unwrap();
+        assert!(!forget_run_value(&name, installed).unwrap(), "another copy");
+        assert!(run_value_is(&name, dev), "kept");
+        let own = format!("\"{installed}\" --port 47801");
+        set_run_value(&name, Some(&own)).unwrap();
+        assert!(forget_run_value(&name, installed).unwrap(), "its own");
+        assert!(!run_value_is(&name, &own), "removed");
+        assert!(
+            !forget_run_value(&name, installed).unwrap(),
+            "absent: nothing to do"
+        );
+        // A value that cannot be read as a string is an error, not an absence.
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(RUN_KEY)
+            .unwrap();
+        key.set_value(&name, &1u32).unwrap();
+        assert!(forget_run_value(&name, installed).is_err());
     }
 }

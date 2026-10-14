@@ -1,0 +1,35 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/helper/stable/:file(releases\\.[a-z]+\\.json)",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://github.com/sprkl/faulk-release/releases/latest/download/:file",
+      "permanent": false
+    },
+    {
+      "source": "/helper/beta/:file(releases\\.[a-z]+\\.json)",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://github.com/sprkl/faulk-release/releases/download/helper-beta/:file",
+      "permanent": false
+    },
+    {
+      "source": "/helper/packages/FaulkHelper-:version(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)-:kind(full|delta)\\.nupkg",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://github.com/sprkl/faulk-release/releases/download/helper-v:version/FaulkHelper-:version-:kind.nupkg",
+      "permanent": false
+    },
+    {
+      "source": "/helper/windows",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://github.com/sprkl/faulk-release/releases/latest/download/FaulkHelper-win-Setup.exe",
+      "permanent": false
+    },
+    {
+      "source": "/:path(.*)",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://github.com/sprkl/faulk-release/releases/latest",
+      "permanent": false
+    }
+  ]
+}
