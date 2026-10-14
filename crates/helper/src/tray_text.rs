@@ -4,6 +4,8 @@
 //!
 //! Kept free of any platform API so it compiles and is tested everywhere.
 
+use crate::updater::UpdateStatus;
+
 /// Origin of the page the tray opens. Change it when Faulk is served elsewhere.
 pub const APP_ORIGIN: &str = "http://localhost:5173";
 /// Path of the DAW on that origin: the landing page takes `/`, the DAW lives at `/app`.
@@ -46,6 +48,7 @@ pub struct TrayState {
 pub enum Label {
     OpenFaulk,
     StartAtLogin,
+    CheckForUpdates,
     Quit,
 }
 
@@ -93,8 +96,84 @@ pub fn label(lang: Lang, label: Label) -> &'static str {
         (Lang::Fr, Label::OpenFaulk) => "Ouvrir Faulk",
         (Lang::En, Label::StartAtLogin) => "Start with Windows",
         (Lang::Fr, Label::StartAtLogin) => "Lancer au démarrage de Windows",
+        (Lang::En, Label::CheckForUpdates) => "Check for updates",
+        (Lang::Fr, Label::CheckForUpdates) => "Rechercher des mises à jour",
         (Lang::En, Label::Quit) => "Quit",
         (Lang::Fr, Label::Quit) => "Quitter",
+    }
+}
+
+/// The menu entry shown once an update is downloaded: clicking it applies the update and
+/// restarts the helper on `version`.
+pub fn restart_to_update(lang: Lang, version: &str) -> String {
+    match lang {
+        Lang::En => format!("Restart to update to {version}"),
+        Lang::Fr => format!("Redémarrer pour passer à la {version}"),
+    }
+}
+
+/// What the menu must do with the "restart to update" entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EntryChange {
+    /// Nothing changes.
+    Keep,
+    /// Insert the entry with this text.
+    Show(String),
+    /// The entry is shown; replace its text (a newer version was downloaded).
+    Retext(String),
+    /// Remove the entry.
+    Hide,
+}
+
+/// The "restart to update" entry: shown while an update is ready, with its version. A
+/// check or a download keeps it as it is: the package already downloaded stays applicable
+/// meanwhile (the updater goes back to `Ready` after a check that finds nothing newer), and
+/// hiding it at every periodic check would make it flicker.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RestartEntry {
+    shown: Option<String>,
+}
+
+impl RestartEntry {
+    /// Follows the updater's status.
+    pub fn follow_status(&mut self, lang: Lang, status: &UpdateStatus) -> EntryChange {
+        match status {
+            UpdateStatus::Ready { version } => self.follow(lang, Some(version)),
+            UpdateStatus::Checking | UpdateStatus::Downloading { .. } => EntryChange::Keep,
+            UpdateStatus::Disabled { .. }
+            | UpdateStatus::Idle
+            | UpdateStatus::UpToDate { .. }
+            | UpdateStatus::Failed { .. } => self.follow(lang, None),
+        }
+    }
+
+    /// Follows a ready version: `ready` is the version of the downloaded update, if any.
+    pub fn follow(&mut self, lang: Lang, ready: Option<&str>) -> EntryChange {
+        let wanted = ready.map(|version| restart_to_update(lang, version));
+        if wanted == self.shown {
+            return EntryChange::Keep;
+        }
+        let change = match (&self.shown, &wanted) {
+            (None, Some(text)) => EntryChange::Show(text.clone()),
+            (Some(_), Some(text)) => EntryChange::Retext(text.clone()),
+            (Some(_), None) => EntryChange::Hide,
+            (None, None) => EntryChange::Keep,
+        };
+        self.shown = wanted;
+        change
+    }
+
+    /// Whether the shown entry can be clicked: while the updater checks or downloads, an apply
+    /// is refused (busy), so the entry stays, greyed, rather than answer a click with nothing.
+    pub fn clickable(status: &UpdateStatus) -> bool {
+        !matches!(
+            status,
+            UpdateStatus::Checking | UpdateStatus::Downloading { .. }
+        )
+    }
+
+    pub fn is_shown(&self) -> bool {
+        self.shown.is_some()
     }
 }
 
@@ -169,6 +248,7 @@ fn quote_arg(arg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::updater::UpdateError;
 
     const LANGS: [Lang; 2] = [Lang::En, Lang::Fr];
 
@@ -244,13 +324,145 @@ mod tests {
             assert_ne!(state.tooltip(Lang::En), state.tooltip(Lang::Fr));
             assert_ne!(state.code_entry(Lang::En), state.code_entry(Lang::Fr));
         }
-        for l in [Label::OpenFaulk, Label::StartAtLogin, Label::Quit] {
+        for l in [
+            Label::OpenFaulk,
+            Label::StartAtLogin,
+            Label::CheckForUpdates,
+            Label::Quit,
+        ] {
             for lang in LANGS {
                 assert!(!label(lang, l).is_empty());
             }
             assert_ne!(label(Lang::En, l), label(Lang::Fr, l));
         }
         assert_ne!(startup_failed(Lang::En), startup_failed(Lang::Fr));
+        assert_ne!(
+            restart_to_update(Lang::En, "0.2.0"),
+            restart_to_update(Lang::Fr, "0.2.0")
+        );
+    }
+
+    #[test]
+    fn the_restart_entry_follows_the_ready_version() {
+        let mut entry = RestartEntry::default();
+        assert!(!entry.is_shown());
+        assert_eq!(
+            entry.follow(Lang::En, None),
+            EntryChange::Keep,
+            "never shown"
+        );
+        assert_eq!(
+            entry.follow(Lang::En, Some("0.2.0")),
+            EntryChange::Show("Restart to update to 0.2.0".into())
+        );
+        assert!(entry.is_shown());
+        assert_eq!(entry.follow(Lang::En, Some("0.2.0")), EntryChange::Keep);
+        assert_eq!(
+            entry.follow(Lang::En, Some("0.2.1")),
+            EntryChange::Retext("Restart to update to 0.2.1".into())
+        );
+        assert_eq!(entry.follow(Lang::En, None), EntryChange::Hide);
+        assert!(!entry.is_shown());
+        assert_eq!(entry.follow(Lang::En, None), EntryChange::Keep);
+        assert_eq!(
+            entry.follow(Lang::Fr, Some("0.3.0-beta.1")),
+            EntryChange::Show("Redémarrer pour passer à la 0.3.0-beta.1".into())
+        );
+    }
+
+    #[test]
+    fn the_restart_entry_follows_every_update_status() {
+        let ready = |v: &str| UpdateStatus::Ready { version: v.into() };
+        let mut entry = RestartEntry::default();
+        for hidden in [
+            UpdateStatus::Disabled { reason: "x".into() },
+            UpdateStatus::Idle,
+            UpdateStatus::Checking,
+            UpdateStatus::Downloading {
+                version: "0.2.0".into(),
+                percent: 50,
+            },
+            UpdateStatus::UpToDate {
+                version: "0.1.0".into(),
+            },
+            UpdateStatus::Failed {
+                error: UpdateError::Network("x".into()),
+            },
+        ] {
+            assert_eq!(entry.follow_status(Lang::En, &hidden), EntryChange::Keep);
+            assert!(!entry.is_shown(), "{hidden:?} shows nothing");
+        }
+        assert!(matches!(
+            entry.follow_status(Lang::En, &ready("0.2.0")),
+            EntryChange::Show(_)
+        ));
+        // A check, then a download of a newer version: the entry stays.
+        assert_eq!(
+            entry.follow_status(Lang::En, &UpdateStatus::Checking),
+            EntryChange::Keep
+        );
+        assert_eq!(
+            entry.follow_status(
+                Lang::En,
+                &UpdateStatus::Downloading {
+                    version: "0.2.1".into(),
+                    percent: 10
+                }
+            ),
+            EntryChange::Keep
+        );
+        assert!(entry.is_shown());
+        assert_eq!(
+            entry.follow_status(Lang::En, &ready("0.2.1")),
+            EntryChange::Retext("Restart to update to 0.2.1".into())
+        );
+        // Settled states without a package hide it.
+        for settled in [
+            UpdateStatus::UpToDate {
+                version: "0.2.1".into(),
+            },
+            UpdateStatus::Failed {
+                error: UpdateError::FeedNotFound,
+            },
+            UpdateStatus::Idle,
+            UpdateStatus::Disabled { reason: "x".into() },
+        ] {
+            entry.follow_status(Lang::En, &ready("0.2.1"));
+            assert_eq!(
+                entry.follow_status(Lang::En, &settled),
+                EntryChange::Hide,
+                "{settled:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_restart_entry_is_greyed_while_the_updater_is_busy() {
+        assert!(!RestartEntry::clickable(&UpdateStatus::Checking));
+        assert!(!RestartEntry::clickable(&UpdateStatus::Downloading {
+            version: "0.2.1".into(),
+            percent: 3
+        }));
+        assert!(RestartEntry::clickable(&UpdateStatus::Ready {
+            version: "0.2.0".into()
+        }));
+    }
+
+    #[test]
+    fn update_entries_read_as_decided() {
+        assert_eq!(label(Lang::En, Label::CheckForUpdates), "Check for updates");
+        assert_eq!(
+            label(Lang::Fr, Label::CheckForUpdates),
+            "Rechercher des mises à jour"
+        );
+        assert_eq!(
+            restart_to_update(Lang::En, "0.2.0"),
+            "Restart to update to 0.2.0"
+        );
+        assert_eq!(
+            restart_to_update(Lang::Fr, "0.3.0-beta.1"),
+            "Redémarrer pour passer à la 0.3.0-beta.1"
+        );
     }
 
     #[test]

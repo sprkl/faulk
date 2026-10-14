@@ -1134,6 +1134,7 @@ fn start_outside_an_installation_is_disabled_and_offline() {
 // ---------------------------------------------------------------------------
 
 struct Rule {
+    source_text: String,
     source: regex::Regex,
     names: Vec<String>,
     destination: String,
@@ -1201,6 +1202,7 @@ fn rules() -> Vec<Rule> {
             assert_eq!(r["permanent"], false, "redirects stay temporary");
             let (source, names) = compile(r["source"].as_str().unwrap());
             Rule {
+                source_text: r["source"].as_str().unwrap().to_owned(),
                 source,
                 names,
                 destination: r["destination"].as_str().unwrap().to_owned(),
@@ -1211,8 +1213,20 @@ fn rules() -> Vec<Rule> {
 
 /// Where get.faulk.app sends a URL: the first matching rule, as Vercel applies them.
 fn redirect(url: &str) -> String {
+    redirect_by(url, true).unwrap_or_else(|| panic!("no redirect for {url}"))
+}
+
+/// The source of the catch-all rule, which matches every path.
+const CATCH_ALL: &str = "/:path(.*)";
+
+/// Like [`redirect`], optionally without the catch-all: a URL the page tells users to type must
+/// have a rule of its own, not land on the installer only because everything does.
+fn redirect_by(url: &str, with_catch_all: bool) -> Option<String> {
     let path = url.strip_prefix("https://get.faulk.app").unwrap();
     for rule in rules() {
+        if !with_catch_all && rule.source_text == CATCH_ALL {
+            continue;
+        }
         if let Some(caps) = rule.source.captures(path) {
             let mut dest = rule.destination.clone();
             // Longest names first, so `:file` never eats part of `:filename`.
@@ -1221,36 +1235,60 @@ fn redirect(url: &str) -> String {
             for (i, name) in named {
                 dest = dest.replace(&format!(":{name}"), &caps[i + 1]);
             }
-            return dest;
+            return Some(dest);
         }
     }
-    panic!("no redirect for {url}");
+    None
 }
 
-const RELEASES: &str = "https://github.com/sprkl/faulk-release/releases";
+/// The Blob store get.faulk.app redirects to, read from `web/vercel.json` (the one place that
+/// names it), with the checks that it is one public Blob origin shared by every rule.
+fn blob() -> String {
+    let origins: std::collections::BTreeSet<String> = rules()
+        .iter()
+        .map(|r| {
+            let url = url::Url::parse(&r.destination).unwrap();
+            url.origin().ascii_serialization()
+        })
+        .collect();
+    assert_eq!(origins.len(), 1, "one origin for every rule: {origins:?}");
+    let origin = origins.into_iter().next().unwrap();
+    let host = origin.strip_prefix("https://").expect("https");
+    let store = host
+        .strip_suffix(".public.blob.vercel-storage.com")
+        .expect("a public Vercel Blob store");
+    assert!(
+        !store.is_empty() && store.chars().all(|c| c.is_ascii_alphanumeric()),
+        "{host}"
+    );
+    origin
+}
+
+/// Where the publish script (`scripts/helper-release/publish-core.mjs`) writes each file:
+/// `helper/<os>/packages/<file>` and `helper/<os>/<channel>/<file>`.
+fn installer() -> String {
+    format!("{}/helper/win/stable/{PACKAGE_ID}-win-Setup.exe", blob())
+}
 
 #[test]
-fn stable_feeds_follow_the_latest_release() {
+fn feeds_go_to_their_channel_folder_in_the_store() {
     let urls = FeedUrls::new(DEFAULT_BASE_URL);
     for os in ["win", "linux", "osx"] {
-        assert_eq!(
-            redirect(&urls.feed_url(Channel::Stable, os)),
-            format!("{RELEASES}/latest/download/releases.{os}.json")
-        );
+        for channel in [Channel::Stable, Channel::Beta] {
+            assert_eq!(
+                redirect(&urls.feed_url(channel, os)),
+                format!(
+                    "{}/helper/{os}/{}/releases.{os}.json",
+                    blob(),
+                    channel.dir()
+                )
+            );
+        }
     }
 }
 
 #[test]
-fn beta_feeds_follow_the_rolling_beta_release() {
-    let urls = FeedUrls::new(DEFAULT_BASE_URL);
-    assert_eq!(
-        redirect(&urls.feed_url(Channel::Beta, "win")),
-        format!("{RELEASES}/download/helper-beta/releases.win.json")
-    );
-}
-
-#[test]
-fn packages_follow_the_release_of_their_version() {
+fn packages_go_to_the_packages_folder_in_the_store() {
     let urls = FeedUrls::new(DEFAULT_BASE_URL);
     for (version, kind) in [
         ("0.2.0", "full"),
@@ -1262,23 +1300,55 @@ fn packages_follow_the_release_of_their_version() {
         let file = format!("{PACKAGE_ID}-{version}-{kind}.nupkg");
         assert_eq!(
             redirect(&urls.package_url(&file).unwrap()),
-            format!("{RELEASES}/download/helper-v{version}/{file}")
+            format!("{}/helper/win/packages/{file}", blob())
         );
     }
 }
 
 #[test]
-fn everything_else_goes_to_the_latest_release() {
-    assert_eq!(
-        redirect("https://get.faulk.app/helper/windows"),
-        format!("{RELEASES}/latest/download/{PACKAGE_ID}-win-Setup.exe")
-    );
+fn the_download_link_and_everything_else_go_to_the_windows_installer() {
     for other in [
+        "https://get.faulk.app/helper/windows",
         "https://get.faulk.app/",
         "https://get.faulk.app/helper",
         "https://get.faulk.app/helper/stable/RELEASES",
         "https://get.faulk.app/helper/packages/Other-1.0.0-full.nupkg",
     ] {
-        assert_eq!(redirect(other), format!("{RELEASES}/latest"), "{other}");
+        assert_eq!(redirect(other), installer(), "{other}");
     }
+}
+
+/// The page tells an outdated helper's user where to download it again: that address must
+/// be a real route to the installer.
+#[test]
+fn the_download_address_in_the_page_texts_is_a_real_route() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/lib/i18n/app.ts");
+    let text = std::fs::read_to_string(path).unwrap();
+    let found: Vec<&str> = text
+        .match_indices("get.faulk.app")
+        .map(|(i, _)| {
+            let rest = &text[i..];
+            let end = rest
+                .find(|c: char| c.is_whitespace() || "'\",)".contains(c))
+                .unwrap_or(rest.len());
+            // A sentence may end right after the address.
+            rest[..end].trim_end_matches('.')
+        })
+        .collect();
+    assert!(found.len() >= 2, "the address is cited in both languages");
+    for address in found {
+        assert_eq!(
+            redirect_by(&format!("https://{address}"), false),
+            Some(installer()),
+            "{address} must have its own rule, not only the catch-all"
+        );
+    }
+    // The check has teeth: a mistyped address reaches the installer only through the catch-all.
+    let typo = "https://get.faulk.app/helper/window";
+    assert_eq!(redirect(typo), installer());
+    assert_eq!(redirect_by(typo, false), None);
+    assert!(
+        rules().iter().any(|r| r.source_text == CATCH_ALL),
+        "the catch-all is the rule this test sets aside"
+    );
 }
