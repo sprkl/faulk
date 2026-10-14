@@ -85,6 +85,17 @@ describe('pairing link in the session', () => {
     expect(session.pairingMessage).toEqual({ key: 'helper.failed' })
   })
 
+  it('reports a pairing failure on a link that arrives after the start', async () => {
+    pairHelper.mockRejectedValue(new Error('boom'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const session = new Session()
+    await session.start()
+    const { location, history } = address('#pair=87654321')
+    session.takePairLink(location, history)
+    await vi.waitFor(() => expect(session.pairingMessage).toEqual({ key: 'helper.failed' }))
+    expect(session.started).toBe(true)
+  })
+
   it('ignores an invalid or missing link', async () => {
     const session = new Session()
     session.takePairLink(...(Object.values(address('#pair=12')) as [Location, History]))

@@ -122,7 +122,11 @@ export class Session {
     // Outside the try: a pairing problem is not an audio start failure.
     const code = this.pendingPairCode
     this.pendingPairCode = null
-    if (!code) return
+    if (code) await this.pairFromLink(code)
+  }
+
+  /** Pairs with a code from a link; a failure is a pairing failure, never thrown. */
+  private async pairFromLink(code: string) {
     try {
       await this.pair(code)
     } catch (error) {
@@ -212,7 +216,7 @@ export class Session {
   takePairLink(location: Location = globalThis.location, history: History = globalThis.history) {
     const code = takePairLink(location, history)
     if (code === null) return
-    if (this.started) void this.pair(code)
+    if (this.started) void this.pairFromLink(code)
     else this.pendingPairCode = code
   }
 
