@@ -209,11 +209,12 @@ export class Session {
   }
 
   /**
-   * Reads a `#pair=<code>` link from the address and clears it from the address bar.
+   * Reads a `#pair=<code>` link from the address and has `clear` remove it from the
+   * address bar (`pair-link.ts`).
    * A started page pairs at once; otherwise the code waits for `start`.
    */
-  takePairLink(location: Location = globalThis.location, history: History = globalThis.history) {
-    const code = takePairLink(location, history)
+  takePairLink(location: Pick<Location, 'hash' | 'pathname' | 'search'>, clear: (url: string) => void) {
+    const code = takePairLink(location, clear)
     if (code === null) return
     if (this.started) void this.pairFromLink(code)
     else this.pendingPairCode = code

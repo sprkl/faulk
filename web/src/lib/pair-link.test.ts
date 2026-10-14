@@ -16,18 +16,18 @@ describe('pairing links', () => {
   })
 
   it('removes the fragment from the address and keeps path and query', () => {
-    const history = { state: { a: 1 }, replaceState: vi.fn() }
-    const code = takePairLink({ hash: '#pair=12345678', pathname: '/app', search: '?x=1' }, history)
+    const clear = vi.fn()
+    const code = takePairLink({ hash: '#pair=12345678', pathname: '/app', search: '?x=1' }, clear)
     expect(code).toBe('12345678')
-    expect(history.replaceState).toHaveBeenCalledWith({ a: 1 }, '', '/app?x=1')
+    expect(clear).toHaveBeenCalledWith('/app?x=1')
   })
 
   it('also removes a malformed pairing fragment, but leaves other fragments alone', () => {
-    const history = { state: null, replaceState: vi.fn() }
-    expect(takePairLink({ hash: '#pair=nope', pathname: '/', search: '' }, history)).toBeNull()
-    expect(history.replaceState).toHaveBeenCalledWith(null, '', '/')
-    history.replaceState.mockClear()
-    expect(takePairLink({ hash: '#section', pathname: '/', search: '' }, history)).toBeNull()
-    expect(history.replaceState).not.toHaveBeenCalled()
+    const clear = vi.fn()
+    expect(takePairLink({ hash: '#pair=nope', pathname: '/app', search: '' }, clear)).toBeNull()
+    expect(clear).toHaveBeenCalledWith('/app')
+    clear.mockClear()
+    expect(takePairLink({ hash: '#section', pathname: '/app', search: '' }, clear)).toBeNull()
+    expect(clear).not.toHaveBeenCalled()
   })
 })

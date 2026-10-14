@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { onMount } from 'svelte'
   import Monogram from '../components/Monogram.svelte'
@@ -55,8 +56,12 @@
 
   onMount(() => {
     void session.checkHelper()
-    session.takePairLink()
-    const onHashChange = () => session.takePairLink()
+    // Through the router: a raw history.replaceState conflicts with SvelteKit's.
+    // `url` is the current path and query, already resolved against the base path.
+    // eslint-disable-next-line svelte/no-navigation-without-resolve
+    const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
+    session.takePairLink(location, clearAddress)
+    const onHashChange = () => session.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     const release = () => releaseAllKeys()
     const onVisibility = () => document.hidden && releaseAllKeys()
