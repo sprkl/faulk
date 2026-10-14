@@ -282,7 +282,7 @@ impl Host {
     /// written: a reader takes an even `seq`, the body, then the same `seq` again.
     ///
     /// Written: version, epoch and the counters the prepare side published, the most voices
-    /// sounding during the period (offset 52, interim until DV-1, `crate::msg`), and one
+    /// sounding during the period (offset 52, interim until MO-5's meters: the synth adds its voices, `crate::msg`), and one
     /// meter: the output's, after the master (interim until MO-5's track meters).
     /// Not produced yet, written as zero: the transport state and playhead (TR-1), the CPU
     /// load, the disk underruns (AU-3), the active clips (LA), the recorded notes (RE-2).
