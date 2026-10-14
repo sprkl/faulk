@@ -1,8 +1,6 @@
 <script lang="ts">
-  // The DAW's shell: shows the current view of the registry. Views live in `src/views/`.
-  import { DEFAULT_VIEW, viewById } from '../../views/registry'
-
-  const View = viewById(DEFAULT_VIEW)!.component
+  // The DAW: its shell holds the layout and shows the registry's views (`src/views/`).
+  import Shell from '../../views/shell/Shell.svelte'
 </script>
 
-<View />
+<Shell />

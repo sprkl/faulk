@@ -36,12 +36,12 @@ Hors MVP (décision 5 du § 7) : l'**enregistrement audio** (il arrive juste apr
 | `Command::apply(&self, synth: &mut Synth)` : les commandes agissent directement sur **un** synthé du moteur. | Il manque un **modèle de projet** distinct du moteur : les commandes modifient le projet, qui produit les messages moteur. |
 | Un seul `enum Command` avec trois `match` (`name`, `apply`, `undo_kind`) dans `crates/commands/src/lib.rs`. | Point chaud de conflits dès que dix agents ajoutent des commandes. |
 | Le mappage commande → moteur est écrit en TypeScript côté Web (`web/src/lib/engine/wasm-ops.ts`) et en Rust côté Boost (`helper/src/audio.rs::engine_event`). | Risque de divergence Web/Boost : il faut **un seul chemin**, en Rust, partagé par les deux cibles. |
-| `Session.run` dans `web/src/lib/session.svelte.ts` est un `switch` par type de commande. | À remplacer par un dispatcher générique. |
+| `Session.run` dans `web/src/lib/session.svelte.ts` est un `switch` par type de commande (depuis UI-1 : `Dispatcher.run`, `web/src/lib/stores/dispatcher.ts`). | À remplacer par un dispatcher générique. |
 | Un export C `fk_*` par opération dans `engine-wasm`. | À remplacer par une boîte de réception binaire unique (`fk_push`) et une boîte d'envoi (`fk_feedback`). |
 | `web/src/lib/i18n.ts` : un seul fichier de chaînes ; `App.svelte` : un seul écran. | Points chauds de conflits pour l'interface. |
 | Pas de temps musical, de piste, de clip, d'identifiant stable. | Tout le socle est à construire avant les fonctions visibles. |
 | Mode Boost écrit mais non vérifié. | À vérifier avant d'empiler le multi-pistes dessus. |
-| Pas d'isolation cross-origin : les commandes vont au worklet par `postMessage`. | À activer avant le canal partagé vers le moteur et avant les pistes audio (décision 4). |
+| Isolation cross-origin en place sur tout le site (AU-0, en-têtes dans `web/vercel.json`), mais les commandes vont encore au worklet par `postMessage`. | La mémoire partagée vers le moteur et les pistes audio restent à construire (CT-3, MO-2, AU-3). |
 
 ## 2. Décisions d'architecture du socle
 
@@ -60,6 +60,14 @@ Les décisions 1 à 4 et 7 à 8 du § 7 fixent ce socle ; les tâches de contrat
 - Tempo constant par projet (`f64` BPM, 20–999), signature rythmique ; pas de changement de tempo dans le temps au MVP.
 - Le moteur convertit ticks ↔ échantillons avec une position `f64` ; les événements (notes, points d'automation, départs de clips audio) sont placés **à l'échantillon près** (découpage du bloc aux offsets).
 - **Quantification de lancement** (décision 8) : globale au projet, **1 mesure par défaut**, réglable parmi : aucune, 1/16, 1 temps, 1, 2, 4, 8 mesures. Un réglage par clip viendra plus tard : champ optionnel dans le fichier du clip, absent = réglage global. Boucle du transport : région `[début, fin)` en ticks.
+
+Figé par CT-2 (#38) dans `engine::time`, réexporté par `crates/project` :
+
+- `Tick(i64)` et `Frame(u64)` sont des newtypes (un tick et une frame ne se mélangent pas), `PPQ = 960` ; `Tempo(f64)` fini dans `[20, 999]` ; `TimeSignature` (numérateur `1..=32`, dénominateur puissance de deux `1..=32`) ; `Quantize` est une énumération fermée (`None, Sixteenth, Beat, Bar, Bars2, Bars4, Bars8`, sur disque `none, sixteenth, beat, bar, bars_2, bars_4, bars_8`) ; `LoopRegion` refuse une région vide ou plus longue que `i64::MAX` ticks.
+- Le **temps** est la valeur du dénominateur de la signature (en 6/8, une croche, 480 ticks) ; c'est ce que « 1 temps » et l'affichage mesure:temps:tick comptent. Choix à confirmer par le fondateur (l'alternative en mesure composée est la noire pointée).
+- Grille ancrée au tick 0 (division euclidienne : les positions négatives du décompte sont sur la même grille). `next_boundary_at_or_after` rend le premier point de grille à partir de la position (un lancement demandé sur une frontière part tout de suite) ; `next_boundary_after` le premier strictement après. Les deux rendent `None` quand il n'y a pas de point (au-delà de `i64::MAX`) ; sans quantification, la première rend la position elle-même et la seconde `None`.
+- Conversions sur `Tempo`, fonctions pures de la position absolue (jamais accumulées, donc sans dérive) : tick → secondes et tick → échantillon en `f64` (`tick × 60 × fréquence / (BPM × 960)`, à quelques ulp près ; le moteur garde cette position fractionnaire pour découper le bloc) ; secondes, échantillons et frames → tick **au plus proche, demi vers l'extérieur** (`f64::round`, identique sur toutes les cibles) ; entrée non finie → tick 0, entrée finie hors plage → saturation par signe. L'aller-retour tick → échantillon → tick est l'identité pour `|tick| ≤ 2^40` à 44,1, 48 et 96 kHz ; l'inverse ne l'est pas (à 120 BPM et 48 kHz un tick dure 25 échantillons).
+- Fin en ticks d'un clip audio : `début + frames_to_ticks(frames)`, la durée arrondie au tick le plus proche puis ajoutée au début (à tempo constant ; une carte de tempo viendra après le MVP).
 
 ### 2.3 Synchronisation projet → moteur sans verrou et sans plafond visible
 
@@ -230,9 +238,9 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **PR-5 — Dispatcher web générique et stores**
-- But : remplacer le `switch` de `Session.run` par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur ; supprimer `wasm-ops.ts`.
+- But : remplacer le `switch` de `Dispatcher.run` (`web/src/lib/stores/dispatcher.ts`) par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur ; supprimer `wasm-ops.ts`.
 - Critères : aucune référence à un type de commande dans le dispatcher ; l'écran actuel (synthé, clavier, MIDI) fonctionne via les nouvelles commandes ; test Playwright : note jouée, son mesuré non nul, aucune erreur console.
-- Touche : `web/src/lib/session*`, `web/src/lib/stores/`, `web/src/lib/engine/`.
+- Touche : `web/src/lib/stores/`, `web/src/lib/engine/`.
 - Dépend de : PR-4, MO-2, UI-1.
 - Phase : 2.
 - Étiquettes : hardware: non, founder: non.
@@ -610,7 +618,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **SV-4 — Chargement d'un projet dans le moteur**
 - But : `project.open` remplace le projet : arrêt, réinitialisation du moteur, instantané rejoué, état de session (`.faulk/session.json` : solo, entrée MIDI) restauré.
 - Critères : rendu d'un projet enregistré puis rouvert identique au rendu d'origine ; aucune note coincée de l'ancien projet ; le solo (`mixer.set_solo`, MX-2) survit à une réouverture sans apparaître dans les fichiers versionnés (test).
-- Touche : `crates/commands/src/project.rs`, `web/src/lib/session*`.
+- Touche : `crates/commands/src/project.rs`, `web/src/lib/stores/`.
 - Dépend de : PR-3, SV-1, PR-5, MX-2.
 - Phase : 3.
 - Étiquettes : hardware: non, founder: non.
@@ -686,7 +694,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **BO-2 — Bascule à chaud avec un projet**
 - But : passer Web ↔ Boost en cours de session : arrêt des notes, instantané rejoué, position et état de lecture conservés.
 - Critères : projet de 8 pistes, bascule pendant la lecture, rendus équivalents après la bascule ; perte du helper → retour Web sans perte du projet ; vérifié sur la machine du fondateur.
-- Touche : `web/src/lib/session*`, `crates/helper`.
+- Touche : `web/src/lib/stores/`, `crates/helper`.
 - Dépend de : BO-1, PR-3, PR-5.
 - Phase : 2.
 - Étiquettes : hardware: oui, founder: non.
@@ -1114,7 +1122,7 @@ Règle pour l'essaim : **une tâche feuille ne modifie jamais un contrat figé.*
 | Fichier | Pourquoi | Parade |
 | --- | --- | --- |
 | `crates/commands/src/lib.rs` (`enum Command` + trois `match`) | Chaque commande y ajoute 3 à 4 lignes | Un module par domaine avec son enum et son `apply` ; l'enum racine ne compte qu'**une ligne par domaine**, figée en PR-2 ; `name()` et `undo_kind()` dérivés par macro ou par le schéma. |
-| `web/src/lib/session.svelte.ts` (`switch` sur les commandes) | Chaque commande y passerait | Dispatcher générique (PR-5). |
+| `web/src/lib/stores/dispatcher.ts` (`switch` sur les commandes) | Chaque commande y passerait | Dispatcher générique (PR-5). |
 | `web/src/lib/engine/wasm-ops.ts`, `crates/helper/src/audio.rs::engine_event` | Deux mappages commande → moteur | Supprimés par MO-2 : le mappage vit en Rust. |
 | `web/src/lib/i18n.ts` | Toutes les chaînes dans un fichier | Un fichier par fonctionnalité (UI-0), test de complétude EN/FR. |
 | `web/src/App.svelte` | Un seul écran | Coquille + registre de vues (UI-0, UI-1) : une vue = un dossier + une ligne au registre. |

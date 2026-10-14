@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#105): UI-1, the DAW's application shell at `/app` (top bar with view switcher, transport placeholders and engine state; track list; main area showing the registry's views, with empty arrangement, grid and mixer views; bottom panel showing the registry's panel views, devices and piano roll, empty; transport placeholder in `web/src/views/transport/`), and the web `Session` split into stores (`web/src/lib/stores/`: project, engine, page, dispatcher); spec "Touche" paths and the glossary's "Session" entry now point to the stores.

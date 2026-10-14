@@ -20,9 +20,9 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 
 | Path | What | Tech |
 |---|---|---|
-| `crates/engine` | Audio engine core: graph, transport, DSP. Pure, no I/O, no allocation on the audio path. | Rust |
+| `crates/engine` | Audio engine core: graph, transport, DSP, and the musical time contract (`engine::time`). Pure, no I/O, no allocation on the audio path. | Rust (optional `serde` feature for the time types) |
 | `crates/commands` | Every user action as a typed command: name, input and output schema, description for agents, undo. The single source for MCP tools and TypeScript types. | Rust (`serde`, `schemars`) |
-| `crates/project` | The project document: tracks, clips, devices, automation, transport settings; pure Rust, `serde`, no I/O. Skeleton for now. | Rust (`serde` to come) |
+| `crates/project` | The project document: tracks, clips, devices, automation, transport settings; pure Rust, no I/O. Depends on `engine` (with `serde`) and re-exports its time contract; the rest is still to come. | Rust (`serde`) |
 | `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. Plain C ABI exports (`fk_*`), no `wasm-bindgen`: its glue does not load in an `AudioWorkletGlobalScope`. | Rust → WASM |
 | `crates/project-wasm` | Project and commands compiled for the page's main thread (not the worklet): the page owns the project in both modes. Skeleton for now. | Rust → WASM |
 | `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |

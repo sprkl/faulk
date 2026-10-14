@@ -7,6 +7,7 @@ import adapter from '@sveltejs/adapter-static'
 import { sveltekit } from '@sveltejs/kit/vite'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+import { vercelHeaders } from './scripts/vercel-headers.ts'
 
 /**
  * The landing page's animation module (`src/lib/landing/anim/index.ts`) is not imported by any
@@ -61,7 +62,10 @@ export default defineConfig({
       adapter: adapter({ pages: 'dist', assets: 'dist', strict: true }),
     }),
     landingAnim(),
+    // Production's response headers (cross-origin isolation) on the local servers too.
+    vercelHeaders(new URL('./vercel.json', import.meta.url)),
   ],
   server: { port: 5173, strictPort: true },
-  test: { include: ['src/**/*.test.ts'] },
+  preview: { port: 4173, strictPort: true },
+  test: { include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'] },
 })

@@ -7,6 +7,7 @@ publish.workspace = true
 description = "Faulk project document: tracks, clips, devices, automation, transport settings. Pure Rust, no I/O."
 
 [dependencies]
+engine = { path = "../engine", features = ["serde"] }
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 

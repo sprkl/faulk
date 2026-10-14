@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
-  import { resolve } from '$app/paths'
   import { onMount } from 'svelte'
-  import Monogram from '../../lib/components/Monogram.svelte'
   import Knob from '../../lib/components/Knob.svelte'
   import Meter from '../../lib/components/Meter.svelte'
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
@@ -10,11 +7,10 @@
   import type { MessageKey } from '../../lib/i18n/index'
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../../lib/params'
-  import { Session } from '../../lib/session.svelte'
-  import { watchLocalAccess } from '../../lib/engine/local-access'
+  import { useStores } from '../../lib/stores'
 
-  const session = new Session()
-  const t = session.t
+  const { project, engine, ui, dispatcher } = useStores()
+  const t = ui.t
 
   let octave = $state(DEFAULT_OCTAVE)
   let code = $state('')
@@ -31,12 +27,12 @@
   ]
 
   function releaseAllKeys() {
-    for (const note of held.values()) session.run({ type: 'note.off', note })
+    for (const note of held.values()) dispatcher.run({ type: 'note.off', note })
     held.clear()
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (!session.started || ignoreKeyEvent(event)) return
+    if (!engine.started || ignoreKeyEvent(event)) return
     const step = octaveStep(event.code)
     if (step !== 0) {
       releaseAllKeys()
@@ -46,116 +42,66 @@
     const note = noteForKey(event.code, octave)
     if (note === null || held.has(event.code)) return
     held.set(event.code, note)
-    session.run({ type: 'note.on', note, velocity: 100 })
+    dispatcher.run({ type: 'note.on', note, velocity: 100 })
   }
 
   function onKeyUp(event: KeyboardEvent) {
     const note = held.get(event.code)
     if (note === undefined) return
     held.delete(event.code)
-    session.run({ type: 'note.off', note })
+    dispatcher.run({ type: 'note.off', note })
   }
 
   onMount(() => {
-    void session.checkHelper()
-    // The first probe may wait behind the browser's local network prompt: probe again on Allow.
-    const stopLocalAccess = watchLocalAccess(() => void session.onLocalAccessGranted())
-    // Through the router: a raw history.replaceState conflicts with SvelteKit's.
-    // `url` is the current path and query, already resolved against the base path.
-    // eslint-disable-next-line svelte/no-navigation-without-resolve
-    const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
-    session.takePairLink(location, clearAddress)
-    const onHashChange = () => session.takePairLink(location, clearAddress)
-    window.addEventListener('hashchange', onHashChange)
     const release = () => releaseAllKeys()
     const onVisibility = () => document.hidden && releaseAllKeys()
     window.addEventListener('blur', release)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      stopLocalAccess()
-      window.removeEventListener('hashchange', onHashChange)
       window.removeEventListener('blur', release)
       document.removeEventListener('visibilitychange', onVisibility)
+      // Leaving the view while keys are held: their notes would never end.
+      releaseAllKeys()
     }
   })
-
-  $effect(() => {
-    document.documentElement.lang = session.lang
-  })
-
-  const latency = $derived(
-    session.status?.estimatedLatencyMs != null
-      ? t('engine.latency', { ms: Math.round(session.status.estimatedLatencyMs) })
-      : t('engine.latencyUnknown'),
-  )
 </script>
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} />
 
-<header>
-  <div class="brand">
-    <!-- Full page load: the landing page has its own theme and no client-side router. -->
-    <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
-    <h1>FAULK</h1>
-    <span class="ref">FLK-0.1</span>
-    <span class="tagline">{t('app.tagline')}</span>
-  </div>
-  <div class="status">
-    {#if session.started}
-      <span class="mode" class:boost={session.mode === 'native'} data-testid="engine-mode">
-        {#if session.mode === 'native'}
-          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1 L3 9 H8 L7 15 L13 7 H8 Z" fill="currentColor" /></svg>
-          {t('engine.boost')}
-        {:else}
-          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8 H14.5 M8 1.5 C 5 5, 5 11, 8 14.5 M8 1.5 C 11 5, 11 11, 8 14.5" /></svg>
-          {t('engine.web')}
-        {/if}
-      </span>
-      <span class="value" data-testid="latency">{latency}</span>
-      <span class="value muted">{t('engine.voices', { n: session.voices })}</span>
-    {/if}
-    <button class="ghost" onclick={() => session.setLang(session.lang === 'fr' ? 'en' : 'fr')}>{t('lang.switch')}</button>
-  </div>
-</header>
-
-{#if session.notice}
-  <p class="notice" role="status">{t(session.notice)}</p>
-{/if}
-
-{#if !session.started}
-  <main class="start">
+{#if !engine.started}
+  <div class="start">
     <section class="card">
       <h2>{t('start.title')}</h2>
       <p>{t('start.body')}</p>
-      {#if session.pendingPairCode}
+      {#if engine.pendingPairCode}
         <p class="muted" role="status" data-testid="pair-pending">{t('start.pairPending')}</p>
       {/if}
-      <button class="primary" disabled={session.starting} onclick={() => session.start()}>{t('start.button')}</button>
+      <button class="primary" disabled={engine.starting} onclick={() => dispatcher.start()}>{t('start.button')}</button>
     </section>
-  </main>
+  </div>
 {:else}
-  <main class="grid">
+  <div class="grid">
     <section class="panel helper">
       <h2 class="label">{t('helper.title')}</h2>
-      {#if session.helper === 'checking'}
+      {#if engine.helper === 'checking'}
         <p class="muted">{t('helper.checking')}</p>
-      {:else if session.helper === 'absent'}
+      {:else if engine.helper === 'absent'}
         <p class="muted">{t('helper.absent')}</p>
-        <button class="ghost" onclick={() => session.checkHelper()}>{t('helper.recheck')}</button>
-      {:else if session.helper === 'incompatible'}
+        <button class="ghost" onclick={() => dispatcher.checkHelper()}>{t('helper.recheck')}</button>
+      {:else if engine.helper === 'incompatible'}
         <p class="muted" data-testid="helper-incompatible">
-          {t(incompatibleMessage(session.helperProtocol ?? 0), { v: session.helperProtocol ?? '?' })}
+          {t(incompatibleMessage(engine.helperProtocol ?? 0), { v: engine.helperProtocol ?? '?' })}
         </p>
-      {:else if session.mode === 'native'}
-        <button class="ghost" onclick={() => session.enterWeb()}>{t('helper.useWeb')}</button>
-      {:else if session.paired}
-        <button class="primary" disabled={session.helper === 'connecting'} onclick={() => session.enterBoost()}>{t('helper.useBoost')}</button>
+      {:else if engine.mode === 'native'}
+        <button class="ghost" onclick={() => dispatcher.enterWeb()}>{t('helper.useWeb')}</button>
+      {:else if engine.paired}
+        <button class="primary" disabled={engine.helper === 'connecting'} onclick={() => dispatcher.enterBoost()}>{t('helper.useBoost')}</button>
       {:else}
         <form
           class="pair"
           onsubmit={(e) => {
             e.preventDefault()
-            void session.pair(code)
+            void dispatcher.pair(code)
           }}
         >
           <label>
@@ -164,31 +110,31 @@
           </label>
           <button class="primary" type="submit">{t('helper.pair')}</button>
         </form>
-        {#if session.pairingMessage}
-          <p class="muted" role="status">{t(session.pairingMessage.key, { n: session.pairingMessage.n ?? 0 })}</p>
+        {#if engine.pairingMessage}
+          <p class="muted" role="status">{t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
         {/if}
       {/if}
     </section>
 
     <section class="panel midi">
       <h2 class="label">{t('midi.title')}</h2>
-      {#if session.mode === 'web' && session.midiState === 'unsupported'}
+      {#if engine.mode === 'web' && engine.midiState === 'unsupported'}
         <p class="muted">{t('midi.unsupported')}</p>
-      {:else if session.mode === 'web' && session.midiState === 'denied'}
+      {:else if engine.mode === 'web' && engine.midiState === 'denied'}
         <p class="muted">{t('midi.denied')}</p>
-      {:else if session.inputs.length === 0}
+      {:else if engine.inputs.length === 0}
         <p class="muted" data-testid="midi-empty">{t('midi.empty')}</p>
       {:else}
         <ul class="inputs" data-testid="midi-inputs">
           <li>
-            <label><input type="radio" name="midi" checked={session.selectedInput === null} onchange={() => session.run({ type: 'midi.select_input', id: null })} /> {t('midi.none')}</label>
+            <label><input type="radio" name="midi" checked={engine.selectedInput === null} onchange={() => dispatcher.run({ type: 'midi.select_input', id: null })} /> {t('midi.none')}</label>
           </li>
-          {#each session.inputs as input (input.id)}
+          {#each engine.inputs as input (input.id)}
             <li>
               <label>
-                <input type="radio" name="midi" checked={session.selectedInput === input.id} onchange={() => session.run({ type: 'midi.select_input', id: input.id })} />
+                <input type="radio" name="midi" checked={engine.selectedInput === input.id} onchange={() => dispatcher.run({ type: 'midi.select_input', id: input.id })} />
                 {input.name}
-                {#if session.selectedInput === input.id && session.activeNotes.length > 0}<span class="led" aria-hidden="true"></span>{/if}
+                {#if engine.selectedInput === input.id && engine.activeNotes.length > 0}<span class="led" aria-hidden="true"></span>{/if}
               </label>
             </li>
           {/each}
@@ -203,10 +149,10 @@
           {#each WAVEFORMS as w (w.value)}
             <button
               role="radio"
-              aria-checked={session.params.waveform === w.value}
+              aria-checked={project.params.waveform === w.value}
               aria-label={t(w.key)}
               title={t(w.key)}
-              onclick={() => session.run({ type: 'synth.set_param', param: 'waveform', value: w.value })}
+              onclick={() => dispatcher.run({ type: 'synth.set_param', param: 'waveform', value: w.value })}
             >
               <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={w.path} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
             </button>
@@ -218,14 +164,14 @@
         {#each KNOB_PARAMS as param (param)}
           <Knob
             label={t(`synth.${param}` as MessageKey)}
-            position={positionOf(param, session.params[param])}
-            display={formatValue(param, session.params[param])}
-            onchange={(p) => session.run({ type: 'synth.set_param', param, value: valueAt(param, p) })}
+            position={positionOf(param, project.params[param])}
+            display={formatValue(param, project.params[param])}
+            onchange={(p) => dispatcher.run({ type: 'synth.set_param', param, value: valueAt(param, p) })}
           />
         {/each}
       </div>
       <div class="meter-box">
-        <Meter peak={session.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
+        <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
       </div>
       </div>
     </section>
@@ -234,78 +180,17 @@
       <div class="keys-head">
         <h2 class="label">{t('keys.title')}</h2>
         <span class="value">{t('keys.octave', { n: octave })}</span>
-        <button class="ghost" onclick={() => session.run({ type: 'note.all_off' })}>{t('panic')}</button>
+        <button class="ghost" onclick={() => dispatcher.run({ type: 'note.all_off' })}>{t('panic')}</button>
       </div>
-      <PianoStrip low={(octave + 1) * 12} active={session.activeNotes} />
+      <PianoStrip low={(octave + 1) * 12} active={engine.activeNotes} />
       <p class="muted">{t('keys.help')}</p>
     </section>
-  </main>
+  </div>
 {/if}
 
 <style>
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--fk-space-4);
-    flex-wrap: wrap;
-    padding: var(--fk-space-4) var(--fk-space-6);
-    border-bottom: 1px solid var(--fk-line);
-  }
-  .brand {
-    display: flex;
-    align-items: baseline;
-    gap: var(--fk-space-3);
-  }
-  .home {
-    align-self: center;
-    display: inline-flex;
-    color: var(--fk-text);
-  }
-  h1 {
-    margin: 0;
-    font-family: var(--fk-font-display);
-    font-stretch: 125%;
-    font-weight: 800;
-    font-size: 28px;
-    letter-spacing: -0.02em;
-  }
-  .ref {
-    white-space: nowrap;
-    font-family: var(--fk-font-mono);
-    font-size: 12px;
-    color: var(--fk-text-muted);
-  }
-  .tagline {
-    color: var(--fk-text-muted);
-  }
-  .status {
-    display: flex;
-    align-items: center;
-    gap: var(--fk-space-3);
-  }
-  .mode {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--fk-space-1);
-    padding: 2px var(--fk-space-3);
-    border-radius: var(--fk-radius-pill);
-    background: var(--fk-surface-2);
-    font-weight: 600;
-  }
-  .mode.boost {
-    background: var(--fk-accent);
-    color: #fff;
-  }
   .muted {
     color: var(--fk-text-muted);
-  }
-  .notice {
-    margin: var(--fk-space-4) var(--fk-space-6) 0;
-    padding: var(--fk-space-3) var(--fk-space-4);
-    border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-panel);
-    background: var(--fk-surface);
   }
   .start {
     display: grid;

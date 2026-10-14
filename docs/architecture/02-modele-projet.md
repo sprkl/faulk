@@ -40,8 +40,8 @@ Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Dé
 Nouvelle crate `crates/project` : le modèle, la lecture et l'écriture canoniques, la validation, la fusion. Pure (elle reçoit et rend des octets, aucune entrée-sortie directe), compilable en natif et en WASM (côté page, hors worklet, donc `wasm-bindgen` y est possible). `crates/commands` en dépend ; le moteur n'en dépend pas : il reçoit un graphe de rendu dérivé du modèle. Sa création modifie la table « Stack and layout » de `CLAUDE.md` : c'est une décision du fondateur.
 
 ```rust
-pub type Tick = i64;          // 960 per quarter note
-pub type Frame = u64;         // sample index in an audio file
+pub struct Tick(pub i64);     // 960 per quarter note (engine::time, CT-2)
+pub struct Frame(pub u64);    // sample index in an audio file (engine::time, CT-2)
 pub type Id = Ulid;           // 26 chars, Crockford base32, time-sortable
 pub type OrderKey = String;   // fractional index, compared bytewise
 pub type Hash = [u8; 32];     // SHA-256 of a blob
@@ -59,8 +59,8 @@ pub struct Project {
 }
 
 pub struct TransportSettings {
-    pub launch_quantize: Quantize,       // None | 1/16 | Beat | Bars(1 | 2 | 4 | 8); default Bars(1)
-    pub loop_region: Option<LoopRegion>, // [start, end) in ticks
+    pub launch_quantize: Quantize,       // None | Sixteenth | Beat | Bar | Bars2 | Bars4 | Bars8; default Bar (engine::time)
+    pub loop_region: Option<LoopRegion>, // [start, end) in ticks (engine::time)
     pub loop_enabled: bool,
     pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
 }
@@ -128,7 +128,7 @@ Choix et limites pour le MVP :
 
 - **Clips et placements.** Le clip est le contenu ; la grille de lancement le met dans une case (`slot`), l'arrangement le pose dans le temps avec un `Placement`. Plusieurs placements d'un même clip sont des clips liés. **Décidé le 2026-10-14** : copier un clip dans l'arrangement crée par défaut un nouveau clip indépendant ; le clip lié (second placement du même clip) est une option des commandes `arrangement.duplicate` et `arrangement.place_from_slot` (tâches AR-1 et AR-5 du découpage).
 - **Quantification de lancement.** Globale au projet (`TransportSettings::launch_quantize`, 1 mesure par défaut, décision du 2026-10-14). Le champ `launch_quantize` du clip est réservé pour un réglage par clip après le MVP : optionnel dans le fichier du clip, absent = réglage global ; le MVP ne l'écrit jamais.
-- **Deux longueurs distinctes.** Un clip MIDI a une longueur en ticks ; un clip audio n'a qu'une plage source en frames, et aucune longueur en ticks n'est enregistrée (elle deviendrait fausse au premier changement de tempo). Ses ticks de fin se **calculent** : on convertit le tick de début en secondes par la carte de tempo, on ajoute `frames / sample_rate`, et on reconvertit en ticks. Un placement suit la même règle (`Span::Ticks` ou `Span::Frames`). Le calcul exact (arrondi au tick, tempo variable) est à figer avec le modèle de temps (CT-2).
+- **Deux longueurs distinctes.** Un clip MIDI a une longueur en ticks ; un clip audio n'a qu'une plage source en frames, et aucune longueur en ticks n'est enregistrée (elle deviendrait fausse au premier changement de tempo). Ses ticks de fin se **calculent** : la durée `frames / sample_rate` est convertie en ticks au tempo du projet, arrondie au tick le plus proche (demi vers l'extérieur), puis ajoutée au tick de début (`Tempo::audio_end_tick`, figé par CT-2 à tempo constant ; avec une carte de tempo, après le MVP, la conversion partira des secondes du début). Un placement suit la même règle (`Span::Ticks` ou `Span::Frames`).
 - **Clips audio non élastiques** : début en ticks, durée en frames ; un changement de tempo déplace le début, pas la vitesse. Le recalage temporel viendra plus tard comme une liste de points `(tick, frame)`.
 - **Automation d'arrangement uniquement** (par piste), sur les paramètres des devices et du mixeur, dans le MVP (décision du 2026-10-14, tâches AM-1 à AM-6 du découpage) ; les enveloppes propres aux clips sont reportées.
 - **Pistes audio dans le MVP** : import et lecture (`ClipContent::Audio`, `Span::Frames`), sans enregistrement audio ni recalage temporel ; une piste audio est une piste dont l'instrument est le lecteur de clips (tâches AU-1 à AU-8 du découpage).

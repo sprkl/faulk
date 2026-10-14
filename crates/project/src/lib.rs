@@ -1,7 +1,8 @@
 //! Faulk project document.
 //!
 //! The page owns the project in both modes (web and Boost); the helper relays and never
-//! owns it. This crate is pure Rust with no I/O.
+//! owns it. This crate is pure Rust with no I/O. It holds the musical time contract
+//! (re-exported from `engine::time`, CT-2) and the stable identifiers (`ids`, CT-4).
 //!
 //! Until PR-1 (the project model) lands, [`Project`] and [`SessionState`] are the minimal
 //! placeholders the command contract (CT-4, `crates/commands::v2`) applies to: the shapes
@@ -11,6 +12,9 @@ pub mod ids;
 
 use serde::{Deserialize, Serialize};
 
+/// Musical time: the contract shared by the project and the engine (`engine::time`).
+pub use engine::time;
+pub use engine::time::{Frame, LoopRegion, PPQ, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 pub use ids::{ClipId, DeviceId, Id, IdGenerator, LaneId, PlacementId, SceneId, TrackId};
 
 /// The project document: what makes the music, saved and versioned.
