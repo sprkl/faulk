@@ -7,4 +7,5 @@ publish.workspace = true
 description = "Faulk audio engine core: pure DSP, no I/O, no allocation on the audio path."
 
 [dev-dependencies]
+rtrb = "0.4.0"
 assert_no_alloc = "1"
