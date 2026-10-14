@@ -350,16 +350,19 @@ impl Synth {
         } else {
             48_000.0
         };
-        let frames = |p: Param| DESCRIPTOR.params[p.id() as usize].smoothing_frames(sample_rate);
+        // Every value starts at its descriptor's default (the one source of the defaults).
+        let desc = |p: Param| DESCRIPTOR.param(ParamId(p.id()));
+        let default = |p: Param| desc(p).map_or(0.0, |d| d.default as f32);
+        let frames = |p: Param| desc(p).map_or(0, |d| d.smoothing_frames(sample_rate));
         Self {
             sample_rate,
             voices: [Voice::IDLE; MAX_VOICES],
-            waveform: Waveform::Saw,
-            attack: 0.005,
-            decay: 0.2,
-            release: 0.3,
-            sustain: LinearRamp::new(0.7),
-            gain: LinearRamp::new(0.8),
+            waveform: Waveform::from_index(default(Param::Waveform) as u32),
+            attack: default(Param::Attack),
+            decay: default(Param::Decay),
+            release: default(Param::Release),
+            sustain: LinearRamp::new(default(Param::Sustain)),
+            gain: LinearRamp::new(default(Param::Gain)),
             sustain_frames: frames(Param::Sustain),
             gain_frames: frames(Param::Gain),
             note_counter: 0,
@@ -437,10 +440,16 @@ impl Synth {
         let attack_step = 1.0 / (self.attack * sample_rate);
         let decay_samples = self.decay * sample_rate;
 
+        let mut last_sustain = f32::NAN;
+        let mut decay_step = 0.0;
         for frame in 0..frames {
             let gain = self.gain.next_value();
             let sustain = self.sustain.next_value();
-            let decay_step = (1.0 - sustain) / decay_samples;
+            // Recomputed only while the sustain ramp moves (the same value otherwise).
+            if sustain != last_sustain {
+                decay_step = (1.0 - sustain) / decay_samples;
+                last_sustain = sustain;
+            }
             let mut sum = 0.0f32;
             for voice in &mut self.voices {
                 if voice.stage == Stage::Idle {

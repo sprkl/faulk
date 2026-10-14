@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEVICES } from './generated/protocol'
+import { DEVICES, PARAM_IDS } from './generated/protocol'
 import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from './devices'
 import { messages } from './i18n/app'
 import { DEFAULT_PARAMS } from './params'
@@ -50,6 +50,11 @@ describe('device panels from the descriptors', () => {
       expect(at).toBeGreaterThan(0)
       expect(at).toBeLessThan(1)
     }
+  })
+
+  it('can set every parameter of the synth through device.set_param', () => {
+    for (const p of SYNTH.params) expect(Object.keys(PARAM_IDS), p.key).toContain(p.key)
+    expect(Object.keys(PARAM_IDS).length).toBe(SYNTH.params.length)
   })
 
   it('has a label in every language for every parameter and value of every device', () => {
