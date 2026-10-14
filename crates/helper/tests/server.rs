@@ -181,7 +181,7 @@ async fn pairing_route_accepts_no_command() {
     send(
         &mut ws,
         &ClientMessage::Command {
-            command: commands::Command::NoteAllOff,
+            command: commands::Command::Live(commands::live::Command::AllNotesOff {}),
         },
     )
     .await;
@@ -206,10 +206,11 @@ async fn session_plays_commands_and_releases_notes_when_the_page_goes_away() {
     send(
         &mut ws,
         &ClientMessage::Command {
-            command: commands::Command::NoteOn {
+            command: commands::Command::Live(commands::live::Command::NoteOn {
+                track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
                 note: 60,
                 velocity: 100,
-            },
+            }),
         },
     )
     .await;

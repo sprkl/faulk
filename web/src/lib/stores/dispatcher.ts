@@ -4,6 +4,7 @@ import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import type { Command, SynthParam } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
+import { allNotesOff, setParam } from '../synth-commands'
 import { takePairLink } from '../pair-link'
 import type { EngineStore, HelperState } from './engine.svelte'
 import type { ProjectStore } from './project.svelte'
@@ -133,9 +134,11 @@ export class Dispatcher {
   /** The single entry point for user actions. */
   run(command: Command) {
     switch (command.type) {
-      case 'synth.set_param':
-        this.project.params[command.param] = command.value
-        this.engine?.run(command)
+      case 'device.set_param':
+        if (Object.hasOwn(this.project.params, command.param)) {
+          this.project.params[command.param as SynthParam] = command.value
+          this.engine?.run(command)
+        }
         break
       case 'midi.list_inputs':
       case 'midi.select_input':
@@ -145,15 +148,15 @@ export class Dispatcher {
           this.midi?.select(this.lastWebInput)
         } else this.midi?.refresh()
         break
-      case 'note.on':
+      case 'live.note_on':
         this.engine?.run(command)
         this.markNote(command.note, command.velocity)
         break
-      case 'note.off':
+      case 'live.note_off':
         this.engine?.run(command)
         this.markNote(command.note, 0)
         break
-      case 'note.all_off':
+      case 'live.all_notes_off':
         this.engine?.run(command)
         this.state.activeNotes = []
         break
@@ -168,7 +171,7 @@ export class Dispatcher {
 
   private replayParams(engine: Engine) {
     for (const [param, value] of Object.entries(this.project.params) as [SynthParam, number][]) {
-      engine.run({ type: 'synth.set_param', param, value })
+      engine.run(setParam(param, value))
     }
   }
 
@@ -236,7 +239,7 @@ export class Dispatcher {
     if (!token || this.native) return
     this.state.helper = 'connecting'
     this.state.notice = null
-    this.web?.run({ type: 'note.all_off' })
+    this.web?.run(allNotesOff())
     this.state.activeNotes = []
     await this.midi?.releaseAll()
     this.state.selectedInput = null

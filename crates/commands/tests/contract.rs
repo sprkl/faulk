@@ -2,13 +2,13 @@
 //!
 //! The rule: every command has a description, an input and an output schema, and its
 //! undo is tested. `every_command_has_an_example` refuses a command that no example
-//! covers, and `examples` are checked by the harness of `commands::v2::testing`.
+//! covers, and `examples` are checked by the harness of `commands::testing`.
 
 use ::project::TrackId;
-use commands::v2::testing::{check, check_refusal, context, state};
-use commands::v2::{
-    Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, UndoKind, catalog, project,
-    view,
+use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
+use commands::{
+    Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
+    device, history, live, midi, project, view,
 };
 
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -17,25 +17,81 @@ fn track() -> TrackId {
     TrackId::parse(TRACK).unwrap()
 }
 
-/// One example of every command (at least). `every_command_has_an_example` keeps it
-/// complete; the harness checks each.
-fn examples() -> Vec<Command> {
+/// The fixture after `history.undo`: one entry to redo.
+fn undone(f: &Fixture) -> State {
+    let mut s = f.state.clone();
+    commands::run(
+        &Command::History(history::Command::Undo {}),
+        &mut s,
+        &mut context(),
+    )
+    .unwrap();
+    s
+}
+
+/// One example of every command (at least), with the state it runs from.
+/// `every_command_has_an_example` keeps it complete; the harness checks each.
+fn examples() -> Vec<(Command, State)> {
+    let f = fixture();
+    let on = |c: Command| (c, f.state.clone());
     vec![
-        Command::Project(project::Command::Rename {
+        on(Command::Project(project::Command::Rename {
             name: "  Demo song  ".into(),
+        })),
+        on(Command::Device(device::Command::SetParam {
+            device: f.device.clone(),
+            param: "attack".into(),
+            value: 0.25,
+        })),
+        on(Command::Midi(midi::Command::ListInputs {})),
+        on(Command::Midi(midi::Command::SelectInput {
+            id: Some("in-1".into()),
+        })),
+        on(Command::Midi(midi::Command::SelectInput { id: None })),
+        on(Command::Live(live::Command::NoteOn {
+            track: f.track.clone(),
+            note: 60,
+            velocity: 100,
+        })),
+        on(Command::Live(live::Command::NoteOn {
+            track: f.track.clone(),
+            note: 127,
+            velocity: 0,
+        })),
+        on(Command::Live(live::Command::NoteOff {
+            track: f.track.clone(),
+            note: 60,
+        })),
+        on(Command::Live(live::Command::AllNotesOff {})),
+        on(Command::History(history::Command::Undo {})),
+        (Command::History(history::Command::Redo {}), undone(&f)),
+        on(Command::History(history::Command::BeginGroup {})),
+        (Command::History(history::Command::EndGroup {}), {
+            let mut s = f.state.clone();
+            let group = s.history.new_group();
+            s.history.open_group = Some((group, Author::User));
+            s
         }),
-        Command::View(view::Command::SelectTrack {
-            track: Some(track()),
-        }),
-        Command::View(view::Command::SelectTrack { track: None }),
+        on(Command::View(view::Command::SelectTrack {
+            track: Some(f.track.clone()),
+        })),
+        on(Command::View(view::Command::SelectTrack { track: None })),
     ]
 }
 
 #[test]
 fn every_example_meets_the_contract() {
-    for command in examples() {
-        check(&command, &state(), &context()).unwrap();
+    for (command, state) in examples() {
+        check(&command, &state, &context()).unwrap();
     }
+}
+
+#[test]
+fn the_fixture_is_a_valid_project() {
+    let f = fixture();
+    f.state.project.validate().unwrap();
+    assert_eq!(f.state.project.name, "Demo");
+    assert_eq!(f.state.history.undo.len(), 1);
 }
 
 #[test]
@@ -43,7 +99,7 @@ fn every_command_has_an_example() {
     // The declared commands come from the macro (`METAS`), the examples from this file:
     // two independent lists.
     let mut declared: Vec<_> = Command::metas().iter().map(|m| m.name).collect();
-    let mut covered: Vec<_> = examples().iter().map(Command::name).collect();
+    let mut covered: Vec<_> = examples().iter().map(|(c, _)| c.name()).collect();
     declared.sort();
     covered.sort();
     covered.dedup();
@@ -199,13 +255,13 @@ fn every_command_is_exactly_one_mcp_tool_with_a_description_and_both_schemas() {
 
 #[test]
 fn examples_round_trip_through_json_and_answer_with_their_name() {
-    for command in examples() {
+    for (command, from) in examples() {
         let json = serde_json::to_string(&command).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["type"], command.name(), "{json}");
         let back: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(back, command, "{json}");
-        let outcome = command.apply(&mut state(), &mut context()).unwrap();
+        let outcome = command.apply(&mut from.clone(), &mut context()).unwrap();
         assert_eq!(outcome.output.name(), command.name());
         let out = serde_json::to_value(&outcome.output).unwrap();
         assert_eq!(out["type"], command.name(), "{out}");
@@ -304,7 +360,7 @@ fn rename_to_the_current_name_changes_nothing_and_undoes_nothing() {
     .apply(&mut s, &mut context())
     .unwrap();
     assert_eq!(s, state());
-    assert_eq!(outcome.undo, commands::v2::Undo::None);
+    assert_eq!(outcome.undo, commands::Undo::None);
     assert!(outcome.events.is_empty());
     assert_eq!(
         outcome.output,
@@ -352,11 +408,11 @@ trait UndoMeta {
     fn meta_of_undo(&self) -> Option<Meta>;
 }
 
-impl UndoMeta for commands::v2::Outcome {
+impl UndoMeta for commands::Outcome {
     fn meta_of_undo(&self) -> Option<Meta> {
         match &self.undo {
-            commands::v2::Undo::Inverse(c) => Some(c.meta()),
-            commands::v2::Undo::None => None,
+            commands::Undo::Inverse(c) => Some(c.meta()),
+            commands::Undo::None => None,
         }
     }
 }
@@ -425,4 +481,122 @@ fn the_examples_project_id_never_meets_a_generated_id() {
     for _ in 0..1000 {
         assert_ne!(ctx.ids.next_id(), project);
     }
+}
+
+#[test]
+fn live_and_device_refusals_leave_the_state_untouched() {
+    let f = fixture();
+    let s = &f.state;
+    let unknown = track();
+    let refused = |c: Command, code: &str| {
+        let err = check_refusal(&c, s, &context()).unwrap();
+        assert_eq!(err.code(), code, "{}: {err}", c.name());
+    };
+    refused(
+        Command::Live(live::Command::NoteOn {
+            track: unknown.clone(),
+            note: 60,
+            velocity: 1,
+        }),
+        "not_found",
+    );
+    refused(
+        Command::Live(live::Command::NoteOff {
+            track: unknown,
+            note: 60,
+        }),
+        "not_found",
+    );
+    for (note, velocity) in [(128, 1), (60, 128)] {
+        refused(
+            Command::Live(live::Command::NoteOn {
+                track: f.track.clone(),
+                note,
+                velocity,
+            }),
+            "invalid",
+        );
+    }
+    refused(
+        Command::Live(live::Command::NoteOff {
+            track: f.track.clone(),
+            note: 128,
+        }),
+        "invalid",
+    );
+    let set = |device: ::project::DeviceId, param: &str, value: f64| {
+        Command::Device(device::Command::SetParam {
+            device,
+            param: param.into(),
+            value,
+        })
+    };
+    let missing = ::project::DeviceId::parse(TRACK).unwrap();
+    refused(set(missing, "attack", 0.1), "not_found");
+    refused(set(f.device.clone(), "cutoff", 0.1), "not_found");
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        refused(set(f.device.clone(), "attack", value), "invalid");
+    }
+}
+
+#[test]
+fn set_param_to_the_current_value_changes_nothing() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let current = device::param_defaults()
+        .into_iter()
+        .find(|(n, _)| *n == "gain")
+        .map(|(_, v)| f64::from(v))
+        .unwrap();
+    let out = Command::Device(device::Command::SetParam {
+        device: f.device.clone(),
+        param: "gain".into(),
+        value: current,
+    })
+    .apply(&mut s, &mut context())
+    .unwrap();
+    assert_eq!(s, f.state);
+    assert_eq!(out.undo, commands::Undo::None);
+    assert!(out.events.is_empty());
+}
+
+#[test]
+fn every_synth_parameter_has_a_unique_engine_id_and_its_serde_name() {
+    let ids = device::param_ids();
+    assert_eq!(ids.len(), device::SynthParam::ALL.len());
+    for (param, (name, id)) in device::SynthParam::ALL.iter().zip(&ids) {
+        assert_eq!(serde_json::to_value(param).unwrap(), *name);
+        assert_eq!(device::SynthParam::from_name(name), Some(*param));
+        assert_eq!(engine::Param::from_id(*id), Some(param.to_engine()));
+    }
+    let mut unique: Vec<_> = ids.iter().map(|(_, id)| id).collect();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), ids.len());
+    assert_eq!(device::SynthParam::from_name("cutoff"), None);
+}
+
+#[test]
+fn midi_select_input_is_session_only() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let c = Command::Midi(midi::Command::SelectInput {
+        id: Some("in-1".into()),
+    });
+    let out = c.apply(&mut s, &mut context()).unwrap();
+    assert_eq!(s.session.midi_input.as_deref(), Some("in-1"));
+    assert_eq!(s.project, f.state.project);
+    assert_eq!(
+        out.events,
+        [ProjectEvent::MidiInputSelected {
+            id: Some("in-1".into())
+        }]
+    );
+    // The same input again: nothing to tell.
+    assert!(c.apply(&mut s, &mut context()).unwrap().events.is_empty());
+    // `id` may be left out, as in v1.
+    assert_eq!(
+        parse(r#"{"type":"midi.select_input"}"#).unwrap(),
+        Command::Midi(midi::Command::SelectInput { id: None })
+    );
 }

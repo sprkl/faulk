@@ -3,8 +3,8 @@
 //! `project.rename` is implemented here as the reference command of the contract: an
 //! `edit` with its inverse, its event and its output, exercised by the test rule.
 
-use crate::v2::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
-use crate::v2::macros::domain;
+use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
+use crate::macros::domain;
 
 /// Longest project name accepted, in characters: the project's own limit.
 pub use ::project::limits::MAX_NAME_CHARS;

@@ -68,6 +68,10 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 ## Versions, stockage et état d'écran
 
+**Historique** : la pile d'annulation et de rétablissement des gestes de la session de travail ; chaque entrée garde l'inverse d'une édition, ou de toutes les éditions d'un groupe (un glisser de souris, un tour d'agent), et son auteur. Il vit en mémoire, n'est ni enregistré ni versionné. Code : `History`, `Entry`, `commands::run` ; commandes `history.undo`, `history.redo`, `history.begin_group`, `history.end_group`.
+
+**Note jouée** : une note jouée en direct (clavier, MIDI) sur une piste ; elle va au moteur et ne change ni le projet ni la session. Code : commandes `live.note_on`, `live.note_off`, `live.all_notes_off`.
+
 **Version** : un instantané nommé du projet, qu'un geste explicite sauve ; l'enregistrement automatique n'en crée pas. Vocabulaire de l'interface (décision 9) : on ne dit jamais « commit » à l'utilisateur. Code : commandes `version.save`, `version.list`, `version.restore` **(prévu)** ; un commit git sous le capot.
 
 **Variante** : une exploration parallèle du projet, créée depuis l'état courant, que l'on peut comparer puis fusionner. Vocabulaire de l'interface (décision 9) : on ne dit jamais « branche » à l'utilisateur. Un agent travaille dans une variante. Code : commandes `variant.create`, `variant.switch`, `variant.compare`, `variant.merge` **(prévu)** ; une branche git sous le capot.

@@ -117,11 +117,11 @@ impl Shared {
     /// Runs a command from the session. Returns the messages to send back.
     fn run(&self, command: &Command) -> Vec<ServerMessage> {
         match command {
-            Command::MidiListInputs => {
+            Command::Midi(commands::midi::Command::ListInputs {}) => {
                 self.midi.lock().expect("MIDI lock poisoned").refresh();
                 vec![self.midi_inputs()]
             }
-            Command::MidiSelectInput { id } => {
+            Command::Midi(commands::midi::Command::SelectInput { id }) => {
                 let result = self
                     .midi
                     .lock()
