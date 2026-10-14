@@ -567,12 +567,21 @@ fn a_growth_of_the_track_table_leaves_the_playing_tracks_untouched() {
     let b2 = grown.run(20).0;
     assert_eq!(grown.e.state().tracks.capacity(), 128);
     assert_eq!(a2, b2, "sample-identical across the growth");
-    // A growth that brings a playing track: the old ones go on, the new one fades in.
+    // A growth that brings a playing track (128 → 512 slots): the old ones go on
+    // untouched, the new one fades in under the ramp from its first frame.
+    let n = fade_frames(RATE) as usize;
     grown.send(&[create(300), tone(300), note(300, 81)]);
+    let a3 = plain.run(10).0;
     let b3 = grown.run(10).0;
-    let mut joined = b2[b2.len() - 64..].to_vec();
-    joined.extend_from_slice(&b3);
-    assert!(max_step(&joined) < 0.2, "{}", max_step(&joined));
+    assert_eq!(grown.e.state().tracks.capacity(), 512);
+    for (k, (b, a)) in b3.iter().zip(&a3).enumerate() {
+        let new = b - a;
+        let ramp = TONE_LEVEL * (k.min(n) as f32 / n as f32);
+        assert!(
+            new.abs() <= ramp + 1e-5,
+            "frame {k}: {new} above the ramp {ramp}"
+        );
+    }
     assert!(bin(&b3[1_000..], midi_hz(81)) > 0.01);
 }
 
@@ -734,7 +743,7 @@ fn a_long_retiring_list_drops_without_recursion() {
     let mut r = Rig::new();
     for _ in 0..200_000 {
         let rt = r.p.prepare(create(0)).unwrap().unwrap();
-        r.e.apply(rt);
+        assert_no_alloc(|| r.e.apply(rt));
     }
     assert_eq!(r.e.graph().retiring(), 199_999);
     drop(r);
@@ -777,9 +786,20 @@ fn a_note_off_in_a_block_of_zero_frames_is_not_lost() {
         track: t(0),
         pitch: 69,
     }]);
-    // The host renders nothing in this block: the note-off waits for the next render.
+    // The host renders nothing in this block: the note-off waits for the next block.
     assert_no_alloc(|| r.e.process(&mut [], &mut []));
     let (mut l, mut rr) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+    assert_no_alloc(|| r.e.process(&mut l, &mut rr));
+    assert_eq!(peak(&l), 0.0, "the note stopped");
+    // The same when the zero frames come between begin_block and render.
+    r.send(&[note(0, 69)]);
+    r.run(2);
+    r.send(&[M::NoteOff {
+        track: t(0),
+        pitch: 69,
+    }]);
+    assert_no_alloc(|| r.e.begin_block());
+    assert_no_alloc(|| r.e.render(&mut [], &mut []));
     assert_no_alloc(|| r.e.render(&mut l, &mut rr));
     assert_eq!(peak(&l), 0.0, "the note stopped");
     // And it is delivered once: a later note is not released by it again.
@@ -878,4 +898,61 @@ fn nan_and_infinities_from_a_device_never_reach_the_output() {
     }]);
     let (l, rr) = r.run(8);
     assert_eq!(peak(&l[BLOCK * 4..]) + peak(&rr[BLOCK * 4..]), 0.0);
+}
+
+/// Writes `.qa/renders/56-eight-tracks.wav` (16-bit stereo, 48 kHz) for listening: the
+/// eight synth tracks spread across the pan, then removed one by one while they play, the
+/// last ones soloed. Run with `cargo test -p engine --test graph -- --ignored listening`.
+#[test]
+#[ignore]
+fn listening_render() {
+    let mut r = Rig::new();
+    for (i, pitch) in PITCHES.iter().enumerate() {
+        r.send(&synth_track(i as u32, *pitch));
+        r.send(&[mix(i as u32, 0.8, -1.0 + 2.0 * i as f32 / 7.0, false)]);
+    }
+    let (mut left, mut right) = r.run(375);
+    for i in 0..4 {
+        r.send(&[M::TrackRemove { track: t(i) }]);
+        let (l, rr) = r.run(94);
+        left.extend(l);
+        right.extend(rr);
+    }
+    r.send(&[
+        M::TrackSetSolo {
+            track: t(6),
+            solo: true,
+        },
+        M::TrackSetSolo {
+            track: t(7),
+            solo: true,
+        },
+    ]);
+    let (l, rr) = r.run(375);
+    left.extend(l);
+    right.extend(rr);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.qa/renders");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut bytes = Vec::new();
+    let frames = left.len() as u32;
+    let data = frames * 4;
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&48_000u32.to_le_bytes());
+    bytes.extend_from_slice(&(48_000u32 * 4).to_le_bytes());
+    bytes.extend_from_slice(&4u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data.to_le_bytes());
+    for (l, r) in left.iter().zip(&right) {
+        for s in [l, r] {
+            let v = (s.clamp(-1.0, 1.0) * 32_767.0) as i16;
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    std::fs::write(dir.join("56-eight-tracks.wav"), bytes).unwrap();
 }

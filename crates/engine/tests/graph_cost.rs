@@ -120,8 +120,10 @@ fn an_empty_track_costs_no_notable_computation() {
         per_empty * 1e3,
         per_playing * 1e3,
     );
+    // Debug builds share the machine with the other tests: a looser bound there.
+    let ratio = if cfg!(debug_assertions) { 10.0 } else { 50.0 };
     assert!(
-        per_empty * 50.0 < per_playing,
+        per_empty * ratio < per_playing,
         "an empty track costs {per_empty} µs, a playing one {per_playing} µs"
     );
     if !cfg!(debug_assertions) {

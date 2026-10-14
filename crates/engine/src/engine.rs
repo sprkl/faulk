@@ -1442,7 +1442,12 @@ impl Engine {
     }
 
     /// A whole block of the audio side: [`Engine::begin_block`], then [`Engine::render`].
+    /// A block of zero frames is no block: nothing is applied nor taken from the live
+    /// queue, so no note-off is lost.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        if left.is_empty() || right.is_empty() {
+            return;
+        }
         self.begin_block();
         self.render(left, right);
     }
