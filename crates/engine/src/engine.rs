@@ -38,13 +38,15 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
-    AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Garbage,
-    HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note, PAGE_SLOTS,
-    Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg, SceneSlot, Slots, SourceSlot,
-    Spare, Table, TrackKind, TrackSlot, TransportMsg, limits, state_pairs, try_box,
+    AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Feedback,
+    Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note,
+    PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg, SceneSlot, Slots,
+    SourceSlot, Spare, Table, TrackKind, TrackSlot, TransportMsg, limits, state_pairs, try_box,
 };
-use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
+use crate::transport::Transport;
 
 /// Initial capacities of the runtime tables: small, every table grows on demand
 /// (decision 7), each kind up to its safety limit.
@@ -431,6 +433,8 @@ pub fn channel_with(
     let engine = Engine {
         state: try_box(State::try_new()?)?,
         graph: Graph::try_new(&setup, retired_tx)?,
+        transport: Transport::new(rate_of(&setup)),
+        clicker: Clicker::new(rate_of(&setup)),
         rt: rt_rx,
         garbage: gc_tx,
         live: live_rx,
@@ -1349,6 +1353,8 @@ fn stage<T>(
 pub struct Engine {
     state: Box<State>,
     graph: Graph,
+    transport: Transport,
+    clicker: Clicker,
     rt: Consumer<RtMsg>,
     garbage: Producer<Garbage>,
     live: Consumer<LiveEvent>,
@@ -1359,6 +1365,16 @@ pub struct Engine {
     applied: u64,
     skipped: u32,
     leaked: u32,
+}
+
+/// The rate an engine is built for: the setup's, rounded, or 48 kHz when it is not usable.
+fn rate_of(setup: &DeviceSetup) -> SampleRate {
+    let hz = setup.sample_rate.round();
+    if hz.is_finite() && (1.0..=u32::MAX as f32).contains(&hz) {
+        SampleRate::new(hz as u32).unwrap_or(SampleRate::HZ_48000)
+    } else {
+        SampleRate::HZ_48000
+    }
 }
 
 impl core::fmt::Debug for Engine {
@@ -1427,7 +1443,15 @@ impl Engine {
     /// of at least one frame delivers them, later ones until the next `begin_block` render
     /// without them (a note is never played twice). No allocation, no free, no lock, no
     /// panic.
+    ///
+    /// Each render of at least one frame is one block of the musical clock (TR-1): the
+    /// orders `begin_block` applied take effect at its start, the graph renders, then the
+    /// metronome (TR-2) is added to the output, after the master.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let frames = left.len().min(right.len());
+        if frames > 0 {
+            self.start_clock(frames);
+        }
         self.graph.render(
             &mut self.state,
             self.live_block.as_slice(),
@@ -1435,10 +1459,73 @@ impl Engine {
             left,
             right,
         );
-        if left.len().min(right.len()) > 0 {
+        if frames > 0 {
+            self.clicker.render(
+                &self.state.metronome,
+                self.state.transport.signature,
+                &mut self.transport,
+                &mut left[..frames],
+                &mut right[..frames],
+            );
+            self.transport.end_block();
             self.live_block.clear();
             self.release_live = false;
         }
+    }
+
+    /// The musical clock (TR-1), as of the start of the next block.
+    pub fn clock(&self) -> &Transport {
+        &self.transport
+    }
+
+    /// Writes the transport part of a report: its state and the playhead (the start of
+    /// the next block). No allocation. The rest of the report is MO-5's.
+    pub fn report_transport(&self, feedback: &mut Feedback) {
+        feedback.transport = self.transport.state();
+        feedback.playhead_tick = self.transport.playhead_tick();
+        feedback.playhead_frame = self.transport.playhead_frame();
+    }
+
+    /// Changes the sample rate of the engine's own processing (clock, metronome, graph
+    /// fades) and keeps the playhead. The devices were built for the old rate by
+    /// `prepare` (and the preparer keeps its setup): a host that changes the device rate
+    /// builds a new channel; this keeps the clock, the metronome and the fades coherent
+    /// with a rate the host switched to while it keeps the same engine.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) {
+        self.transport.set_sample_rate(rate);
+        self.clicker.set_sample_rate(rate);
+        self.graph.set_sample_rate(rate.hz() as f32);
+    }
+
+    /// Starts the clock block of one render: a count-in first, then the clock reads the
+    /// orders.
+    fn start_clock(&mut self, frames: usize) {
+        let state = &mut *self.state;
+        let m = state.metronome;
+        let p = &mut state.playback;
+        // A recording started from a stopped clock with the metronome on begins
+        // `count_in_bars` early: the playhead runs through negative ticks, clicking, up
+        // to the cue.
+        if p.playing
+            && p.recording
+            && m.enabled
+            && m.count_in_bars > 0
+            && !self.transport.is_running()
+            && let Some(cue) = p.cue
+            // A cue at or past the end of the loop plays on past it (TR-1): a pre-roll
+            // that starts inside the loop would wrap and never reach the cue.
+            && p.loop_region.is_none_or(|r| cue.0 < r.end().0)
+        {
+            let bars = i64::from(m.count_in_bars.min(MAX_COUNT_IN_BARS));
+            let ticks = state
+                .transport
+                .signature
+                .ticks_per_bar()
+                .0
+                .saturating_mul(bars);
+            p.cue = Some(cue.saturating_sub(Tick(ticks)));
+        }
+        self.transport.begin_block(state, frames);
     }
 
     /// A whole block of the audio side: [`Engine::begin_block`], then [`Engine::render`].

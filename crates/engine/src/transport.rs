@@ -217,6 +217,33 @@ impl Transport {
         Frame(if samples > 0.0 { samples as u64 } else { 0 })
     }
 
+    /// The sample rate the clock converts with.
+    pub fn sample_rate(&self) -> SampleRate {
+        // `rate` only ever comes from a `SampleRate`, so the fallback is unreachable.
+        SampleRate::new(self.rate as u32).unwrap_or(SampleRate::HZ_48000)
+    }
+
+    /// Changes the sample rate and keeps the playhead: a running clock re-anchors at its
+    /// current position (the start of the next block), a stopped one keeps its frozen
+    /// position, and the first tick not yet delivered stays, so no event is lost or
+    /// delivered twice across the change. A block still open is ended first. The absolute
+    /// sample count goes on across the change: from then on it counts samples of the new
+    /// rate.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) {
+        self.end_block();
+        let new_rate = f64::from(rate.hz());
+        if new_rate == self.rate {
+            return;
+        }
+        let total = self.total as f64;
+        if self.running {
+            self.anchor_tick = self.position_at(total);
+            self.anchor_sample = total;
+        }
+        self.rate = new_rate;
+        self.samples_per_tick = samples_per_tick(self.tempo, new_rate);
+    }
+
     /// Starts a block of `frames` frames: reads the orders `Engine::apply` left in
     /// `state` (taking the cue) and moves the clock accordingly. A block still open is
     /// ended first.
