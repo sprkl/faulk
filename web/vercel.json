@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
   "redirects": [
     {
       "source": "/helper/:channel(stable|beta)/releases\\.:os(win|linux|osx)\\.json",
