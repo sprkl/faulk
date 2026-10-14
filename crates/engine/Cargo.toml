@@ -15,6 +15,7 @@ serde = ["dep:serde"]
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 
 [dev-dependencies]
+rtrb = "0.4.0"
 # The crate itself with `serde` on, so that `cargo test -p engine` runs the serde tests.
 engine = { path = ".", features = ["serde"] }
 assert_no_alloc = "1"
