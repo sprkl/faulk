@@ -601,6 +601,8 @@ impl Device for Synth {
         if frames > cursor {
             self.render(&mut io.left[cursor..frames], &mut io.right[cursor..frames]);
         }
+        // The voice count of the host's report (interim until the meters of MO-5).
+        crate::host::add_block_voices(self.active_voices() as u32);
     }
 
     fn set_param(&mut self, id: ParamId, value: f32) {
