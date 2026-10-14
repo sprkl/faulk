@@ -19,11 +19,22 @@ pub use ids::{ClipId, DeviceId, Id, IdGenerator, LaneId, PlacementId, SceneId, T
 
 /// The project document: what makes the music, saved and versioned.
 ///
-/// Placeholder for PR-1: only the fields the command contract needs today.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Placeholder for PR-1: only the fields the command contract needs today. A state
+/// is always valid (here: a trimmed, non-empty name of at most 200 characters): a
+/// command keeps it so, and PR-1's `validate()` refuses an invalid project on load,
+/// which is what makes every inverse exact.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     /// Display name of the project.
     pub name: String,
+}
+
+impl Default for Project {
+    fn default() -> Self {
+        Self {
+            name: "Untitled".into(),
+        }
+    }
 }
 
 /// The session state: what belongs to the screen or the machine, not to the music

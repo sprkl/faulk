@@ -17,7 +17,12 @@ domain! {
     // Until PR-1 gives the project its tracks, the identifier is only checked for
     // its form; PR-8 refuses an unknown track with `not_found`.
     "view.select_track" (kind = "live", undo = "none", destructive = false)
-    SelectTrack { track: Option<TrackId> } => {
+    SelectTrack {
+        /// Required: `null` deselects, a missing field is an error.
+        #[serde(deserialize_with = "Option::deserialize")]
+        #[schemars(required)]
+        track: Option<TrackId>
+    } => {
         /// The track selected before the command.
         previous: Option<TrackId>,
     };

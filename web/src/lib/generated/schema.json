@@ -470,10 +470,6 @@
               "description": "The commands of this domain, tagged by `type`.",
               "not": {}
             },
-            "TrackId": {
-              "$ref": "#/$defs/Id",
-              "description": "Identifier of a track."
-            },
             "TransportCommand": {
               "description": "The commands of this domain, tagged by `type`.",
               "not": {}
@@ -486,14 +482,8 @@
                   "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project.",
                   "properties": {
                     "track": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/TrackId"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
+                      "$ref": "#/$defs/Id",
+                      "description": "Required: `null` deselects, a missing field is an error."
                     },
                     "type": {
                       "const": "view.select_track",
@@ -501,7 +491,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "track"
                   ],
                   "type": "object",
                   "x-destructive": false,
@@ -746,10 +737,6 @@
               "description": "The commands of this domain, tagged by `type`.",
               "not": {}
             },
-            "TrackId": {
-              "$ref": "#/$defs/Id",
-              "description": "Identifier of a track."
-            },
             "TransportCommand": {
               "description": "The commands of this domain, tagged by `type`.",
               "not": {}
@@ -762,14 +749,8 @@
                   "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project.",
                   "properties": {
                     "track": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/TrackId"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
+                      "$ref": "#/$defs/Id",
+                      "description": "Required: `null` deselects, a missing field is an error."
                     },
                     "type": {
                       "const": "view.select_track",
@@ -777,7 +758,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "track"
                   ],
                   "type": "object",
                   "x-destructive": false,
@@ -790,17 +772,13 @@
           "additionalProperties": false,
           "properties": {
             "track": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/TrackId"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "$ref": "#/$defs/Id",
+              "description": "Required: `null` deselects, a missing field is an error."
             }
           },
-          "required": [],
+          "required": [
+            "track"
+          ],
           "type": "object"
         },
         "kind": "live",
@@ -1030,10 +1008,6 @@
           "description": "The commands of this domain, tagged by `type`.",
           "not": {}
         },
-        "TrackId": {
-          "$ref": "#/$defs/Id",
-          "description": "Identifier of a track."
-        },
         "TransportCommand": {
           "description": "The commands of this domain, tagged by `type`.",
           "not": {}
@@ -1046,14 +1020,8 @@
               "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project.",
               "properties": {
                 "track": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/TrackId"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  "$ref": "#/$defs/Id",
+                  "description": "Required: `null` deselects, a missing field is an error."
                 },
                 "type": {
                   "const": "view.select_track",
@@ -1061,7 +1029,8 @@
                 }
               },
               "required": [
-                "type"
+                "type",
+                "track"
               ],
               "type": "object",
               "x-destructive": false,

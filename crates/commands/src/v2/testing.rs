@@ -44,7 +44,8 @@ impl Checked for crate::v2::Command {
 /// - `live` leaves the project as it was; `query` leaves everything as it was;
 ///   `edit` changes the state and reports at least one event;
 /// - `undo: inverse`: the inverse is an `edit`, applying it restores the state
-///   exactly, and the inverse's own inverse (redo) brings the edited state back;
+///   exactly and reports events, and the inverse's own inverse (redo) brings the
+///   edited state back and reports events;
 ///   `undo: none`: the outcome carries no inverse.
 pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<(), String> {
     let meta = command.meta();
@@ -107,6 +108,12 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
                     inverse_meta.name
                 ));
             }
+            if undone.events.is_empty() {
+                return Err(format!(
+                    "{name}: its inverse {} reports no event",
+                    inverse_meta.name
+                ));
+            }
             let Undo::Inverse(redo) = undone.undo else {
                 return Err(format!(
                     "{name}: its inverse {} has no inverse (no redo)",
@@ -125,6 +132,12 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
             if state != edited {
                 return Err(format!(
                     "{name}: redo {} does not bring the edit back",
+                    redo.meta().name
+                ));
+            }
+            if redone.events.is_empty() {
+                return Err(format!(
+                    "{name}: redo {} reports no event",
                     redo.meta().name
                 ));
             }
@@ -442,6 +455,25 @@ mod tests {
             err.contains("output of its redo answers to other.cmd"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn an_inverse_or_redo_without_events_is_refused() {
+        let mut inverse = rename("Untitled", Some(rename("new", None)));
+        if let Fake::Rename { events, .. } = &mut inverse {
+            *events = false;
+        }
+        let err = run(&rename("new", Some(inverse))).unwrap_err();
+        assert!(
+            err.contains("its inverse fake.cmd reports no event"),
+            "{err}"
+        );
+        let mut redo = rename("new", None);
+        if let Fake::Rename { events, .. } = &mut redo {
+            *events = false;
+        }
+        let err = run(&rename("new", Some(rename("Untitled", Some(redo))))).unwrap_err();
+        assert!(err.contains("redo fake.cmd reports no event"), "{err}");
     }
 
     #[test]

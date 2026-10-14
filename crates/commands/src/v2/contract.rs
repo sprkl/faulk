@@ -90,7 +90,9 @@ impl Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
-    /// Changes the project: enters the history.
+    /// Changes the project: enters the history. An edit that changes nothing (a value
+    /// already in place) returns no inverse and no event, and the history records
+    /// nothing.
     Edit,
     /// Ephemeral, like a played note, playback, solo or the selection: changes the
     /// session or the engine, never the project, and never enters the history.
@@ -156,7 +158,9 @@ impl Meta {
 /// that already exists changes nothing, so its inverse removes nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Undo<C> {
-    /// Applying this command restores the state as it was before the command.
+    /// Applying this command restores the state as it was before the command, with
+    /// its own events for the interface. Exact because a state is always valid: the
+    /// previous value passes the command's checks again.
     Inverse(Box<C>),
     /// Nothing to undo.
     None,

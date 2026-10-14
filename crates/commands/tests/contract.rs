@@ -257,6 +257,7 @@ fn malformed_commands_are_refused_with_a_useful_message() {
             r#"{"type":"view.select_track","track":"8ARZ3NDEKTSV4RRFFQ69G5FAV0"}"#,
             "starts with 0 to 7",
         ),
+        (r#"{"type":"view.select_track"}"#, "missing field `track`"),
         ("[]", "string `type` field"),
         ("null", "string `type` field"),
     ];
@@ -282,6 +283,36 @@ fn a_refused_command_leaves_the_state_untouched() {
         name: "é".repeat(project::MAX_NAME_CHARS),
     });
     check(&max, &state(), &context()).unwrap();
+}
+
+#[test]
+fn rename_undo_is_exact_from_the_default_state_and_at_the_boundaries() {
+    use commands::v2::State;
+    let rename = |name: &str| Command::Project(project::Command::Rename { name: name.into() });
+    check(&rename("Demo"), &State::default(), &context()).unwrap();
+    let mut boundary = state();
+    boundary.project.name = "x".repeat(project::MAX_NAME_CHARS);
+    check(&rename("Demo"), &boundary, &context()).unwrap();
+    check(&rename("  padded  "), &state(), &context()).unwrap();
+}
+
+#[test]
+fn rename_to_the_current_name_changes_nothing_and_undoes_nothing() {
+    let mut s = state();
+    let outcome = Command::Project(project::Command::Rename {
+        name: " Untitled ".into(),
+    })
+    .apply(&mut s, &mut context())
+    .unwrap();
+    assert_eq!(s, state());
+    assert_eq!(outcome.undo, commands::v2::Undo::None);
+    assert!(outcome.events.is_empty());
+    assert_eq!(
+        outcome.output,
+        Output::Project(project::Output::Rename {
+            previous: "Untitled".into()
+        })
+    );
 }
 
 #[test]

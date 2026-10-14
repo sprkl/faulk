@@ -227,3 +227,30 @@ macro_rules! root {
 
 pub(crate) use domain;
 pub(crate) use root;
+
+#[cfg(test)]
+mod tests {
+    //! A field-less command stays a struct variant, so unknown fields are refused.
+    #[allow(dead_code)]
+    mod fieldless {
+        domain! {
+            domain = "fake", schema = ("FakeCommand", "FakeOutput");
+            /// A command without fields, for the unknown-field test of the macro.
+            "fake.play" (kind = "live", undo = "none", destructive = false)
+            Play {} => {};
+        }
+    }
+
+    #[test]
+    fn a_fieldless_command_refuses_unknown_fields() {
+        let ok: fieldless::Command = serde_json::from_str(r#"{"type":"fake.play"}"#).unwrap();
+        assert_eq!(ok, fieldless::Command::Play {});
+        assert_eq!(ok.name(), "fake.play");
+        let err = serde_json::from_str::<fieldless::Command>(r#"{"type":"fake.play","x":1}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown field `x`"), "{err}");
+        let schema = serde_json::to_value(schemars::schema_for!(fieldless::Command)).unwrap();
+        assert_eq!(schema["oneOf"][0]["additionalProperties"], false);
+    }
+}

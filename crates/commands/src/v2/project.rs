@@ -42,6 +42,17 @@ pub fn apply(
                     message: format!("a project name has at most {MAX_NAME_CHARS} characters"),
                 });
             }
+            if state.project.name == name {
+                // Nothing changed: nothing to undo, nothing to tell the interface.
+                return Ok(Outcome {
+                    output: Output::Rename {
+                        previous: name.to_owned(),
+                    },
+                    undo: Undo::None,
+                    events: vec![],
+                    control: vec![],
+                });
+            }
             let previous = std::mem::replace(&mut state.project.name, name.to_owned());
             Ok(Outcome {
                 output: Output::Rename {
