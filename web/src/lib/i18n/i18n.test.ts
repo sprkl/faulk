@@ -63,6 +63,11 @@ describe('i18n', () => {
     expect(translate('fr', 'helper.refused', { n: 3 })).toBe('Code incorrect. Encore 3 essais.')
   })
 
+  it('names the real recheck button in the French blocked-access text', () => {
+    const recheck = translate('fr', 'helper.recheck')
+    expect(translate('fr', 'helper.localAccessBlocked')).toContain(`« ${recheck} »`)
+  })
+
   it('picks the stored language, else the browser one', () => {
     expect(defaultLang('fr', 'en-US')).toBe('fr')
     expect(defaultLang('en', 'fr-FR')).toBe('en')
