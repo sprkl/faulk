@@ -10,3 +10,4 @@ pub mod time;
 pub use synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, Waveform};
 pub mod engine;
 pub mod msg;
+pub mod transport;
