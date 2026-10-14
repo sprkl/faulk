@@ -10,3 +10,9 @@ pub mod server;
 pub mod tray;
 pub mod tray_text;
 pub mod updater;
+
+/// The library's own tests run under the allocation detector too (the binary installs it
+/// in `main.rs`): without it, `assert_no_alloc` around `AudioCore::process` could not fail.
+#[cfg(all(test, debug_assertions))]
+#[global_allocator]
+static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;

@@ -1,5 +1,5 @@
-//! Prototype of the engine channel (CT-3): the real engine (`engine-wasm`'s `fk_*` exports
-//! come along with the rlib) plus the rt ring, a runtime table that grows (a slot array), a
+//! Prototype of the engine channel (CT-3): the real engine (the old `engine-wasm` `fk_*` exports,
+//! frozen in [`old_instance`]) plus the rt ring, a runtime table that grows (a slot array), a
 //! content table swapped by pointer, and the garbage ring of `engine::msg`.
 //!
 //! Way (a): one instance in the worklet, which calls the prepare exports between two quanta.
@@ -19,7 +19,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use engine::msg::{Note, ParamId, Table, TrackSlot, limits};
 use engine::time::Tick;
-use engine_wasm::Instance;
+use old_instance::Instance;
+
+pub mod old_instance;
 use proto_msg::{Garbage, Opaque, Prepared, RtMsg, Swap, TableKind};
 use rtrb::{Consumer, Producer, RingBuffer};
 

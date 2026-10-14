@@ -12,3 +12,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 project = { path = "../project" }
 commands = { path = "../commands" }
+engine = { path = "../engine" }
+serde_json = "1.0.154"

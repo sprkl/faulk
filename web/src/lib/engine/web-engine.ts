@@ -1,49 +1,109 @@
 import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
-import { commandToOp } from './wasm-ops'
 import { allNotesOff } from '../synth-commands'
+import { engineMemory } from './engine-abi'
+import { readFeedback } from './feedback'
+import type { FromPrepare, ToPrepare } from './prepare-worker'
+import { EngineStream, projectModule } from './project-core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
 
-type FromWorklet =
-  | { type: 'ready' }
-  | { type: 'error'; message: string }
-  | { type: 'meter'; peak: number; voices: number }
+type FromWorklet = { type: 'ready' } | { type: 'error'; message: string }
 
-/** The engine compiled to WebAssembly, running in an AudioWorklet. */
+/** How often the page reads the engine's report, in ms (the engine writes ~30 per second). */
+const FEEDBACK_MS = 33
+
+/** The epoch of a fresh web engine: newer than the channel's initial 0, so its `Reset` is taken. */
+const FIRST_EPOCH = 1
+
+/**
+ * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
+ * A Worker holds the prepare side and takes the ControlMsg streams the page encodes in Rust
+ * (`project-core.ts`); the AudioWorklet holds the render side; the page reads the report
+ * from the shared memory. Nothing crosses the audio thread by `postMessage` once it runs.
+ */
 export class WebEngine implements Engine {
   readonly kind = 'web' as const
+  private readonly timer: ReturnType<typeof setInterval>
 
   private constructor(
     private readonly context: AudioContext,
-    private readonly node: AudioWorkletNode,
-  ) {}
+    private readonly worker: Worker,
+    private readonly stream: EngineStream,
+    memory: WebAssembly.Memory,
+    feedback: { at: number; len: number },
+    events: EngineEvents,
+  ) {
+    let last = 0
+    this.timer = setInterval(() => {
+      const report = readFeedback(memory.buffer, feedback.at, feedback.len)
+      if (!report || report.seq === last) return
+      last = report.seq
+      events.onMeter(Math.max(0, ...report.peaks), report.voices)
+    }, FEEDBACK_MS)
+  }
 
   /** Must be called from a user gesture (browsers start audio only then). */
   static async create(events: EngineEvents): Promise<WebEngine> {
     const context = new AudioContext({ latencyHint: 'interactive' })
-    const [bytes] = await Promise.all([
+    let worker: Worker | null = null
+    try {
+      return await WebEngine.start(context, events, (w) => (worker = w))
+    } catch (error) {
+      // Nothing left behind: the Worker's flush timer and the audio context.
+      ;(worker as Worker | null)?.terminate()
+      await context.close().catch(() => {})
+      throw error
+    }
+  }
+
+  private static async start(context: AudioContext, events: EngineEvents, track: (w: Worker) => void): Promise<WebEngine> {
+    const memory = engineMemory()
+    const [bytes, project] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
+      projectModule(),
       context.audioWorklet.addModule(workletUrl),
     ])
+    const worker = new Worker(new URL('./prepare-worker.ts', import.meta.url), { type: 'module' })
+    track(worker)
+    const ready = await new Promise<Extract<FromPrepare, { type: 'ready' }>>((resolve, reject) => {
+      worker.onmessage = (event: MessageEvent<FromPrepare>) => {
+        const data = event.data
+        if (data.type === 'ready') resolve(data)
+        else if (data.type === 'error') reject(new Error(`engine worker: ${data.message}`))
+      }
+      worker.onerror = (event) => reject(new Error(`engine worker: ${event.message}`))
+      worker.postMessage({ type: 'init', bytes: bytes.slice(0), memory, sampleRate: context.sampleRate } satisfies ToPrepare)
+    })
+    worker.onmessage = (event: MessageEvent<FromPrepare>) => {
+      const data = event.data
+      // A stream the engine stopped (`MsgError::code`): out of memory, engine busy, corrupt.
+      // Reported, not shown yet: the resync and its message belong to PR-3 and PR-5.
+      if (data.type === 'pushed') console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
+      else if (data.type === 'error') console.error(`engine worker: ${data.message}`)
+    }
+
     const node = new AudioWorkletNode(context, 'faulk-engine', {
       numberOfInputs: 0,
       outputChannelCount: [2],
     })
-    const ready = new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       node.port.onmessage = (event: MessageEvent<FromWorklet>) => {
         const data = event.data
         if (data.type === 'ready') resolve()
-        else if (data.type === 'error') reject(new Error(`audio worklet: ${data.message}`))
-        else events.onMeter(data.peak, data.voices)
+        else reject(new Error(`audio worklet: ${data.message}`))
       }
+      const setup = { channel: ready.channel, stackTop: ready.stackTop, tls: ready.tls }
+      node.port.postMessage({ type: 'init', bytes, memory, setup } satisfies WorkletMessage, [bytes])
     })
-    node.port.postMessage({ type: 'init', bytes } satisfies WorkletMessage, [bytes])
-    await ready
+    node.port.onmessage = null
+
+    const stream = new EngineStream(project, FIRST_EPOCH)
+    const engine = new WebEngine(context, worker, stream, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
+    engine.push(stream.setup())
     node.connect(context.destination)
     await context.resume()
-    const engine = new WebEngine(context, node)
     events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
     setTimeout(() => events.onStatus(engine.status()), 500)
@@ -59,9 +119,14 @@ export class WebEngine implements Engine {
     }
   }
 
+  private push(bytes: Uint8Array) {
+    if (bytes.length === 0) return
+    const buffer = bytes.buffer as ArrayBuffer
+    this.worker.postMessage({ type: 'push', bytes: buffer } satisfies ToPrepare, [buffer])
+  }
+
   run(command: Command) {
-    const op = commandToOp(command)
-    if (op) this.node.port.postMessage({ type: 'ops', ops: [op] } satisfies WorkletMessage)
+    this.push(this.stream.command(command))
   }
 
   /** Pauses audio without losing the engine (used while the helper plays). */
@@ -76,6 +141,8 @@ export class WebEngine implements Engine {
 
   async close() {
     this.run(allNotesOff())
+    clearInterval(this.timer)
     await this.context.close()
+    this.worker.terminate()
   }
 }

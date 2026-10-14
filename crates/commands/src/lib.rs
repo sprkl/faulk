@@ -11,6 +11,7 @@
 //! derives names, metadata, schema and the MCP tool [`catalog`] from the domains.
 
 pub mod contract;
+pub mod engine_msgs;
 pub(crate) mod macros;
 pub mod testing;
 

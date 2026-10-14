@@ -45,8 +45,12 @@ jobs:
           cargo clippy --release --target wasm32-unknown-unknown -- -D warnings
           cargo clippy --release --target wasm32-wasip1-threads -- -D warnings
 
+      # The shipped engine is the wasm32-wasip1-threads build (MO-2); the parity tests run the
+      # wasm32-unknown-unknown one in an interpreter.
       - name: WASM build of the engine
-        run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+        run: |
+          cargo build -p engine-wasm --target wasm32-wasip1-threads --release
+          cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 
       - name: WASM build of the project
         run: cargo build -p project-wasm --target wasm32-unknown-unknown --release

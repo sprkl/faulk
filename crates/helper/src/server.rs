@@ -3,8 +3,9 @@
 //! One session at a time: a new session replaces the previous one (its page is told).
 //! When a session ends, every note is released so nothing keeps sounding.
 
-use crate::audio::{EngineEvent, EventSender, Meter, engine_event};
+use crate::audio::{EventSender, Meter};
 use crate::midi::MidiManager;
+use crate::midi::all_notes_off;
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use commands::Command;
 use futures_util::{SinkExt, StreamExt};
@@ -83,9 +84,9 @@ impl Shared {
         (self.notify)(HelperEvent::Code(code));
     }
 
-    fn send_event(&self, event: EngineEvent) {
+    fn send_command(&self, command: &commands::Command) {
         if let Ok(mut sender) = self.sender.lock() {
-            sender.send(event);
+            sender.send(command);
         }
     }
 
@@ -137,9 +138,8 @@ impl Shared {
                 out
             }
             other => {
-                if let Some(event) = engine_event(other) {
-                    self.send_event(event);
-                }
+                // The engine takes what the command layer maps (live notes, parameters).
+                self.send_command(other);
                 Vec::new()
             }
         }
@@ -317,7 +317,7 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         (shared.notify)(HelperEvent::Session(true));
     }
     // A new session starts from silence.
-    shared.send_event(EngineEvent::AllNotesOff);
+    shared.send_command(&all_notes_off());
     let _ = tx.send(shared.hello());
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
     let _ = tx.send(shared.midi_inputs());
@@ -358,7 +358,7 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         // The page is gone: release every note so nothing hangs, and let go of the MIDI
         // input so the page (Web mode) can open it again: on Windows an input can be
         // open in one application only.
-        shared.send_event(EngineEvent::AllNotesOff);
+        shared.send_command(&all_notes_off());
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }

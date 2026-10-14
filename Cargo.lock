@@ -475,7 +475,9 @@ dependencies = [
 name = "engine-wasm"
 version = "0.1.0"
 dependencies = [
+ "commands",
  "engine",
+ "project",
  "wasmi",
 ]
 
@@ -652,7 +654,6 @@ dependencies = [
  "project",
  "protocol",
  "regex",
- "rtrb",
  "semver",
  "serde_json",
  "tokio",
@@ -1395,7 +1396,9 @@ name = "project-wasm"
 version = "0.1.0"
 dependencies = [
  "commands",
+ "engine",
  "project",
+ "serde_json",
 ]
 
 [[package]]

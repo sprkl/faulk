@@ -14,15 +14,7 @@ name = "engine-proto"
 version = "0.1.0"
 dependencies = [
  "engine",
- "engine-wasm",
  "rtrb",
-]
-
-[[package]]
-name = "engine-wasm"
-version = "0.1.0"
-dependencies = [
- "engine",
 ]
 
 [[package]]

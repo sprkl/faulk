@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#55): MO-2, one channel to the engine in both targets: `engine-wasm` ships for `wasm32-wasip1-threads` as two instances on one shared memory (prepare Worker, AudioWorklet), commands map to `ControlMsg` bytes in Rust only (`commands::engine_msgs`, `project-wasm`), the helper submits the same stream; spec § 2.3 gets the implementation notes and the measured cost, `CLAUDE.md` narrows the worklet's `postMessage` exception.
