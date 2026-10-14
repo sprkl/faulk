@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEVICE_NAME_KEYS } from './app'
+import { DEVICE_NAME_KEYS, features } from './app'
 import { defaultLang, landingMessages, messages, translate } from './index'
 import { LANDING_DEVICE_NAME_KEYS } from './landing'
 
@@ -23,6 +23,24 @@ describe('i18n', () => {
       for (const key of Object.keys(en)) expect(vars(fr[key]), key).toEqual(vars(en[key]))
     })
   }
+
+  describe('features of the DAW', () => {
+    for (const [name, feature] of Object.entries(features)) {
+      it(`${name}: has the same keys in English and French, none empty`, () => {
+        expect(Object.keys(feature.en).length).toBeGreaterThan(0)
+        expect(Object.keys(feature.fr).sort()).toEqual(Object.keys(feature.en).sort())
+        for (const lang of ['en', 'fr'] as const) {
+          for (const [key, text] of Object.entries(feature[lang])) expect(text.trim(), `${lang} ${key}`).not.toBe('')
+        }
+      })
+    }
+
+    it('declares each key in one feature only, and the assembly holds them all', () => {
+      const all = Object.values(features).flatMap((feature) => Object.keys(feature.en))
+      expect(new Set(all).size).toBe(all.length)
+      expect(Object.keys(messages.en).sort()).toEqual([...all].sort())
+    })
+  })
 
   it('shows each device name as one name, the same in every language', () => {
     const lists = [

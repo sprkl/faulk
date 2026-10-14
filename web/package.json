@@ -6,6 +6,10 @@
   "packageManager": "pnpm@11.3.0",
   "scripts": {
     "gen:protocol": "node scripts/gen-protocol.mjs",
+    "gen:check": "node scripts/gen-protocol.mjs && git diff --exit-code -- src/lib/generated",
+    "predev": "node scripts/gen-protocol.mjs",
+    "prebuild": "node scripts/gen-protocol.mjs",
+    "pretest": "node scripts/gen-protocol.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "node scripts/build-wasm.mjs && vite dev",
     "build": "node scripts/build-wasm.mjs && vite build",

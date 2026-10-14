@@ -929,7 +929,7 @@ Décision 5 : couloirs d'automation sur les paramètres des devices et du mixeur
 
 **DOC-1 — Documentation du MVP**
 - But : mettre à jour `docs/architecture/`, `docs/product/` (statut des décisions) et `docs/specs/` pour les fonctions livrées.
-- Critères : chaque document vérifié contre le code change de `status` ; liens valides ; `docs/log.md` à jour.
+- Critères : chaque document vérifié contre le code change de `status` ; liens valides ; entrée de journal en fragment `docs/log.d/`.
 - Touche : `docs/`.
 - Dépend de : QA-6.
 - Phase : 6.
@@ -1124,7 +1124,8 @@ Règle pour l'essaim : **une tâche feuille ne modifie jamais un contrat figé.*
 | `crates/engine/src/msg.rs` (`ControlMsg`) | Chaque fonction moteur ajoute des messages | Toutes les variantes du MVP déclarées d'avance en CT-3 / MO-1, regroupées par domaine. |
 | `Cargo.toml`, `Cargo.lock`, `web/pnpm-lock.yaml` | Ajouts de crates et de dépendances | Crates du MVP créées en phase 0 ou 1 ; une tâche feuille annonce toute dépendance dans son plan ; en cas de conflit, rebaser et régénérer le verrou. |
 | `.github/workflows/ci.yml` | Chaque domaine ajoute des étapes | Un workflow par domaine (UI-0). |
-| `docs/log.md`, `docs/*/index.md` | Ajouts en fin de fichier par chaque PR | Une ligne par PR, ajoutée en dernier au rebase ; conflits résolus en gardant les deux entrées. |
+| `docs/*/index.md` | Ajouts en fin de fichier par chaque PR | Une ligne par PR, ajoutée en dernier au rebase ; conflits résolus en gardant les deux entrées. |
+| `docs/log.d/` | Un fragment par PR qui modifie `docs/` | Fichier `<issue>-<slug>.md` propre à la PR, jamais de modification de `docs/log.md` ; le lead replie les fragments à la préparation d'une release. |
 | `CLAUDE.md` | Stack et règles | Modifié seulement par les tâches de contrat (CT-1) et DOC-1. |
 
 Le format de projet suit la même logique pour les musiciens : un fichier par device, un arrangement par piste, une note par ligne ([modèle de projet](../architecture/02-modele-projet.md) § 4).
@@ -1135,7 +1136,7 @@ Le format de projet suit la même logique pour les musiciens : un fichier par de
 - Chaque tâche liste dans son plan les fichiers qu'elle possède ; deux tâches qui possèdent le même fichier ne tournent pas en même temps (lien de blocage GitHub).
 - Les tâches moteur livrent toujours le test de parité natif/WASM et le détecteur d'allocation : la parité Boost est une condition de chaque PR, pas une phase.
 - Les textes visibles par l'utilisateur (EN et FR) sont proposés dans la PR et validés par le fondateur (règle de `CLAUDE.md`) ; ces tâches portent `founder: oui`.
-- **Fusion des PR** (décision 14) : le lead fusionne lui-même une PR prête (CI verte, Judge Dredd et Copilot réglés), qu'elle soit feuille, contrat ou colonne vertébrale ; seule une PR qui attend une décision du fondateur ou la validation d'un texte attend le fondateur (`CLAUDE.md`, [issue tracker](../agents/issue-tracker.md)).
+- **Fusion des PR** (décision 14) : le lead fusionne lui-même une PR prête (CI verte, revues réglées : Judge Dredd selon la tâche, Copilot facultatif si le quota le permet), qu'elle soit feuille, contrat ou colonne vertébrale ; seule une PR qui attend une décision du fondateur ou la validation d'un texte attend le fondateur (`CLAUDE.md`, [issue tracker](../agents/issue-tracker.md)).
 - **Où tournent les agents** (décision 15) : dans le cloud pour l'essaim ; en local, sur la machine du fondateur, pour les tâches `hardware: oui` (audio ou MIDI réels, vérifications manuelles sous Windows).
 
 ## 6. Phases (jalons)
@@ -1176,7 +1177,7 @@ Les quinze décisions, et ce qu'elles changent dans ce plan :
 | 11 | Copie d'un clip dans la timeline : copie indépendante par défaut, lien en option. | AR-1, AR-4, AR-5. |
 | 12 | Stockage audio versionné : fichiers nommés par SHA-256, compatibles Git LFS ; LFS ou magasin séparé décidé quand le besoin viendra. | SV-1, AU-1. |
 | 13 | faustwasm (LGPL-3.0) : acceptable si Faulk est open source ; à revoir sinon. | [Spec de l'Atelier](01-atelier-modules.md), hors MVP. |
-| 14 | Fusion des PR de l'essaim : le lead fusionne les PR prêtes (CI, Judge Dredd, Copilot), feuilles comme contrats et colonne vertébrale. | § 5.3. |
+| 14 | Fusion des PR de l'essaim : le lead fusionne les PR prêtes (CI, revues réglées ; Copilot facultatif si le quota le permet), feuilles comme contrats et colonne vertébrale. | § 5.3. |
 | 15 | Où tournent les agents : dans le cloud pour l'essaim ; en local pour les tâches qui touchent l'audio ou le MIDI réels. | § 3 (étiquette `hardware`), § 5.3. |
 
 Décision ajoutée le même jour (#172) : le nom d'un device n'est jamais traduit ; un seul nom anglais, le même dans les deux langues de l'interface, les libellés et descriptions des paramètres restant traduits. Effet : § 2.5 ; noms affichés de DV-1 à DV-6 ; [spec de l'Atelier](01-atelier-modules.md) § 1.4 (nom d'un module).
