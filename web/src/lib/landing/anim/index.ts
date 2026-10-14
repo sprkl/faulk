@@ -46,7 +46,7 @@ export function mount(root: ParentNode = document): () => void {
     try {
       stages.push(createStage(renderer, el, kind, stages.length))
     } catch {
-      // That stage keeps its CSS object.
+      // That stage keeps its CSS object: nothing is put in the page before a stage is built.
     }
   }
   if (stages.length === 0) return () => {}

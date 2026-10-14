@@ -73,6 +73,7 @@ export class Renderer {
   /** A fragment shader over the whole viewport. */
   quad(fragment: string, uniforms: Uniforms): Mesh {
     const program = new Program(this.gl, { vertex: VERTEX, fragment, uniforms, depthTest: false, depthWrite: false })
+    assertLinked(this.gl, program)
     return new Mesh(this.gl, { geometry: this.triangle, program })
   }
 
@@ -96,6 +97,18 @@ export class Renderer {
     if (clear) ctx.clearRect(0, 0, w, h)
     ctx.drawImage(this.canvas, 0, this.canvas.height - h, w, h, 0, 0, w, h)
   }
+}
+
+/**
+ * Throws when a program did not link: OGL only warns, and a stage drawing with it would be an
+ * empty rectangle over its hidden CSS object. Thrown while the stage is built, so the stage is
+ * dropped and keeps its CSS object.
+ */
+export function assertLinked(
+  gl: Pick<WebGL2RenderingContext, 'getProgramParameter' | 'LINK_STATUS'>,
+  program: Pick<Program, 'program'>,
+): void {
+  if (!gl.getProgramParameter(program.program, gl.LINK_STATUS)) throw new Error('shader program did not link')
 }
 
 export abstract class Stage {
@@ -138,8 +151,20 @@ export abstract class Stage {
     const ctx = this.canvas.getContext('2d', { alpha: transparent })
     if (!ctx) throw new Error('2d context unavailable')
     this.ctx = ctx
-    el.prepend(this.canvas)
-    el.classList.add('is-live')
+  }
+
+  /** Whether `attach` marks the element as drawing its own particles. */
+  protected withParticles = false
+
+  /**
+   * Puts the canvas in the page and hides the CSS object (`.is-live`). Called once the stage is
+   * fully built (`createStage`), so a stage that fails while being built leaves the page untouched.
+   */
+  attach(): this {
+    this.el.prepend(this.canvas)
+    this.el.classList.add('is-live')
+    if (this.withParticles) this.el.classList.add('has-particles')
+    return this
   }
 
   /** The canvas's rectangle in the viewport (it may overflow its element, as in the Atelier). */
@@ -247,6 +272,7 @@ export class HeroStage extends Stage {
     }
     if (r.float) {
       this.flow = new Flowmap(gl, { size: 128, falloff: 0.28, alpha: 1, dissipation: 0.984 })
+      assertLinked(gl, this.flow.mesh.program)
       this.uniforms.tFlow = this.flow.uniform
       this.uniforms.FLOW = { value: 1 }
       // The particle simulation: a GPGPU texture per state, the constants in a second texture.
@@ -276,7 +302,7 @@ export class HeroStage extends Stage {
         K2: { value: new Float32Array([k.damping, k.wake, k.turbulence]) },
         RESET: { value: 1 },
       }
-      this.sim.addPass({ vertex: SIM_VERTEX, fragment: SIM, uniforms: this.simUniforms })
+      assertLinked(gl, this.sim.addPass({ vertex: SIM_VERTEX, fragment: SIM, uniforms: this.simUniforms }).program)
       const program = new Program(gl, {
         vertex: PARTICLE_VERTEX,
         fragment: PARTICLE_FRAGMENT,
@@ -285,10 +311,11 @@ export class HeroStage extends Stage {
         depthTest: false,
         depthWrite: false,
       })
+      assertLinked(gl, program)
       program.setBlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       const geometry = new Geometry(gl, { coords: { size: 2, data: this.sim.coords } })
       this.points = new Mesh(gl, { geometry, program, mode: gl.POINTS })
-      el.classList.add('has-particles')
+      this.withParticles = true
     }
     this.glow = r.quad(HERO, this.uniforms)
   }
@@ -459,6 +486,7 @@ export class HazeStage extends Stage {
     this.uniforms = { ...this.base, F: { value: new Array<number>(12).fill(0) } }
     if (r.float) {
       this.flow = new Flowmap(r.gl, { size: 64, falloff: 0.32, alpha: 0.8, dissipation: 0.99 })
+      assertLinked(r.gl, this.flow.mesh.program)
       this.uniforms.tFlow = this.flow.uniform
       this.uniforms.FLOW = { value: 1 }
     }
@@ -579,6 +607,10 @@ export class EchoStage extends Stage {
 }
 
 export function createStage(r: Renderer, el: HTMLElement, kind: Kind, index: number): Stage {
+  return buildStage(r, el, kind, index).attach()
+}
+
+function buildStage(r: Renderer, el: HTMLElement, kind: Kind, index: number): Stage {
   switch (kind) {
     case 'hero':
       return new HeroStage(r, el, index)
