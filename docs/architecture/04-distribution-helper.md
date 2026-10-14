@@ -9,9 +9,9 @@ status: draft
 
 Ce document décrit la chaîne qui va du dépôt au helper installé sur un poste, puis la manière dont ce helper se met à jour. Le modèle est celui de lebureau-desktop : le code reste privé, les binaires sont publics dans un dépôt de releases à part, et le helper ne lit que notre domaine, qui redirige vers ces releases.
 
-> **État (14 octobre 2026).** Le module `crates/helper/src/updater.rs`, la CI `.github/workflows/release-helper.yml` et les redirections `web/vercel.json` sont écrits et testés. La chaîne complète (installation de la 0.1.0, mise à jour vers la 0.1.1 en différentiel, passage en bêta, application au démarrage et sur demande, désinstallation) a été éprouvée sur un poste Windows avec un flux local (voir [Éprouver la chaîne en local](#éprouver-la-chaîne-en-local)).
+> **État (14 octobre 2026).** Le module `crates/helper/src/updater.rs`, la CI `.github/workflows/release-helper.yml` et les redirections `web/vercel.json` sont écrits et testés, et `main.rs` appelle l'updater (voir [Le câblage dans `main.rs`](#le-câblage-dans-mainrs)). La chaîne complète (installation de la 0.1.0, mise à jour vers la 0.1.1 en différentiel, passage en bêta, application au démarrage et sur demande, désinstallation) a été éprouvée sur un poste Windows avec un flux local, puis refaite avec le vrai helper câblé (voir [Éprouver la chaîne en local](#éprouver-la-chaîne-en-local)).
 >
-> Reste à faire, dans cet ordre : appeler l'updater depuis `main.rs` (en attente de l'icône de la zone de notification, #12), le secret `RELEASES_TOKEN`, le domaine `get.faulk.app` sur Vercel, une première version publiée par la CI, puis la signature.
+> Reste à faire, dans cet ordre : le secret `RELEASES_TOKEN`, le domaine `get.faulk.app` sur Vercel, une première version publiée par la CI, les deux entrées de mise à jour du menu de la zone de notification (leurs textes attendent la validation du fondateur), puis la signature.
 
 ## L'outil : Velopack
 
@@ -59,7 +59,7 @@ Le test `crates/helper/src/updater/tests.rs` lit `web/vercel.json` et vérifie q
 
 - **Stable** : le helper lit le flux stable seulement, et en retire toute pré-version qui s'y trouverait par erreur. Deux barrières, donc : `releases/latest` côté GitHub, le filtre côté client.
 - **Bêta** : le helper lit les deux flux et prend la version la plus récente. Un utilisateur bêta reçoit donc aussi une version stable plus récente que sa bêta. Si le flux bêta n'existe pas encore (aucune bêta publiée), le flux stable suffit.
-- **Choix du canal** : celui de la version installée (une `0.3.0-beta.1` est en bêta). La variable d'environnement `FAULK_UPDATE_CHANNEL=stable|beta` le force. Conséquence à connaître : un utilisateur bêta qui reçoit une version stable repasse en stable. **Décision produit à confirmer** : garder ce comportement, ou mémoriser le canal (réglage, menu de la zone de notification).
+- **Choix du canal** : celui de la version installée (une `0.3.0-beta.1` est en bêta). La variable d'environnement `FAULK_UPDATE_CHANNEL=stable|beta` le force. Conséquence à connaître : un utilisateur bêta qui reçoit une version stable repasse en stable. **Décidé par le fondateur le 14 octobre 2026** : le canal suit la version installée, sans réglage ni mémoire du canal (une installation stable reçoit les versions stables, une installation de pré-version reçoit les pré-versions).
 - **Différentiels** : seulement sur le canal stable. Un différentiel ne s'applique qu'à la version à partir de laquelle il a été construit, et la CI le construit toujours à partir de la dernière version stable. Un poste bêta (bêtas successives, puis une stable construite sur une autre base) ne suit pas cette ligne : le canal bêta ignore les différentiels et télécharge les paquets complets.
 
 ## Côté helper : `crates/helper/src/updater.rs`
@@ -71,25 +71,21 @@ Le test `crates/helper/src/updater/tests.rs` lit `web/vercel.json` et vérifie q
 - `Updater::status()` : `Disabled`, `Idle`, `Checking`, `UpToDate`, `Downloading { percent }`, `Ready`, `Failed { error }`. Les erreurs sont classées : réseau, flux absent (404 sur le flux), paquet absent (404 sur un paquet listé : release incomplète ou redirection cassée), flux invalide, paquet corrompu, autre. Un échec est retenté à la vérification suivante. Une version déjà téléchargée reste applicable après un échec.
 - `Updater::apply_and_restart()` : applique la version téléchargée et relance le helper avec les mêmes arguments. Refusé, avec une erreur explicite, tant qu'un autre helper tourne (même verrou qu'au démarrage, pris en exclusif le temps de l'application), et pendant une vérification ou un téléchargement du thread de mise à jour (Velopack appliquerait depuis un dossier de paquets en cours d'écriture). Le processus quitte : la sortie audio s'arrête le temps de la relance, c'est voulu et c'est l'utilisateur qui le demande.
 - **Audio** : l'updater ne s'exécute jamais sur le thread audio et ne partage aucun état avec lui. Ses seuls effets sur le son sont les deux sorties de processus ci-dessus.
-- **Journal** : les lignes `update: ...` sur la sortie d'erreur, et les avertissements et erreurs de Velopack (cible `velopack*` seulement), qui passent par un petit journal `log` installé par `startup()`. Ce journal vaut pour tout le processus : si un autre journal `log` est installé avant, celui-ci ne l'est pas, sans erreur ; s'il l'est après, l'autre doit tolérer l'échec de `set_logger` (`env_logger::init()` paniquerait, `try_init()` non).
+- **Journal** : les lignes `update: ...` et les avertissements et erreurs de Velopack (cible `velopack*` seulement, par un petit journal `log` installé par `startup()`) vont au journal du helper (`crates/helper/src/log.rs` : le fichier `<config>/faulk/logs/helper.log` et la sortie d'erreur). `startup()` s'exécute avant l'ouverture de ce fichier : ses propres lignes (« another helper is running… ») ne vont qu'à la sortie d'erreur, absente d'un build de release sous Windows ; l'application elle-même est faite par `Update.exe`, qui tient son journal (`%LocalAppData%\velopack\velopack.log`). Le journal `log` vaut pour tout le processus : si un autre journal `log` est installé avant, celui-ci ne l'est pas, sans erreur ; s'il l'est après, l'autre doit tolérer l'échec de `set_logger` (`env_logger::init()` paniquerait, `try_init()` non).
 - **Vie privée** : chaque lecture du flux porte `?localVersion=<version>&id=FaulkHelper&stagingId=<identifiant>`. Ce paramètre est ajouté par Velopack ; `stagingId` est un identifiant aléatoire propre à l'installation, prévu pour les déploiements progressifs. Il arrive à Vercel et, par la redirection, à GitHub.
 - **Tests de pointage** : la variable `FAULK_UPDATE_URL` remplace `https://get.faulk.app/helper` par une adresse `https://` (n'importe quel hôte) ou `http://` vers la boucle locale seulement (`127.0.0.1`, `localhost`, `[::1]`), sans requête ni fragment (les chemins du flux et des paquets y sont ajoutés). Les paquets ne sont vérifiés que contre le flux servi par cette même adresse : qui peut écrire l'environnement de l'utilisateur choisit le code installé. C'est accepté, car qui peut écrire cet environnement peut déjà exécuter du code sous ce compte ; la signature de code (plus bas) fermera ce point.
 
 ### Le câblage dans `main.rs`
 
-`main.rs` est en cours de modification pour l'icône de la zone de notification (#12) ; il n'appelle pas encore l'updater. Les lignes à ajouter :
+`main.rs` appelle l'updater depuis le 14 octobre 2026 :
 
-```rust
-// Tout en haut de main(), avant args() :
-helper::updater::startup();
-// Après le démarrage du serveur, gardé vivant aussi longtemps que le helper :
-let updater = helper::updater::Updater::start(helper::updater::Config::from_env());
-// Menu de la zone de notification :
-//   « Rechercher des mises à jour » -> updater.check_now()
-//   « Redémarrer pour mettre à jour » (si status() == Ready) -> updater.apply_and_restart()
-```
+- `helper::updater::startup()` est la première instruction de `main`, avant la lecture des arguments, la prise du port (un helper par port, #12) et l'ouverture du journal. Un second helper lancé sur un port déjà servi passe donc d'abord par `startup()` : il voit l'autre helper au verrou d'instance et n'applique rien, puis ouvre la page et quitte.
+- `Updater::start(Config::from_env())` est appelé une fois le serveur lancé ; l'updater vit aussi longtemps que le helper et n'est pas attendu à la sortie (`Quitter`) : une vérification ou un téléchargement en cours est abandonné avec le processus. Hors installation, le journal dit `update: disabled (...)`.
+- **Désinstallation** : `startup()` inscrit un crochet Velopack `before_uninstall` qui retire la valeur « Lancer au démarrage de Windows » (clé `Run`, valeur `FaulkHelper`) quand elle lance l'exécutable désinstallé ; une valeur qui lance une autre copie (un build de développement) n'est pas touchée. Sans cela, la désinstallation laissait une entrée de démarrage vers un fichier supprimé.
 
-Tant que ces lignes manquent, un installeur produit par la CI installerait un helper qui ne répond pas aux arguments `--veloapp-*` et ne se met jamais à jour. `vpk` ne le détecte pas : la CI le vérifie elle-même et **refuse de publier** une version sans ces appels (un build d'essai passe, avec un avertissement). Elle lance le binaire construit comme le ferait l'installeur (`faulk-helper.exe --veloapp-install 0.0.1`) : un helper câblé répond aussitôt par 0, un helper non câblé refuse l'argument (code 2). `Updater::start` ne s'observe pas hors installation : la CI cherche son appel, hors commentaire, dans `main.rs`.
+Ce qui manque : les deux entrées du menu de la zone de notification, « Rechercher des mises à jour » (`updater.check_now()`) et « Redémarrer pour mettre à jour » (visible quand `status()` vaut `Ready`, `updater.apply_and_restart()`). Ce sont de nouveaux textes d'interface, en anglais et en français : ils attendent la validation du fondateur. En attendant, une mise à jour téléchargée s'applique au démarrage suivant du helper, et l'application sur demande, écrite et testée, n'est pas encore accessible à l'utilisateur.
+
+Sans ces appels, un installeur produit par la CI installerait un helper qui ne répond pas aux arguments `--veloapp-*` et ne se met jamais à jour. `vpk` ne le détecte pas : la CI le vérifie elle-même et **refuse de publier** une version sans ces appels (un build d'essai passe, avec un avertissement). Elle lance le binaire construit comme le ferait l'installeur (`timeout 30 faulk-helper.exe --veloapp-install 0.0.1`) : un helper câblé répond aussitôt par 0 ; un helper non câblé refuse l'argument inconnu (code 1, et dans un build de release une boîte d'erreur qui le bloque jusqu'à l'expiration du délai). `Updater::start` ne s'observe pas hors installation : la CI cherche son appel, hors commentaire, dans `main.rs`.
 
 Ces actions de la zone de notification concernent le helper lui-même, pas le projet musical. Elles ne passent pas par `crates/commands`. Si l'interface web doit un jour les proposer, la question du passage par une commande sera à trancher à ce moment-là.
 
@@ -114,7 +110,11 @@ Trois façons de lancer :
 
 ## Compatibilité avec la page
 
-Le helper se met désormais à jour à son rythme, indépendamment du déploiement de `faulk.app`. Or la page refuse tout helper dont `PROTOCOL_VERSION` diffère du sien (`crates/protocol`, `web/src/lib/engine/`). Une version du helper qui change le protocole avant que la page soit déployée, ou l'inverse, coupe le mode Boost de tous les helpers à jour. Règle à suivre en attendant mieux : déployer la page et publier le helper ensemble quand le protocole change. Une règle de compatibilité (plage de versions acceptées) est à décider.
+Le helper se met désormais à jour à son rythme, indépendamment du déploiement de `faulk.app`.
+
+**Règle, décidée par le fondateur le 14 octobre 2026** : le helper et la page doivent avoir exactement la même `PROTOCOL_VERSION` (`crates/protocol`). La page refuse déjà tout helper d'une autre version (`web/src/lib/engine/helper-client.ts`, état `incompatible` de la session). Pas de plage de versions acceptées.
+
+Conséquence : **un changement de protocole se livre d'un bloc**, la version du helper publiée et la page déployée ensemble. Tant que l'un des deux manque, le mode Boost est coupé pour tous les utilisateurs dont le helper et la page ne sont plus d'accord : la page affiche `helper.incompatible` (« This helper speaks another protocol version ({v}). Update it. », « Ce helper parle une autre version du protocole ({v}). Mets-le à jour. ») et reste en mode Web. Ce message invite à mettre à jour le helper, ce qui est juste quand la page est la plus récente ; quand le helper est le plus récent (page pas encore déployée, ou ancienne page en cache), c'est la page qu'il faut recharger. Le message ne distingue pas encore les deux cas : une évolution du texte est proposée au fondateur.
 
 ## La signature, à venir
 
@@ -134,7 +134,7 @@ Le job `unix` construit et empaquette sans publier. Avant de publier : choisir l
 
 ## Éprouver la chaîne en local
 
-Ce qui a été fait le 14 octobre 2026 sur Windows 11, avec un `main.rs` temporairement câblé (non commité) :
+Ce qui a été fait le 14 octobre 2026 sur Windows 11, d'abord avec un `main.rs` temporairement câblé (non commité) :
 
 1. `cargo build -p helper --release`, copie de `faulk-helper.exe` seul dans un dossier `app/` ;
 2. `vpk pack --packId FaulkHelper --runtime win-x64 --packDir app --mainExe faulk-helper.exe --packVersion 0.1.0 --outputDir R`, copie de `FaulkHelper-win-Setup.exe`, puis la même commande en `0.1.1` (différentiel construit depuis la 0.1.0) et en `0.2.0-beta.1` dans un autre dossier ;
@@ -155,6 +155,15 @@ Après la revue de livraison, le verrou est devenu partagé (chaque helper le ti
 
 Puis, après la revue Copilot (verrou d'aiguillage `helper.gate`, application refusée pendant un téléchargement), les étapes 1 et 2 refaites avec le même résultat, et deux helpers lancés au même instant avec une mise à jour en attente : le premier applique et quitte, le second attend la fin de sa décision puis, le premier parti, se trouve seul et demande lui aussi l'application ; Velopack arrête le second `Update.exe` et un seul helper redémarre, en 0.1.1. Aucun helper en marche n'est coupé.
 
+Enfin, le 14 octobre 2026, avec le **vrai helper câblé** (`main.rs` de cette branche, après la fusion de l'icône de la zone de notification #12), build `--release`, empaqueté en 0.1.0, 0.1.1 et 0.1.2 (différentiels de 2 Ko, binaire identique), flux servi sur `127.0.0.1:8766`, helpers lancés sur des ports à part (47811 à 47813) :
+
+1. `faulk-helper.exe --veloapp-install 0.0.1` (la sonde de la CI) : code 0 ; l'installeur silencieux exécute le crochet `--veloapp-install` en 148 ms ;
+2. A (0.1.0, port 47811) lit le flux stable seulement (`?localVersion=0.1.0&id=FaulkHelper&stagingId=…`), télécharge le différentiel 0.1.1, journal `update: 0.1.1 downloaded, applied at the next start` dans `helper.log` ;
+3. B démarre pendant que A tourne (port 47812) : il ne l'applique pas, version installée toujours 0.1.0 ;
+4. A et B arrêtés, C démarre seul : la 0.1.1 est appliquée au démarrage, le helper relancé avec `--port 47811`, journal `FaulkHelper 0.1.1` ;
+5. la 0.1.2 ajoutée au flux ; l'application **sur demande** n'ayant pas encore d'entrée de menu, elle est éprouvée avec le petit exécutable de test (mêmes appels, posé dans le dossier `current` de l'installation) : demandée pendant que le vrai helper C tourne, refusée (« another helper is running: close it, then restart to update ») ; C arrêté, demandée de nouveau : appliquée, et c'est le vrai helper qui redémarre, en 0.1.2, avec les mêmes arguments ;
+6. désinstallation : dossier et raccourcis retirés ; puis une installation neuve avec une valeur « Lancer au démarrage de Windows » qui lance le helper installé : la désinstallation la retire.
+
 ## Ce que le fondateur doit faire
 
 1. **Le jeton** : créer un jeton GitHub à grain fin, accès au seul dépôt `sprkl/faulk-release`, permission `Contents: Read and write`, puis l'enregistrer comme secret `RELEASES_TOKEN` de `sprkl/faulk` (`gh secret set RELEASES_TOKEN -R sprkl/faulk`). Noter sa date d'expiration : à son échéance, la copie publique échoue.
@@ -165,7 +174,7 @@ Puis, après la revue Copilot (verrou d'aiguillage `helper.gate`, application re
    curl -sI https://get.faulk.app/helper/packages/FaulkHelper-0.1.0-full.nupkg   # 307 vers .../download/helper-v0.1.0/...
    curl -sI https://get.faulk.app/helper/windows   # 307 vers ...-win-Setup.exe
    ```
-4. **Première version** : une fois `main.rs` câblé, pousser `helper-v0.1.0` (ou lancer le workflow depuis `main`).
+4. **Première version** : une fois cette branche arrivée sur `main`, pousser `helper-v0.1.0` sur un commit de `main` (ou lancer le workflow depuis `main`).
 5. **Plus tard** : le compte Azure Artifact Signing (Windows), le compte Apple Developer (macOS).
 
 ## Références

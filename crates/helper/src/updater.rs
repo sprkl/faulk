@@ -60,14 +60,14 @@ pub fn startup() {
     let lock = match take_waiting(&instance_lock_path()) {
         Ok(lock) => {
             if !lock.alone() {
-                eprintln!(
+                crate::log!(
                     "update: another helper is running, a downloaded update waits for it to stop"
                 );
             }
             Some(INSTANCE_LOCK.get_or_init(|| Arc::new(lock)).clone())
         }
         Err(e) => {
-            eprintln!(
+            crate::log!(
                 "update: cannot take the instance lock ({e}), a downloaded update is not applied"
             );
             None
@@ -76,9 +76,28 @@ pub fn startup() {
     let alone = lock.as_ref().is_some_and(|l| l.alone());
     // While alone, the lock stays exclusive: a helper starting now waits instead of starting
     // under an apply. Applying exits the process; otherwise the lock becomes shared again.
-    VelopackApp::build().set_auto_apply_on_startup(alone).run();
+    let mut app = VelopackApp::build().set_auto_apply_on_startup(alone);
+    // The uninstaller deletes the executable: a "start with Windows" value that starts it
+    // would be left pointing at nothing.
+    #[cfg(windows)]
+    {
+        app = app.on_before_uninstall_fast_callback(|_| forget_start_at_login());
+    }
+    app.run();
     if let Some(lock) = lock {
         lock.share();
+    }
+}
+
+#[cfg(windows)]
+fn forget_start_at_login() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match crate::tray::forget_start_at_login(&exe.display().to_string()) {
+        Ok(true) => crate::log!("uninstall: start with Windows removed"),
+        Ok(false) => {}
+        Err(e) => crate::log!("uninstall: cannot remove start with Windows: {e}"),
     }
 }
 
@@ -94,7 +113,7 @@ fn take_waiting(path: &Path) -> std::io::Result<InstanceLock> {
     loop {
         match InstanceLock::take(path, LOCK_PATIENCE) {
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                eprintln!("update: another helper is updating, waiting for it");
+                crate::log!("update: another helper is updating, waiting for it");
             }
             other => return other,
         }
@@ -231,24 +250,27 @@ impl InstanceLock {
 }
 
 /// Velopack reports through the `log` crate; without a logger a failed apply or delta patch
-/// would leave no trace. Velopack's warnings and errors go to stderr, like the rest of the
-/// helper. Records of other crates are left out: they are not about updates. The logger is
-/// process-wide; if one is already installed, this one is not, and nothing fails.
-struct StderrLog;
+/// would leave no trace. Velopack's warnings and errors go to the helper's journal
+/// ([`crate::log`]), like the rest of the helper: the log file once `main` has opened it,
+/// stderr only before that (the apply at start runs before the file is open; Velopack's
+/// `Update.exe`, which performs the apply, keeps its own log). Records of other crates are left
+/// out: they are not about updates. The logger is process-wide; if one is already installed,
+/// this one is not, and nothing fails.
+struct JournalLog;
 
-impl log::Log for StderrLog {
+impl log::Log for JournalLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         metadata.level() <= log::Level::Warn && metadata.target().starts_with("velopack")
     }
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            eprintln!("update: velopack {}: {}", record.level(), record.args());
+            crate::log!("update: velopack {}: {}", record.level(), record.args());
         }
     }
     fn flush(&self) {}
 }
 
-static LOGGER: StderrLog = StderrLog;
+static LOGGER: JournalLog = JournalLog;
 
 fn install_logger() {
     if log::set_logger(&LOGGER).is_ok() {
@@ -525,7 +547,7 @@ impl<S: UpdateSource> UpdateSource for ChannelSource<S> {
                     (Ok(s), Err(e)) => {
                         // No pre-release published yet is the normal case, not worth a line.
                         if !is_not_found(&e) {
-                            eprintln!(
+                            crate::log!(
                                 "update: beta feed unavailable ({}), using stable",
                                 classify(&e)
                             );
@@ -534,7 +556,7 @@ impl<S: UpdateSource> UpdateSource for ChannelSource<S> {
                     }
                     (Err(e), Ok(b)) => {
                         if !is_not_found(&e) {
-                            eprintln!(
+                            crate::log!(
                                 "update: stable feed unavailable ({}), using beta",
                                 classify(&e)
                             );
@@ -691,7 +713,7 @@ impl Config {
         let channel = std::env::var(CHANNEL_ENV).ok();
         let (config, warnings) = Config::from_values(url.as_deref(), channel.as_deref());
         for w in warnings {
-            eprintln!("update: {w}");
+            crate::log!("update: {w}");
         }
         config
     }
@@ -742,7 +764,7 @@ impl Updater {
         let source = ChannelSource::http(channel, &urls);
         match UpdateManager::new(source, None, None) {
             Ok(manager) => {
-                eprintln!(
+                crate::log!(
                     "update: {} {} on the {} channel, feed {}",
                     PACKAGE_ID,
                     manager.get_current_version_as_string(),
@@ -971,7 +993,7 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
         }
         Err(e) => {
             let error = classify(&e);
-            eprintln!("update: check failed: {error}");
+            crate::log!("update: check failed: {error}");
             set(status, after_failure(backend, error));
             return;
         }
@@ -986,7 +1008,7 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
         set(status, UpdateStatus::Ready { version });
         return;
     }
-    eprintln!("update: {version} available, downloading");
+    crate::log!("update: {version} available, downloading");
     set(
         status,
         UpdateStatus::Downloading {
@@ -1013,12 +1035,12 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
     });
     match result {
         Ok(()) => {
-            eprintln!("update: {version} downloaded, applied at the next start");
+            crate::log!("update: {version} downloaded, applied at the next start");
             set(status, UpdateStatus::Ready { version });
         }
         Err(e) => {
             let error = classify(&e);
-            eprintln!("update: download of {version} failed: {error}");
+            crate::log!("update: download of {version} failed: {error}");
             set(status, after_failure(backend, error));
         }
     }

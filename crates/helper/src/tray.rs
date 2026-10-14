@@ -103,6 +103,25 @@ pub fn set_start_at_login(command: Option<&str>) -> std::io::Result<()> {
     set_run_value(RUN_VALUE, command)
 }
 
+/// Removes the Run value when it starts `exe`; returns whether it did. Called by the
+/// uninstaller, which deletes the executable the value would start. A value that starts
+/// another copy of the helper is left alone.
+pub fn forget_start_at_login(exe: &str) -> std::io::Result<bool> {
+    forget_run_value(RUN_VALUE, exe)
+}
+
+fn forget_run_value(name: &str, exe: &str) -> std::io::Result<bool> {
+    let stored = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(RUN_KEY)
+        .and_then(|key| key.get_value::<String, _>(name));
+    match stored {
+        Ok(stored) if crate::tray_text::run_command_starts(&stored, exe) => {
+            set_run_value(name, None).map(|()| true)
+        }
+        _ => Ok(false),
+    }
+}
+
 fn run_value_is(name: &str, command: &str) -> bool {
     RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(RUN_KEY)
@@ -285,5 +304,23 @@ mod tests {
         set_run_value(&name, None).unwrap();
         assert!(!run_value_is(&name, command), "removed reads as off");
         set_run_value(&name, None).expect("removing an absent value is fine");
+    }
+
+    #[test]
+    fn the_uninstaller_forgets_only_the_value_of_its_own_executable() {
+        let name = format!("FaulkHelperForgetTest{}", std::process::id());
+        let installed = r"C:\Users\u\AppData\Local\FaulkHelper\current\faulk-helper.exe";
+        let dev = r#""C:\git\music\target\release\faulk-helper.exe" --port 47801"#;
+        set_run_value(&name, Some(dev)).unwrap();
+        assert!(!forget_run_value(&name, installed).unwrap(), "another copy");
+        assert!(run_value_is(&name, dev), "kept");
+        let own = format!("\"{installed}\" --port 47801");
+        set_run_value(&name, Some(&own)).unwrap();
+        assert!(forget_run_value(&name, installed).unwrap(), "its own");
+        assert!(!run_value_is(&name, &own), "removed");
+        assert!(
+            !forget_run_value(&name, installed).unwrap(),
+            "absent: nothing to do"
+        );
     }
 }

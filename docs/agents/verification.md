@@ -41,7 +41,7 @@ cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 
 - `cargo test -p helper updater` covers channels, feed filtering, URL building, error classification against a loopback server, the update thread on a fake backend, and the `get.faulk.app` redirects read from `web/vercel.json`.
 - Lint the workflow with `actionlint`.
-- End to end on Windows (procedure in `docs/architecture/04-distribution-helper.md` > Éprouver la chaîne en local): pack two versions with `vpk` (same version as the `velopack` crate), install the older one, serve the feed on loopback, run the installed helper with `FAULK_UPDATE_URL=http://127.0.0.1:<port>`, check the update is downloaded, applied and the helper restarted; uninstall afterwards.
+- End to end on Windows (procedure in `docs/architecture/04-distribution-helper.md` > Éprouver la chaîne en local): pack two versions with `vpk` (same version as the `velopack` crate), install the older one, serve the feed on loopback, run the installed helper with `FAULK_UPDATE_URL=http://127.0.0.1:<port>`, check the update is downloaded, applied and the helper restarted, and not applied while another helper runs; uninstall afterwards (folder, shortcuts and a "start with Windows" value pointing at the installed helper removed).
 
 ## Latency (changes to audio I/O, the worklet, the helper or the protocol)
 

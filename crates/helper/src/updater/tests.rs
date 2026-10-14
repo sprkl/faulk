@@ -515,7 +515,7 @@ fn claiming_keeps_others_out_until_shared_again() {
 fn the_logger_keeps_velopack_warnings_only() {
     let meta =
         |target: &'static str, level| log::Metadata::builder().target(target).level(level).build();
-    let logger = StderrLog;
+    let logger = JournalLog;
     use log::Log;
     assert!(logger.enabled(&meta("velopack::manager", log::Level::Warn)));
     assert!(logger.enabled(&meta("velopack", log::Level::Error)));

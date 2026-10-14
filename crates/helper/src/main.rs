@@ -9,6 +9,11 @@
 //!
 //! One helper per port: a second one finds the port taken by a Faulk helper, opens the
 //! page and exits.
+//!
+//! Once installed, the helper updates itself (`helper::updater`): Velopack's startup hook
+//! runs first, applies an update downloaded by a previous run when no other helper is
+//! running, and answers the installer's `--veloapp-*` arguments; an update thread then
+//! checks the feed at start and every six hours and downloads in the background.
 
 // Release builds on Windows start without a console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -144,6 +149,9 @@ fn release_all_voices(sender: &Mutex<EventSender>, meter: &Meter, limit: Duratio
 }
 
 fn main() {
+    // First: the installer and the updater run the executable with `--veloapp-*` arguments
+    // and expect it to exit at once, before any argument parsing, port claim or window.
+    helper::updater::startup();
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let lang = ui_lang();
     let config_dir = dirs::config_dir()
@@ -325,6 +333,12 @@ fn main() {
     ));
     runtime.spawn(serve(listener, shared));
 
+    // Updates of the installed helper, on their own thread; disabled when run from cargo.
+    let updater = helper::updater::Updater::start(helper::updater::Config::from_env());
+    if let helper::updater::UpdateStatus::Disabled { reason } = updater.status() {
+        log!("update: disabled ({reason})");
+    }
+
     #[cfg(windows)]
     {
         let exe = std::env::current_exe()
@@ -353,6 +367,8 @@ fn main() {
         log!("voices still sounding when the audio stops");
     }
     drop(stream);
+    // Does not wait: a check or a download in progress is abandoned with the process.
+    drop(updater);
     log!("stopped");
 }
 
