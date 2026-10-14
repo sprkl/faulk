@@ -379,29 +379,93 @@ fn lock_path(name: &str) -> PathBuf {
 
 // Each `InstanceLock` opens its own handle, which the OS treats as another process would be.
 
+const QUICK: Duration = Duration::from_millis(200);
+
+/// A started helper: the lock taken, then shared once the startup decision is made.
+fn started(path: &Path) -> InstanceLock {
+    let lock = InstanceLock::take(path, QUICK).unwrap();
+    lock.share();
+    lock
+}
+
 #[test]
 fn only_the_first_helper_is_alone() {
     let path = lock_path("first");
-    let (first, alone) = InstanceLock::take(&path).unwrap();
-    assert!(alone);
-    let (second, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
-    drop(first);
-    drop(second);
-    let (_third, alone) = InstanceLock::take(&path).unwrap();
-    assert!(alone);
+    let a = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(a.alone());
+    a.share();
+    let b = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(!b.alone());
+    drop(a);
+    drop(b);
+    assert!(InstanceLock::take(&path, QUICK).unwrap().alone());
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn two_helpers_starting_together_are_never_both_alone() {
+    let path = lock_path("together");
+    for _ in 0..20 {
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let spawn = |path: PathBuf, barrier: Arc<std::sync::Barrier>| {
+            std::thread::spawn(move || {
+                barrier.wait();
+                let lock = InstanceLock::take(&path, Duration::from_secs(5)).unwrap();
+                let alone = lock.alone();
+                // The startup decision takes a moment, then the lock is shared.
+                std::thread::sleep(Duration::from_millis(5));
+                lock.share();
+                (lock, alone)
+            })
+        };
+        let x = spawn(path.clone(), barrier.clone());
+        let y = spawn(path.clone(), barrier);
+        let (_x, x_alone) = x.join().unwrap();
+        let (_y, y_alone) = y.join().unwrap();
+        assert!(!(x_alone && y_alone));
+        assert!(x_alone || y_alone);
+    }
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_helper_starting_while_another_decides_waits_for_it() {
+    let path = lock_path("wait");
+    let a = Arc::new(InstanceLock::take(&path, QUICK).unwrap());
+    assert!(a.alone());
+    // A keeps the lock exclusive (deciding whether to apply), then shares it.
+    let sharer = {
+        let a = a.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            a.share();
+        })
+    };
+    let start = Instant::now();
+    let b = InstanceLock::take(&path, Duration::from_secs(5)).unwrap();
+    assert!(start.elapsed() >= Duration::from_millis(50));
+    assert!(!b.alone());
+    sharer.join().unwrap();
+    // B now holds the lock: A is not alone any more.
+    assert!(!a.claim_alone().unwrap());
+    // Out of patience, a helper runs unprotected and never believes itself alone.
+    let a2 = InstanceLock::take(&lock_path("wait2"), QUICK).unwrap();
+    let late = InstanceLock::take(&lock_path("wait2"), QUICK).unwrap();
+    assert!(!late.alone());
+    drop(a2);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    let _ = std::fs::remove_dir_all(lock_path("wait2").parent().unwrap());
 }
 
 #[test]
 fn a_helper_started_while_another_runs_is_not_alone_after_the_first_quits() {
     // A starts, B starts next to it, A quits: C must still see B.
     let path = lock_path("order");
-    let (a, _) = InstanceLock::take(&path).unwrap();
-    let (b, _) = InstanceLock::take(&path).unwrap();
+    let a = started(&path);
+    let b = started(&path);
     drop(a);
-    let (c, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
+    let c = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(!c.alone());
     assert!(!c.claim_alone().unwrap());
     drop(b);
     assert!(c.claim_alone().unwrap());
@@ -411,16 +475,15 @@ fn a_helper_started_while_another_runs_is_not_alone_after_the_first_quits() {
 #[test]
 fn claiming_keeps_others_out_until_shared_again() {
     let path = lock_path("claim");
-    let (a, _) = InstanceLock::take(&path).unwrap();
+    let a = started(&path);
     assert!(a.claim_alone().unwrap());
-    // A helper starting while A applies is not alone.
-    let (b, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
+    // A helper starting while A applies waits, then runs without believing itself alone.
+    let b = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(!b.alone());
     drop(b);
     a.share();
-    let (b, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
-    // A's failed claim restores its shared hold: B is still not alone.
+    let b = started(&path);
+    // A's failed claim keeps its shared hold: B is still not alone.
     assert!(!a.claim_alone().unwrap());
     assert!(!b.claim_alone().unwrap());
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -939,8 +1002,8 @@ fn apply_needs_a_downloaded_update_and_keeps_the_arguments() {
 #[test]
 fn apply_is_refused_while_another_helper_runs() {
     let path = lock_path("apply");
-    let (mine, _) = InstanceLock::take(&path).unwrap();
-    let (other, _) = InstanceLock::take(&path).unwrap();
+    let mine = started(&path);
+    let other = started(&path);
     let backend = Arc::new(FakeBackend::default());
     *backend.available.lock().unwrap() = Some("0.2.0".into());
     let updater = Updater::start_with(backend.clone(), NEVER).with_instance_lock(Arc::new(mine));
@@ -948,17 +1011,41 @@ fn apply_is_refused_while_another_helper_runs() {
     assert!(updater.apply_and_restart().is_err());
     assert!(backend.applied.lock().unwrap().is_empty());
     // The other helper is still counted after the refusal.
-    let (probe, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
+    let probe = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(!probe.alone());
     drop(probe);
     drop(other);
     updater.apply_and_restart().unwrap();
     assert_eq!(backend.applied.lock().unwrap().len(), 1);
     // The apply returned (a failed apply would too): the hold is shared again.
-    let (_probe, alone) = InstanceLock::take(&path).unwrap();
-    assert!(!alone);
+    let probe = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(!probe.alone());
     updater.shutdown();
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn apply_is_refused_while_a_download_runs() {
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some("0.2.0".into());
+    let updater = Updater::start_with(backend.clone(), NEVER);
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    // A newer version appears: its download holds the packages folder.
+    *backend.available.lock().unwrap() = Some("0.3.0".into());
+    let (open, gate) = mpsc::channel();
+    *backend.gate.lock().unwrap() = Some(gate);
+    updater.check_now();
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Downloading { .. }));
+    assert!(updater.apply_and_restart().is_err());
+    assert!(backend.applied.lock().unwrap().is_empty());
+    open.send(()).unwrap();
+    wait_for(
+        &updater,
+        |s| matches!(s, UpdateStatus::Ready { version } if version == "0.3.0"),
+    );
+    updater.apply_and_restart().unwrap();
+    assert_eq!(backend.applied.lock().unwrap()[0].0, "0.3.0");
+    updater.shutdown();
 }
 
 #[test]

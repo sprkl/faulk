@@ -139,25 +139,33 @@ jobs:
         shell: bash
         run: dotnet tool install -g vpk --version "$VPK_VERSION"
 
-      # The installer launches the helper with `--veloapp-*` arguments, and only a main() that
-      # calls `helper::updater::startup()` first answers them and applies updates. vpk does not
-      # check it: the release job refuses to publish without it.
-      - name: Is the updater wired into main.rs?
-        id: wired
-        shell: bash
-        run: |
-          if grep -q 'updater::startup()' crates/helper/src/main.rs && grep -q 'Updater::start' crates/helper/src/main.rs; then
-            echo "wired=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "wired=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::crates/helper/src/main.rs does not call helper::updater::startup() and Updater::start: this build cannot install cleanly nor update itself, and cannot be published."
-          fi
-
       - name: Test
         run: cargo test -p helper
 
       - name: Build
         run: cargo build -p helper --release
+
+      # The installer launches the helper with `--veloapp-*` arguments, and only a main() that
+      # calls `helper::updater::startup()` before parsing its arguments answers them (exit 0 at
+      # once) and applies updates; an unwired helper refuses the argument (exit 2). vpk does not
+      # check it, so the built binary is run as the installer would. `Updater::start` cannot be
+      # observed without an installation: it is looked for in main.rs. The release job refuses
+      # to publish when either is missing.
+      - name: Is the updater wired into main.rs?
+        id: wired
+        shell: bash
+        run: |
+          hook=false
+          if timeout 30 target/release/faulk-helper.exe --veloapp-install 0.0.1 >/dev/null 2>&1; then hook=true; fi
+          started=false
+          if grep -Eq '^[^/]*Updater::start\(' crates/helper/src/main.rs; then started=true; fi
+          echo "startup hook answered: $hook, Updater::start called: $started"
+          if [ "$hook" = true ] && [ "$started" = true ]; then
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::the helper does not answer --veloapp-install (helper::updater::startup() first in main) or main.rs does not call Updater::start: this build cannot install cleanly nor update itself, and cannot be published."
+          fi
 
       # Deltas: vpk builds the delta of this version against the newest full package in the
       # output folder, so it needs the latest STABLE release. Pre-releases get no delta: the
@@ -279,7 +287,7 @@ jobs:
       - name: Refuse an unwired helper
         if: needs.windows.outputs.wired != 'true'
         run: |
-          echo "::error::main.rs does not start the updater (helper::updater::startup() and Updater::start): publishing it would ship a helper that never updates. See docs/architecture/04-distribution-helper.md."
+          echo "::error::the helper does not start the updater (helper::updater::startup() first in main, and Updater::start): publishing it would ship a helper that never updates. See docs/architecture/04-distribution-helper.md."
           exit 1
 
       - uses: actions/download-artifact@v4
@@ -303,12 +311,22 @@ jobs:
             if [ "$PRERELEASE" = true ]; then echo "--latest=false"; return; fi
             current=$(gh release view --repo "$1" --json tagName -q .tagName 2>/dev/null || true)
             current="${current#helper-v}"
-            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ] && [ "$current" != "$VERSION" ]; then
+            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ]; then
               echo "--latest"
             else
               echo "::warning::$VERSION is not newer than the latest release $current of $1: it does not become latest" >&2
               echo "--latest=false"
             fi
+          }
+          # usage: resync <repo>  -> a re-run on an existing release: replaces its files, then
+          # sets its state as this run would have created it (a draft becomes published when
+          # `draft` is off, pre-release and latest follow the version).
+          resync() {
+            echo "::notice::$TAG already exists in $1: its files are replaced and its state synced"
+            gh release upload "$TAG" dist/* --repo "$1" --clobber
+            latest=$(flags "$1" | grep -- '--latest')
+            if [ "$DRAFT" = true ]; then draft=true; else draft=false; fi
+            gh release edit "$TAG" --repo "$1" --draft="$draft" --prerelease="$PRERELEASE" "$latest"
           }
           EOF
           ls -la dist
@@ -318,14 +336,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          . ./flags.sh
           # Idempotent: a re-run (after adding RELEASES_TOKEN, or after a failed public copy)
-          # finds the release and refreshes its files instead of failing.
+          # finds the release and syncs it instead of failing.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::notice::$TAG already exists here: its files are replaced"
-            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            resync "$GITHUB_REPOSITORY"
             exit 0
           fi
-          . ./flags.sh
           mapfile -t f < <(flags "$GITHUB_REPOSITORY")
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
@@ -348,13 +365,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          # Idempotent, like the private release: a re-run completes a partial upload.
+          . ./flags.sh
+          # Idempotent, like the private release: a re-run completes a partial upload and
+          # publishes a former draft.
           if gh release view "$TAG" --repo "$PUBLIC_REPO" >/dev/null 2>&1; then
-            echo "::notice::$TAG already exists in $PUBLIC_REPO: its files are replaced"
-            gh release upload "$TAG" dist/* --repo "$PUBLIC_REPO" --clobber
+            resync "$PUBLIC_REPO"
             exit 0
           fi
-          . ./flags.sh
           mapfile -t f < <(flags "$PUBLIC_REPO")
           printf 'Faulk Helper %s.\n\nWindows installer: https://get.faulk.app/helper/windows\n' "$VERSION" > notes.md
           gh release create "$TAG" dist/* \

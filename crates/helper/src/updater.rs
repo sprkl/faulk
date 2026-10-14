@@ -57,25 +57,33 @@ const PACKAGE_TIMEOUT_MS: u64 = 10 * 60_000;
 /// helper is not installed.
 pub fn startup() {
     install_logger();
-    let alone = match InstanceLock::take(&instance_lock_path()) {
-        Ok((lock, alone)) => {
-            let _ = INSTANCE_LOCK.set(Arc::new(lock));
-            if !alone {
+    let lock = match InstanceLock::take(&instance_lock_path(), LOCK_PATIENCE) {
+        Ok(lock) => {
+            if !lock.alone() {
                 eprintln!(
                     "update: another helper is running, a downloaded update waits for it to stop"
                 );
             }
-            alone
+            Some(INSTANCE_LOCK.get_or_init(|| Arc::new(lock)).clone())
         }
         Err(e) => {
             eprintln!(
                 "update: cannot take the instance lock ({e}), a downloaded update is not applied"
             );
-            false
+            None
         }
     };
+    let alone = lock.as_ref().is_some_and(|l| l.alone());
+    // While alone, the lock stays exclusive: a helper starting now waits instead of starting
+    // under an apply. Applying exits the process; otherwise the lock becomes shared again.
     VelopackApp::build().set_auto_apply_on_startup(alone).run();
+    if let Some(lock) = lock {
+        lock.share();
+    }
 }
+
+/// How long a starting helper waits for another one to finish deciding whether to apply.
+const LOCK_PATIENCE: Duration = Duration::from_secs(10);
 
 static INSTANCE_LOCK: OnceLock<Arc<InstanceLock>> = OnceLock::new();
 
@@ -88,49 +96,105 @@ fn instance_lock_path() -> PathBuf {
 
 /// The lock file every running helper holds in shared mode. A helper is alone when it can take
 /// the lock exclusively: no other helper holds it, whatever its port and whichever started first.
+///
+/// Every change of mode (take, claim, share) happens under a second, exclusive "gate" lock, so
+/// that a helper never drops its shared hold while another one decides it is alone.
 pub struct InstanceLock {
     file: File,
+    gate: File,
+    alone_at_start: bool,
+}
+
+/// Holds the gate until dropped.
+struct Gate<'a>(&'a File);
+
+impl Drop for Gate<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+fn open_lock_file(path: &Path) -> std::io::Result<File> {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
 }
 
 impl InstanceLock {
-    /// Opens the lock at `path`, tells whether this process is alone, and keeps a shared hold
-    /// on it for as long as the returned value lives. When another process holds the lock
-    /// exclusively (it is applying an update and about to exit), no hold is kept: that process
-    /// is gone a moment later.
-    pub fn take(path: &Path) -> std::io::Result<(InstanceLock, bool)> {
+    /// Opens the lock at `path` and holds it as long as the returned value lives. When no other
+    /// helper holds it, it is held exclusively and [`InstanceLock::alone`] is true; call
+    /// [`InstanceLock::share`] once the startup decision is made. Otherwise it is held shared.
+    /// A helper that holds it exclusively (deciding, or applying an update and about to exit)
+    /// is waited for, at most `patience`; after that this one runs unprotected and not alone.
+    pub fn take(path: &Path, patience: Duration) -> std::io::Result<InstanceLock> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(path)?;
-        let alone = match file.try_lock() {
-            Ok(()) => {
-                file.unlock()?;
-                true
+        let file = open_lock_file(path)?;
+        let gate = open_lock_file(&path.with_extension("gate"))?;
+        let start = std::time::Instant::now();
+        loop {
+            {
+                gate.lock()?;
+                let _gate = Gate(&gate);
+                match file.try_lock() {
+                    Ok(()) => {
+                        drop(_gate);
+                        return Ok(InstanceLock {
+                            file,
+                            gate,
+                            alone_at_start: true,
+                        });
+                    }
+                    Err(TryLockError::WouldBlock) => {}
+                    Err(TryLockError::Error(e)) => return Err(e),
+                }
+                match file.try_lock_shared() {
+                    Ok(()) => {
+                        drop(_gate);
+                        return Ok(InstanceLock {
+                            file,
+                            gate,
+                            alone_at_start: false,
+                        });
+                    }
+                    Err(TryLockError::WouldBlock) => {}
+                    Err(TryLockError::Error(e)) => return Err(e),
+                }
             }
-            Err(TryLockError::WouldBlock) => false,
-            Err(TryLockError::Error(e)) => return Err(e),
-        };
-        match file.try_lock_shared() {
-            Ok(()) | Err(TryLockError::WouldBlock) => {}
-            Err(TryLockError::Error(e)) => return Err(e),
+            if start.elapsed() >= patience {
+                eprintln!("update: another helper keeps the instance lock, running without it");
+                return Ok(InstanceLock {
+                    file,
+                    gate,
+                    alone_at_start: false,
+                });
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
-        Ok((InstanceLock { file }, alone))
     }
 
-    /// Whether this process is the only helper. When it is, the lock stays exclusive, so that
-    /// no helper starting meanwhile believes itself alone; [`InstanceLock::share`] gives it back.
-    /// When it is not, the shared hold is restored.
+    /// Whether no other helper held the lock when this one took it.
+    pub fn alone(&self) -> bool {
+        self.alone_at_start
+    }
+
+    /// Whether this process is the only helper now. When it is, the lock stays exclusive, so
+    /// that no helper starting meanwhile believes itself alone; [`InstanceLock::share`] gives it
+    /// back. When it is not, the shared hold is kept.
     pub fn claim_alone(&self) -> std::io::Result<bool> {
+        self.gate.lock()?;
+        let _gate = Gate(&self.gate);
         // Unlocking a handle that holds no lock fails on Windows: nothing to undo then.
         let _ = self.file.unlock();
         match self.file.try_lock() {
             Ok(()) => Ok(true),
             Err(e) => {
-                self.share();
+                // Other helpers hold the lock shared only (none can be exclusive while this one
+                // held it shared), so the shared hold comes back at once.
+                let _ = self.file.try_lock_shared();
                 match e {
                     TryLockError::WouldBlock => Ok(false),
                     TryLockError::Error(e) => Err(e),
@@ -139,8 +203,13 @@ impl InstanceLock {
         }
     }
 
-    /// Back to a shared hold, after [`InstanceLock::claim_alone`] (for instance a failed apply).
+    /// Back to a shared hold: after [`InstanceLock::take`] when alone, or after
+    /// [`InstanceLock::claim_alone`] (for instance a failed apply).
     pub fn share(&self) {
+        if self.gate.lock().is_err() {
+            return;
+        }
+        let _gate = Gate(&self.gate);
         let _ = self.file.unlock();
         let _ = self.file.try_lock_shared();
     }
@@ -601,6 +670,8 @@ pub struct Updater {
     restart_args: Vec<String>,
     instance: InstanceCheck,
     stopping: Arc<AtomicBool>,
+    /// Held by the update thread during a check or a download, and by an apply.
+    busy: Arc<Mutex<()>>,
 }
 
 /// How [`Updater::apply_and_restart`] makes sure no other helper is running.
@@ -639,10 +710,13 @@ impl Updater {
                 let mut updater = Updater::start_with(manager, config.interval);
                 updater.instance = match INSTANCE_LOCK.get() {
                     Some(lock) => InstanceCheck::Lock(lock.clone()),
-                    None => match InstanceLock::take(&instance_lock_path()) {
-                        Ok((lock, _)) => InstanceCheck::Lock(
-                            INSTANCE_LOCK.get_or_init(|| Arc::new(lock)).clone(),
-                        ),
+                    None => match InstanceLock::take(&instance_lock_path(), LOCK_PATIENCE) {
+                        Ok(lock) => {
+                            lock.share();
+                            InstanceCheck::Lock(
+                                INSTANCE_LOCK.get_or_init(|| Arc::new(lock)).clone(),
+                            )
+                        }
                         Err(e) => InstanceCheck::Unavailable(format!(
                             "cannot take the instance lock ({e})"
                         )),
@@ -664,6 +738,7 @@ impl Updater {
             restart_args: Vec::new(),
             instance: InstanceCheck::None,
             stopping: Arc::new(AtomicBool::new(true)),
+            busy: Arc::new(Mutex::new(())),
         }
     }
 
@@ -674,13 +749,15 @@ impl Updater {
         // Capacity 1: clicks on "Check for updates" during a check coalesce into one more check.
         let (tx, rx) = mpsc::sync_channel(1);
         let stopping = Arc::new(AtomicBool::new(false));
+        let busy = Arc::new(Mutex::new(()));
         let thread = {
             let backend = backend.clone();
             let status = status.clone();
             let stopping = stopping.clone();
+            let busy = busy.clone();
             std::thread::Builder::new()
                 .name("faulk-updater".into())
-                .spawn(move || run_loop(backend.as_ref(), &status, &rx, interval, &stopping))
+                .spawn(move || run_loop(backend.as_ref(), &status, &rx, interval, &stopping, &busy))
         };
         match thread {
             Ok(thread) => Updater {
@@ -691,6 +768,7 @@ impl Updater {
                 restart_args: std::env::args().skip(1).collect(),
                 instance: InstanceCheck::None,
                 stopping,
+                busy,
             },
             Err(e) => Updater::disabled(format!("cannot start the update thread: {e}")),
         }
@@ -722,12 +800,23 @@ impl Updater {
 
     /// Applies the downloaded update and restarts the helper on it, with the same arguments.
     /// Refused while another helper is running: applying replaces the installation's files
-    /// under it. On success the process exits and this never returns.
+    /// under it. Refused too while the update thread checks or downloads: Velopack would apply
+    /// from a packages folder being written. On success the process exits and this never
+    /// returns.
     pub fn apply_and_restart(&self) -> Result<(), UpdateError> {
         let backend = self
             .backend
             .as_ref()
             .ok_or_else(|| UpdateError::Other("updates are disabled".into()))?;
+        let _busy = match self.busy.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(UpdateError::Other(
+                    "an update check or download is running: try again when it ends".into(),
+                ));
+            }
+        };
         let asset = backend
             .pending()
             .ok_or_else(|| UpdateError::Other("no downloaded update to apply".into()))?;
@@ -800,12 +889,16 @@ fn run_loop(
     commands: &Receiver<Command>,
     interval: Duration,
     stopping: &AtomicBool,
+    busy: &Mutex<()>,
 ) {
     loop {
         if stopping.load(Ordering::Acquire) {
             return;
         }
-        run_check(backend, status);
+        {
+            let _busy = busy.lock().unwrap_or_else(|p| p.into_inner());
+            run_check(backend, status);
+        }
         match commands.recv_timeout(interval) {
             Ok(Command::CheckNow) | Err(RecvTimeoutError::Timeout) => continue,
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
