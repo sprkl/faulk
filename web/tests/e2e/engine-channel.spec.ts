@@ -265,7 +265,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
   test('way (a), plain memory: messages and growth on the render thread', async ({ page, baseURL }) => {
     await serveProto(page, baseURL!)
     await page.goto('/app')
-    await page.getByRole('button', { name: 'Start audio' }).first().click()
+    await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'a')
     console.log(table(run))
     const { load } = run
@@ -293,7 +293,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
   test('way (b), shared memory: a Worker prepares, the worklet pumps', async ({ page, baseURL }) => {
     await serveProto(page, baseURL!)
     await page.goto('/app')
-    await page.getByRole('button', { name: 'Start audio' }).first().click()
+    await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'b')
     console.log(table(run))
     const { load } = run
