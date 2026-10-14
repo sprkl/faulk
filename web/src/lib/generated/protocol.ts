@@ -184,7 +184,44 @@ export type TransportCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type MixerCommand = never
+export type MixerCommand = ({
+/**
+ * Required: `null` is silence, a missing field is an error.
+ */
+gain_db: (number | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_volume"
+} | {
+pan: number
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_pan"
+} | {
+mute: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_mute"
+} | {
+/**
+ * Required: `null` is silence, a missing field is an error.
+ */
+gain_db: (number | null)
+type: "mixer.set_master_volume"
+} | {
+solo: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "mixer.set_solo"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -369,7 +406,37 @@ export type TransportOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type MixerOutput = never
+export type MixerOutput = ({
+/**
+ * The volume before the command, in dB; `null` was silence.
+ */
+previous: (number | null)
+type: "mixer.set_volume"
+} | {
+/**
+ * The pan before the command.
+ */
+previous: number
+type: "mixer.set_pan"
+} | {
+/**
+ * Whether the track was muted before the command.
+ */
+previous: boolean
+type: "mixer.set_mute"
+} | {
+/**
+ * The volume before the command, in dB; `null` was silence.
+ */
+previous: (number | null)
+type: "mixer.set_master_volume"
+} | {
+/**
+ * Whether the track was soloed before the command.
+ */
+previous: boolean
+type: "mixer.set_solo"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
