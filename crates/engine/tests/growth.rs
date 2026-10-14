@@ -212,7 +212,7 @@ fn a_runtime_table_goes_through_every_transition_without_allocating_on_the_audio
         audio.tracks.push(None).unwrap();
         audio.tracks.push(None).unwrap();
         assert!(audio.tracks.is_full());
-        assert_eq!(audio.tracks.push(None), Err(TableFull));
+        assert!(matches!(audio.tracks.push(None), Err(TableFull(None))));
     });
     control.prepare_track(TrackSlot(0), 2).unwrap();
     control.prepare_track(TrackSlot(1), 0).unwrap();
@@ -268,7 +268,7 @@ fn growth_during_playback_loses_nothing_and_skips_no_block() {
     let mut grows = 0;
     for _block in 0..600 {
         // The project keeps creating tracks while the audio side renders every block.
-        if audio.tracks.push(None) == Err(TableFull) {
+        if audio.tracks.push(None).is_err() {
             control
                 .prepare_grow_tracks(audio.tracks.next_capacity())
                 .unwrap();

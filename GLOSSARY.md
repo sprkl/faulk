@@ -50,7 +50,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Armement** : l'état d'une piste prête à enregistrer ; le MIDI joué en direct va à la piste sélectionnée et aux pistes armées. Code : commande `track.arm` **(prévu)**.
 
-**Tête de lecture** : la position courante de la lecture dans le temps du projet. Elle est éphémère : le moteur la renvoie à la page environ 30 fois par seconde et elle n'est jamais enregistrée. Code : champ du `Feedback` **(prévu)**.
+**Tête de lecture** : la position courante de la lecture dans le temps du projet. Elle est éphémère : le moteur la renvoie à la page environ 30 fois par seconde et elle n'est jamais enregistrée. Code : `Feedback::playhead_tick` et `playhead_frame` (`crates/engine/src/msg.rs`, contrat CT-3 ; le moteur ne les remplit pas encore).
 
 **Prise** : ce qui a été joué pendant un enregistrement ; elle devient un clip par une seule commande annulable. Code : `record.commit_take` **(prévu)**.
 
@@ -69,6 +69,8 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 **Session** : l'état qui relève de l'écran ou de la machine et non de la musique : solo, entrée MIDI choisie, sélection, zoom, défilement, pistes repliées. Il est écrit dans `.faulk/`, ignoré par git, restauré à la réouverture et jamais versionné. Le solo est donc un état de session, alors que le mute est dans le projet. À ne pas confondre avec la connexion de pairage entre la page et le helper (`/session`, `crates/protocol`) ni avec les stores web (`web/src/lib/stores/`), qui portent l'état de la page et son chemin vers le moteur, pas cet état de session. Code : `SessionState`, `.faulk/session.json` **(prévu)**.
 
 ## Modes et extensions
+
+**Message moteur** : ce que le projet envoie au moteur (`ControlMsg`, encodage binaire versionné), ce que `prepare` prépare hors chemin audio pour `apply` (`RtMsg`, jamais sérialisé, déplacé dans un anneau) et ce que le moteur renvoie à la page environ 30 fois par seconde (`Feedback`). Le projet nomme les structures du moteur par des emplacements (`TrackSlot`, `ClipSlot`…), jamais par ses identifiants. Code : `crates/engine/src/msg.rs` (contrat CT-3 ; `prepare` et `apply` viennent avec MO-1).
 
 **Mode Web** : Faulk dans le navigateur seul, le moteur tourne dans un `AudioWorklet`. Code : `crates/engine-wasm`.
 

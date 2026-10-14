@@ -954,9 +954,10 @@ pub struct Table<T> {
     len: usize,
 }
 
-/// `Table::push` on a full table: the caller asks `prepare` for a larger one.
+/// `Table::push` on a full table, giving the item back untouched (nothing is dropped on
+/// the audio path): the caller asks `prepare` for a larger table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TableFull;
+pub struct TableFull<T>(pub T);
 
 impl<T: Default> Table<T> {
     /// Allocates a table of `capacity` slots, or fails typed when the memory is refused.
@@ -1023,10 +1024,11 @@ impl<T> Table<T> {
         &mut self.items[..self.len]
     }
 
-    /// Appends without allocating; `Err(TableFull)` leaves the table unchanged.
-    pub fn push(&mut self, item: T) -> Result<(), TableFull> {
+    /// Appends without allocating; `Err(TableFull(item))` leaves the table unchanged and
+    /// gives the item back.
+    pub fn push(&mut self, item: T) -> Result<(), TableFull<T>> {
         if self.is_full() {
-            return Err(TableFull);
+            return Err(TableFull(item));
         }
         self.items[self.len] = item;
         self.len += 1;
