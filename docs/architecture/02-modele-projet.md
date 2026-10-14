@@ -379,14 +379,14 @@ Le journal d'opérations comme vérité, la collaboration en temps réel et les 
 
 ### 6.3 Chemin proposé
 
-**Phase 1 (MVP) : un format prêt pour git, sans git dans l'application.**
+**Phase 1 (MVP, ce que planifie le [découpage](../specs/02-decoupage-mvp.md)) : un format prêt pour git, sans git ni fusion dans l'application.**
 
-- `crates/project` : modèle, écrivain canonique, validation, fusion à trois points, migrations ; tests de déterminisme et de propriétés de la fusion (`merge(b, x, b) = x`, `merge(b, x, x) = x`, symétrie des conflits).
-- Projet enregistré dans OPFS, dans un dossier choisi (Chromium) ou par le helper ; export et import `.faulkpack`.
-- `.gitattributes` et `.gitignore` écrits par Faulk ; binaire `faulk` (livré avec le helper) qui sert de pilote `merge` et `diff`, et `faulk git setup`.
-- Validation à l'ouverture : un projet fusionné à la main par git est vérifié et ses incohérences présentées comme conflits.
+- `crates/project` : modèle, écrivain canonique, validation, migrations ; tests de déterminisme (PR-1, SV-1).
+- Projet enregistré dans un dossier choisi (Chrome, Edge), dans l'OPFS en repli, ou par le helper en Boost ; export et import `.faulkpack` (SV-2, SV-3, AU-7).
+- `.gitattributes` et `.gitignore` écrits par Faulk (SV-1) : un utilisateur qui connaît git versionne son dossier avec les outils git ordinaires, la fusion ligne à ligne produisant des conflits localisés grâce au format.
+- Validation à l'ouverture : un projet fusionné à la main par git est vérifié et ses incohérences signalées (SV-1, SV-4).
 
-**Phase 2 : versions et variantes dans l'application.** `VersionStore` dans un worker (isomorphic-git sur OPFS en mode Web ; git du système ou une bibliothèque Rust comme gitoxide, à évaluer, dans le helper) ; commandes `version.*` et `variant.*`, comparaison A/B, fusion avec écoute ; les cas que isomorphic-git ne gère pas se rabattent sur une fusion complète faite par Faulk à partir des trois arbres.
+**Phase 2 (après le MVP) : fusion sémantique, puis versions et variantes dans l'application.** D'abord la fusion à trois points dans `crates/project` (propriétés `merge(b, x, b) = x`, `merge(b, x, x) = x`, symétrie des conflits) et le binaire `faulk` livré avec le helper, pilote `merge` et `diff`, avec `faulk git setup` ; puis `VersionStore` dans un worker (isomorphic-git sur OPFS en mode Web ; git du système ou une bibliothèque Rust comme gitoxide, à évaluer, dans le helper) ; commandes `version.*` et `variant.*`, comparaison A/B, fusion avec écoute ; les cas que isomorphic-git ne gère pas se rabattent sur une fusion complète faite par Faulk à partir des trois arbres.
 
 **Phase 3 : dépôts distants et partage.** Pousser et tirer via le helper (vrai git et LFS) ; depuis la page seule, via un proxy CORS ou un service de synchronisation. Les commits créés dans la page référencent les blobs par **pointeurs LFS écrits par Faulk** ; l'envoi passe par l'API batch de LFS (faisabilité à valider par un spike). Téléchargement paresseux de l'audio.
 
