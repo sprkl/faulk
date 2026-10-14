@@ -39,29 +39,31 @@ Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Dé
 
 Nouvelle crate `crates/project` : le modèle, la lecture et l'écriture canoniques, la validation, la fusion. Pure (elle reçoit et rend des octets, aucune entrée-sortie directe), compilable en natif et en WASM (côté page, hors worklet, donc `wasm-bindgen` y est possible). `crates/commands` en dépend ; le moteur n'en dépend pas : il reçoit un graphe de rendu dérivé du modèle. Sa création modifie la table « Stack and layout » de `CLAUDE.md` : c'est une décision du fondateur.
 
+Implémenté par PR-1 (#46) ; le code fait foi (`crates/project/src/model.rs`), ce bloc le résume :
+
 ```rust
 pub struct Tick(pub i64);     // 960 per quarter note (engine::time, CT-2)
 pub struct Frame(pub u64);    // sample index in an audio file (engine::time, CT-2)
-pub type Id = Ulid;           // 26 chars, Crockford base32, time-sortable
-pub type OrderKey = String;   // fractional index, compared bytewise
-pub type Hash = [u8; 32];     // SHA-256 of a blob
+pub struct Id(String);        // ULID: 26 chars, Crockford base32, time-sortable; typed: ProjectId, TrackId, SceneId, DeviceId, ClipId, PlacementId, LaneId
+pub struct OrderKey(String);  // fractional index ("a0", "a0V"), compared bytewise; ties broken by id
+pub struct Hash(pub [u8; 32]); // SHA-256 of a blob, 64 lower-case hex chars on disk
 
 pub struct Project {
-    pub format: u32,                     // on-disk format version, for migrations
-    pub id: Id,                          // stable project identity, created once (see 1.3)
+    pub format: u32,                     // on-disk format version (1), for migrations
+    pub id: ProjectId,                   // stable project identity, created once (see 1.3)
     pub name: String,
-    pub tempo: Vec<TempoPoint>,          // sorted by tick; a single point in the MVP
-    pub meter: Vec<MeterPoint>,          // time signatures, sorted by tick
+    pub tempo: Vec<TempoPoint>,          // { tick, bpm }; exactly one point at tick 0 in the MVP
+    pub meter: Vec<MeterPoint>,          // { tick, signature }; exactly one point at tick 0 in the MVP
     pub transport: TransportSettings,    // saved transport settings (see 1.3)
-    pub scenes: BTreeMap<Id, Scene>,
+    pub scenes: BTreeMap<SceneId, Scene>,
     pub master: Mixer,                   // master bus (no sends)
-    pub tracks: BTreeMap<Id, Track>,
+    pub tracks: BTreeMap<TrackId, Track>,
 }
 
 pub struct TransportSettings {
     pub launch_quantize: Quantize,       // None | Sixteenth | Beat | Bar | Bars2 | Bars4 | Bars8; default Bar (engine::time)
     pub loop_region: Option<LoopRegion>, // [start, end) in ticks (engine::time)
-    pub loop_enabled: bool,
+    pub loop_enabled: bool,              // requires a loop region
     pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
 }
 
@@ -69,15 +71,15 @@ pub struct Scene { pub name: String, pub order: OrderKey } // a tempo per scene:
 
 pub struct Track {
     pub name: String,
-    pub color: Option<Rgb>,
+    pub color: Option<Rgb>,              // "#rrggbb"
     pub order: OrderKey,
     pub kind: TrackKind,                 // Midi | Audio (Return: after the MVP, no sends or returns)
     pub mixer: Mixer,
     pub output: Output,                  // Master in the MVP; Track(Id) (group or return) after it
-    pub devices: BTreeMap<Id, Device>,   // instrument + effects, ordered by Device::order
-    pub clips: BTreeMap<Id, Clip>,
-    pub placements: BTreeMap<Id, Placement>, // this track's arrangement
-    pub automation: BTreeMap<Id, AutomationLane>,
+    pub devices: BTreeMap<DeviceId, Device>, // at most one instrument, first; then effects, ordered by Device::order
+    pub clips: BTreeMap<ClipId, Clip>,   // MIDI clips in a MIDI track, audio clips in an audio track
+    pub placements: BTreeMap<PlacementId, Placement>, // this track's arrangement
+    pub automation: BTreeMap<LaneId, AutomationLane>,
 }
 
 pub struct Mixer { pub gain_db: f64, pub pan: f64, pub mute: bool } // sends: after the MVP; solo lives in the session state
@@ -86,7 +88,7 @@ pub struct Device {
     pub order: OrderKey,
     pub role: DeviceRole,                // Instrument | Effect
     pub enabled: bool,
-    pub source: DeviceSource,            // Builtin { id, version } | Module { name, hash } | Plugin { .. }
+    pub source: DeviceSource,            // Builtin { id, version } | Module { name, hash }; plugins after the MVP
     pub params: BTreeMap<String, f64>,   // param id -> value in natural unit
     pub state: Option<Hash>,             // opaque instrument state, stored as a blob
 }
@@ -94,24 +96,26 @@ pub struct Device {
 pub struct Clip {
     pub name: String,
     pub color: Option<Rgb>,
-    pub slot: Option<Id>,                // scene id when the clip sits in the launch grid
-    pub launch_quantize: Option<Quantize>, // reserved, after the MVP: absent = project setting
+    pub slot: Option<SceneId>,           // scene id when the clip sits in the launch grid; one clip per slot
+    pub launch_quantize: Option<Quantize>, // reserved, after the MVP: absent = project setting, never written by the MVP
     pub content: ClipContent,
 }
 
 pub enum ClipContent {
     // Musical time: length and loop in ticks.
-    Midi { length: Tick, looping: Option<Loop>, notes: BTreeSet<Note> },
-    // Source time: a range of the audio file in frames; no length in ticks is stored.
+    Midi { length: Tick, looping: Option<TickLoop>, notes: BTreeSet<Note> },
+    // Source time: a range [start, start + frames) of the audio file; no length in ticks is stored.
     // Loop in source frames, relative to `start`, within [0, frames]: never in ticks.
-    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64, looping: Option<FrameLoop> },
+    Audio { media: AudioMedia, start: Frame, frames: Frame, gain_db: f64, looping: Option<FrameLoop> },
 }
 
+// The file's metadata in clear, next to its reference (§ 2.2).
+pub struct AudioMedia { pub hash: Hash, pub sample_rate: SampleRate, pub channels: u16, pub frames: Frame, pub name: String }
+
 // Ord compares fields in declaration order: (start, pitch, length, velocity).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Note { pub start: Tick, pub pitch: u8, pub length: Tick, pub velocity: u8 }
 
-pub struct Placement { pub clip: Id, pub start: Tick, pub span: Span }
+pub struct Placement { pub clip: ClipId, pub start: Tick, pub span: Span }
 
 pub enum Span {
     Ticks { length: Tick, offset: Tick },   // MIDI clip: trim in musical time
@@ -119,10 +123,16 @@ pub enum Span {
 }
 
 pub struct AutomationLane {
-    pub target: AutomationTarget,        // Device { device: Id, param: String } | Mixer(MixerParam)
-    pub points: BTreeMap<Tick, AutomationPoint>, // at most one point per tick
+    pub target: AutomationTarget,        // Device { device: DeviceId, param: String } | Mixer { param: Gain | Pan }
+    pub points: BTreeMap<Tick, AutomationPoint>, // at most one point per tick; point = { value, shape: Linear | Step }
 }
+
+// Session state, never a field of Project, written to .faulk/session.json (decision 10).
+pub struct SessionState { pub selected_track: Option<TrackId>, pub solo: BTreeSet<TrackId>, pub midi_input: Option<String> }
 ```
+
+`Project::validate()` rend toutes les violations, chacune avec son chemin (`tracks/<id>/clips/<id>`) : format, noms, identifiants uniques dans tout le projet, références (case de scène, clip d'un placement, device d'un couloir), accord des types (clip et piste, étendue et clip), notes dans la longueur du clip, boucles et plages, positions dans `[0, 2^40]`, nombres finis (un gain peut valoir `-inf`), règles de la chaîne (un instrument au plus, en tête ; le lecteur de clips exigé sur une piste audio et refusé ailleurs ; une piste MIDI peut n'avoir aucun instrument), fréquence d'échantillonnage de 8 à 768 kHz, fin en ticks d'un placement audio calculée au tempo du projet et limites de sûreté (`project::limits`). Deux invariants tiennent par construction et sont refusés à la lecture : une clé en double dans une table (identifiant ou tick) fait échouer la désérialisation, au lieu de garder silencieusement la dernière valeur.
+
 
 Choix et limites pour le MVP :
 

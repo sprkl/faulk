@@ -6,8 +6,8 @@
 use crate::v2::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::v2::macros::domain;
 
-/// Longest project name accepted, in characters.
-pub const MAX_NAME_CHARS: usize = 200;
+/// Longest project name accepted, in characters: the project's own limit.
+pub use ::project::limits::MAX_NAME_CHARS;
 
 domain! {
     domain = "project", schema = ("ProjectCommand", "ProjectOutput");

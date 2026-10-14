@@ -4,7 +4,7 @@
 //! entity is created, never an index: an index changes when a neighbour is removed, an
 //! identifier does not, so a command, an undo entry or an agent's reference stays valid.
 //! The on-disk form is a ULID: 26 characters of Crockford base32, time-sortable (project
-//! model § 1.2). Generation (PR-1) is the project's; this module freezes the shape.
+//! model § 1.2). The host seeds the [`IdGenerator`] with its clock and randomness.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,10 @@ macro_rules! typed_id {
 }
 
 typed_id!(
+    /// Identifier of a project: created once with it, never changed (project model § 1.3).
+    ProjectId
+);
+typed_id!(
     /// Identifier of a track.
     TrackId
 );
@@ -265,5 +269,55 @@ mod tests {
         assert_eq!(serde_json::to_string(&id).unwrap(), ok);
         assert!(serde_json::from_str::<TrackId>("\"short\"").is_err());
         assert!(serde_json::from_str::<TrackId>("12").is_err());
+    }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Any seed gives ids that parse back to themselves, match the schema's
+            /// pattern, and strictly increase within a generator, also when the clock
+            /// moves forward.
+            #[test]
+            fn generated_ids_are_valid_and_increasing(
+                time in 0u64..(1 << 48),
+                random in any::<u128>(),
+                steps in prop::collection::vec(0u64..3, 1..200),
+            ) {
+                let mut ids = IdGenerator::new(time, random);
+                let mut now = time;
+                let mut last: Option<Id> = None;
+                for step in steps {
+                    // Stop before the 80-bit part wraps: the only documented reordering.
+                    if ids.random == (1u128 << 80) - 1 { break; }
+                    now = (now + step).min((1 << 48) - 1);
+                    ids.set_time(now);
+                    let id = ids.next_id();
+                    prop_assert_eq!(Id::parse(id.as_str()), Ok(id.clone()));
+                    prop_assert!(matches_pattern(id.as_str()));
+                    if let Some(prev) = &last { prop_assert!(*prev < id); }
+                    last = Some(id);
+                }
+            }
+
+            /// `Id::parse` accepts exactly the strings of the schema's pattern.
+            #[test]
+            fn parse_matches_the_schema_pattern(s in "[0-9A-Za-z]{24,28}|[0-7][0-9A-HJKMNP-TV-Z]{25}") {
+                prop_assert_eq!(Id::parse(&s).is_ok(), matches_pattern(&s));
+            }
+
+        }
+
+        /// The pattern `^[0-7][0-9A-HJKMNP-TV-Z]{25}$`, by hand.
+        fn matches_pattern(s: &str) -> bool {
+            let b = s.as_bytes();
+            b.len() == ID_LEN
+                && (b'0'..=b'7').contains(&b[0])
+                && b[1..].iter().all(|c| {
+                    c.is_ascii_digit()
+                        || (c.is_ascii_uppercase() && !matches!(c, b'I' | b'L' | b'O' | b'U'))
+                })
+        }
     }
 }
