@@ -113,6 +113,35 @@ test.describe('the DAW (/app)', () => {
     expect(result).toEqual({ isolated: true, value: 7 })
   })
 
+  test('starts a worker from a script the dev or preview server really serves', async ({ page }) => {
+    // The landing animation module is a real script of the build (a hashed chunk in the preview,
+    // a module through Vite's transform pipeline in dev): loaded as a module worker, it shows that
+    // the server's own script responses carry what a worker of an isolated page needs.
+    const scripts: string[] = []
+    page.on('request', (r) => /\/landing\/anim(\.[0-9a-f]+\.js|\/index\.ts)$/.test(new URL(r.url()).pathname) && scripts.push(r.url()))
+    await page.goto('/')
+    const stages = page.locator('[data-fk-anim]')
+    await stages.first().scrollIntoViewIfNeeded()
+    await expect.poll(() => scripts.length).toBeGreaterThan(0)
+
+    const responses: Record<string, string | undefined> = {}
+    page.on('response', (r) => {
+      if (r.url() === scripts[0]) responses.coep = r.headers()['cross-origin-embedder-policy']
+    })
+    await page.goto('/app')
+    const result = await page.evaluate(
+      (url) =>
+        new Promise((resolve) => {
+          const worker = new Worker(url, { type: 'module' })
+          worker.onerror = (event) => resolve(`worker error: ${event.message || 'refused'}`)
+          setTimeout(() => resolve('loaded'), 2000)
+        }),
+      scripts[0],
+    )
+    expect(result).toBe('loaded')
+    expect(responses.coep).toBe('require-corp')
+  })
+
   test('keeps its query and fragment isolated (pairing links)', async ({ page }) => {
     await page.goto('/app?from=tray#pair=garbage')
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)

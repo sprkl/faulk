@@ -2,9 +2,11 @@ import { defineConfig } from '@playwright/test'
 
 /**
  * End-to-end tests in a real browser, against the dev server (`pnpm dev`) and the built site under
- * the static preview (`pnpm preview`, run `pnpm build` first), on their own ports (5180, 4180) so
+ * the static preview of a fresh build (`pnpm build && pnpm preview`), on their own ports (5180, 4180) so
  * that a server left running on 5173 or 4173 does not get in the way. The preview serves
- * the same headers as production (`vercel.json`, mirrored by `scripts/vercel-headers.ts`).
+ * the same headers as production (`vercel.json`, mirrored by `scripts/vercel-headers.ts`). The dev
+ * server skips the wasm build of `pnpm dev`: `pnpm build` makes it, and two concurrent copies of
+ * the same file could race.
  *
  * The browser is Playwright's Chromium; `FAULK_E2E_CHANNEL=chrome` or `msedge` runs the installed
  * Chrome or Edge instead. One worker: the helper test listens on the helper's fixed port. The
@@ -26,7 +28,7 @@ export default defineConfig({
     { name: 'preview', use: { baseURL: 'http://localhost:4180' } },
   ],
   webServer: [
-    { command: 'pnpm dev --port 5180', url: 'http://localhost:5180/app', timeout: 300_000 },
-    { command: 'pnpm preview --port 4180', url: 'http://localhost:4180/app' },
+    { command: 'pnpm exec vite dev --port 5180', url: 'http://localhost:5180/app', timeout: 300_000 },
+    { command: 'pnpm build && pnpm exec vite preview --port 4180', url: 'http://localhost:4180/app', timeout: 300_000 },
   ],
 })
