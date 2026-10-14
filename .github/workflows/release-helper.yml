@@ -103,7 +103,7 @@ jobs:
             fi
           fi
           # A trial build still needs a version for the packages; it is never published.
-          pack="${value:-0.0.0-trial.$RUN}"
+          pack="${value:-0.0.1-trial.$RUN}"
           {
             echo "value=$value"
             echo "pack=$pack"
@@ -162,7 +162,7 @@ jobs:
       # Deltas: vpk builds the delta of this version against the newest full package in the
       # output folder, so it needs the latest STABLE release. Pre-releases get no delta: the
       # beta channel installs full packages (see `filter_feed` in updater.rs).
-      # Releases only: a trial build (version 0.0.0-trial.N) would otherwise be packed next to
+      # Releases only: a trial build (version 0.0.1-trial.N) would otherwise be packed next to
       # a newer stable package, which is not what a release produces.
       - name: Previous stable release, for the delta
         if: needs.version.outputs.value != '' && needs.version.outputs.prerelease != 'true'
