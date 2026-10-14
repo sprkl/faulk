@@ -1,3 +1,5 @@
 # Architecture
 
 * [Architecture technique](01-architecture.md) - One Rust engine compiled to WebAssembly for the browser and to native code for the helper; every action is a typed command exposed to the UI, to MCP and to ACP agents; the helper is the local bridge for audio, plugins and agents.
+* [Modèle de projet et format sur disque](02-modele-projet.md) - The Faulk project model and its on-disk format, decided on 2026-10-14: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, the page owning the project in both modes, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, and the strategy for very large projects.
+* [Stockage local du projet et mémoire audio](03-stockage-local.md) - Keeping a Faulk project and its audio on disk rather than in browser memory, decided on 2026-10-14: a real folder by default (Chrome, Edge), OPFS and archive export elsewhere, cross-origin isolation accepted, disk streaming through SharedArrayBuffer rings into the AudioWorklet, the Boost-mode impact, atomic writes and failure modes.

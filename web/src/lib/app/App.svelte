@@ -55,11 +55,15 @@
 
   onMount(() => {
     void session.checkHelper()
+    session.takePairLink()
+    const onHashChange = () => session.takePairLink()
+    window.addEventListener('hashchange', onHashChange)
     const release = () => releaseAllKeys()
     const onVisibility = () => document.hidden && releaseAllKeys()
     window.addEventListener('blur', release)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
+      window.removeEventListener('hashchange', onHashChange)
       window.removeEventListener('blur', release)
       document.removeEventListener('visibilitychange', onVisibility)
     }
@@ -113,6 +117,9 @@
     <section class="card">
       <h2>{t('start.title')}</h2>
       <p>{t('start.body')}</p>
+      {#if session.pendingPairCode}
+        <p class="muted" role="status" data-testid="pair-pending">{t('start.pairPending')}</p>
+      {/if}
       <button class="primary" disabled={session.starting} onclick={() => session.start()}>{t('start.button')}</button>
     </section>
   </main>

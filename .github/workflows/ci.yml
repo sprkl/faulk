@@ -10,6 +10,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  agent-scripts:
+    # The agent guardrails (hooks, Judge Dredd brief, verification records).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the agent scripts
+        run: node --test "scripts/**/*.test.mjs"
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +51,28 @@ jobs:
 
       - name: WASM build of the engine
         run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+
+  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
+  helper-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -p helper --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test -p helper
+
+      - name: Release build
+        run: cargo build -p helper --release
 
   web:
     runs-on: ubuntu-latest

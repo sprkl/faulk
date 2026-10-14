@@ -18,6 +18,17 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
 
+/// What the helper reports to its host (the tray, or the console).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HelperEvent {
+    /// The pairing code changed (also sent once at start).
+    Code(String),
+    /// A page opened a session (`true`) or the last session ended (`false`).
+    Session(bool),
+    /// The audio output stream reported an error.
+    AudioError,
+}
+
 struct Session {
     id: u64,
     tx: mpsc::UnboundedSender<ServerMessage>,
@@ -32,8 +43,8 @@ pub struct Shared {
     pub meter: Arc<Meter>,
     pub sample_rate: f32,
     pub audio_error: Arc<AtomicBool>,
-    /// Called with the new pairing code whenever it changes.
-    pub show_code: Box<dyn Fn(&str) + Send + Sync>,
+    /// Told about new pairing codes, sessions and audio errors.
+    pub notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     session: Mutex<Option<Session>>,
     next_id: AtomicU64,
 }
@@ -48,10 +59,10 @@ impl Shared {
         meter: Arc<Meter>,
         sample_rate: f32,
         audio_error: Arc<AtomicBool>,
-        show_code: Box<dyn Fn(&str) + Send + Sync>,
+        notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     ) -> Self {
         let pairing = Pairing::new(Instant::now());
-        show_code(pairing.code());
+        notify(HelperEvent::Code(pairing.code().to_owned()));
         Self {
             policy,
             pairing: Mutex::new(pairing),
@@ -61,10 +72,15 @@ impl Shared {
             meter,
             sample_rate,
             audio_error,
-            show_code,
+            notify,
             session: Mutex::new(None),
             next_id: AtomicU64::new(1),
         }
+    }
+
+    fn notify_code(&self) {
+        let code = self.pairing.lock().expect("pairing lock").code().to_owned();
+        (self.notify)(HelperEvent::Code(code));
     }
 
     fn send_event(&self, event: EngineEvent) {
@@ -156,12 +172,20 @@ async fn ticker(shared: Arc<Shared>) {
             shared.to_session(ServerMessage::MidiActivity { note, velocity });
         }
         if ticks.is_multiple_of(30) {
+            let renewed = shared
+                .pairing
+                .lock()
+                .is_ok_and(|mut p| p.renew_if_expired(Instant::now()));
+            if renewed {
+                shared.notify_code();
+            }
             let changed = shared.midi.lock().is_ok_and(|mut m| m.refresh());
             if changed {
                 shared.to_session(shared.midi_inputs());
             }
         }
         if shared.audio_error.swap(false, Ordering::Relaxed) {
+            (shared.notify)(HelperEvent::AudioError);
             shared.to_session(ServerMessage::Error {
                 code: "audio.stream".into(),
                 message: "the audio output stream reported an error".into(),
@@ -169,6 +193,9 @@ async fn ticker(shared: Arc<Shared>) {
         }
     }
 }
+
+/// Header of every refused handshake, valued [`HELPER_NAME`].
+pub const HELPER_HEADER: &str = "x-faulk-helper";
 
 // The error type of the handshake callback is fixed by tungstenite (an HTTP response).
 #[allow(clippy::result_large_err)]
@@ -188,9 +215,15 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
                 Ok(response)
             }
             Err(refusal) => {
-                eprintln!("refused a connection: {refusal:?}");
+                crate::log!("refused a connection: {refusal:?}");
                 let mut refused = ErrorResponse::new(None);
                 *refused.status_mut() = StatusCode::FORBIDDEN;
+                // Lets a second helper recognise this one even when it presents an
+                // origin this helper does not allow. A page cannot read it.
+                refused.headers_mut().insert(
+                    HELPER_HEADER,
+                    tokio_tungstenite::tungstenite::http::HeaderValue::from_static(HELPER_NAME),
+                );
                 Err(refused)
             }
         }
@@ -236,7 +269,7 @@ async fn pair(mut ws: Ws, shared: &Shared) {
                     .attempt(&code, Instant::now());
                 match result {
                     PairResult::Accepted => {
-                        (shared.show_code)(shared.pairing.lock().expect("pairing lock").code());
+                        shared.notify_code();
                         ServerMessage::Paired {
                             token: shared.policy.token.clone(),
                         }
@@ -246,7 +279,7 @@ async fn pair(mut ws: Ws, shared: &Shared) {
                         new_code,
                     } => {
                         if new_code {
-                            (shared.show_code)(shared.pairing.lock().expect("pairing lock").code());
+                            shared.notify_code();
                         }
                         ServerMessage::PairingRefused { attempts_left }
                     }
@@ -280,6 +313,8 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
             });
         }
         *current = Some(Session { id, tx: tx.clone() });
+        // Under the lock, so it can never be overtaken by an older session's end.
+        (shared.notify)(HelperEvent::Session(true));
     }
     // A new session starts from silence.
     shared.send_event(EngineEvent::AllNotesOff);
@@ -327,6 +362,8 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
+        // Under the lock, so a newer session's start always comes after it.
+        (shared.notify)(HelperEvent::Session(false));
     }
     drop(current);
     writer.abort();

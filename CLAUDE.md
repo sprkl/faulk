@@ -27,6 +27,7 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
 | `web/` | One web app for both modes: the public landing page at `/` (prerendered, light theme; its only client JavaScript is the lazily loaded WebGL animation of the sound objects, `src/lib/landing/anim/`) and the DAW at `/app` (client-only, dark theme). | TypeScript, SvelteKit 3 (adapter-static), Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
+| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). | Node 24, ESM, no dependency, `node --test` |
 
 Core rules:
 
@@ -42,7 +43,7 @@ Code that runs on the audio thread (the `process` path of the engine, a module o
 
 Communicate with the audio thread through lock-free structures (`rtrb` ring buffers, atomics).
 
-Known exception, until cross-origin isolation is decided: in the web worklet (`web/src/lib/engine/worklet.ts`) commands arrive through `postMessage` and the meter goes back through `postMessage` about 30 times per second, which allocates small JavaScript objects on the audio thread; the wasm instance is created in the worklet's message handler, once, before any audio. Moving both to a `SharedArrayBuffer` needs COOP/COEP headers. Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
+Known exception, until the shared-memory channel of the MVP plan is built (cross-origin isolation was accepted on 2026-10-14; tasks AU-0, CT-3 and MO-2 of `docs/specs/02-decoupage-mvp.md`): in the web worklet (`web/src/lib/engine/worklet.ts`) commands arrive through `postMessage` and the meter goes back through `postMessage` about 30 times per second, which allocates small JavaScript objects on the audio thread; the wasm instance is created in the worklet's message handler, once, before any audio. Moving both to a `SharedArrayBuffer` needs cross-origin isolation (COOP/COEP headers, or Document-Isolation-Policy where it exists). Debug builds wrap the audio path with an allocation detector (e.g. `assert_no_alloc`); a test that triggers it fails. `unsafe` is allowed only with a `// SAFETY:` comment that states the invariant.
 
 ## Branches
 
@@ -92,7 +93,9 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 - **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
 - **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
 
-Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+Judge Dredd, an impartial read-only reviewer subagent, judges the work twice per task: the plan before starting, and the delivery once, as the last step before opening the pull request (`docs/agents/judge-dredd.md`). Briefs are built by `scripts/agent-review/brief.mjs` and the delivery review runs through `scripts/agent-review/run.mjs`. Every one of its findings is shown to the user with the lead's opinion; none is dropped silently.
+
+A `Stop` hook enforces this: a turn in which the session's own tool calls changed the guarded code (`crates/`, `web/`, `modules/`, `scripts/`…) ends only once the checks are recorded for its current state (`node scripts/agent-qa/record.mjs verified …`, `docs/agents/verification.md`) and the branch's delivery review is recorded (`node scripts/agent-qa/record.mjs reviewed …`). To stop mid-task only to ask the user a question, `node scripts/agent-qa/record.mjs deferred --reason "<question>"` lets one stop through per user message. A session whose own tool calls change no guarded file is not blocked, except in the cases listed in `docs/agents/verification.md` > Limits (another writer's edit during one of its shell calls is counted as its own). The guardrails stop an honest agent that forgets a step, not a deliberately evasive one.
 
 Before reporting a task as done:
 

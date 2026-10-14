@@ -52,6 +52,20 @@ Les modules sont l'actif central : portables entre les deux modes et partageable
 - Interface en anglais et en français dès le départ (décision du 2026-10-13).
 - Interface web en Svelte 5 (décision du 2026-10-13).
 
+Décisions du 2026-10-14 (détail et effets dans le [découpage du MVP](../specs/02-decoupage-mvp.md) § 7) :
+
+- **Périmètre du MVP** : pistes MIDI, pistes audio (import et lecture de fichiers audio, lus en flux depuis le disque ; l'enregistrement audio suit immédiatement le MVP) et automation (couloirs sur les paramètres des devices et du mixeur) ; tempo constant ; pas d'envois et retours ; les sessions ACP arrivent avec l'Atelier.
+- **Instruments et effets du MVP** : synthé oscillateur, batterie synthétisée, filtre, delay, réverbération, compresseur, plus le lecteur de clips des pistes audio.
+- **Pas de plafond visible** : le nombre de pistes, de devices, de scènes ou de notes n'est pas limité par le moteur ; seule une limite de sûreté très haute existe.
+- **Projet** : un dossier regroupé par piste, texte pour la structure, fichiers audio nommés par leur empreinte ([modèle de projet](../architecture/02-modele-projet.md)) ; la page possède le projet dans les deux modes.
+- **Où vivent les projets** : dans un vrai dossier choisi par l'utilisateur (Chrome, Edge) ; ailleurs, dans le navigateur avec export en archive ([stockage local](../architecture/03-stockage-local.md)).
+- **Quantification de lancement** : globale, 1 mesure par défaut, réglable (aucune, 1/16, 1 temps, 1, 2, 4, 8 mesures) ; un réglage par clip plus tard.
+- **Vocabulaire** : « Version » (un instantané nommé) et « Variante » (une exploration parallèle).
+- **Solo** : état d'écoute de la session, restauré à la réouverture, jamais versionné ; le mute fait partie du projet.
+- **Copier un clip dans la timeline** : copie indépendante par défaut, clip lié en option.
+- **Isolation cross-origin** du navigateur acceptée (nécessaire aux pistes audio).
+- **Organisation du travail** : le lead fusionne les pull requests prêtes ; les agents tournent dans le cloud, sauf pour les tâches qui touchent l'audio ou le MIDI réels, qui tournent sur la machine du fondateur.
+
 ## Décisions ouvertes
 
-- Modèle de distribution : outil personnel, open source, produit commercial.
+- Modèle de distribution : outil personnel, open source, produit commercial. (Le compilateur Faust dans le navigateur, faustwasm, est LGPL-3.0 : acceptable si Faulk est open source, à revoir sinon, décision du 2026-10-14.)

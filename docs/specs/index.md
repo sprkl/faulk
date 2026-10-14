@@ -1,3 +1,4 @@
 # Specs
 
-No specification yet. Specs are written with `/to-spec` once a spike has settled the technical ground.
+* [Atelier et modules](01-atelier-modules.md) - Proposal for the Atelier: anatomy of an audio plugin mapped to a minimal Faulk module ABI and manifest, synthesis and effect families, a three-level editor (block graph, Faust, Rust) with escape hatches, an AI create-listen-measure loop, sandboxing in both runtimes, and a concrete MVP.
+* [Découpage du MVP](02-decoupage-mvp.md) - Split of the Faulk MVP (MIDI and audio tracks, automation, several instruments and effects, in both modes) into 96 tasks for a swarm of agents, with the founder's decisions of 2026-10-14: socle decisions, epics and tasks with their tags, phases, dependency graph, critical path, contracts to freeze before parallel work, and conflict hot spots.
