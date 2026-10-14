@@ -465,6 +465,7 @@ dependencies = [
  "assert_no_alloc",
  "engine",
  "proptest",
+ "rtrb",
  "serde",
  "serde_json",
 ]

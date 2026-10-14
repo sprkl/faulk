@@ -7,3 +7,4 @@ mod synth;
 pub mod time;
 
 pub use synth::{MAX_VOICES, Param, Synth, Waveform};
+pub mod msg;
