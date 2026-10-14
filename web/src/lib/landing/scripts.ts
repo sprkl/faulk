@@ -5,7 +5,7 @@
  * uses are one function.
  */
 
-import { defaultLang, LANG_STORAGE_KEY } from '../i18n/lang'
+import { defaultLang, LANG_STORAGE_KEY, type Lang } from '../i18n/lang'
 
 /** JSON for a `<script>` body: `<` is escaped so a value can never close the tag. */
 function literal(value: string): string {
@@ -24,12 +24,22 @@ export function detectScript(frenchHref: string): string {
   )
 }
 
-/** Stores the language of a clicked `a[data-lang]` link, shared with the DAW. */
-export function rememberScript(): string {
+/**
+ * Stores the language of a clicked `a[data-lang]` link, shared with the DAW. With `app`
+ * (on `/en` and `/fr`, never on `/`, whose language is detected), a click on a link to the
+ * DAW (`href` exactly `app.href`) also stores the page's language, so the DAW opens in the
+ * language the reader chose by opening that page.
+ */
+export function rememberScript(app?: { href: string; lang: Lang }): string {
+  const key = literal(LANG_STORAGE_KEY)
+  const store = (value: string) => `try{localStorage.setItem(${key},${value})}catch(_){}`
   return (
-    `document.addEventListener('click',function(e){var t=e.target;` +
-    `var a=t&&t.closest?t.closest('a[data-lang]'):null;if(!a)return;` +
-    `try{localStorage.setItem(${literal(LANG_STORAGE_KEY)},a.getAttribute('data-lang'))}catch(_){}})`
+    `document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;` +
+    `var a=t.closest('a[data-lang]');if(a){${store("a.getAttribute('data-lang')")}return}` +
+    (app
+      ? `a=t.closest('a[href]');if(a&&a.getAttribute('href')===${literal(app.href)}){${store(literal(app.lang))}}`
+      : '') +
+    `})`
   )
 }
 

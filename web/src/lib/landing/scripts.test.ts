@@ -51,28 +51,64 @@ describe('detectScript', () => {
 })
 
 describe('rememberScript', () => {
-  function setup(setItem: (key: string, value: string) => void) {
-    let listener: ((e: { target: unknown }) => void) | undefined
+  type Target = { closest: (selector: string) => unknown } | null
+  function setup(setItem: (key: string, value: string) => void, app?: { href: string; lang: 'en' | 'fr' }) {
+    let listener: ((e: { target: Target }) => void) | undefined
     const document = { addEventListener: (_: string, fn: typeof listener) => (listener = fn) }
-    new Function('document', 'localStorage', rememberScript())(document, { setItem })
-    return (target: unknown) => listener!({ target })
+    new Function('document', 'localStorage', rememberScript(app))(document, { setItem })
+    return (target: Target) => listener!({ target })
   }
-  const link = (lang: string | null) => ({ closest: () => (lang ? { getAttribute: () => lang } : null) })
+  /** A clicked element inside a link with these attributes (or inside no link). */
+  const inside = (attrs: Record<string, string> | null): Target => ({
+    closest: (selector: string) => {
+      if (!attrs) return null
+      const name = selector.slice(selector.indexOf('[') + 1, -1)
+      return name in attrs ? { getAttribute: (n: string) => attrs[n] ?? null } : null
+    },
+  })
 
   it('stores the language of a clicked language link', () => {
     const stored: [string, string][] = []
     const click = setup((k, v) => stored.push([k, v]))
-    click(link('fr'))
-    click(link(null))
+    click(inside({ 'data-lang': 'fr', href: '/fr' }))
+    click(inside(null))
     click(null)
     expect(stored).toEqual([[LANG_STORAGE_KEY, 'fr']])
   })
 
+  it('on /en and /fr, stores the page language when the reader opens the DAW', () => {
+    const stored: [string, string][] = []
+    const click = setup((k, v) => stored.push([k, v]), { href: '/app', lang: 'fr' })
+    click(inside({ href: '/app' }))
+    click(inside({ href: '/app/x' }))
+    click(inside({ href: '#modes' }))
+    click(inside({ 'data-lang': 'en', href: '/en' }))
+    expect(stored).toEqual([
+      [LANG_STORAGE_KEY, 'fr'],
+      [LANG_STORAGE_KEY, 'en'],
+    ])
+  })
+
+  it('on /, leaves the language alone when the reader opens the DAW', () => {
+    const stored: [string, string][] = []
+    const click = setup((k, v) => stored.push([k, v]))
+    click(inside({ href: '/app' }))
+    expect(stored).toEqual([])
+  })
+
   it('still follows the link when storage throws', () => {
-    const click = setup(() => {
-      throw new Error('quota')
-    })
-    expect(() => click(link('en'))).not.toThrow()
+    const click = setup(
+      () => {
+        throw new Error('quota')
+      },
+      { href: '/app', lang: 'en' },
+    )
+    expect(() => click(inside({ 'data-lang': 'en', href: '/en' }))).not.toThrow()
+    expect(() => click(inside({ href: '/app' }))).not.toThrow()
+  })
+
+  it('cannot close its script tag', () => {
+    expect(rememberScript({ href: '/app</script>', lang: 'en' })).not.toContain('</script>')
   })
 })
 

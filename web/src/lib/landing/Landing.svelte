@@ -23,7 +23,7 @@
   }
   const scripts = $derived(
     (detect ? inlineScript(detectScript(hrefs.fr)) : '') +
-      inlineScript(rememberScript()) +
+      inlineScript(rememberScript(detect ? undefined : { href: resolve('/app'), lang })) +
       inlineScript(animBootScript(animUrl), 'module'),
   )
 </script>
