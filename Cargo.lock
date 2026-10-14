@@ -1382,6 +1382,7 @@ name = "project"
 version = "0.1.0"
 dependencies = [
  "engine",
+ "proptest",
  "schemars",
  "serde",
  "serde_json",

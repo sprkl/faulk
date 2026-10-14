@@ -19,8 +19,8 @@ use std::fmt;
 
 /// What a command applies to: the project document and the session state (founder's
 /// decision 10: solo, selected MIDI input, selection live in the session, never in the
-/// versioned project).
-#[derive(Clone, Debug, Default, PartialEq)]
+/// versioned project). No `Default`: a project is created with its id.
+#[derive(Clone, Debug, PartialEq)]
 pub struct State {
     pub project: Project,
     pub session: SessionState,
