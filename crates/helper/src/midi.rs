@@ -1,18 +1,55 @@
 //! MIDI inputs: listing, hot-plug detection by polling, and the selected connection.
 //!
 //! midir has no hot-plug event, so the host polls [`MidiManager::refresh`]. The MIDI
-//! callback runs on midir's thread (not the audio thread): it sends events through the
-//! shared [`EventSender`], which lives outside the connection so that closing or failing
-//! a connection never loses it.
+//! callback runs on midir's thread (not the audio thread): it turns each message into a
+//! live command and sends it through the shared [`EventSender`] (the engine's prepare
+//! side), which lives outside the connection so that closing or failing a connection never
+//! loses it.
 
-use crate::audio::{EngineEvent, EventSender};
+use crate::audio::EventSender;
+use commands::{Command, live};
 use midir::{MidiInput, MidiInputConnection};
 use protocol::MidiInput as InputInfo;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-/// Decodes a MIDI message into an engine event. Channels are merged (omni).
-pub fn decode(message: &[u8]) -> Option<EngineEvent> {
+/// The track the MIDI input plays: the one synth's (`protocol::single_synth`), until RE-1
+/// routes the live input to the selected and armed tracks.
+fn track() -> project::TrackId {
+    project::TrackId::parse(protocol::single_synth::TRACK).expect("a valid track id")
+}
+
+/// The command that releases every note.
+pub fn all_notes_off() -> Command {
+    Command::Live(live::Command::AllNotesOff {})
+}
+
+/// The note and velocity a command plays, for the MIDI activity light (0: released).
+pub fn light(command: &Command) -> Option<(u8, u8)> {
+    match command {
+        Command::Live(live::Command::NoteOn { note, velocity, .. }) => Some((*note, *velocity)),
+        Command::Live(live::Command::NoteOff { note, .. }) => Some((*note, 0)),
+        _ => None,
+    }
+}
+
+fn note_on(note: u8, velocity: u8) -> Command {
+    Command::Live(live::Command::NoteOn {
+        track: track(),
+        note,
+        velocity,
+    })
+}
+
+fn note_off(note: u8) -> Command {
+    Command::Live(live::Command::NoteOff {
+        track: track(),
+        note,
+    })
+}
+
+/// Decodes a MIDI message into a live command. Channels are merged (omni).
+pub fn decode(message: &[u8]) -> Option<Command> {
     let (&status, data) = message.split_first()?;
     let kind = status & 0xF0;
     let byte = |i: usize| data.get(i).map(|b| b & 0x7F);
@@ -20,13 +57,13 @@ pub fn decode(message: &[u8]) -> Option<EngineEvent> {
         0x90 => {
             let note = byte(0)?;
             match byte(1)? {
-                0 => Some(EngineEvent::NoteOff { note }),
-                velocity => Some(EngineEvent::NoteOn { note, velocity }),
+                0 => Some(note_off(note)),
+                velocity => Some(note_on(note, velocity)),
             }
         }
-        0x80 => Some(EngineEvent::NoteOff { note: byte(0)? }),
+        0x80 => Some(note_off(byte(0)?)),
         // Control change 120 (all sound off) and 123 (all notes off).
-        0xB0 if matches!(byte(0)?, 120 | 123) => Some(EngineEvent::AllNotesOff),
+        0xB0 if matches!(byte(0)?, 120 | 123) => Some(all_notes_off()),
         _ => None,
     }
 }
@@ -99,16 +136,11 @@ impl MidiManager {
                 &port,
                 "faulk-helper-in",
                 move |_timestamp, message, _| {
-                    if let Some(event) = decode(message) {
+                    if let Some(command) = decode(message) {
                         if let Ok(mut sender) = sender.lock() {
-                            sender.send(event);
+                            sender.send(&command);
                         }
-                        let light = match event {
-                            EngineEvent::NoteOn { note, velocity } => Some((note, velocity)),
-                            EngineEvent::NoteOff { note } => Some((note, 0)),
-                            _ => None,
-                        };
-                        if let Some(light) = light {
+                        if let Some(light) = light(&command) {
                             let _ = activity.send(light);
                         }
                     }
@@ -126,7 +158,7 @@ impl MidiManager {
         if let Some(connection) = self.connection.take() {
             connection.close();
             if let Ok(mut sender) = self.sender.lock() {
-                sender.send(EngineEvent::AllNotesOff);
+                sender.send(&all_notes_off());
             }
         }
         self.selected = None;
@@ -153,30 +185,12 @@ mod tests {
 
     #[test]
     fn decodes_notes_on_any_channel() {
-        assert_eq!(
-            decode(&[0x90, 60, 100]),
-            Some(EngineEvent::NoteOn {
-                note: 60,
-                velocity: 100
-            })
-        );
-        assert_eq!(
-            decode(&[0x9F, 60, 100]),
-            Some(EngineEvent::NoteOn {
-                note: 60,
-                velocity: 100
-            })
-        );
-        assert_eq!(
-            decode(&[0x90, 60, 0]),
-            Some(EngineEvent::NoteOff { note: 60 })
-        );
-        assert_eq!(
-            decode(&[0x83, 61, 40]),
-            Some(EngineEvent::NoteOff { note: 61 })
-        );
-        assert_eq!(decode(&[0xB0, 123, 0]), Some(EngineEvent::AllNotesOff));
-        assert_eq!(decode(&[0xB0, 120, 0]), Some(EngineEvent::AllNotesOff));
+        assert_eq!(decode(&[0x90, 60, 100]), Some(note_on(60, 100)));
+        assert_eq!(decode(&[0x9F, 60, 100]), Some(note_on(60, 100)));
+        assert_eq!(decode(&[0x90, 60, 0]), Some(note_off(60)));
+        assert_eq!(decode(&[0x83, 61, 40]), Some(note_off(61)));
+        assert_eq!(decode(&[0xB0, 123, 0]), Some(all_notes_off()));
+        assert_eq!(decode(&[0xB0, 120, 0]), Some(all_notes_off()));
     }
 
     #[test]
@@ -186,13 +200,7 @@ mod tests {
         assert_eq!(decode(&[0x90, 60]), None);
         assert_eq!(decode(&[0xB0, 7, 100]), None);
         assert_eq!(decode(&[0xF8]), None); // clock
-        assert_eq!(
-            decode(&[0x90, 0xFF, 0xFF]),
-            Some(EngineEvent::NoteOn {
-                note: 127,
-                velocity: 127
-            })
-        );
+        assert_eq!(decode(&[0x90, 0xFF, 0xFF]), Some(note_on(127, 127)));
     }
 
     fn input(id: &str) -> InputInfo {

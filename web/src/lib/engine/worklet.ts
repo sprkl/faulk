@@ -1,51 +1,72 @@
-// Runs on the audio thread, inside an AudioWorkletGlobalScope.
-import { WasmCore, type EngineExports } from './wasm-core'
-import type { WasmOp } from './wasm-ops'
+// Runs on the audio thread, inside an AudioWorkletGlobalScope: the render instance of the
+// engine module (MO-2). It knows no command: the prepare Worker feeds the engine through
+// the shared memory, the page reads the engine's report from it. Once initialized, nothing
+// here posts a message or allocates, except re-taking the two output views after the memory
+// grew (one comparison per block, CT-3).
+import { MAX_FRAMES, becomeRenderInstance, instantiate, type EngineExports, type RenderSetup } from './engine-abi'
 
-declare const sampleRate: number
 declare function registerProcessor(name: string, processor: unknown): void
 declare class AudioWorkletProcessor {
   readonly port: MessagePort
 }
 
-export type WorkletMessage =
-  /** The wasm bytes: a compiled WebAssembly.Module does not reach a worklet in Chrome. */
-  | { type: 'init'; bytes: ArrayBuffer }
-  | { type: 'ops'; ops: WasmOp[] }
-
-/** Render quanta between two meter messages (about 30 per second at 48 kHz). */
-const METER_EVERY = 12
+export type WorkletMessage = {
+  type: 'init'
+  /** The module's bytes: a compiled WebAssembly.Module does not reach a worklet in Chrome. */
+  bytes: ArrayBuffer
+  memory: WebAssembly.Memory
+  setup: RenderSetup
+}
 
 class FaulkProcessor extends AudioWorkletProcessor {
-  private core: WasmCore | null = null
-  private blocks = 0
+  private exports: EngineExports | null = null
+  private memory: WebAssembly.Memory | null = null
+  private channel = 0
+  private buffer: ArrayBufferLike | null = null
+  private left = new Float32Array(0)
+  private right = new Float32Array(0)
 
   constructor() {
     super()
+    // The one-time instantiation, before any audio (the only message this worklet handles).
     this.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
       const message = event.data
-      if (message.type === 'init') {
-        try {
-          const instance = new WebAssembly.Instance(new WebAssembly.Module(message.bytes), {})
-          this.core = new WasmCore(instance.exports as unknown as EngineExports, sampleRate)
-          this.port.postMessage({ type: 'ready' })
-        } catch (error) {
-          // Errors in a worklet message handler are otherwise silent.
-          this.port.postMessage({ type: 'error', message: String(error) })
-        }
-      } else if (this.core) {
-        for (const op of message.ops) this.core.apply(op)
+      try {
+        const exports = instantiate(new WebAssembly.Module(message.bytes), message.memory)
+        becomeRenderInstance(exports, message.setup)
+        this.memory = message.memory
+        this.channel = message.setup.channel
+        this.exports = exports
+        this.takeViews()
+        this.port.postMessage({ type: 'ready' })
+      } catch (error) {
+        // Errors in a worklet message handler are otherwise silent.
+        this.port.postMessage({ type: 'error', message: String(error) })
       }
     }
   }
 
+  /** Re-takes the output views when the shared memory grew (a new `buffer` object). */
+  private takeViews() {
+    const buffer = this.memory!.buffer
+    if (buffer === this.buffer) return
+    this.buffer = buffer
+    this.left = new Float32Array(buffer, this.exports!.fk_left(this.channel), MAX_FRAMES)
+    this.right = new Float32Array(buffer, this.exports!.fk_right(this.channel), MAX_FRAMES)
+  }
+
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const output = outputs[0]
-    if (!this.core || !output || output.length === 0) return true
-    this.core.render(output[0], output[1])
-    // The only allocation on this thread: one small meter message every METER_EVERY quanta.
-    if (++this.blocks % METER_EVERY === 0) {
-      this.port.postMessage({ type: 'meter', peak: this.core.takePeak(), voices: this.core.activeVoices() })
+    if (!this.exports || !output || output.length === 0) return true
+    const outLeft = output[0]
+    const outRight = output[1]
+    const frames = this.exports.fk_render(this.channel, outLeft.length)
+    this.takeViews()
+    const left = this.left
+    const right = this.right
+    for (let i = 0; i < frames; i++) {
+      outLeft[i] = left[i]
+      if (outRight) outRight[i] = right[i]
     }
     return true
   }
