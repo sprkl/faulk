@@ -152,8 +152,9 @@ jobs:
 
       # The installer launches the helper with `--veloapp-*` arguments, and only a main() that
       # calls `helper::updater::startup()` before parsing its arguments answers them (exit 0 at
-      # once) and applies updates; an unwired helper refuses the argument (exit 2). vpk does not
-      # check it, so the built binary is run as the installer would. `Updater::start` cannot be
+      # once) and applies updates; an unwired helper refuses the argument (nonzero exit: 1, or
+      # killed by the timeout while a release build shows its error box). vpk does not check
+      # it, so the built binary is run as the installer would. `Updater::start` cannot be
       # observed without an installation: it is looked for in main.rs. The release job refuses
       # to publish when either is missing.
       - name: Is the updater wired into main.rs?

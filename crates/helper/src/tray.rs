@@ -309,6 +309,7 @@ mod tests {
     fn the_run_value_is_written_compared_and_removed() {
         // A throwaway value next to the real one, removed at the end.
         let name = format!("FaulkHelperTest{}", std::process::id());
+        let _cleanup = RemoveRunValue(name.clone());
         let command = r#""C:\Faulk\faulk-helper.exe" --port 47801"#;
         assert!(!run_value_is(&name, command), "absent reads as off");
         set_run_value(&name, Some(command)).unwrap();
@@ -322,11 +323,37 @@ mod tests {
         set_run_value(&name, None).expect("removing an absent value is fine");
     }
 
+    /// Removes a throwaway Run value when dropped, even after a failed assertion: a value
+    /// left behind would run at every log-in.
+    struct RemoveRunValue(String);
+
+    impl Drop for RemoveRunValue {
+        fn drop(&mut self) {
+            let _ = set_run_value(&self.0, None);
+        }
+    }
+
+    #[test]
+    fn a_failed_test_still_removes_its_run_value() {
+        let name = format!("FaulkHelperGuardTest{}", std::process::id());
+        let inner = name.clone();
+        let result = std::thread::spawn(move || {
+            let _cleanup = RemoveRunValue(inner.clone());
+            set_run_value(&inner, Some(r#""C:\FaulkTestNowhere\x.exe""#)).unwrap();
+            panic!("a failing assertion");
+        })
+        .join();
+        assert!(result.is_err());
+        assert!(!run_value_is(&name, r#""C:\FaulkTestNowhere\x.exe""#));
+    }
+
     #[test]
     fn the_uninstaller_forgets_only_the_value_of_its_own_executable() {
         let name = format!("FaulkHelperForgetTest{}", std::process::id());
-        let installed = r"C:\Users\u\AppData\Local\FaulkHelper\current\faulk-helper.exe";
-        let dev = r#""C:\git\music\target\release\faulk-helper.exe" --port 47801"#;
+        let _cleanup = RemoveRunValue(name.clone());
+        // Paths that do not exist: a value left behind starts nothing.
+        let installed = r"C:\FaulkTestNowhere\FaulkHelper\current\faulk-helper.exe";
+        let dev = r#""C:\FaulkTestNowhere\dev\faulk-helper.exe" --port 47801"#;
         set_run_value(&name, Some(dev)).unwrap();
         assert!(!forget_run_value(&name, installed).unwrap(), "another copy");
         assert!(run_value_is(&name, dev), "kept");
