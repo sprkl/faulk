@@ -19,10 +19,11 @@
 //!    instrument, effects); a device placed elsewhere runs where it is (an effect before
 //!    the instrument transforms silence, a MIDI effect after it feeds nothing).
 //!
-//!    The voice ids a MIDI effect writes are its own (CT-5): when a MIDI effect is
-//!    inserted, removed, enabled or disabled, the instrument would never receive the
-//!    note-offs of the notes it holds under the old stream, so the next block of the
-//!    track starts with an `AllNotesOff` before its live notes. Remapping those ids to
+//!    The voice ids a MIDI effect writes are its own (CT-5): when a MIDI effect or an
+//!    instrument is inserted, removed, enabled or disabled, the instrument would never
+//!    receive the note-offs of the notes it holds under the old stream (or while it was
+//!    bypassed), so the next rendered block of the track starts with an `AllNotesOff`
+//!    before its live notes. Remapping those ids to
 //!    fresh ones (two MIDI effects in a row, an effect beside the live input) is left to
 //!    the event routing of MO-4;
 //! 2. every **retiring** track (below), with a target of silence;
@@ -165,8 +166,9 @@ impl Ramp {
 pub struct TrackGraph {
     left: Ramp,
     right: Ramp,
-    /// The chain's note stream changed (a MIDI effect inserted, removed, enabled or
-    /// disabled): the next rendered block releases every note of the track first.
+    /// The chain's note stream changed (a MIDI effect or an instrument inserted, removed,
+    /// enabled or disabled): the next rendered block releases every note of the track
+    /// first.
     release: bool,
     next: Option<Box<Track>>,
 }
@@ -455,8 +457,14 @@ impl Drop for Graph {
     }
 }
 
+/// A sample as it leaves the graph: a denormal, a NaN or an infinity (a device breaking
+/// its contract, a sum that overflowed) is 0.
 fn flush(x: f32) -> f32 {
-    if x.abs() < DENORMAL_FLOOR { 0.0 } else { x }
+    if !x.is_finite() || x.abs() < DENORMAL_FLOOR {
+        0.0
+    } else {
+        x
+    }
 }
 
 /// The live input of a track in its slot.

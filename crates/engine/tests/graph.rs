@@ -65,8 +65,41 @@ fn build_synth(setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
     Ok(try_box(SynthDevice(Synth::new(setup.sample_rate)))?)
 }
 
+/// An effect that breaks the contract: it writes NaN and infinities.
+struct Broken;
+
+static BROKEN: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.test_broken",
+    kind_id: DeviceKind(0xFFFF_00AA),
+    name: "Broken",
+    ..GAIN
+};
+
+impl Device for Broken {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &BROKEN
+    }
+
+    fn process(&mut self, _ctx: &BlockCtx, _events: &[Event], io: &mut AudioIo<'_>) {
+        for (i, (l, r)) in io.left.iter_mut().zip(io.right.iter_mut()).enumerate() {
+            *l = if i % 2 == 0 { f32::NAN } else { f32::INFINITY };
+            *r = f32::NEG_INFINITY;
+        }
+    }
+
+    fn set_param(&mut self, _id: ParamId, _value: f32) {}
+
+    fn reset(&mut self) {}
+}
+
+fn build_broken(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+    Ok(try_box(Broken)?)
+}
+
 fn resolver(kind: DeviceKind) -> Option<Factory> {
-    if kind == OSC_SYNTH.kind_id {
+    if kind == BROKEN.kind_id {
+        Some(build_broken)
+    } else if kind == OSC_SYNTH.kind_id {
         Some(build_synth)
     } else {
         engine::device::testing::factory(kind)
@@ -799,4 +832,50 @@ fn changing_a_midi_effect_releases_the_notes_of_its_track() {
         }]);
         assert!(peak(&r.run(4).0) > 0.5 * TONE_LEVEL);
     }
+}
+
+#[test]
+fn a_bypassed_instrument_keeps_no_stuck_note() {
+    let mut r = Rig::new();
+    r.send(&[create(0), tone(0), note(0, 69)]);
+    r.run(4);
+    let disable = |enabled| M::DeviceSetEnabled {
+        track: t(0),
+        device: DeviceSlot(0),
+        enabled,
+    };
+    // Bypassed while the key is held: its note-off never reaches the instrument.
+    r.send(&[disable(false)]);
+    r.run(2);
+    r.send(&[M::NoteOff {
+        track: t(0),
+        pitch: 69,
+    }]);
+    r.run(2);
+    r.send(&[disable(true)]);
+    let after = r.run(4).0;
+    assert_eq!(peak(&after), 0.0, "the held voice was released");
+}
+
+#[test]
+fn nan_and_infinities_from_a_device_never_reach_the_output() {
+    let mut r = Rig::new();
+    r.send(&[
+        create(0),
+        tone(0),
+        note(0, 69),
+        create(1),
+        tone(1),
+        insert(1, 1, BROKEN.kind_id, &[]),
+        note(1, 60),
+    ]);
+    // `run` asserts every sample is finite and not denormal.
+    let (l, rr) = r.run(8);
+    assert!(peak(&l) <= 1.0 && peak(&rr) <= 1.0);
+    r.send(&[M::SetMaster {
+        gain: 1.0,
+        mute: true,
+    }]);
+    let (l, rr) = r.run(8);
+    assert_eq!(peak(&l[BLOCK * 4..]) + peak(&rr[BLOCK * 4..]), 0.0);
 }

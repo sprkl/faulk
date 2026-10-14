@@ -1615,10 +1615,10 @@ impl Engine {
             }
             RtMsg::DevicePut { track, put } => match state.track_mut(track) {
                 Some(t) => {
-                    let midi = is_midi_effect(&put.value);
+                    let midi = takes_notes(&put.value);
                     let (spare, out) = put_slot(&mut t.devices, put);
                     skipped = out;
-                    if midi || spare.item.as_deref().is_some_and(is_midi_effect) {
+                    if midi || spare.item.as_deref().is_some_and(takes_notes) {
                         t.graph.release_notes();
                     }
                     Some(Garbage::Devices(spare))
@@ -1635,7 +1635,7 @@ impl Engine {
                 match state.track_mut(track).map(|t| {
                     let old = take_slot(&mut t.devices, device.0.into());
                     if let Ok(Some(entry)) = &old
-                        && is_midi_effect(entry)
+                        && takes_notes(entry)
                     {
                         t.graph.release_notes();
                     }
@@ -1659,7 +1659,7 @@ impl Engine {
                 let mut release = false;
                 match device_mut(state, track, device) {
                     Some(entry) => {
-                        release = entry.enabled != enabled && is_midi_effect(entry);
+                        release = entry.enabled != enabled && takes_notes(entry);
                         entry.enabled = enabled;
                     }
                     None => skipped = true,
@@ -1810,10 +1810,12 @@ impl Engine {
     }
 }
 
-/// Whether a chain entry is a MIDI effect: changing one switches the instrument's note
-/// stream between two voice-id spaces, so the graph releases the track's notes (MO-3).
-fn is_midi_effect(entry: &DeviceEntry) -> bool {
-    entry.device.descriptor().role == DeviceRole::MidiEffect
+/// Whether a chain entry receives notes (a MIDI effect or an instrument): changing one
+/// (insert, remove, enable, disable) switches the instrument's note stream, or skips the
+/// note-offs a bypassed one would have needed, so the graph releases the track's notes at
+/// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
+fn takes_notes(entry: &DeviceEntry) -> bool {
+    entry.device.descriptor().role != DeviceRole::Effect
 }
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {
