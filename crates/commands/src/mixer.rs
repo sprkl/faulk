@@ -38,7 +38,7 @@ domain! {
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
-        #[schemars(required)]
+        #[schemars(required, schema_with = "nullable_number")]
         previous: Option<f64>,
     };
 
@@ -77,7 +77,7 @@ domain! {
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
-        #[schemars(required)]
+        #[schemars(required, schema_with = "nullable_number")]
         previous: Option<f64>,
     };
 
@@ -319,5 +319,14 @@ fn nullable_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         "minimum": MIN_GAIN_DB,
         "maximum": MAX_GAIN_DB,
         "description": "Required: `null` is silence, a missing field is an error."
+    })
+}
+
+/// The schema of a previous gain: a number, or `null` when it was silence.
+fn nullable_number(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": ["number", "null"],
+        "format": "double",
+        "description": "The volume before the command, in dB; `null` was silence."
     })
 }

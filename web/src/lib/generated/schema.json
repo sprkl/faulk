@@ -1335,7 +1335,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -1391,7 +1394,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -2277,7 +2283,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -2333,7 +2342,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -3222,7 +3234,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -3278,7 +3293,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -3393,7 +3411,10 @@
             "previous": {
               "description": "The volume before the command, in dB; `null` was silence.",
               "format": "double",
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             }
           },
           "required": [
@@ -4163,7 +4184,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -4219,7 +4243,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -5101,7 +5128,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -5157,7 +5187,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -6041,7 +6074,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -6097,7 +6133,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -6212,7 +6251,10 @@
             "previous": {
               "description": "The volume before the command, in dB; `null` was silence.",
               "format": "double",
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             }
           },
           "required": [
@@ -6979,7 +7021,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -7035,7 +7080,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -7906,7 +7954,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -7962,7 +8013,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -8833,7 +8887,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -8889,7 +8946,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -9781,7 +9841,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -9837,7 +9900,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -10714,7 +10780,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -10770,7 +10839,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -11634,7 +11706,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -11690,7 +11765,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -12554,7 +12632,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -12610,7 +12691,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -13493,7 +13577,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -13549,7 +13636,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -14432,7 +14522,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -14488,7 +14581,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -15359,7 +15455,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -15415,7 +15514,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -16293,7 +16395,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -16349,7 +16454,10 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": "number"
+                      "type": [
+                        "number",
+                        "null"
+                      ]
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -17270,7 +17378,10 @@
                 "previous": {
                   "description": "The volume before the command, in dB; `null` was silence.",
                   "format": "double",
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": {
                   "const": "mixer.set_volume",
@@ -17326,7 +17437,10 @@
                 "previous": {
                   "description": "The volume before the command, in dB; `null` was silence.",
                   "format": "double",
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": {
                   "const": "mixer.set_master_volume",
