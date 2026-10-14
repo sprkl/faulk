@@ -91,6 +91,17 @@ fn bundle_carries_version_and_param_ids() {
 }
 
 #[test]
+fn bundle_carries_the_v2_contract() {
+    let bundle = schema_bundle();
+    let v2 = &bundle["command_v2"];
+    assert_eq!(v2["input"], commands::v2::schema());
+    assert_eq!(v2["output"], commands::v2::output_schema());
+    let catalog = v2["catalog"].as_array().unwrap();
+    assert_eq!(catalog.len(), commands::v2::catalog().len());
+    assert_eq!(catalog[0]["name"], "project.rename");
+}
+
+#[test]
 fn a_command_cannot_be_smuggled_into_pairing() {
     let json = r#"{"type":"pair","code":"1","command":{"type":"note.all_off"}}"#;
     assert!(serde_json::from_str::<ClientMessage>(json).is_err());

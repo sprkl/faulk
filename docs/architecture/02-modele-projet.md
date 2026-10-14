@@ -132,7 +132,7 @@ Choix et limites pour le MVP :
 - **Clips audio non élastiques** : début en ticks, durée en frames ; un changement de tempo déplace le début, pas la vitesse. Le recalage temporel viendra plus tard comme une liste de points `(tick, frame)`.
 - **Automation d'arrangement uniquement** (par piste), sur les paramètres des devices et du mixeur, dans le MVP (décision du 2026-10-14, tâches AM-1 à AM-6 du découpage) ; les enveloppes propres aux clips sont reportées.
 - **Pistes audio dans le MVP** : import et lecture (`ClipContent::Audio`, `Span::Frames`), sans enregistrement audio ni recalage temporel ; une piste audio est une piste dont l'instrument est le lecteur de clips (tâches AU-1 à AU-8 du découpage).
-- **Notes sans identifiant sur disque.** Une note est une *valeur* : la modifier, c'est retirer l'ancienne et ajouter la nouvelle, ce qui rend la fusion des notes triviale (§ 4.3). Le découpage du MVP prévoit pourtant un `NoteId` dans les commandes : **à trancher** dans le contrat de commande (CT-4) ; une voie possible est un identifiant de session, tenu en mémoire et jamais écrit sur disque. L'expression par note (MPE) exigera plus tard un identifiant durable, ajouté comme colonne optionnelle.
+- **Notes sans identifiant sur disque, ni en mémoire.** Une note est une *valeur* : la modifier, c'est retirer l'ancienne et ajouter la nouvelle, ce qui rend la fusion des notes simple (§ 4.3). **Décidé par CT-4 (#40)** : pas de `NoteId`, ni durable ni de session ; les commandes adressent une note par sa valeur entière, et un inverse est construit depuis ce qui a réellement changé (ajouter une note déjà présente dans l'ensemble ne change rien). L'expression par note (MPE) exigera plus tard un identifiant durable, ajouté comme colonne optionnelle ; le `note_id` de l'ABI de l'Atelier est un identifiant de voix du moteur, pas du projet.
 - **Plugins tiers** : leur état est un blob opaque ; seuls les paramètres que l'hôte peut lire sont recopiés en clair dans `params`. En conflit, un état opaque ne se fusionne pas : on choisit un côté.
 
 ### 1.3 Identité du projet et réglages du transport
@@ -284,7 +284,7 @@ Deux insertions qui reçoivent par hasard la même clé d'ordre sont départagé
 
 ### 4.3 Fusion des collections
 
-- **Notes : fusion d'ensembles, avec appariement.** La formule naïve (nous ∩ eux) ∪ (nous − base) ∪ (eux − base) confond une note modifiée avec une note supprimée puis ajoutée : si une branche supprime la note N et que l'autre change sa vélocité (N'), N' serait conservée sans conflit et la suppression perdue. La fusion apparie donc d'abord chaque note de base avec ses versions de chaque côté : par identifiant si CT-4 donne un identifiant aux notes, sinon par une clé stable (hauteur et début), une modification de hauteur ou de début comptant comme « supprimée puis ajoutée ». Ensuite, les règles de la table du § 4.2 s'appliquent note par note, y compris le conflit « supprimé / modifié ». Une branche qui ajoute un contre-chant et une autre qui corrige une fausse note dans le même clip se fusionnent toujours sans conflit. Deux notes de même hauteur qui se chevauchent après fusion sont signalées comme « conflit de note » à écouter. Le choix entre identifiant et clé d'appariement est à trancher dans CT-4.
+- **Notes : fusion d'ensembles, avec appariement.** La formule naïve (nous ∩ eux) ∪ (nous − base) ∪ (eux − base) confond une note modifiée avec une note supprimée puis ajoutée : si une branche supprime la note N et que l'autre change sa vélocité (N'), N' serait conservée sans conflit et la suppression perdue. La fusion apparie donc d'abord chaque note de base avec ses versions de chaque côté : CT-4 (#40) ne donnant pas d'identifiant aux notes, l'appariement se fait par la clé stable (hauteur et début), une modification de hauteur ou de début comptant comme « supprimée puis ajoutée ». Ensuite, les règles de la table du § 4.2 s'appliquent note par note, y compris le conflit « supprimé / modifié ». Une branche qui ajoute un contre-chant et une autre qui corrige une fausse note dans le même clip se fusionnent toujours sans conflit. Deux notes de même hauteur qui se chevauchent après fusion sont signalées comme « conflit de note » à écouter.
 - **Points d'automation** : table indexée par tick ; même tick changé différemment des deux côtés → conflit sur ce point. Un couloir stocké en blob se fusionne en le relisant comme table.
 - **Placements** : table indexée par ID ; même placement déplacé différemment → conflit ; chevauchements après fusion → signalés.
 
@@ -339,22 +339,22 @@ C'est aussi le terrain de l'IA : **un agent travaille dans une variante** (« Fa
 
 **L'état est la vérité ; git est l'histoire ; les commandes sont le seul moyen de changer l'état.**
 
-1. **Modèle immuable à partage structurel** (option (b) ci-dessous). Chaque commande prend un `Project` et rend un nouveau `Project` qui partage tout ce qui n'a pas changé (`Arc` sur les pistes, clips, couloirs, ou la crate `im`). Coût proportionnel à ce qui change.
-2. **Annuler = revenir à la racine précédente.** La pile d'annulation est une liste de racines, bon marché grâce au partage structurel. Une commande structurelle (« supprimer une piste ») n'a plus à savoir écrire son inverse : `x-undo` prend la valeur `snapshot` pour les commandes du projet. L'inverse explicite reste utile pour les réglages temps réel que le moteur applique directement ; `none` pour les notes jouées en direct. Un tour d'agent = une seule entrée.
+1. **Modèle mutable à inverses explicites** (option (a) ci-dessous, **décidé par CT-4, #40**). Chaque commande modifie le `Project` en place et rend son inverse ; le modèle immuable à partage structurel (option (b)) n'est pas retenu.
+2. **Annuler = appliquer l'inverse.** La pile d'annulation garde l'inverse de chaque commande (`x-undo: inverse`) ; l'inverse est une commande ordinaire, appliquée par le même chemin, donc le moteur et l'interface suivent une annulation comme une édition. Une commande structurelle (« supprimer une piste ») a pour inverse une commande de restauration qui porte l'entité avec ses identifiants. `none` pour les commandes `live` (notes jouées en direct, lecture, solo, sélection) et les éditions irréversibles, alors `x-destructive`. Un tour d'agent = une seule entrée (groupe).
 3. **Fichiers sales** : chaque commande marque les entités touchées ; l'enregistrement réécrit seulement leurs fichiers (§ 7).
 4. **Journal léger, non vérité** : les commandes d'une session sont gardées (en mémoire et dans `.faulk/`) pour l'attribution et pour **rédiger le message de la version** (« Agent : 1 piste ajoutée, 42 notes posées », avec des lignes de fin `Faulk-Author: agent:<nom>`).
 5. **Les gestes de version sont des commandes** : `version.save { message }`, `version.list`, `variant.create { name }`, `variant.switch { name }`, `variant.compare { a, b }`, `variant.merge { from } → { conflicts }`, `conflict.resolve { id, choice }`, `version.restore { id }`. `version.restore` et l'abandon d'une variante sont destructeurs.
 
-**Choix ouvert, à trancher dans CT-4.** Ce document et le [découpage du MVP](../specs/02-decoupage-mvp.md) proposent deux contrats de commande différents, et l'un exclut l'autre comme base de PR-2 :
+**Choix tranché par CT-4 (#40)** entre les deux contrats que ce document et le [découpage du MVP](../specs/02-decoupage-mvp.md) proposaient :
 
-| | (a) Modèle mutable, inverses explicites (découpage, § 2.1) | (b) Modèle persistant, annulation par instantané (ce document) |
+| | (a) Modèle mutable, inverses explicites (**retenu**) | (b) Modèle persistant, annulation par instantané |
 | --- | --- | --- |
-| Signature | `apply(&mut Project, Command) -> Result<Outcome, CommandError>` | `apply(&Project, Command) -> Result<(Project, Outcome), CommandError>` |
-| Annulation | `Outcome` porte l'inverse ; chaque commande sait le calculer | La pile garde les racines précédentes ; `x-undo: snapshot` |
-| Coût | Écrire et tester un inverse par commande | Partage structurel obligatoire (`Arc`, `im`) dans tout le modèle |
-| Risque | Un inverse faux corrompt l'historique | Une mémoire qui croît si la pile n'est pas bornée |
+| Signature | `Command::apply(&self, &mut State, &mut Context) -> Result<Outcome, CommandError>` | `apply(&Project, Command) -> Result<(Project, Outcome), CommandError>` |
+| Annulation | `Outcome` porte l'inverse ; chaque commande sait le calculer, et le harnais de test le vérifie | La pile garde les racines précédentes ; `x-undo: snapshot` |
+| Coût | Écrire et tester un inverse par commande (règle de test mécanique) | Partage structurel obligatoire (`Arc`, `im`) dans tout le modèle |
+| Risque | Un inverse faux corrompt l'historique : couvert par le harnais (`apply(inverse)` restaure l'état à l'identique) | Annuler doit piloter le moteur : un diff projet → `ControlMsg`, ou un rejeu complet pendant la lecture |
 
-Une variante hybride existe (signature mutable sur un modèle copié à l'écriture, `Arc::make_mut`, où cloner la racine avant la commande donne l'instantané), mais elle reste un choix de CT-4. Tant que CT-4 n'a pas tranché, aucun des deux documents ne fait foi pour l'API de PR-2 ; les deux sont alignés sur ce renvoi.
+Le second risque a tranché : avec les inverses, annuler passe par le même chemin que toute commande et produit ses `ControlMsg` et ses `ProjectEvent` ; le `Project` reste une donnée possédée ordinaire. La variante hybride (cloner la racine avant un tour d'agent) reste un filet de sécurité possible, hors contrat. Le découpage du MVP § 2.4 décrit le contrat retenu.
 
 ### 5.3 Ce qu'on reporte
 
@@ -408,7 +408,7 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 - **Le texte est lu à l'ouverture et écrit à l'enregistrement, jamais entre les deux.** En mémoire, le modèle est fait de structures Rust compactes (une note = 12 à 16 octets) ; le texte n'est pas la représentation de travail.
 - **Risque 1 : le nombre de fichiers dans le navigateur.** Ouvrir des milliers de petits fichiers par les API asynchrones du navigateur coûte cher. Parade : un **instantané binaire de tout le projet dans `.faulk/cache/`**, écrit à l'enregistrement ; à l'ouverture, Faulk charge l'instantané puis ne relit que les fichiers modifiés depuis (date et taille, ou empreinte). Le cache est régénérable : s'il manque ou ne correspond plus, on relit tout.
 - **Risque 2 : l'enregistrement.** Suivi des fichiers sales : éditer une note réécrit un seul petit fichier (le `.notes.tsv` du clip), jamais tout le projet.
-- **Annulation** : si CT-4 retient le modèle persistant (§ 5.2), les instantanés sont bon marché grâce au partage structurel, même sur un gros projet ; avec le modèle mutable, chaque entrée garde seulement son inverse.
+- **Annulation** : avec le modèle mutable retenu par CT-4 (§ 5.2), chaque entrée garde seulement son inverse ; l'inverse d'une suppression porte l'entité supprimée, ce qui est le seul coût proportionnel à la taille.
 - **Automation dense** : au-delà d'environ 1 000 points, un couloir passe en blob pour ne pas produire des fichiers texte énormes et des diffs illisibles.
 
 **Banc de charge** (tâche QA-7 du [découpage du MVP](../specs/02-decoupage-mvp.md), phase 1) : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) et mesurer l'ouverture, l'enregistrement, la mémoire et les opérations git, dans le navigateur et en natif. Ses chiffres fixent les seuils du format (densité d'automation qui bascule en blob, utilité de l'instantané de cache, éventuelle subdivision de `blobs/`).
@@ -419,7 +419,7 @@ Ce que le [découpage du MVP](../specs/02-decoupage-mvp.md) (2026-10-14) planifi
 
 1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, migrations (PR-1, SV-1).
 2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7 (SV-1, SV-2, SV-4, AU-1).
-3. Commandes de projet selon le contrat que CT-4 retient (§ 5.2 : modèle mutable avec inverses, ou persistant avec annulation par instantané) (PR-2).
+3. Commandes de projet selon le contrat retenu par CT-4 (§ 5.2 : modèle mutable avec inverses) (PR-2).
 4. Tests : aller-retour octet pour octet, propriétés de l'écrivain, fuzz du lecteur ; banc de charge (SV-1, QA-7).
 
 Le format v1 est ainsi *prêt pour git* (texte canonique, blobs compatibles LFS, attributs écrits), sans que git ni la fusion ne soient dans l'application.
@@ -443,7 +443,7 @@ Décidé :
 
 Restent ouverts :
 
-3. **Notes** : sans identifiant sur disque (fusion par ensemble) avec des identifiants de session dans les commandes, ou `NoteId` durable dès le MVP ? Choix technique tranché dans le contrat CT-4 du [découpage du MVP](../specs/02-decoupage-mvp.md).
+3. **Notes** : tranché par CT-4 (#40) : sans identifiant, ni sur disque ni en session ; les commandes adressent une note par sa valeur, la fusion apparie par (hauteur, début) (§ 1.2, § 4.3).
 5. **Format d'enregistrement** audio : FLAC ou WAV ? À décider avec l'enregistrement audio, qui suit le MVP.
 9. **Sources Faust des modules du projet** : dans le dossier du projet (un sous-dossier texte, versionné avec lui) ou dans une bibliothèque personnelle ? L'arborescence de la synthèse ne les place pas encore (voir la [spec de l'Atelier](../specs/01-atelier-modules.md)).
 10. **Collaboration** : le partage entre musiciens est-il un objectif de la première année (ce qui avance la phase 3), ou d'abord un outil personnel ?

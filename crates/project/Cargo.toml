@@ -5,3 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "Faulk project document: tracks, clips, devices, automation, transport settings. Pure Rust, no I/O."
+
+[dependencies]
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"
