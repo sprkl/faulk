@@ -1,13 +1,13 @@
 ---
 type: Architecture
 title: "Modèle de projet et format sur disque"
-description: "Proposal for the Faulk project model and its on-disk format: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, and the strategy for very large projects."
+description: "The Faulk project model and its on-disk format, decided on 2026-10-14: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, the page owning the project in both modes, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, and the strategy for very large projects."
 status: draft
 ---
 
 # Modèle de projet et format sur disque
 
-> **Proposition, en attente des décisions du fondateur** (document « Faulk — Plan MVP et swarm »). Ce document reprend l'étude du 2026-10-13 sur un modèle de projet versionnable, avec les ajustements de la synthèse : arborescence regroupée par piste, un fichier par device, arrangement par piste, binaire adressé par contenu pour les données denses, instantané de cache et banc de charge. Rien n'est décidé tant que le fondateur n'a pas tranché les questions de la fin.
+> **Décisions du fondateur du 2026-10-14 intégrées** (§ 9). Ce document reprend l'étude du 2026-10-13 sur un modèle de projet versionnable, avec les ajustements de la synthèse : arborescence regroupée par piste, un fichier par device, arrangement par piste, binaire adressé par contenu pour les données denses, instantané de cache et banc de charge. Le format dossier, la propriété du projet par la page, le vocabulaire « Version » / « Variante », le solo en session, la copie indépendante des clips et les blobs SHA-256 sont décidés ; ce qui reste ouvert est listé au § 9. Les pistes audio (import et lecture, pas d'enregistrement) et l'automation font partie du MVP : les types ci-dessous les couvrent. Le statut reste `draft` tant que le document n'a pas été vérifié contre le code.
 
 ## En bref
 
@@ -33,7 +33,7 @@ Le stockage du dossier (dossier réel, OPFS, helper) et la mémoire audio sont t
 | Paramètres | Identifiés par un **ID stable sous forme de chaîne** (`"cutoff"`), jamais par un index. Valeur en **unité naturelle** (s, Hz, dB) déclarée par le device. | Le diff se lit (`cutoff: 800 → 1200`) ; un device qui ajoute un paramètre ne décale pas les autres. |
 | Projet et session | Ce qui fait la musique va dans le projet ; ce qui relève de l'écran ou de la machine (zoom, sélection, défilement, entrée MIDI choisie, pistes repliées, caches) va dans `.faulk/`, **ignoré par git**. | Ouvrir un projet et faire défiler l'écran ne produit aucun diff. |
 
-Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix) : proposition, solo en session et mute dans le projet. **Question ouverte.**
+Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Décidé le 2026-10-14** : le solo est un état de session, écrit dans `.faulk/session.json` (ignoré par git) et restauré à la réouverture, jamais versionné ; le mute est dans le projet. La commande `mixer.set_solo` est donc `live`, hors historique.
 
 ### 1.2 Les types (`crates/project`)
 
@@ -59,7 +59,7 @@ pub struct Project {
 }
 
 pub struct TransportSettings {
-    pub launch_quantize: Quantize,       // None | 1/16 .. 4 bars
+    pub launch_quantize: Quantize,       // None | 1/16 | Beat | Bars(1 | 2 | 4 | 8); default Bars(1)
     pub loop_region: Option<LoopRegion>, // [start, end) in ticks
     pub loop_enabled: bool,
     pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
@@ -95,6 +95,7 @@ pub struct Clip {
     pub name: String,
     pub color: Option<Rgb>,
     pub slot: Option<Id>,                // scene id when the clip sits in the launch grid
+    pub launch_quantize: Option<Quantize>, // reserved, after the MVP: absent = project setting
     pub content: ClipContent,
 }
 
@@ -124,17 +125,19 @@ pub struct AutomationLane {
 
 Choix et limites pour le MVP :
 
-- **Clips et placements.** Le clip est le contenu ; la grille de lancement le met dans une case (`slot`), l'arrangement le pose dans le temps avec un `Placement`. Plusieurs placements d'un même clip sont des clips liés. Copier-coller dans l'arrangement crée par défaut un nouveau clip indépendant (c'est aussi ce que prévoit la tâche AR-5 du découpage) ; **à confirmer**.
+- **Clips et placements.** Le clip est le contenu ; la grille de lancement le met dans une case (`slot`), l'arrangement le pose dans le temps avec un `Placement`. Plusieurs placements d'un même clip sont des clips liés. **Décidé le 2026-10-14** : copier un clip dans l'arrangement crée par défaut un nouveau clip indépendant ; le clip lié (second placement du même clip) est une option des commandes `arrangement.duplicate` et `arrangement.place_from_slot` (tâches AR-1 et AR-5 du découpage).
+- **Quantification de lancement.** Globale au projet (`TransportSettings::launch_quantize`, 1 mesure par défaut, décision du 2026-10-14). Le champ `launch_quantize` du clip est réservé pour un réglage par clip après le MVP : optionnel dans le fichier du clip, absent = réglage global ; le MVP ne l'écrit jamais.
 - **Deux longueurs distinctes.** Un clip MIDI a une longueur en ticks ; un clip audio n'a qu'une plage source en frames, et aucune longueur en ticks n'est enregistrée (elle deviendrait fausse au premier changement de tempo). Ses ticks de fin se **calculent** : on convertit le tick de début en secondes par la carte de tempo, on ajoute `frames / sample_rate`, et on reconvertit en ticks. Un placement suit la même règle (`Span::Ticks` ou `Span::Frames`). Le calcul exact (arrondi au tick, tempo variable) est à figer avec le modèle de temps (CT-2).
 - **Clips audio non élastiques** : début en ticks, durée en frames ; un changement de tempo déplace le début, pas la vitesse. Le recalage temporel viendra plus tard comme une liste de points `(tick, frame)`.
-- **Automation d'arrangement uniquement** (par piste) ; les enveloppes propres aux clips sont reportées.
+- **Automation d'arrangement uniquement** (par piste), sur les paramètres des devices et du mixeur, dans le MVP (décision du 2026-10-14, tâches AM-1 à AM-6 du découpage) ; les enveloppes propres aux clips sont reportées.
+- **Pistes audio dans le MVP** : import et lecture (`ClipContent::Audio`, `Span::Frames`), sans enregistrement audio ni recalage temporel ; une piste audio est une piste dont l'instrument est le lecteur de clips (tâches AU-1 à AU-8 du découpage).
 - **Notes sans identifiant sur disque.** Une note est une *valeur* : la modifier, c'est retirer l'ancienne et ajouter la nouvelle, ce qui rend la fusion des notes triviale (§ 4.3). Le découpage du MVP prévoit pourtant un `NoteId` dans les commandes : **à trancher** dans le contrat de commande (CT-4) ; une voie possible est un identifiant de session, tenu en mémoire et jamais écrit sur disque. L'expression par note (MPE) exigera plus tard un identifiant durable, ajouté comme colonne optionnelle.
 - **Plugins tiers** : leur état est un blob opaque ; seuls les paramètres que l'hôte peut lire sont recopiés en clair dans `params`. En conflit, un état opaque ne se fusionne pas : on choisit un côté.
 
 ### 1.3 Identité du projet et réglages du transport
 
 - **Identifiant de projet.** `project.json` porte un `id` (ULID) obligatoire, créé à la création du projet et jamais modifié ensuite ; la validation refuse un projet sans `id`. C'est lui que la page et le helper utilisent pour se rapprocher en mode Boost ([stockage](03-stockage-local.md) § 4). « Enregistrer sous » crée un nouvel `id`. Une copie du dossier faite hors de Faulk garde le même `id` : le helper vérifie donc aussi le chemin, et signale deux dossiers de même `id`. Le format commence à la version 1 avec ce champ : aucune migration n'est nécessaire.
-- **Réglages du transport.** La quantification de lancement, la région de boucle et son activation, et le métronome (activation, niveau, décompte) sont dans `project.json`, ce qui correspond aux commandes `edit` de TR-3 et GR-2 dans le [découpage du MVP](../specs/02-decoupage-mvp.md) : ils survivent à la réouverture. La lecture, la position de la tête et les clips en cours de lecture restent éphémères (`live`). Mettre plutôt le métronome et la boucle dans l'état de session est possible (question 1 de la fin) ; les commandes changeraient alors de `x-kind`.
+- **Réglages du transport.** La quantification de lancement, la région de boucle et son activation, et le métronome (activation, niveau, décompte) sont dans `project.json`, ce qui correspond aux commandes `edit` de TR-3 et GR-2 dans le [découpage du MVP](../specs/02-decoupage-mvp.md) : ils survivent à la réouverture. La lecture, la position de la tête et les clips en cours de lecture restent éphémères (`live`). Le solo et l'entrée MIDI choisie sont dans l'état de session (§ 9, décision du 2026-10-14) ; le métronome et la boucle restent dans `project.json`.
 
 ## 2. Le format sur disque
 
@@ -232,7 +235,7 @@ Le même projet produit toujours **exactement les mêmes octets**. Règles, tout
 
 - Un blob est nommé par le **SHA-256 de ses octets** et n'est **jamais modifié** : une édition destructive (normaliser, inverser) produit un nouveau blob. Un clip référence une empreinte, pas un chemin.
 - **Déduplication gratuite** : importer deux fois le même échantillon, ou le même enregistrement dans deux branches, ne coûte qu'un fichier.
-- **Import** : on garde les octets d'origine, pour que l'empreinte corresponde au fichier de l'utilisateur (le stockage discute le cas des formats compressés). **Enregistrement** : écrit d'abord dans `.faulk/`, puis à l'arrêt on calcule l'empreinte, on range le blob et on crée le clip. Format d'enregistrement (FLAC ou WAV) : **question ouverte**.
+- **Import** : on garde les octets d'origine, pour que l'empreinte corresponde au fichier de l'utilisateur (le stockage discute le cas des formats compressés). **Enregistrement** : écrit d'abord dans `.faulk/`, puis à l'arrêt on calcule l'empreinte, on range le blob et on crée le clip. Format d'enregistrement (FLAC ou WAV) : à décider avec l'enregistrement audio, qui suit le MVP (§ 9).
 - Le SHA-256 se calcule en flux (dans le navigateur, crate `sha2` en WASM dans un worker).
 
 SHA-256 est exactement l'identifiant (`oid`) qu'utilise Git LFS : l'empreinte de Faulk et celle de LFS sont la même, sans recalcul.
@@ -311,7 +314,7 @@ Un conflit est toujours **localisé et nommé** (« Basse › Filtre › cutoff 
 
 ### 4.6 Dans l'interface : versions, variantes, comparer, fusionner
 
-Vocabulaire proposé, sans le mot « branche » :
+Vocabulaire décidé le 2026-10-14, sans le mot « branche » :
 
 - **Version** : un instantané nommé du projet (un commit). « Sauver une version » est un geste explicite ; l'enregistrement automatique écrit le dossier de travail sans créer de version.
 - **Variante** : une exploration parallèle (une branche). « Essayer une variante » la crée depuis l'état courant et bascule dessus.
@@ -358,7 +361,7 @@ Le journal d'opérations comme vérité, la collaboration en temps réel et les 
 
 ### 5.4 Où vit le modèle
 
-Proposition : **la page détient le modèle dans les deux modes** (`crates/project` et `crates/commands` en WASM) ; le moteur (worklet ou helper) ne reçoit que le graphe de rendu et ses changements. Les agents MCP passant par le helper voient leurs commandes relayées vers la page, ce qui garde le helper dans son rôle de pont. Le stockage est derrière une interface `ProjectStore` (OPFS, dossier choisi, système de fichiers du helper) et git derrière `VersionStore`. En mode Boost, le helper est la seule autorité qui *écrit* le dossier (voir [stockage](03-stockage-local.md)), mais il écrit ce que la page lui envoie. **À confirmer** avec l'architecture.
+**Décidé le 2026-10-14 : la page détient le modèle dans les deux modes** (`crates/project` et `crates/commands` en WASM, crate `crates/project-wasm`) ; le moteur (worklet ou helper) ne reçoit que le graphe de rendu et ses changements. Les agents MCP passant par le helper voient leurs commandes relayées vers la page, ce qui garde le helper dans son rôle de pont. Le stockage est derrière une interface `ProjectStore` (dossier choisi par défaut, OPFS en repli, système de fichiers du helper) et git derrière `VersionStore`. En mode Boost, le helper est la seule autorité qui *écrit* le dossier (voir [stockage](03-stockage-local.md)), mais il écrit ce que la page lui envoie.
 
 ## 6. git dans le navigateur
 
@@ -419,16 +422,21 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 
 Phase 2 ensuite : versions et variantes dans l'application, comparaison A/B, fusion avec écoute.
 
-## 9. Questions ouvertes pour le fondateur
+## 9. Décisions du fondateur (2026-10-14) et questions restantes
 
-1. **Solo** dans le projet ou dans la session ? Et l'entrée MIDI, le métronome, la zone de boucle ?
-2. **Copier un clip dans l'arrangement** : clip lié ou indépendant par défaut ?
-3. **Notes** : sans identifiant sur disque (fusion par ensemble) avec des identifiants de session dans les commandes, ou `NoteId` durable dès le MVP ?
-4. **Où vivent les projets** par défaut en mode Web : OPFS (invisible) ou dossier choisi (Chromium seulement) ?
-5. **Format d'enregistrement** audio : FLAC ou WAV ?
-6. **Vocabulaire** : « Version » et « Variante » conviennent-ils, en français et en anglais ?
-7. **Qui détient le modèle en mode Boost** : la page (proposé) ou le helper ?
-8. **Blobs dans git** : LFS par défaut, ou magasin séparé dès le départ ?
+Décidé :
+
+1. **Solo** : dans la session (`.faulk/session.json`), jamais versionné ; le mute dans le projet. L'entrée MIDI choisie va aussi dans la session ; le métronome et la zone de boucle restent dans `project.json` (§ 1.3).
+2. **Copier un clip dans l'arrangement** : copie indépendante par défaut, clip lié en option.
+4. **Où vivent les projets** par défaut en mode Web : un dossier réel choisi par l'utilisateur (Chrome, Edge) ; OPFS et export en archive ailleurs ([stockage](03-stockage-local.md) § 5.1).
+6. **Vocabulaire** : « Version » et « Variante », acceptés (§ 4.6).
+7. **Qui détient le modèle en mode Boost** : la page ; le helper relaie et écrit le dossier pour elle (§ 5.4).
+8. **Blobs dans git** : fichiers nommés par SHA-256, compatibles Git LFS ; le choix entre LFS et un magasin séparé sera pris quand le besoin viendra.
+
+Restent ouverts :
+
+3. **Notes** : sans identifiant sur disque (fusion par ensemble) avec des identifiants de session dans les commandes, ou `NoteId` durable dès le MVP ? Choix technique tranché dans le contrat CT-4 du [découpage du MVP](../specs/02-decoupage-mvp.md).
+5. **Format d'enregistrement** audio : FLAC ou WAV ? À décider avec l'enregistrement audio, qui suit le MVP.
 9. **Sources Faust des modules du projet** : dans le dossier du projet (un sous-dossier texte, versionné avec lui) ou dans une bibliothèque personnelle ? L'arborescence de la synthèse ne les place pas encore (voir la [spec de l'Atelier](../specs/01-atelier-modules.md)).
 10. **Collaboration** : le partage entre musiciens est-il un objectif de la première année (ce qui avance la phase 3), ou d'abord un outil personnel ?
 
