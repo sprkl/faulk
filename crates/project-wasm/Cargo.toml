@@ -11,3 +11,4 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 project = { path = "../project" }
+commands = { path = "../commands" }

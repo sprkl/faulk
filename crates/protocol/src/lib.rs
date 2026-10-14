@@ -106,6 +106,12 @@ pub fn schema_bundle() -> serde_json::Value {
         "param_ids": param_ids,
         "param_defaults": param_defaults,
         "command": commands::schema(),
+        // The v2 contract (CT-4): input and output schemas and the MCP tool catalog.
+        "command_v2": {
+            "input": commands::v2::schema(),
+            "output": commands::v2::output_schema(),
+            "catalog": commands::v2::catalog(),
+        },
         "client_message": schemars::schema_for!(ClientMessage),
         "server_message": schemars::schema_for!(ServerMessage),
     })
