@@ -365,10 +365,10 @@ process = oscs * 0.33 : fi.resonlp(fc, reso, 1) : *(ampEnv * gain) <: _, _;
 effect = _, _;   // global, after voices: e.g. fk.reverb later
 ```
 
-**2. Echo (effet).** Temps en division de noire calé sur le tempo de l'hôte, rétroaction filtrée, mélange.
+**2. Slapback (effet).** Temps en division de noire calé sur le tempo de l'hôte, rétroaction filtrée, mélange.
 
 ```faust
-declare name "Echo";
+declare name "Slapback";
 import("stdfaust.lib");
 
 bpm = hslider("bpm[hide:1][faulk:host:bpm]", 120, 20, 300, 0.01);
