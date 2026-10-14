@@ -94,7 +94,8 @@ Par cible :
 ### 2.5 Contrat de device (instrument, effet, lecteur de clips)
 
 - Trait `Device` dans `crates/engine` : `process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo)`, `set_param(id, value)`, `reset()`. Sans allocation, sans panique. Les événements portent un offset dans le bloc ; ils incluent les notes **et les valeurs de paramètres** (`ParamValue { offset, id, value }`), pour que l'automation (AM-2) tombe à l'échantillon près.
-- Descripteur statique par type : `kind` (`"faulk.osc_synth"`), rôle, paramètres (id stable, clé de nom, unité, min, max, défaut, échelle, pas, **temps de lissage**, valeurs énumérées). Exporté dans le schéma : l'interface **génère** les panneaux de réglage et les agents connaissent les paramètres.
+- Descripteur statique par type : `kind` (`"faulk.osc_synth"`), nom affiché, rôle, paramètres (id stable, clé de nom, unité, min, max, défaut, échelle, pas, **temps de lissage**, valeurs énumérées). Exporté dans le schéma : l'interface **génère** les panneaux de réglage et les agents connaissent les paramètres.
+- Le nom affiché d'un device est un seul nom anglais, jamais traduit, le même dans les deux langues de l'interface (décision du fondateur du 2026-10-14) ; les libellés et descriptions de ses paramètres sont traduits (EN, FR). Le nom vient du descripteur ; les fichiers de traduction (par exemple `web/src/lib/i18n/devices.ts` de DV-9) ne portent que les libellés et descriptions, et toute clé de nom de device qui y entre est listée avec les autres (`DEVICE_NAME_KEYS`, `LANDING_DEVICE_NAME_KEYS`), dont un test vérifie qu'elles sont identiques en EN et en FR.
 - Un fichier par device (`crates/engine/src/devices/<kind>.rs`) et un registre d'une ligne par device. Le lecteur de clips audio (`faulk.clip_player`, AU-4) est un device de rôle instrument : une piste audio est une piste dont l'instrument lit des clips audio.
 - Les futurs modules de l'Atelier implémenteront ce même contrat.
 
@@ -336,6 +337,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 ### Épopée 4 — Instruments et effets (DV)
 
 **DV-1 — Registre de devices et synthé porté**
+- Nom affiché : Oscillator.
 - But : registre des devices ; le synthé oscillateur actuel devient le device `faulk.osc_synth` avec son descripteur ; descripteurs exportés dans le schéma.
 - Critères : rendu identique à l'ancien synthé (rendu de référence) ; aucun identifiant de paramètre écrit en dur côté web.
 - Touche : `crates/engine/src/devices/`, `crates/protocol`.
@@ -344,6 +346,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-2 — Filtre multimode**
+- Nom affiché : Filter.
 - But : passe-bas, passe-haut, passe-bande, résonance ; lissage des paramètres par le mécanisme commun (AM-3).
 - Critères : atténuation mesurée à une octave de la coupure ; stable à résonance maximale ; ni NaN ni dénormaux.
 - Touche : `crates/engine/src/devices/filter.rs`.
@@ -352,6 +355,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-3 — Delay synchronisable au tempo**
+- Nom affiché : Echo (le même device que l'extension Echo du catalogue, #161).
 - But : temps libre ou en division, retour, mélange.
 - Critères : écho mesuré au bon nombre d'échantillons ; tampon alloué dans `prepare` ; changement de tempo sans craquement.
 - Touche : `crates/engine/src/devices/delay.rs`.
@@ -360,6 +364,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-4 — Réverbération**
+- Nom affiché : Reverb.
 - But : réverbération algorithmique (taille, amortissement, mélange).
 - Critères : queue qui décroît vers le silence ; coût processeur mesuré.
 - Touche : `crates/engine/src/devices/reverb.rs`.
@@ -368,6 +373,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-5 — Compresseur**
+- Nom affiché : Compressor (le même device que son extension du catalogue, #157).
 - But : seuil, ratio, attaque, relâchement, gain de compensation.
 - Critères : courbe statique mesurée conforme au ratio ; aucun dépassement non borné.
 - Touche : `crates/engine/src/devices/compressor.rs`.
@@ -376,6 +382,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-6 — Batterie synthétisée**
+- Nom affiché : Drums.
 - But : un deuxième instrument de nature différente : grosse caisse, caisse claire, charleston, clap, mappés sur des notes.
 - Critères : chaque son déclenché par sa note, non silencieux et sans NaN ; paramètres par son dans le descripteur.
 - Touche : `crates/engine/src/devices/drums.rs`.
@@ -1168,5 +1175,7 @@ Les quinze décisions, et ce qu'elles changent dans ce plan :
 | 13 | faustwasm (LGPL-3.0) : acceptable si Faulk est open source ; à revoir sinon. | [Spec de l'Atelier](01-atelier-modules.md), hors MVP. |
 | 14 | Fusion des PR de l'essaim : le lead fusionne les PR prêtes (CI, Judge Dredd, Copilot), feuilles comme contrats et colonne vertébrale. | § 5.3. |
 | 15 | Où tournent les agents : dans le cloud pour l'essaim ; en local pour les tâches qui touchent l'audio ou le MIDI réels. | § 3 (étiquette `hardware`), § 5.3. |
+
+Décision ajoutée le même jour (#172) : le nom d'un device n'est jamais traduit ; un seul nom anglais, le même dans les deux langues de l'interface, les libellés et descriptions des paramètres restant traduits. Effet : § 2.5 ; noms affichés de DV-1 à DV-6 ; [spec de l'Atelier](01-atelier-modules.md) § 1.4 (nom d'un module).
 
 Restent à trancher, dans les tâches de contrat (choix techniques, pas des décisions du fondateur) : l'état de vue comme commande et la largeur du `NoteId` (CT-4) ; le modèle mutable ou persistant (CT-4) ; les chiffres des limites de sûreté et la voie WASM (CT-3) ; le cache PCM régénérable plutôt qu'un second blob (AU-1, proposition par défaut présentée au fondateur) ; le choix du dossier en Boost, sélecteur natif ou rapprochement par identifiant (AU-7). Le format des prises audio (FLAC ou WAV) sera décidé avec l'enregistrement audio, après le MVP.

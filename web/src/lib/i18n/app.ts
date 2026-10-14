@@ -93,7 +93,7 @@ const fr: Record<MessageKey, string> = {
   'midi.unsupported': 'Ce navigateur n’a pas Web MIDI. Utilise Chrome, Edge ou Firefox, ou le mode Boost.',
   'midi.denied': 'L’accès MIDI a été refusé.',
   'midi.connectError': 'Impossible d’ouvrir cette entrée MIDI.',
-  'synth.title': 'Oscillateur',
+  'synth.title': 'Oscillator',
   'synth.waveform': 'Forme d’onde',
   'synth.sine': 'Sinus',
   'synth.saw': 'Dent de scie',
@@ -115,6 +115,13 @@ const fr: Record<MessageKey, string> = {
 }
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, fr }
+
+/**
+ * Names of devices (the title of a device's panel). A device name is one English name, never
+ * translated (founder's decision of 2026-10-14): the same text in every language. Parameter labels
+ * and descriptions are translated.
+ */
+export const DEVICE_NAME_KEYS: readonly MessageKey[] = ['synth.title']
 
 export function translate(lang: Lang, key: MessageKey, vars: Record<string, string | number> = {}): string {
   return fill(messages[lang][key], vars)

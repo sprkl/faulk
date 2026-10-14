@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { DEVICE_NAME_KEYS } from './app'
 import { defaultLang, landingMessages, messages, translate } from './index'
+import { LANDING_DEVICE_NAME_KEYS } from './landing'
 
 /** Every catalogue of the app: the DAW and the landing page. */
 const catalogues = { app: messages, landing: landingMessages } as const
@@ -21,6 +23,19 @@ describe('i18n', () => {
       for (const key of Object.keys(en)) expect(vars(fr[key]), key).toEqual(vars(en[key]))
     })
   }
+
+  it('shows each device name as one name, the same in every language', () => {
+    const lists = [
+      [messages, DEVICE_NAME_KEYS],
+      [landingMessages, LANDING_DEVICE_NAME_KEYS],
+    ] as const
+    for (const [catalogue, keys] of lists) {
+      expect(keys.length).toBeGreaterThan(0)
+      const en = catalogue.en as Record<string, string>
+      const fr = catalogue.fr as Record<string, string>
+      for (const key of keys) expect(fr[key], key).toBe(en[key])
+    }
+  })
 
   it('fills placeholders', () => {
     expect(translate('en', 'engine.latency', { ms: 12 })).toBe('~12 ms (estimated)')

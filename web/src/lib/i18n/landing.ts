@@ -162,7 +162,7 @@ const fr: Record<LandingKey, string> = {
     'Dans l’Atelier, tu écriras le son que tu entends dans ta tête. Faulk générera le code du module, ses vrais potentiomètres et son objet sonore. Ensuite, tu tournes, tu compares, tu gardes. L’Atelier est en préparation.',
   'atelier.example': 'EXEMPLE',
   'atelier.prompt': '« Un kick sec et court, un peu de clic à l’attaque, qui ne bave pas dans les basses. »',
-  'atelier.module': 'KICK SEC',
+  'atelier.module': 'DRY KICK',
   'atelier.pitch': 'PITCH',
   'atelier.pitchValue': '48 Hz',
   'atelier.decay': 'DECAY',
@@ -179,9 +179,9 @@ const fr: Record<LandingKey, string> = {
   'library.sketch': 'Esquisse, pas encore disponible',
   'library.instrument': 'Instrument',
   'library.effect': 'Effet',
-  'library.haze': 'BRUME',
+  'library.haze': 'HAZE',
   'library.crush': 'CRUSH 8',
-  'library.echo': 'ÉCHO',
+  'library.echo': 'ECHO',
 
   'boost.metaLeft': 'FLK-BOOST · EN DÉVELOPPEMENT',
   'boost.metaRight': 'Téléchargements à venir',
@@ -204,6 +204,18 @@ export const landingMessages: Record<Lang, Record<LandingKey, string>> = { en, f
 export function landingText(lang: Lang): (key: LandingKey) => string {
   return (key) => landingMessages[lang][key]
 }
+
+/**
+ * Names of devices and modules (the library's sound objects, the Atelier's example module). A device
+ * name is one English name, never translated (founder's decision of 2026-10-14): the same text in
+ * every language. Parameter labels and descriptions are translated.
+ */
+export const LANDING_DEVICE_NAME_KEYS: readonly LandingKey[] = [
+  'atelier.module',
+  'library.haze',
+  'library.crush',
+  'library.echo',
+]
 
 /** Keys allowed to contain a duration in milliseconds: module parameter values, not latencies. */
 export const NON_LATENCY_MS_KEYS: readonly LandingKey[] = ['atelier.decayValue']

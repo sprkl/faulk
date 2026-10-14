@@ -57,6 +57,7 @@ Known exception, until the shared-memory channel of the MVP plan is built (cross
 - **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
 - **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
 - The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n/` in both languages (`app.ts` for the DAW, `landing.ts` for the landing page).
+- Device names (instruments, audio effects, MIDI effects) are never translated (founder's decision of 2026-10-14): each device has one English name, shown as is in both UI languages, so French and English speakers use the same name. Their parameter labels and descriptions are translated (EN and FR). The catalogues list their device-name keys (`DEVICE_NAME_KEYS` in `app.ts`, `LANDING_DEVICE_NAME_KEYS` in `landing.ts`), and a test checks that each one is the same in both languages.
 
 When the audience or the language of a text is unclear, ask before writing it; never deduce.
 
