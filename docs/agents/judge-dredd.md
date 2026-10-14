@@ -1,7 +1,7 @@
 ---
 type: Agent Configuration
 title: "Judge Dredd: impartial review at the task checkpoints"
-description: "Read-only reviewer subagent that judges the lead's plan and, once per task, its delivery before the pull request, from a brief built by a script and received as a path only; the guard and the Stop hook that enforce it, and their limits."
+description: "Read-only reviewer subagent that judges the lead's plan (when the task changes a contract, the audio path, the guardrails or many files) and, once per task, its delivery before the pull request, from a brief built by a script and received as a path only; the guard and the Stop hook that enforce it, and their limits."
 ---
 
 # Judge Dredd: impartial review at the task checkpoints
@@ -73,7 +73,7 @@ All of these rest on the lead's good faith:
 
 - The shell check reads the command line only, after removing quotes and escapes the way bash and PowerShell do: an interpreter that writes a file (`node -e`, `python -c`), an encoded command, a variable expanding to a path, or a glob that names neither folder (`rm ../*/*` from the wrong place) passes. A command that names a brief and contains a write operation is refused even when harmless: run the scripts alone on their line.
 - `git clean -x` deletes `.scratch/`, and with it the briefs and answers: that loses a review, never forges one. The records are out of its reach.
-- The `plan` checkpoint is required by this procedure but not checked by a hook.
+- The `plan` checkpoint is required by this procedure for the tasks listed under Checkpoints, but not checked by a hook.
 - The review record is bound to a branch, not to the end of the work: a delivery review recorded early on a task branch satisfies the Stop hook for the rest of that branch, and its dispositions are not compared with the findings of the answer. The procedure (delivery as the last step) is what prevents this.
 - Changing the guard is trusted only after a human reviews its pull request. The guard, the hooks and `.claude/settings.json` are guarded code, but the agent that edits `record.mjs` or a hook can also run its edited version to record or to stop; the Stop hook only warns the user when the guard differs from `develop`. A `disableAllHooks` in `.claude/settings.local.json` (not tracked) switches everything off: that switch is the user's, and the guard denies agents writes to that file.
 - Subagents are not checked by their own stop (`SubagentStop` is not hooked), and background work is not attributed. See `verification.md` > Limits.
