@@ -59,7 +59,7 @@ test.beforeEach(() => {
 test('probes, pairs and plays through the helper from the isolated page', async ({ page, baseURL }) => {
   const { errors } = watch(page)
   await page.goto('/app')
-  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)
+  expect(await page.evaluate(() => crossOriginIsolated), 'crossOriginIsolated').toBe(true)
   await page.getByRole('button', { name: 'Start audio' }).click()
 
   // Probe answered: the pairing form shows.
@@ -85,7 +85,9 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-mode')).toHaveText('Web')
 
   const origin = new URL(baseURL!).origin
-  expect(connections.map((c) => c.path)).toEqual(expect.arrayContaining(['/probe', '/pair', '/session']))
-  expect(connections.every((c) => c.origin === origin)).toBe(true)
+  // The page's own sockets, by their Origin header. Other pages on the machine (another checkout's
+  // dev server, a browser tab) may probe the helper's port too: they are left out, not counted.
+  const own = connections.filter((c) => c.origin === origin).map((c) => c.path)
+  expect(own).toEqual(expect.arrayContaining(['/probe', '/pair', '/session']))
   expect(errors).toEqual([])
 })
