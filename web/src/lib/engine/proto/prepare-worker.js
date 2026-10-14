@@ -47,10 +47,29 @@ onmessage = (event) => {
       const ms = performance.now() - t0
       postMessage({ type: 'grow-done', ms, before, after: memory.buffer.byteLength, notes, tracks })
     } else if (message.type === 'fill') {
+      // The contract's pending queue: what the full ring refuses waits here, in order, and
+      // is pushed again a few milliseconds later, until everything went through.
       const t0 = performance.now()
       let failed = 0
-      for (let i = 0; i < message.n; i++) failed += exports.fk_proto_prepare_track(proto, i)
-      postMessage({ type: 'fill-done', ms: performance.now() - t0, failed })
+      let queued = 0
+      const pending = []
+      for (let i = 0; i < message.n; i++) {
+        const code = exports.fk_proto_prepare_track(proto, i)
+        if (code === 2) pending.push(i)
+        else failed += code
+      }
+      const flush = () => {
+        while (pending.length > 0) {
+          const code = exports.fk_proto_prepare_track(proto, pending[0])
+          if (code === 2) break
+          failed += code
+          pending.shift()
+          queued++
+        }
+        if (pending.length > 0) setTimeout(flush, 5)
+        else postMessage({ type: 'fill-done', ms: performance.now() - t0, failed, queued })
+      }
+      flush()
     } else if (message.type === 'collect') {
       postMessage({ type: 'collect-done', collected: exports.fk_proto_collect(proto) })
     } else if (message.type === 'counters') {

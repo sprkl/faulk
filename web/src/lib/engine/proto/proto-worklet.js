@@ -47,14 +47,14 @@ class FaulkProto extends AudioWorkletProcessor {
     this.stats = {
       blocks: 0,
       lateBlocks: 0,
-      gapMax: 0n,
-      gapSum: 0n,
+      gapMax: 0,
+      gapSum: 0,
       gapCount: 0,
-      pumpTicks: 0n,
-      pumpMax: 0n,
+      pumpTicks: 0,
+      pumpMax: 0,
       pumpCalls: 0,
       pumped: 0,
-      msgTicks: 0n,
+      msgTicks: 0,
       msgCount: 0,
       bursts: {},
       grows: [],
@@ -63,11 +63,12 @@ class FaulkProto extends AudioWorkletProcessor {
       peak: 0,
       silentBlocks: 0,
     }
-    this.lastEntry = 0n
+    this.lastEntry = -1
   }
 
   now() {
-    return Atomics.load(this.clock, 0)
+    // A wrapping 32-bit counter read as a plain number: no BigInt, nothing allocated.
+    return Atomics.load(this.clock, 0) >>> 0
   }
 
   takeViews() {
@@ -85,10 +86,10 @@ class FaulkProto extends AudioWorkletProcessor {
     try {
       if (message.type === 'init') {
         this.mode = message.mode
-        this.clock = new BigInt64Array(message.clock)
+        this.clock = new Int32Array(message.clock)
         this.ticksPerUs = message.ticksPerUs
         // Blocks later than this since the previous one count as late: 1.5 render quanta.
-        this.lateTicks = BigInt(Math.round((1.5 * 128 * 1e6 * this.ticksPerUs) / sampleRate))
+        this.lateTicks = Math.round((1.5 * 128 * 1e6 * this.ticksPerUs) / sampleRate)
         const module = new WebAssembly.Module(message.bytes)
         if (this.mode === 'a') {
           this.exports = new WebAssembly.Instance(module, {}).exports
@@ -122,7 +123,7 @@ class FaulkProto extends AudioWorkletProcessor {
         const value = this.inboxView.getFloat32(4, true)
         this.exports.fk_set_param(this.inst, param, value)
         const t1 = this.now()
-        this.stats.msgTicks += t1 - t0
+        this.stats.msgTicks += (t1 - t0) >>> 0
         this.stats.msgCount++
         const burst = (this.stats.bursts[message.burst] ??= { first: t0, last: t1, n: 0 })
         burst.last = t1
@@ -138,7 +139,7 @@ class FaulkProto extends AudioWorkletProcessor {
         const t1 = this.now()
         const detached = this.buffer.byteLength === 0
         this.stats.grows.push({
-          us: Number(t1 - t0) / this.ticksPerUs,
+          us: ((t1 - t0) >>> 0) / this.ticksPerUs,
           before,
           after: this.exports.memory.buffer.byteLength,
           notes,
@@ -158,23 +159,23 @@ class FaulkProto extends AudioWorkletProcessor {
           if (n === 0) break
           pumped += n
         }
-        this.stats.fills.push({ us: Number(this.now() - t0) / this.ticksPerUs, n: message.n, failed, pumped })
+        this.stats.fills.push({ us: ((this.now() - t0) >>> 0) / this.ticksPerUs, n: message.n, failed, pumped })
       } else if (message.type === 'report') {
         const s = this.stats
         this.port.postMessage({
           type: 'report',
           blocks: s.blocks,
           lateBlocks: s.lateBlocks,
-          gapMaxUs: Number(s.gapMax) / this.ticksPerUs,
-          gapMeanUs: s.gapCount ? Number(s.gapSum / BigInt(s.gapCount)) / this.ticksPerUs : 0,
+          gapMaxUs: s.gapMax / this.ticksPerUs,
+          gapMeanUs: s.gapCount ? s.gapSum / s.gapCount / this.ticksPerUs : 0,
           pumpCalls: s.pumpCalls,
           pumped: s.pumped,
-          pumpUsPerCall: s.pumpCalls ? Number(s.pumpTicks / BigInt(s.pumpCalls)) / this.ticksPerUs : 0,
-          pumpUsPerMsg: s.pumped ? Number(s.pumpTicks / BigInt(s.pumped)) / this.ticksPerUs : 0,
-          pumpMaxUs: Number(s.pumpMax) / this.ticksPerUs,
+          pumpUsPerCall: s.pumpCalls ? s.pumpTicks / s.pumpCalls / this.ticksPerUs : 0,
+          pumpUsPerMsg: s.pumped ? s.pumpTicks / s.pumped / this.ticksPerUs : 0,
+          pumpMaxUs: s.pumpMax / this.ticksPerUs,
           msgCount: s.msgCount,
-          msgUsHandler: s.msgCount ? Number(s.msgTicks / BigInt(s.msgCount)) / this.ticksPerUs : 0,
-          bursts: Object.values(s.bursts).map((b) => ({ n: b.n, usPerMsg: Number(b.last - b.first) / this.ticksPerUs / b.n })),
+          msgUsHandler: s.msgCount ? s.msgTicks / s.msgCount / this.ticksPerUs : 0,
+          bursts: Object.values(s.bursts).map((b) => ({ n: b.n, usPerMsg: ((b.last - b.first) >>> 0) / this.ticksPerUs / b.n })),
           grows: s.grows,
           fills: s.fills,
           skipped: this.exports.fk_proto_skipped(this.proto),
@@ -204,8 +205,8 @@ class FaulkProto extends AudioWorkletProcessor {
     if (!this.exports) return true
     const s = this.stats
     const entry = this.now()
-    if (this.lastEntry !== 0n) {
-      const gap = entry - this.lastEntry
+    if (this.lastEntry >= 0) {
+      const gap = (entry - this.lastEntry) >>> 0
       if (gap > s.gapMax) s.gapMax = gap
       s.gapSum += gap
       s.gapCount++
@@ -216,8 +217,9 @@ class FaulkProto extends AudioWorkletProcessor {
       const t0 = this.now()
       const n = this.exports.fk_proto_pump(this.proto, this.inst)
       const t1 = this.now()
-      s.pumpTicks += t1 - t0
-      if (t1 - t0 > s.pumpMax) s.pumpMax = t1 - t0
+      const took = (t1 - t0) >>> 0
+      s.pumpTicks += took
+      if (took > s.pumpMax) s.pumpMax = took
       s.pumpCalls++
       s.pumped += n
     }

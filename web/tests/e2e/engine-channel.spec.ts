@@ -104,7 +104,7 @@ type Run = {
   worker?: {
     bursts: { ms: number; busy: number }[]
     grows: { ms: number; before: number; after: number; notes: number; tracks: number }[]
-    fill: { ms: number; failed: number }
+    fill: { ms: number; failed: number; queued: number }
     counters: {
       prepare: { allocs: number; frees: number }
       render: { allocs: number; frees: number }
@@ -128,8 +128,8 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
   return page.evaluate(async ({ mode, sources }) => {
     const blob = (source: string) => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-    const clockBuffer = new SharedArrayBuffer(8)
-    const clock = new BigInt64Array(clockBuffer)
+    const clockBuffer = new SharedArrayBuffer(4)
+    const clock = new Int32Array(clockBuffer)
     const clockWorker = new Worker(blob(sources.clock))
     clockWorker.postMessage(clockBuffer)
     const calibrate = async () => {
@@ -138,7 +138,7 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
       await sleep(300)
       const c1 = Atomics.load(clock, 0)
       const t1 = performance.now()
-      return Number(c1 - c0) / ((t1 - t0) * 1000)
+      return ((c1 - c0) >>> 0) / ((t1 - t0) * 1000)
     }
     await sleep(100)
     const ticksPerUs = await calibrate()
@@ -204,8 +204,8 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
 
     // Load: ten bursts of 100 messages; then the track table grown to its limit (4096) and
     // filled with 4096 boxed tracks; then three growths, each a million-note snapshot plus
-    // the track table doubled (8192, 16384, 32768 slots: 4096 entries moved in apply each
-    // time), all applied while the note keeps playing.
+    // the slot array doubled to 8192 (the 4096 slots moved in apply, then 8192 for the two
+    // re-swaps), all applied while the note keeps playing.
     await ask({ type: 'reset' })
     const workerBursts: Record<string, unknown>[] = []
     const workerGrows: Record<string, unknown>[] = []
@@ -234,7 +234,9 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
       await sleep(300)
     }
     for (let i = 0; i < 3; i++) {
-      const tracks = 8192 << i
+      // The first doubling moves the 4096 entries; the next two re-swap the 8192-slot array
+      // (8192 slots moved, twice the limit: conservative for the budget).
+      const tracks = 8192
       if (mode === 'a') node.port.postMessage({ type: 'grow', notes: 1_000_000, tracks })
       else workerGrows.push(await askWorker!({ type: 'grow', notes: 1_000_000, tracks }))
       await sleep(200)
@@ -279,17 +281,17 @@ function table(run: Run) {
     for (const f of load.fills) lines.push(`  fill of ${f.n} tracks on the render thread: ${us(f.us)} µs (failed ${f.failed}, pumped ${f.pumped})`)
     for (const [i, g] of load.grows.entries())
       lines.push(
-        `  growth on the render thread: ${us(g.us)} µs (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + table doubled, 4096 entries moved'}, pump ${g.pumped}, collect ${g.collected}), memory ${g.before >> 20} → ${g.after >> 20} MiB, buffer detached ${g.detached}`,
+        `  growth on the render thread: ${us(g.us)} µs (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + the slot array re-swapped (4096 then 8192 slots moved)'}, pump ${g.pumped}, collect ${g.collected}), memory ${g.before >> 20} → ${g.after >> 20} MiB, buffer detached ${g.detached}`,
       )
     lines.push(`  render-side allocations ${load.renderAllocs}, frees ${load.renderFrees} (prepare runs there in this way; the one-time setup is not counted)`)
   } else {
     lines.push(
       `  per message on the render thread: pump ${us(load.pumpUsPerMsg)} µs/msg (${load.pumped} messages in ${load.pumpCalls} pumps, ${us(load.pumpUsPerCall)} µs per pump incl. empty ones, longest pump ${us(load.pumpMaxUs)} µs incl. the swaps; idle pump ${us(idle.pumpUsPerCall)} µs)`,
     )
-    lines.push(`  fill of 4096 tracks: prepare in the worker ${run.worker!.fill.ms.toFixed(2)} ms (failed ${run.worker!.fill.failed})`)
+    lines.push(`  fill of 4096 tracks: prepare in the worker ${run.worker!.fill.ms.toFixed(2)} ms (failed ${run.worker!.fill.failed}, queued behind a full ring ${run.worker!.fill.queued})`)
     for (const [i, g] of run.worker!.grows.entries())
       lines.push(
-        `  growth: prepare in the worker ${g.ms.toFixed(2)} ms (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + table doubled, 4096 entries moved in the pump'}, codes ${g.notes}/${g.tracks}), memory ${g.before >> 20} → ${g.after >> 20} MiB; worker burst ${i < run.worker!.bursts.length ? run.worker!.bursts[i].ms.toFixed(3) : '-'} ms/100`,
+        `  growth: prepare in the worker ${g.ms.toFixed(2)} ms (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + the slot array re-swapped (4096 then 8192 slots moved in the pump)'}, codes ${g.notes}/${g.tracks}), memory ${g.before >> 20} → ${g.after >> 20} MiB; worker burst ${i < run.worker!.bursts.length ? run.worker!.bursts[i].ms.toFixed(3) : '-'} ms/100`,
       )
     const c = run.worker!.counters
     lines.push(
@@ -328,7 +330,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     expect(load.grows.some((g) => g.detached)).toBe(true)
     expect(load.viewsRefreshed).toBeGreaterThanOrEqual(1)
     expect(load.notes).toBe(1_000_000)
-    expect(load.tracksCapacity).toBe(32768)
+    expect(load.tracksCapacity).toBe(8192)
     // The budget, with margin: a message costs under 50 µs of render thread, dispatch included.
     for (const b of load.bursts) expect(b.usPerMsg).toBeLessThan(50)
     // Prepare on the render thread is the price of this way: it allocates and frees there.
@@ -352,7 +354,8 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     // slot array), 4096 tracks, three growths of two swaps.
     expect(load.pumped).toBe(1000 + 2 + 4096 + 6)
     expect(load.applied).toBe(1000 + 2 + 4096 + 6)
-    expect(c.busy).toBe(0)
+    // What the full ring refused during the fill waited in the worker's queue and went through.
+    expect(c.busy).toBeGreaterThanOrEqual(run.worker!.fill.queued)
     expect(run.worker!.fill.failed).toBe(0)
     expect(load.tracksLen).toBe(4096)
     expect(load.skipped).toBe(0)
@@ -364,7 +367,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     expect(load.renderFrees).toBe(0)
     expect(c.prepare.frees).toBeGreaterThan(0)
     expect(load.notes).toBe(1_000_000)
-    expect(load.tracksCapacity).toBe(32768)
+    expect(load.tracksCapacity).toBe(8192)
     expect(run.worker!.grows).toHaveLength(4)
     for (const g of run.worker!.grows) {
       expect(g.notes).toBe(0)
@@ -372,15 +375,15 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
       expect(g.after).toBeGreaterThanOrEqual(g.before)
     }
     expect(run.worker!.grows[1].after).toBeGreaterThan(run.worker!.grows[1].before)
-    // The budget for a swap of a runtime table at its limit (4096 entries moved in the
-    // pump), with margin: the longest pump stays under 500 µs.
+    // The budget for the pump that swaps a runtime table at its limit (4096, then 8192
+    // slots moved): under 500 µs.
     expect(load.pumpMaxUs).toBeLessThan(500)
     // Attack: memory.grow while the worklet holds views. A shared memory keeps the old buffer
     // valid; the worklet re-took its views (memory.buffer changed) and the audio went on.
     expect(load.viewsRefreshed).toBeGreaterThanOrEqual(1)
     expect(load.silentBlocks).toBe(0)
-    // The budget, with margin: a pump costs under 20 µs per message.
-    expect(load.pumpUsPerMsg).toBeLessThan(20)
+    // The budget of § 2.3 (2 µs per pumped message) with a 2× margin for a CI machine.
+    expect(load.pumpUsPerMsg).toBeLessThan(4)
     expect(run.worker!.maximumPages).toBeGreaterThanOrEqual(16384)
   })
 

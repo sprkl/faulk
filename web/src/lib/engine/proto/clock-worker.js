@@ -5,6 +5,7 @@
 // that the page calibrates against `performance.now()` and the worklet reads with
 // `Atomics.load`. It pins one core for the duration of the measurement.
 onmessage = (event) => {
-  const ticks = new BigInt64Array(event.data)
-  for (;;) Atomics.add(ticks, 0, 1n)
+  // A 32-bit counter that wraps (about every minute): readers take deltas modulo 2^32.
+  const ticks = new Int32Array(event.data)
+  for (;;) Atomics.add(ticks, 0, 1)
 }

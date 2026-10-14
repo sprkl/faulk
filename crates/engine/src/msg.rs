@@ -95,10 +95,13 @@
 //!
 //! Nothing is ever freed on the audio thread: what `apply` replaces or removes goes back
 //! as **one** [`Garbage`] item per rt message on the second ring, and the prepare side drops
-//! it. Invariant that keeps `apply` from ever dropping: the garbage ring has the capacity
-//! of the rt ring ([`limits::RT_RING_CAPACITY`]), only `prepare` pushes on the rt ring, each
-//! rt message yields at most one garbage item, and `prepare` drains the garbage ring before
-//! each push, so for every rt message in flight there is a free garbage slot.
+//! it. Invariant that keeps `apply` from ever dropping: the garbage ring holds one slot
+//! more than the rt ring ([`limits::GARBAGE_RING_CAPACITY`]), only `prepare` pushes on the
+//! rt ring, each rt message yields at most one garbage item, and `prepare` drains the
+//! garbage ring before each push. After a drain at most `RT_RING_CAPACITY` messages are in
+//! flight; the audio side may apply one of them and push its garbage before the push that
+//! follows the drain lands, so the garbage ring never holds more than
+//! `RT_RING_CAPACITY + 1` items: there is always a free slot for `apply`.
 //!
 //! Above the tables stand the **safety limits** of [`limits`], very high and checked by the
 //! project before a message is sent ([`MsgError::LimitExceeded`]): the engine itself never
@@ -123,8 +126,10 @@
 //! [`ControlMsg::NoteOff`], [`ControlMsg::AllNotesOff`]) is queued, in
 //! [`limits::LIVE_QUEUE_CAPACITY`] slots, far beyond what a human produces between two
 //! blocks. On overflow the event is dropped and the producer increments [`LiveOverflow`];
-//! the audio side reads the counter at the start of every block and, when it moved,
-//! releases every live note (the same mechanism the helper has today), so no note stays
+//! the audio side, at the start of every block, first drains the live queue and applies
+//! its events, then reads the counter and, when it moved, releases every live note (the
+//! helper's order, `crates/helper/src/audio.rs`: a note-on queued before the lost note-off
+//! is applied before the release, never after it), so no note stays
 //! stuck even if nothing else is ever sent. The count is reported in [`Feedback`].
 //!
 //! # Binary format of `ControlMsg`
@@ -218,6 +223,8 @@ pub mod limits {
     pub const LIVE_QUEUE_CAPACITY: usize = 4096;
     /// Slots of the `RtMsg` ring and of the garbage ring.
     pub const RT_RING_CAPACITY: usize = 4096;
+    /// Slots of the garbage ring: one more than the rt ring (module doc, the invariant).
+    pub const GARBAGE_RING_CAPACITY: usize = RT_RING_CAPACITY + 1;
     /// Rt messages the prepare side parks when the ring is full; beyond, `EngineBusy`.
     pub const PENDING_QUEUE_CAPACITY: usize = 4096;
     /// Most `RtMsg` applied at the start of one block; the rest wait for the next block.
@@ -891,9 +898,11 @@ impl Header {
 
     /// Reads a header from the start of `bytes` and checks it against the current `epoch`
     /// (a `Reset` of a newer epoch is accepted: it is how the engine adopts one; a `Reset`
-    /// of an older epoch is as stale as any other message).
+    /// of the current or an older epoch is as stale as any other message). `bytes` must
+    /// hold the whole message: a payload shorter than `len` is [`MsgError::Truncated`].
     ///
-    /// The checks go in this order: size, version, reserved bits, `len`, tag, epoch.
+    /// The checks go in this order: header size, version, reserved bits, `len`, tag,
+    /// epoch, payload size.
     pub fn decode(bytes: &[u8], current_epoch: u16) -> Result<Header, MsgError> {
         if bytes.len() < HEADER_BYTES {
             return Err(MsgError::Truncated {
@@ -919,10 +928,22 @@ impl Header {
         })?;
         let epoch = u16::from_le_bytes([bytes[4], bytes[5]]);
         let newer = epoch.wrapping_sub(current_epoch) as i16 > 0;
-        if epoch != current_epoch && !(tag == Tag::Reset && newer) {
+        let accepted = if tag == Tag::Reset {
+            // A Reset of the current epoch is a duplicate: as stale as a past one.
+            newer
+        } else {
+            epoch == current_epoch
+        };
+        if !accepted {
             return Err(MsgError::StaleEpoch {
                 message: epoch,
                 current: current_epoch,
+            });
+        }
+        if bytes.len() < HEADER_BYTES + len as usize {
+            return Err(MsgError::Truncated {
+                needed: HEADER_BYTES + len as usize,
+                available: bytes.len(),
             });
         }
         let seq = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
@@ -1004,26 +1025,36 @@ impl<T: Default> Table<T> {
         Ok(table)
     }
 
-    /// Moves the items of `old` into this (larger) table, on the audio path: one move per
-    /// item, no allocation, `old` keeps its storage (emptied) and goes to the garbage.
-    /// Into a slot array (`len == capacity`) the items land in the first slots; into a
-    /// growing list they are appended. Items beyond this capacity stay in `old` (never
-    /// happens when `prepare` doubled it).
+    /// Appends the items of `old` (a growing list) to this (larger) list, on the audio
+    /// path: one move per item, no allocation, `old` keeps its storage (emptied) and goes
+    /// to the garbage. Items beyond this capacity stay in `old` (never happens when
+    /// `prepare` doubled it).
     pub fn take_from(&mut self, old: &mut Table<T>) {
-        let slot_array = self.is_full();
-        let start = if slot_array { 0 } else { self.len };
-        let n = old.len.min(self.items.len() - start);
-        for (dst, src) in self.items[start..start + n]
+        let n = old.len.min(self.items.len() - self.len);
+        for (dst, src) in self.items[self.len..self.len + n]
             .iter_mut()
             .zip(old.items[..n].iter_mut())
         {
             *dst = core::mem::take(src);
         }
-        if !slot_array {
-            self.len += n;
-        }
+        self.len += n;
         old.len -= n;
         if old.len > 0 {
+            old.items.rotate_left(n);
+        }
+    }
+
+    /// Moves the slots of `old` (a slot array) into the first slots of this (larger) slot
+    /// array, on the audio path: one move per slot of `old`, empty ones included, no
+    /// allocation; `old` keeps its storage (every slot back to the default) and goes to the
+    /// garbage. Slots beyond this capacity stay in `old` (never happens when `prepare`
+    /// doubled it).
+    pub fn take_slots_from(&mut self, old: &mut Table<T>) {
+        let n = old.len.min(self.items.len());
+        for (dst, src) in self.items[..n].iter_mut().zip(old.items[..n].iter_mut()) {
+            *dst = core::mem::take(src);
+        }
+        if n < old.len {
             old.items.rotate_left(n);
         }
     }

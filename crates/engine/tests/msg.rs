@@ -179,7 +179,9 @@ fn every_tag_round_trips_and_every_variant_has_its_tag() {
     for tag in Tag::ALL {
         assert_eq!(Tag::from_u16(tag as u16), Some(tag));
         let bytes = header(tag, 0).encode();
-        assert_eq!(Header::decode(&bytes, 3).map(|h| h.tag), Ok(tag));
+        // A Reset is read against an older epoch (it brings a newer one).
+        let current = if tag == Tag::Reset { 2 } else { 3 };
+        assert_eq!(Header::decode(&bytes, current).map(|h| h.tag), Ok(tag));
     }
     let mut numbers: Vec<u16> = Tag::ALL.iter().map(|t| *t as u16).collect();
     numbers.sort_unstable();
@@ -217,7 +219,8 @@ fn every_tag_round_trips_and_every_variant_has_its_tag() {
 
 #[test]
 fn a_bad_header_is_a_typed_error() {
-    let good = header(Tag::Stop, 4).encode();
+    let mut good = header(Tag::Stop, 4).encode().to_vec();
+    good.extend_from_slice(&[0; 4]);
     assert_eq!(
         Header::decode(&good[..10], 3),
         Err(MsgError::Truncated {
@@ -233,28 +236,28 @@ fn a_bad_header_is_a_typed_error() {
         })
     );
 
-    let mut version = good;
+    let mut version = good.clone();
     version[0] = 2;
     assert_eq!(
         Header::decode(&version, 3),
         Err(MsgError::UnsupportedVersion(2))
     );
 
-    let mut flags = good;
+    let mut flags = good.clone();
     flags[1] = 1;
     assert_eq!(Header::decode(&flags, 3), Err(MsgError::Corrupt));
-    let mut reserved = good;
+    let mut reserved = good.clone();
     reserved[7] = 0x80;
     assert_eq!(Header::decode(&reserved, 3), Err(MsgError::Corrupt));
 
-    let mut large = good;
+    let mut large = good.clone();
     large[8..12].copy_from_slice(&(limits::MAX_CONTROL_MSG_BYTES + 1).to_le_bytes());
     assert_eq!(
         Header::decode(&large, 3),
         Err(MsgError::TooLarge(limits::MAX_CONTROL_MSG_BYTES + 1))
     );
 
-    let mut unknown = good;
+    let mut unknown = good.clone();
     unknown[2..4].copy_from_slice(&65535u16.to_le_bytes());
     assert_eq!(
         Header::decode(&unknown, 3),
@@ -275,16 +278,31 @@ fn a_bad_header_is_a_typed_error() {
             current: 4
         })
     );
-    // Only a Reset crosses epochs, and only forward: a late Reset of a past epoch is stale.
+    // Only a Reset crosses epochs, and only forward: a late Reset of a past epoch, or a
+    // duplicate of the current one, is stale.
     let reset = header(Tag::Reset, 0).encode();
     assert_eq!(Header::decode(&reset, 2).map(|h| h.epoch), Ok(3));
+    for current in [3, 4] {
+        assert_eq!(
+            Header::decode(&reset, current),
+            Err(MsgError::StaleEpoch {
+                message: 3,
+                current
+            })
+        );
+    }
+    // A payload shorter than `len` announces is truncated, whatever the header says.
+    let short = header(Tag::Stop, 4).encode();
     assert_eq!(
-        Header::decode(&reset, 4),
-        Err(MsgError::StaleEpoch {
-            message: 3,
-            current: 4
+        Header::decode(&short, 3),
+        Err(MsgError::Truncated {
+            needed: HEADER_BYTES + 4,
+            available: HEADER_BYTES
         })
     );
+    let mut whole = short.to_vec();
+    whole.extend_from_slice(&[0; 4]);
+    assert!(Header::decode(&whole, 3).is_ok());
 }
 
 #[test]

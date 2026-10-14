@@ -54,7 +54,7 @@ impl AudioSide {
                     kind: TableKind::Tracks,
                     next: Prepared::Tracks(mut next),
                 }) => {
-                    next.take_from(&mut self.tracks);
+                    next.take_slots_from(&mut self.tracks);
                     Garbage::Tracks(core::mem::replace(&mut self.tracks, next))
                 }
                 RtMsg::Swap(Swap {
@@ -94,14 +94,15 @@ impl AudioSide {
         }
     }
 
-    /// One block: the overflow check, apply what arrived, then "render".
+    /// One block: apply what arrived (the live queue first, in the real engine), then the
+    /// overflow check and its release, then "render".
     fn render_block(&mut self, overflow: &LiveOverflow) {
+        self.apply_pending();
         let total = overflow.total();
         if total != self.overflow_seen {
             self.overflow_seen = total;
-            self.releases += 1; // every live note released
+            self.releases += 1; // every live note released, after the queued events
         }
-        self.apply_pending();
         self.rendered_blocks += 1;
     }
 
@@ -210,7 +211,8 @@ impl ControlSide {
 
 fn sides(ring_capacity: usize, table_capacity: usize) -> (ControlSide, AudioSide) {
     let (rt_tx, rt_rx) = RingBuffer::new(ring_capacity);
-    let (gc_tx, gc_rx) = RingBuffer::new(ring_capacity);
+    // One slot more than the rt ring (the invariant of the module doc).
+    let (gc_tx, gc_rx) = RingBuffer::new(ring_capacity + 1);
     (
         ControlSide {
             rt: rt_tx,
@@ -509,6 +511,34 @@ fn a_limit_is_refused_before_anything_reaches_the_engine() {
 }
 
 #[test]
+fn the_garbage_ring_holds_one_more_than_the_rt_ring_for_the_apply_between_drain_and_push() {
+    // The race of a concurrent consumer, replayed by hand: after a drain, C messages are in
+    // flight; the audio side applies one (one garbage item) before the next push lands;
+    // once everything is applied the garbage ring holds C + 1 items and still had a slot
+    // for each of them.
+    let (mut control, mut audio) = sides(2, 1);
+    let overflow = LiveOverflow::new();
+    control.prepare_grow_tracks(2).unwrap();
+    control.prepare_grow_tracks(4).unwrap();
+    // The audio side applies one message: one garbage item, one rt slot free.
+    let held = audio.rt.pop().unwrap();
+    assert_no_alloc(|| audio.render_block(&overflow));
+    assert_eq!(audio.applied, 1);
+    // The next push follows a drain (the garbage ring is emptied) and lands in the free
+    // slot; the held message goes back in front of the queue to keep the order.
+    control.prepare_grow_tracks(8).unwrap();
+    assert_eq!(control.collected, 1);
+    control.pending.push_front(held);
+    control.flush();
+    assert_no_alloc(|| audio.render_block(&overflow));
+    // Three messages applied, three garbage items: the second and third went into the ring
+    // together with the first still uncollected, which needed the extra slot.
+    assert_eq!(audio.applied, 3);
+    control.collect();
+    assert_eq!(control.collected, 3);
+}
+
+#[test]
 fn a_full_live_queue_counts_the_overflow_and_the_audio_side_releases_the_notes() {
     let (mut live_tx, mut live_rx) = RingBuffer::<RtMsg>::new(2);
     let overflow = LiveOverflow::new();
@@ -533,8 +563,14 @@ fn a_full_live_queue_counts_the_overflow_and_the_audio_side_releases_the_notes()
         offset: 0,
     });
     assert_eq!(overflow.total(), 1);
-    // The next block sees the counter move and releases every live note, with no further
-    // event from the producer.
+    // The next block drains the live queue first (the two note-ons are applied), then sees
+    // the counter move and releases every live note, with no further event from the
+    // producer: nothing queued before the lost note-off survives the release.
+    let mut drained = Vec::new();
+    while let Ok(event) = live_rx.pop() {
+        drained.push(event);
+    }
+    assert_eq!(drained.len(), 2);
     assert_no_alloc(|| audio.render_block(&overflow));
     assert_eq!(audio.releases, 1);
     assert_no_alloc(|| audio.render_block(&overflow));
@@ -542,7 +578,6 @@ fn a_full_live_queue_counts_the_overflow_and_the_audio_side_releases_the_notes()
         audio.releases, 1,
         "released once per overflow, not every block"
     );
-    assert!(matches!(live_rx.pop(), Ok(RtMsg::NoteOn { pitch: 60, .. })));
 }
 
 #[test]

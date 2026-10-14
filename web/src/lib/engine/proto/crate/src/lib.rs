@@ -135,7 +135,7 @@ pub extern "C" fn fk_proto_frees(role: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn fk_proto_new(track_capacity: u32) -> *mut Proto {
     let (rt_tx, rt_rx) = RingBuffer::new(limits::RT_RING_CAPACITY);
-    let (gc_tx, gc_rx) = RingBuffer::new(limits::RT_RING_CAPACITY);
+    let (gc_tx, gc_rx) = RingBuffer::new(limits::GARBAGE_RING_CAPACITY);
     let Ok(tracks) = Table::try_filled(track_capacity as usize) else {
         return core::ptr::null_mut();
     };
@@ -349,7 +349,7 @@ pub unsafe extern "C" fn fk_proto_pump(ptr: *mut Proto, inst: *mut Instance) -> 
                 kind: TableKind::Tracks,
                 next: Prepared::Tracks(mut next),
             }) => {
-                next.take_from(&mut r.tracks);
+                next.take_slots_from(&mut r.tracks);
                 Some(Garbage::Tracks(core::mem::replace(&mut r.tracks, next)))
             }
             RtMsg::Swap(Swap {

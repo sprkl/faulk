@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, wasm32-wasip1-threads
 
       - name: Install audio headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -35,6 +35,15 @@ jobs:
       # Includes the native/WASM parity test, which builds the wasm module itself.
       - name: Test
         run: cargo test --workspace
+
+      # The engine channel prototype (CT-3, web/src/lib/engine/proto/crate) is not a workspace
+      # member: formatted and linted here for both of its targets.
+      - name: Prototype crate (fmt, clippy)
+        working-directory: web/src/lib/engine/proto/crate
+        run: |
+          cargo fmt --check
+          cargo clippy --release --target wasm32-unknown-unknown -- -D warnings
+          cargo clippy --release --target wasm32-wasip1-threads -- -D warnings
 
       - name: WASM build of the engine
         run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
