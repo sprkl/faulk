@@ -57,4 +57,15 @@ describe('the shell', () => {
     stores.ui.show('play')
     expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pairing-notice"')
   })
+
+  it('says a pairing link waits for the audio outside the instrument view only', () => {
+    const stores = createStores('mixer', DEFAULT_PANEL)
+    stores.engine.pendingPairCode = '12345678'
+    expect(render(Shell, { props: { stores } }).body).toContain('data-testid="pair-pending-notice"')
+    stores.ui.show('play')
+    expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pair-pending-notice"')
+    stores.ui.show('mixer')
+    stores.engine.started = true
+    expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pair-pending-notice"')
+  })
 })

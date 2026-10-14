@@ -47,7 +47,10 @@
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
-  <!-- The instrument view shows pairing results in its helper panel; elsewhere, here. -->
+  <!-- The instrument view shows pairing state in its own panels; elsewhere, here. -->
+  {#if engine.pendingPairCode && !engine.started && ui.view !== 'play'}
+    <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>
+  {/if}
   {#if engine.pairingMessage && ui.view !== 'play'}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
