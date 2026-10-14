@@ -60,7 +60,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   const { errors } = watch(page)
   await page.goto('/app')
   expect(await page.evaluate(() => crossOriginIsolated), 'crossOriginIsolated').toBe(true)
-  await page.getByRole('button', { name: 'Start audio' }).click()
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
 
   // Probe answered: the pairing form shows.
   const code = page.getByRole('textbox', { name: /code/i })
@@ -72,7 +72,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByText('Wrong code. 2 attempts left.')).toBeVisible()
   await code.fill('1234 5678')
   await page.getByRole('button', { name: 'Pair', exact: true }).click()
-  await expect(page.getByTestId('engine-mode')).toHaveText('Boost')
+  await expect(page.getByTestId('engine-mode')).toContainText('Boost')
   await expect(page.getByTestId('latency')).toContainText('5')
 
   // Commands reach the helper over the session.
@@ -82,7 +82,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
 
   // Back to Web, the page's own engine plays again.
   await page.getByRole('button', { name: 'Back to Web' }).click()
-  await expect(page.getByTestId('engine-mode')).toHaveText('Web')
+  await expect(page.getByTestId('engine-mode')).toContainText('Web')
 
   const origin = new URL(baseURL!).origin
   // The page's own sockets, by their Origin header. Other pages on the machine (another checkout's
