@@ -185,7 +185,7 @@ float ripple(vec2 p, vec4 drop, float side) {
     float front = age * 0.42;
     float env = exp(-age * 0.9) * pow(FEEDBACK, float(k));
     // Waves behind the front only, strongest just behind it.
-    float behind = smoothstep(front + 0.02, front - 0.06, dist);
+    float behind = 1.0 - smoothstep(front - 0.06, front + 0.02, dist);
     h += drop.w * env * behind * sin(dist * 52.0 - age * 9.0) * exp(-dist * 2.2);
   }
   return h;

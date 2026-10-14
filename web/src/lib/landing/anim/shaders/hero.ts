@@ -145,7 +145,7 @@ const vec3 PAPER = vec3(236.0, 233.0, 230.0) / 255.0;
 const vec3 LILAC = vec3(156.0, 146.0, 255.0) / 255.0;
 void main() {
   vec2 d = gl_PointCoord - 0.5;
-  float a = smoothstep(0.5, 0.15, length(d)) * (vt * 0.75 + vs * 0.45);
+  float a = (1.0 - smoothstep(0.15, 0.5, length(d))) * (vt * 0.75 + vs * 0.45);
   vec3 c = mix(PAPER, LILAC, vs * 0.85);
   o = vec4(c * a, a);
 }`

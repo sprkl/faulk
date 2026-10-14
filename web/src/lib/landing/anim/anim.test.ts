@@ -246,3 +246,33 @@ describe('seek harness', () => {
     expect(seekRequest('?fk-anim-t=1&fk-anim-p=x,y')).toEqual({ t: 1, x: -1000, y: -1000 })
   })
 })
+
+describe('shaders', () => {
+  /** Every `smoothstep(e0, e1, …)` whose edges can be compared: plain numbers, or one expression plus constants. */
+  function edgePairs(source: string): { call: string; e0: number; e1: number }[] {
+    const pairs: { call: string; e0: number; e1: number }[] = []
+    const term = (s: string) => {
+      const m = /^(.*?)\s*([+-])\s*(\d*\.?\d+)$/.exec(s.trim())
+      if (m && m[1] !== '') return { base: m[1].trim(), k: (m[2] === '-' ? -1 : 1) * Number(m[3]) }
+      return Number.isFinite(Number(s)) ? { base: '', k: Number(s) } : { base: s.trim(), k: 0 }
+    }
+    for (const m of source.matchAll(/smoothstep\(([^,()]+),([^,()]+),/g)) {
+      const a = term(m[1])
+      const b = term(m[2])
+      if (a.base === b.base) pairs.push({ call: m[0], e0: a.k, e1: b.k })
+    }
+    return pairs
+  }
+
+  it('never call smoothstep with edge0 >= edge1 (undefined in GLSL)', () => {
+    const files = readdirSync(new URL('./shaders/', dir)).filter((f) => f.endsWith('.ts'))
+    let checked = 0
+    for (const file of files) {
+      for (const { call, e0, e1 } of edgePairs(readFileSync(new URL(`./shaders/${file}`, dir), 'utf8'))) {
+        checked++
+        expect(e0 < e1, `${file}: ${call}`).toBe(true)
+      }
+    }
+    expect(checked).toBeGreaterThan(10)
+  })
+})
