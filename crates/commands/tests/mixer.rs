@@ -226,28 +226,23 @@ fn undo_restores_silence_and_the_master() {
 }
 
 #[test]
-fn a_previous_gain_beyond_the_range_is_undone_to_the_nearest_gain_in_range() {
-    // A document edited by hand: +20 dB, which `validate` accepts. A command cannot
-    // write it back, so undo restores +6 dB; the edit stays in the history.
+fn a_gain_beyond_the_range_is_refused_before_it_is_edited() {
+    // A document edited by hand: +20 dB or -120 dB, which `validate` accepts. A command
+    // cannot write that gain back, so it could not undo the edit exactly: it is refused
+    // and the state stays intact.
     let f = fixture();
     let mut s = f.state.clone();
     s.project.tracks.get_mut(&f.track).unwrap().mixer.gain_db = 20.0;
-    let depth = s.history.undo.len();
-    run(&volume(&f.track, Some(0.0)), &mut s, &mut context()).unwrap();
-    assert_eq!(s.history.undo.len(), depth + 1, "the edit is recorded");
-    run(&undo(), &mut s, &mut context()).unwrap();
-    assert_eq!(s.project.tracks[&f.track].mixer.gain_db, mixer::MAX_GAIN_DB);
-    assert_eq!(
-        s.history.undo.len(),
-        depth,
-        "the undo took this edit, not an older one"
-    );
-    s.project.validate().unwrap();
-    // Below the floor, the same with the floor.
     s.project.master.gain_db = -120.0;
-    run(&master(Some(0.0)), &mut s, &mut context()).unwrap();
-    run(&undo(), &mut s, &mut context()).unwrap();
-    assert_eq!(s.project.master.gain_db, mixer::MIN_GAIN_DB);
+    for command in [
+        volume(&f.track, Some(0.0)),
+        master(Some(0.0)),
+        volume(&f.track, None),
+    ] {
+        assert_eq!(invalid_field(refused(&command, &s)), "gain_db");
+    }
+    // Pan and mute are not concerned.
+    check(&mute(&f.track, true), &s, &context()).unwrap();
 }
 
 #[test]

@@ -102,6 +102,7 @@ pub fn apply(
         Command::SetVolume { track, gain_db } => {
             let db = to_db(*gain_db)?;
             let mixer = &mut track_mut(state, track)?.mixer;
+            check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
             Ok(gain_outcome(
                 previous,
@@ -118,6 +119,7 @@ pub fn apply(
         Command::SetMasterVolume { gain_db } => {
             let db = to_db(*gain_db)?;
             let mixer = &mut state.project.master;
+            check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
             Ok(gain_outcome(
                 previous,
@@ -267,10 +269,9 @@ fn mixer_changed(track: Option<TrackId>, mixer: &Mixer) -> ProjectEvent {
     }
 }
 
-/// The outcome of a gain edit. A previous gain the contract would refuse (a document
-/// edited by hand beyond the range) cannot be written back by a command: the inverse
-/// restores the nearest gain in range instead, so the edit stays undoable and the
-/// history stays coherent.
+/// The outcome of a gain edit. An inverse must restore the state exactly and a command
+/// cannot write a gain outside the range, so [`check_current`] has refused the edit
+/// when the current gain is outside it: here the previous gain is always restorable.
 fn gain_outcome(
     previous: f64,
     db: f64,
@@ -284,13 +285,26 @@ fn gain_outcome(
     if previous == db {
         return unchanged(output);
     }
-    let restored = before.map(|g| g.clamp(MIN_GAIN_DB, MAX_GAIN_DB));
     Outcome {
         output,
-        undo: Undo::Inverse(Box::new(inverse(restored))),
+        undo: Undo::Inverse(Box::new(inverse(before))),
         events: vec![mixer_changed(track, mixer)],
         control: vec![],
     }
+}
+
+/// Refuses to edit a gain that is outside the range (a document edited by hand: the
+/// project accepts any finite gain): the edit could not be undone exactly.
+fn check_current(mixer: &Mixer) -> Result<(), CommandError> {
+    to_db(from_db(mixer.gain_db))
+        .map(|_| ())
+        .map_err(|_| CommandError::Invalid {
+            field: "gain_db".into(),
+            message: format!(
+                "the current gain, {} dB, is outside {MIN_GAIN_DB} to {MAX_GAIN_DB} dB:                  a command could not undo the edit exactly",
+                mixer.gain_db
+            ),
+        })
 }
 
 /// The schema of a gain: a number from [`MIN_GAIN_DB`] to [`MAX_GAIN_DB`], or `null` for
