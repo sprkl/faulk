@@ -10,22 +10,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  detect:
+  agent-scripts:
+    # The agent guardrails (hooks, Judge Dredd brief, verification records).
     runs-on: ubuntu-latest
-    outputs:
-      rust: ${{ steps.detect.outputs.rust }}
-      web: ${{ steps.detect.outputs.web }}
     steps:
       - uses: actions/checkout@v4
-      - id: detect
-        run: |
-          echo "rust=$([ -f Cargo.toml ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "web=$([ -f web/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the agent scripts
+        run: node --test "scripts/**/*.test.mjs"
 
   rust:
-    # Skipped until the Rust workspace exists (spike S1).
-    needs: detect
-    if: needs.detect.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,16 +45,36 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Includes the native/WASM parity test, which builds the wasm module itself.
       - name: Test
         run: cargo test --workspace
 
       - name: WASM build of the engine
         run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 
+  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
+  helper-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -p helper --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test -p helper
+
+      - name: Release build
+        run: cargo build -p helper --release
+
   web:
-    # Skipped until the web app exists (spike S1).
-    needs: detect
-    if: needs.detect.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -64,7 +82,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The web app builds the engine to WebAssembly and generates its types from Rust.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
 
       - uses: actions/setup-node@v4
         with:
@@ -73,6 +101,12 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Generated types are up to date
+        run: |
+          pnpm gen:protocol
+          git diff --exit-code src/lib/generated
+
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
