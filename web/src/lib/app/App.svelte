@@ -1,12 +1,15 @@
 <script lang="ts">
+  import { goto } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { onMount } from 'svelte'
-  import Knob from './lib/components/Knob.svelte'
-  import Meter from './lib/components/Meter.svelte'
-  import PianoStrip from './lib/components/PianoStrip.svelte'
-  import type { MessageKey } from './lib/i18n'
-  import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from './lib/keyboard'
-  import { formatValue, KNOB_PARAMS, positionOf, valueAt } from './lib/params'
-  import { Session } from './lib/session.svelte'
+  import Monogram from '../components/Monogram.svelte'
+  import Knob from '../components/Knob.svelte'
+  import Meter from '../components/Meter.svelte'
+  import PianoStrip from '../components/PianoStrip.svelte'
+  import type { MessageKey } from '../i18n/index'
+  import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../keyboard'
+  import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../params'
+  import { Session } from '../session.svelte'
 
   const session = new Session()
   const t = session.t
@@ -53,8 +56,12 @@
 
   onMount(() => {
     void session.checkHelper()
-    session.takePairLink()
-    const onHashChange = () => session.takePairLink()
+    // Through the router: a raw history.replaceState conflicts with SvelteKit's.
+    // `url` is the current path and query, already resolved against the base path.
+    // eslint-disable-next-line svelte/no-navigation-without-resolve
+    const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
+    session.takePairLink(location, clearAddress)
+    const onHashChange = () => session.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     const release = () => releaseAllKeys()
     const onVisibility = () => document.hidden && releaseAllKeys()
@@ -82,6 +89,8 @@
 
 <header>
   <div class="brand">
+    <!-- Full page load: the landing page has its own theme and no client-side router. -->
+    <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
     <h1>FAULK</h1>
     <span class="ref">FLK-0.1</span>
     <span class="tagline">{t('app.tagline')}</span>
@@ -241,6 +250,11 @@
     align-items: baseline;
     gap: var(--fk-space-3);
   }
+  .home {
+    align-self: center;
+    display: inline-flex;
+    color: var(--fk-text);
+  }
   h1 {
     margin: 0;
     font-family: var(--fk-font-display);
@@ -250,6 +264,7 @@
     letter-spacing: -0.02em;
   }
   .ref {
+    white-space: nowrap;
     font-family: var(--fk-font-mono);
     font-size: 12px;
     color: var(--fk-text-muted);

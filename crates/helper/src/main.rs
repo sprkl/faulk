@@ -36,7 +36,13 @@ use std::time::{Duration, Instant};
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 const DEFAULT_PORT: u16 = 47800;
-const DEFAULT_ORIGINS: [&str; 2] = ["http://localhost:5173", "http://127.0.0.1:5173"];
+/// The web app's dev server (`pnpm dev`, 5173) and its static preview (`pnpm preview`, 4173).
+const DEFAULT_ORIGINS: [&str; 4] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+];
 /// Longest wait on Quit for the voices to end their release before the audio stops.
 const QUIT_RELEASE_LIMIT: Duration = Duration::from_secs(2);
 const USAGE: &str =
@@ -386,7 +392,7 @@ mod tests {
         let a = args(&[]).unwrap();
         assert_eq!(a.port, DEFAULT_PORT);
         assert_eq!(a.origins, DEFAULT_ORIGINS);
-        assert_eq!(a.app_url, "http://localhost:5173/");
+        assert_eq!(a.app_url, "http://localhost:5173/app");
     }
 
     #[test]
@@ -498,5 +504,17 @@ mod tests {
         assert!(args(&["--port", "x"]).is_err());
         assert!(args(&["--app-url"]).is_err());
         assert!(args(&["--what"]).is_err());
+    }
+
+    #[test]
+    fn default_origins_cover_dev_and_preview_servers() {
+        for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ] {
+            assert!(DEFAULT_ORIGINS.contains(&origin), "{origin}");
+        }
     }
 }

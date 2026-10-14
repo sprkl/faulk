@@ -28,9 +28,9 @@ vi.mock('./midi/web-midi', () => ({
 const { Session } = await import('./session.svelte')
 
 function address(hash: string) {
-  const location = { hash, pathname: '/', search: '' } as Location
-  const history = { state: null, replaceState: vi.fn() } as unknown as History
-  return { location, history }
+  const location = { hash, pathname: '/app', search: '' } as Location
+  const clear = vi.fn<(url: string) => void>()
+  return { location, clear }
 }
 
 describe('pairing link in the session', () => {
@@ -41,9 +41,9 @@ describe('pairing link in the session', () => {
 
   it('keeps the code until audio starts, then pairs once', async () => {
     const session = new Session()
-    const { location, history } = address('#pair=12345678')
-    session.takePairLink(location, history)
-    expect(history.replaceState).toHaveBeenCalledWith(null, '', '/')
+    const { location, clear } = address('#pair=12345678')
+    session.takePairLink(location, clear)
+    expect(clear).toHaveBeenCalledWith('/app')
     expect(session.pendingPairCode).toBe('12345678')
     expect(pairHelper).not.toHaveBeenCalled()
 
@@ -56,8 +56,8 @@ describe('pairing link in the session', () => {
   it('pairs at once when audio already runs', async () => {
     const session = new Session()
     await session.start()
-    const { location, history } = address('#pair=87654321')
-    session.takePairLink(location, history)
+    const { location, clear } = address('#pair=87654321')
+    session.takePairLink(location, clear)
     await vi.waitFor(() => expect(pairHelper).toHaveBeenCalledWith('87654321'))
     expect(session.pendingPairCode).toBeNull()
   })
@@ -65,8 +65,8 @@ describe('pairing link in the session', () => {
   it('reports a pairing failure as such, not as an audio start failure', async () => {
     pairHelper.mockResolvedValue({ status: 'failed' })
     const session = new Session()
-    const { location, history } = address('#pair=12345678')
-    session.takePairLink(location, history)
+    const { location, clear } = address('#pair=12345678')
+    session.takePairLink(location, clear)
     await session.start()
     expect(session.started).toBe(true)
     expect(session.notice).toBeNull()
@@ -77,8 +77,8 @@ describe('pairing link in the session', () => {
     pairHelper.mockRejectedValue(new Error('boom'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const session = new Session()
-    const { location, history } = address('#pair=12345678')
-    session.takePairLink(location, history)
+    const { location, clear } = address('#pair=12345678')
+    session.takePairLink(location, clear)
     await session.start()
     expect(session.started).toBe(true)
     expect(session.notice).toBeNull()
@@ -90,16 +90,16 @@ describe('pairing link in the session', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const session = new Session()
     await session.start()
-    const { location, history } = address('#pair=87654321')
-    session.takePairLink(location, history)
+    const { location, clear } = address('#pair=87654321')
+    session.takePairLink(location, clear)
     await vi.waitFor(() => expect(session.pairingMessage).toEqual({ key: 'helper.failed' }))
     expect(session.started).toBe(true)
   })
 
   it('ignores an invalid or missing link', async () => {
     const session = new Session()
-    session.takePairLink(...(Object.values(address('#pair=12')) as [Location, History]))
-    session.takePairLink(...(Object.values(address('')) as [Location, History]))
+    session.takePairLink(...(Object.values(address('#pair=12')) as [Location, (url: string) => void]))
+    session.takePairLink(...(Object.values(address('')) as [Location, (url: string) => void]))
     expect(session.pendingPairCode).toBeNull()
     await session.start()
     expect(pairHelper).not.toHaveBeenCalled()

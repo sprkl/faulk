@@ -1,4 +1,8 @@
-@import './lib/styles/tokens.css';
+/* Global base shared by every page: tokens, self-hosted fonts and resets. */
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import './tokens.css';
 
 *,
 *::before,
@@ -6,7 +10,11 @@
   box-sizing: border-box;
 }
 
-html {
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
   color-scheme: dark;
 }
 
@@ -16,8 +24,6 @@ body {
   background: var(--fk-bg);
   color: var(--fk-text);
   font-family: var(--fk-font-ui);
-  font-size: 13px;
-  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -31,18 +37,4 @@ select {
 :focus-visible {
   outline: 2px solid var(--fk-accent-fg);
   outline-offset: 2px;
-}
-
-.value {
-  font-family: var(--fk-font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-
-.label {
-  font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fk-text-muted);
 }

@@ -25,7 +25,7 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 | `crates/engine-wasm` | Web build of the engine, run inside an `AudioWorklet`. Plain C ABI exports (`fk_*`), no `wasm-bindgen`: its glue does not load in an `AudioWorkletGlobalScope`. | Rust → WASM |
 | `crates/helper` | Native helper ("Boost" mode), the local bridge: runs the same engine with low-latency audio I/O, MIDI and third-party plugin hosting, serves MCP, launches ACP agents, and talks to the web UI over a local WebSocket. | Rust (`cpal`, `midir`, CLAP then VST3, `rmcp`, ACP) |
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
-| `web/` | The UI: one web app for both modes. | TypeScript, Svelte 5, Vite, Vitest, pnpm |
+| `web/` | One web app for both modes: the public landing page at `/` (prerendered, light theme; its only client JavaScript is the lazily loaded WebGL animation of the sound objects, `src/lib/landing/anim/`) and the DAW at `/app` (client-only, dark theme). | TypeScript, SvelteKit 3 (adapter-static), Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
 | `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). | Node 24, ESM, no dependency, `node --test` |
 
@@ -56,7 +56,7 @@ Known exception, until the shared-memory channel of the MVP plan is built (cross
 
 - **French** for what people read: GitHub issues, pull requests (title, description, replies to reviews), the agent's messages to the user, `README.md` and the documentation in `docs/`.
 - **English** for everything else: identifiers, file names, code comments and doc comments, test names, log messages, commits, developer-facing errors, technical and internal documentation (`CLAUDE.md`, `docs/agents/`), and the frontmatter values, `index.md` and `log.md` files of `docs/`.
-- The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n.ts` in both languages.
+- The product UI is in English and French from the start (user's decision of 2026-10-13): every UI string goes through `web/src/lib/i18n/` in both languages (`app.ts` for the DAW, `landing.ts` for the landing page).
 
 When the audience or the language of a text is unclear, ask before writing it; never deduce.
 

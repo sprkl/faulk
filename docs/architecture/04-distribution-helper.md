@@ -43,7 +43,7 @@ Le montage est asymétrique :
 
 ## Les redirections de `get.faulk.app`
 
-Elles vivent dans `web/vercel.json`, lu par le projet Vercel qui déploie `web/`. Chaque règle porte la condition `has: host = get.faulk.app` : `faulk.app` lui-même n'est pas touché. Toutes sont temporaires (`permanent: false`), pour pouvoir changer d'hébergement.
+Elles vivent dans `web/vercel.json`, lu par le projet Vercel qui déploie `web/`. Chaque règle porte la condition `has: host = get.faulk.app` : `faulk.app` lui-même n'est pas touché. Toutes sont temporaires (`permanent: false`), pour pouvoir changer d'hébergement. Ce sont des redirections du proxy de Vercel, appliquées avant les fichiers produits par SvelteKit (`adapter-static`) : le cadre de l'application n'y change rien. Seules les réécritures (`rewrites`) de `vercel.json` sont déconseillées avec SvelteKit, et ce fichier n'en a pas.
 
 | Demandé à `get.faulk.app` | Redirigé vers (`github.com/sprkl/faulk-release/releases/...`) | Pourquoi |
 |---|---|---|

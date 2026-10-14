@@ -41,7 +41,7 @@ Un seul moteur audio en Rust, compilé pour deux cibles, et une seule couche de 
 | `crates/protocol` | Les messages entre l'interface et un moteur (web ou natif) : messages moteur, état, retours visuels, fichiers du projet en mode Boost. | Rust, types TypeScript générés |
 | `crates/engine-wasm` | Le moteur dans un `AudioWorklet`. Exports C simples (`fk_*`), sans `wasm-bindgen` dont le code d'appui ne se charge pas dans un worklet. La page envoie les octets du `.wasm` au worklet, qui le compile lui-même. Aujourd'hui les commandes arrivent par `postMessage` ; la cible (décision du 2026-10-14, isolation cross-origin acceptée) est une mémoire partagée : un Worker prépare les structures, le worklet lit un anneau lock-free. | Rust |
 | `crates/helper` | Le pont local : le moteur natif, l'audio basse latence, le MIDI, les plugins tiers, le serveur MCP, le lancement des agents ACP, et un serveur WebSocket local vers la page. | Rust, `cpal`, `midir`, `clack`, SDK MCP Rust (`rmcp`), ACP |
-| `web/` | L'interface : arrangement, clips, mixer, Atelier, panneau d'agent. | TypeScript, Svelte 5, Vite |
+| `web/` | Une seule application web : la page d'accueil publique sur `/` (`/en`, `/fr`) et le DAW sur `/app` (arrangement, clips, mixer, Atelier, panneau d'agent). | TypeScript, SvelteKit, Svelte 5, Vite |
 | `modules/` | Les modules de Faulk. | Faust d'abord (compilation à la volée), Rust → WASM ensuite |
 
 ## Principes
