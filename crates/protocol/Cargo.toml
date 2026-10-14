@@ -11,3 +11,6 @@ commands = { path = "../commands" }
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+[dev-dependencies]
+project = { path = "../project" }

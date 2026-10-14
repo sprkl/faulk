@@ -1,221 +1,175 @@
-//! Every Faulk user action as a typed command.
+//! Every Faulk user action as a typed command (contract v2, CT-4; promoted here by PR-2).
 //!
-//! The UI, the MCP tools and the ACP agents all act through [`Command`]: the UI has
-//! no private path to the engine. Each variant's doc comment is its description for
-//! agents, exported in the JSON Schema (see the `export-schema` binary).
+//! The UI, the MCP tools and the ACP agents all act through [`Command`]: the UI has no
+//! private path to the engine or the project. A command applies to the [`State`]
+//! (project, session, history) and returns an [`Outcome`]: its typed output, its
+//! inverse, its events for the interface and its messages for the engine. Hosts run
+//! commands through [`run`], which keeps the undo history ([`history`]).
 //!
-//! This root is the v1 contract, applied straight to the synth; the helper, the
-//! worklet and the web app still use it. The v2 contract (CT-4), applied to the
-//! project, lives in [`v2`]; PR-2 promotes it here and migrates these commands.
+//! One file per domain (spec § 5.2): a task adds its commands to its domain's file and
+//! never touches the root, whose [`Command`] counts one line per domain. The root
+//! derives names, metadata, schema and the MCP tool [`catalog`] from the domains.
 
-pub mod v2;
+pub mod contract;
+pub(crate) mod macros;
+pub mod testing;
 
-use engine::{Param, Synth};
+pub mod arrangement;
+pub mod automation;
+pub mod clip;
+pub mod device;
+pub mod history;
+pub mod launch;
+pub mod live;
+pub mod midi;
+pub mod mixer;
+pub mod note;
+pub mod project;
+pub mod record;
+pub mod scene;
+pub mod track;
+pub mod transport;
+pub mod view;
+
+pub use contract::{
+    Author, CommandError, Context, ControlMsg, GroupId, Kind, Meta, ProjectEvent, State, Undo,
+    UndoKind,
+};
+pub use history::{History, run};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde_json::{Value, json};
 
-/// A Faulk command, tagged by its `type` field (e.g. `{"type": "note.on", ...}`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", deny_unknown_fields)]
-pub enum Command {
-    /// List the MIDI inputs available to the engine. The answer is a `midi.inputs` event.
-    #[serde(rename = "midi.list_inputs")]
-    #[schemars(extend("x-undo" = "none"))]
-    MidiListInputs,
-
-    /// Choose the MIDI input that plays the synth. `id` is an id from `midi.inputs`;
-    /// `null` disconnects MIDI input.
-    #[serde(rename = "midi.select_input")]
-    #[schemars(extend("x-undo" = "host"))]
-    MidiSelectInput { id: Option<String> },
-
-    /// Set a synth parameter. Values outside the parameter's range are clamped.
-    /// Undo: set the parameter back to its previous value.
-    #[serde(rename = "synth.set_param")]
-    #[schemars(extend("x-undo" = "inverse"))]
-    SynthSetParam { param: SynthParam, value: f32 },
-
-    /// Start a note on the synth. `note` is a MIDI note number (60 = middle C),
-    /// `velocity` 1 to 127 (0 acts as a note off). Not undoable: it changes no project data.
-    #[serde(rename = "note.on")]
-    #[schemars(extend("x-undo" = "none"))]
-    NoteOn { note: u8, velocity: u8 },
-
-    /// Release a note started with `note.on`. Not undoable: it changes no project data.
-    #[serde(rename = "note.off")]
-    #[schemars(extend("x-undo" = "none"))]
-    NoteOff { note: u8 },
-
-    /// Release every playing note (panic button). Not undoable: it changes no project data.
-    #[serde(rename = "note.all_off")]
-    #[schemars(extend("x-undo" = "none"))]
-    NoteAllOff,
+macros::root! {
+    Project => project,
+    Track => track,
+    Device => device,
+    Clip => clip,
+    Note => note,
+    Scene => scene,
+    Launch => launch,
+    Arrangement => arrangement,
+    Automation => automation,
+    Transport => transport,
+    Mixer => mixer,
+    Record => record,
+    Midi => midi,
+    Live => live,
+    History => history,
+    View => view,
 }
 
-/// A synth parameter, with its unit and range.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SynthParam {
-    /// Oscillator waveform: 0 sine, 1 saw, 2 square, 3 triangle.
-    Waveform,
-    /// Attack time in seconds, 0.002 to 30.
-    Attack,
-    /// Decay time in seconds, 0.002 to 30.
-    Decay,
-    /// Sustain level, 0 to 1.
-    Sustain,
-    /// Release time in seconds, 0.002 to 30.
-    Release,
-    /// Master gain, 0 to 1 (linear).
-    Gain,
-}
+/// What applying a root [`Command`] produces.
+pub type Outcome = contract::Outcome<Command, Output>;
 
-impl SynthParam {
-    /// Every parameter, in a stable order.
-    pub const ALL: [SynthParam; 6] = [
-        Self::Waveform,
-        Self::Attack,
-        Self::Decay,
-        Self::Sustain,
-        Self::Release,
-        Self::Gain,
-    ];
-
-    pub fn to_engine(self) -> Param {
-        match self {
-            Self::Waveform => Param::Waveform,
-            Self::Attack => Param::Attack,
-            Self::Decay => Param::Decay,
-            Self::Sustain => Param::Sustain,
-            Self::Release => Param::Release,
-            Self::Gain => Param::Gain,
-        }
-    }
-}
-
-/// What applying a command to a synth did.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Applied {
-    /// The synth changed; `undo` restores it, if the command is undoable.
-    Done { undo: Option<UndoAction> },
-    /// The command does not act on the synth (MIDI device management): the host handles it.
-    NotForSynth,
-}
-
-/// The inverse of an applied undoable command.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum UndoAction {
-    SetParam { param: SynthParam, value: f32 },
-}
-
-impl UndoAction {
-    pub fn into_command(self) -> Command {
-        match self {
-            Self::SetParam { param, value } => Command::SynthSetParam { param, value },
-        }
-    }
-}
-
-impl Command {
-    /// The command's name, as in its `type` field.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::MidiListInputs => "midi.list_inputs",
-            Self::MidiSelectInput { .. } => "midi.select_input",
-            Self::SynthSetParam { .. } => "synth.set_param",
-            Self::NoteOn { .. } => "note.on",
-            Self::NoteOff { .. } => "note.off",
-            Self::NoteAllOff => "note.all_off",
-        }
-    }
-
-    /// Applies the command to a synth. Allocation-free: safe on the audio thread.
-    pub fn apply(&self, synth: &mut Synth) -> Applied {
-        match *self {
-            Self::SynthSetParam { param, value } => {
-                let previous = synth.param(param.to_engine());
-                synth.set_param(param.to_engine(), value);
-                Applied::Done {
-                    undo: Some(UndoAction::SetParam {
-                        param,
-                        value: previous,
-                    }),
-                }
-            }
-            Self::NoteOn { note, velocity } => {
-                synth.note_on(note, velocity);
-                Applied::Done { undo: None }
-            }
-            Self::NoteOff { note } => {
-                synth.note_off(note);
-                Applied::Done { undo: None }
-            }
-            Self::NoteAllOff => {
-                synth.all_notes_off();
-                Applied::Done { undo: None }
-            }
-            Self::MidiListInputs | Self::MidiSelectInput { .. } => Applied::NotForSynth,
-        }
-    }
-}
-
-/// How a command is undone, as declared in its schema (`x-undo`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UndoKind {
-    /// [`Command::apply`] returns the inverse command.
-    Inverse,
-    /// The host undoes it (e.g. reselecting the previous MIDI input).
-    Host,
-    /// Not undoable: the command changes no project data.
-    None,
-}
-
-impl Command {
-    pub fn undo_kind(&self) -> UndoKind {
-        match self {
-            Self::SynthSetParam { .. } => UndoKind::Inverse,
-            Self::MidiSelectInput { .. } => UndoKind::Host,
-            Self::MidiListInputs
-            | Self::NoteOn { .. }
-            | Self::NoteOff { .. }
-            | Self::NoteAllOff => UndoKind::None,
-        }
-    }
-}
-
-/// Stable numeric id of each synth parameter across the WebAssembly boundary,
-/// exported so the web app never hard-codes them.
-pub fn param_ids() -> Vec<(&'static str, u32)> {
-    SynthParam::ALL
-        .iter()
-        .map(|p| (p.name(), p.to_engine().id()))
-        .collect()
-}
-
-/// Default value of each synth parameter, read from a fresh engine, exported so the
-/// web app starts from the engine's values.
-pub fn param_defaults() -> Vec<(&'static str, f32)> {
-    let synth = Synth::new(48_000.0);
-    SynthParam::ALL
-        .iter()
-        .map(|p| (p.name(), synth.param(p.to_engine())))
-        .collect()
-}
-
-impl SynthParam {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Waveform => "waveform",
-            Self::Attack => "attack",
-            Self::Decay => "decay",
-            Self::Sustain => "sustain",
-            Self::Release => "release",
-            Self::Gain => "gain",
-        }
-    }
-}
-
-/// The JSON Schema of [`Command`], as exported to the web app and to agents.
-pub fn schema() -> serde_json::Value {
+/// The JSON Schema of every command's input, exported to the web app and to agents.
+pub fn schema() -> Value {
     serde_json::to_value(schemars::schema_for!(Command)).unwrap_or_default()
+}
+
+/// The JSON Schema of every command's output.
+pub fn output_schema() -> Value {
+    serde_json::to_value(schemars::schema_for!(Output)).unwrap_or_default()
+}
+
+/// One MCP tool: what the MCP server (AG-1) exposes for a command, derived from the
+/// schema and never written by hand.
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
+pub struct ToolSpec {
+    /// The command's name, `domain.verb`, also the tool's name.
+    pub name: String,
+    /// The command's description, for agents.
+    pub description: String,
+    pub kind: Kind,
+    pub undo: UndoKind,
+    pub destructive: bool,
+    /// The command's fields without `type` (the tool's name carries it); `$defs`
+    /// holds the referenced types.
+    pub input_schema: Value,
+    /// The output's fields without `type`; `$defs` holds the referenced types.
+    pub output_schema: Value,
+}
+
+/// The MCP tools, one per command, in domain then declaration order.
+pub fn catalog() -> Vec<ToolSpec> {
+    let input = schema();
+    let output = output_schema();
+    let outputs: Vec<(String, Value)> = variants(&output)
+        .into_iter()
+        .map(|v| (variant_name(&v).to_owned(), tool_schema(&v, &output)))
+        .collect();
+    variants(&input)
+        .into_iter()
+        .map(|v| {
+            let name = variant_name(&v).to_owned();
+            let output_schema = outputs
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, s)| s.clone())
+                .unwrap_or(Value::Null);
+            // The `domain!` macro writes the three extensions on every command: a
+            // missing one is a programming error, never a default.
+            ToolSpec {
+                description: v["description"].as_str().unwrap_or_default().to_owned(),
+                kind: serde_json::from_value(v["x-kind"].clone())
+                    .unwrap_or_else(|e| panic!("{name}: x-kind: {e}")),
+                undo: serde_json::from_value(v["x-undo"].clone())
+                    .unwrap_or_else(|e| panic!("{name}: x-undo: {e}")),
+                destructive: v["x-destructive"]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("{name}: x-destructive missing")),
+                input_schema: tool_schema(&v, &input),
+                output_schema,
+                name,
+            }
+        })
+        .collect()
+}
+
+/// The variant schemas of a root (untagged) schema: each domain's `oneOf`, in order.
+fn variants(root: &Value) -> Vec<Value> {
+    let defs = &root["$defs"];
+    root["anyOf"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|domain| {
+            let def = domain["$ref"]
+                .as_str()
+                .and_then(|r| r.strip_prefix("#/$defs/"))
+                .map(|name| &defs[name])
+                .unwrap_or(domain);
+            def["oneOf"].as_array().cloned().unwrap_or_default()
+        })
+        .collect()
+}
+
+fn variant_name(variant: &Value) -> &str {
+    variant["properties"]["type"]["const"]
+        .as_str()
+        .unwrap_or_default()
+}
+
+/// A variant schema as a standalone tool schema: no `type` field, the root `$defs`.
+fn tool_schema(variant: &Value, root: &Value) -> Value {
+    let mut properties = variant["properties"].clone();
+    if let Some(map) = properties.as_object_mut() {
+        map.remove("type");
+    }
+    let required: Vec<&Value> = variant["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r.as_str() != Some("type"))
+        .collect();
+    let mut out = json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false,
+    });
+    if let Some(defs) = root.get("$defs") {
+        out["$defs"] = defs.clone();
+    }
+    out
 }

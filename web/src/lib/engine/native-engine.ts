@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { HELPER_URL, parseServerMessage } from './helper-client'
+import { allNotesOff } from '../synth-commands'
 
 /** The engine running natively in the helper, driven over the local WebSocket. */
 export class NativeEngine implements Engine {
@@ -76,7 +77,7 @@ export class NativeEngine implements Engine {
 
   async close() {
     this.closing = true
-    this.run({ type: 'note.all_off' })
+    this.run(allNotesOff())
     // Free the MIDI input so Web mode can open it (the helper also does it on close).
     this.run({ type: 'midi.select_input', id: null })
     this.ws.close()

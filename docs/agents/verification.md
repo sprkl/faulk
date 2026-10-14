@@ -28,7 +28,7 @@ cargo build -p project-wasm --target wasm32-unknown-unknown --release
 
 ## Commands and agents (any change under `crates/commands` or to the MCP and ACP bridges)
 
-- Each new or changed command: schema, description and undo covered by tests. For the v2 contract (`crates/commands/src/v2/`), add one example of the command to `examples()` in `crates/commands/tests/contract.rs` (the catalog test there proves its description and both schemas; the harness `commands::v2::testing::check` proves the metadata rules and the undo: apply, undo restores the state, redo), and one `check_refusal` case per refusal of the command (the state stays intact). A declared command without an example fails the tests.
+- Each new or changed command: schema, description and undo covered by tests. Add one example of the command, with the state it runs from, to `examples()` in `crates/commands/tests/contract.rs` (the catalog test there proves its description and both schemas; the harness `commands::testing::check` proves the metadata rules and the undo: apply, undo restores the state, redo), and one `check_refusal` case per refusal of the command (the state stays intact). A declared command without an example fails the tests.
 - The parity test passes: every command is exposed as an MCP tool, and no MCP tool exists without its command.
 - Drive the change from a real agent: connect Claude Code to the helper's MCP server and run the command, then check the result in the page and in the history (author shown, undo works).
 

@@ -78,7 +78,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   // Commands reach the helper over the session.
   await page.keyboard.down('KeyA')
   await page.keyboard.up('KeyA')
-  await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'note.on')).toBe(true)
+  await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.note_on')).toBe(true)
 
   // Back to Web, the page's own engine plays again.
   await page.getByRole('button', { name: 'Back to Web' }).click()

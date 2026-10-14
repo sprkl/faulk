@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -22,6 +22,17 @@ pub mod paths {
     pub const PAIR: &str = "/pair";
     /// Requires `?token=`: the session, which accepts [`super::ClientMessage::Command`].
     pub const SESSION: &str = "/session";
+}
+
+/// The ids the page and the helper give the one synth, until the project runs in the
+/// page (PR-4, PR-5): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`.
+/// The hosts play every live note and every parameter on their one synth whatever the
+/// ids; these keep the commands well-formed in the meantime.
+pub mod single_synth {
+    /// The track of the one synth.
+    pub const TRACK: &str = "00000000000000000000000001";
+    /// The one synth, instrument of [`TRACK`].
+    pub const DEVICE: &str = "00000000000000000000000002";
 }
 
 /// A message from the page to the helper.
@@ -87,30 +98,34 @@ pub enum ServerMessage {
 
 /// Every schema the web app needs, in one document.
 pub fn schema_bundle() -> serde_json::Value {
-    let param_ids: serde_json::Map<String, serde_json::Value> = commands::param_ids()
+    let param_ids: serde_json::Map<String, serde_json::Value> = commands::device::param_ids()
         .into_iter()
         .map(|(name, id)| (name.to_owned(), id.into()))
         .collect();
-    let param_defaults: serde_json::Map<String, serde_json::Value> = commands::param_defaults()
-        .into_iter()
-        // Rounded so that f32 values print as typed (0.005, not 0.004999999888).
-        .map(|(name, value)| {
-            (
-                name.to_owned(),
-                ((f64::from(value) * 1e6).round() / 1e6).into(),
-            )
-        })
-        .collect();
+    let param_defaults: serde_json::Map<String, serde_json::Value> =
+        commands::device::param_defaults()
+            .into_iter()
+            // Rounded so that f32 values print as typed (0.005, not 0.004999999888).
+            .map(|(name, value)| {
+                (
+                    name.to_owned(),
+                    ((f64::from(value) * 1e6).round() / 1e6).into(),
+                )
+            })
+            .collect();
     serde_json::json!({
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "param_defaults": param_defaults,
-        "command": commands::schema(),
-        // The v2 contract (CT-4): input and output schemas and the MCP tool catalog.
-        "command_v2": {
-            "input": commands::v2::schema(),
-            "output": commands::v2::output_schema(),
-            "catalog": commands::v2::catalog(),
+        "single_synth": {
+            "track": single_synth::TRACK,
+            "device": single_synth::DEVICE,
+        },
+        // The command contract: input and output schemas and the MCP tool catalog.
+        "command": {
+            "input": commands::schema(),
+            "output": commands::output_schema(),
+            "catalog": commands::catalog(),
         },
         "client_message": schemars::schema_for!(ClientMessage),
         "server_message": schemars::schema_for!(ServerMessage),

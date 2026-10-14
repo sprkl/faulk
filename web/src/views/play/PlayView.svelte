@@ -8,6 +8,7 @@
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../../lib/params'
   import { useStores } from '../../lib/stores'
+  import { allNotesOff, noteOff, noteOn, setParam } from '../../lib/synth-commands'
 
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
@@ -27,7 +28,7 @@
   ]
 
   function releaseAllKeys() {
-    for (const note of held.values()) dispatcher.run({ type: 'note.off', note })
+    for (const note of held.values()) dispatcher.run(noteOff(note))
     held.clear()
   }
 
@@ -42,14 +43,14 @@
     const note = noteForKey(event.code, octave)
     if (note === null || held.has(event.code)) return
     held.set(event.code, note)
-    dispatcher.run({ type: 'note.on', note, velocity: 100 })
+    dispatcher.run(noteOn(note, 100))
   }
 
   function onKeyUp(event: KeyboardEvent) {
     const note = held.get(event.code)
     if (note === undefined) return
     held.delete(event.code)
-    dispatcher.run({ type: 'note.off', note })
+    dispatcher.run(noteOff(note))
   }
 
   onMount(() => {
@@ -152,7 +153,7 @@
               aria-checked={project.params.waveform === w.value}
               aria-label={t(w.key)}
               title={t(w.key)}
-              onclick={() => dispatcher.run({ type: 'synth.set_param', param: 'waveform', value: w.value })}
+              onclick={() => dispatcher.run(setParam('waveform', w.value))}
             >
               <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={w.path} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
             </button>
@@ -166,7 +167,7 @@
             label={t(`synth.${param}` as MessageKey)}
             position={positionOf(param, project.params[param])}
             display={formatValue(param, project.params[param])}
-            onchange={(p) => dispatcher.run({ type: 'synth.set_param', param, value: valueAt(param, p) })}
+            onchange={(p) => dispatcher.run(setParam(param, valueAt(param, p)))}
           />
         {/each}
       </div>
@@ -180,7 +181,7 @@
       <div class="keys-head">
         <h2 class="label">{t('keys.title')}</h2>
         <span class="value">{t('keys.octave', { n: octave })}</span>
-        <button class="ghost" onclick={() => dispatcher.run({ type: 'note.all_off' })}>{t('panic')}</button>
+        <button class="ghost" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
       </div>
       <PianoStrip low={(octave + 1) * 12} active={engine.activeNotes} />
       <p class="muted">{t('keys.help')}</p>

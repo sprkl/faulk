@@ -166,24 +166,31 @@ impl AudioCore {
     }
 }
 
-/// Converts a command for the engine into a ring event. Commands for the host
-/// (MIDI device management) give `None`.
+/// Converts a command for the engine into a ring event. Every live note and every
+/// synth parameter goes to the one synth, whatever the track and device ids (the page
+/// owns the project and the helper plays what it sends, until PR-3 gives the engine
+/// messages). Other commands give `None`: MIDI device management is the host's, and
+/// the rest changes only the page's project. A parameter the synth does not have gives
+/// `None` too.
 pub fn engine_event(command: &commands::Command) -> Option<EngineEvent> {
-    use commands::Command;
-    Some(match *command {
-        Command::NoteOn { note, velocity } => EngineEvent::NoteOn {
-            note: note.min(127),
-            velocity: velocity.min(127),
+    use commands::{Command, device, live};
+    Some(match command {
+        Command::Live(live::Command::NoteOn { note, velocity, .. }) => EngineEvent::NoteOn {
+            note: (*note).min(127),
+            velocity: (*velocity).min(127),
         },
-        Command::NoteOff { note } => EngineEvent::NoteOff {
-            note: note.min(127),
+        Command::Live(live::Command::NoteOff { note, .. }) => EngineEvent::NoteOff {
+            note: (*note).min(127),
         },
-        Command::NoteAllOff => EngineEvent::AllNotesOff,
-        Command::SynthSetParam { param, value } => EngineEvent::SetParam {
-            param: param.to_engine(),
-            value,
-        },
-        Command::MidiListInputs | Command::MidiSelectInput { .. } => return None,
+        Command::Live(live::Command::AllNotesOff {}) => EngineEvent::AllNotesOff,
+        Command::Device(device::Command::SetParam { param, value, .. }) => {
+            EngineEvent::SetParam {
+                param: device::SynthParam::from_name(param)?.to_engine(),
+                // The engine clamps to the parameter's range.
+                value: *value as f32,
+            }
+        }
+        _ => return None,
     })
 }
 
@@ -191,7 +198,7 @@ pub fn engine_event(command: &commands::Command) -> Option<EngineEvent> {
 mod tests {
     use super::*;
     use assert_no_alloc::assert_no_alloc;
-    use commands::{Command, SynthParam};
+    use commands::Command;
 
     fn core() -> (AudioCore, EventSender, Arc<Meter>) {
         let meter = Arc::new(Meter::default());
@@ -284,21 +291,62 @@ mod tests {
 
     #[test]
     fn commands_map_to_engine_events() {
+        use commands::{device, history, live, midi};
+        let track = || project::TrackId::parse(protocol::single_synth::TRACK).unwrap();
+        let synth = || project::DeviceId::parse(protocol::single_synth::DEVICE).unwrap();
         assert_eq!(
-            engine_event(&Command::SynthSetParam {
-                param: SynthParam::Gain,
+            engine_event(&Command::Device(device::Command::SetParam {
+                device: synth(),
+                param: "gain".into(),
                 value: 0.5
-            }),
+            })),
             Some(EngineEvent::SetParam {
                 param: Param::Gain,
                 value: 0.5
             })
         );
         assert_eq!(
-            engine_event(&Command::NoteAllOff),
+            engine_event(&Command::Device(device::Command::SetParam {
+                device: synth(),
+                param: "cutoff".into(),
+                value: 0.5
+            })),
+            None,
+            "a parameter the synth does not have"
+        );
+        assert_eq!(
+            engine_event(&Command::Live(live::Command::NoteOn {
+                track: track(),
+                note: 60,
+                velocity: 100
+            })),
+            Some(EngineEvent::NoteOn {
+                note: 60,
+                velocity: 100
+            })
+        );
+        assert_eq!(
+            engine_event(&Command::Live(live::Command::NoteOff {
+                track: track(),
+                note: 200
+            })),
+            Some(EngineEvent::NoteOff { note: 127 })
+        );
+        assert_eq!(
+            engine_event(&Command::Live(live::Command::AllNotesOff {})),
             Some(EngineEvent::AllNotesOff)
         );
-        assert_eq!(engine_event(&Command::MidiListInputs), None);
-        assert_eq!(engine_event(&Command::MidiSelectInput { id: None }), None);
+        assert_eq!(
+            engine_event(&Command::Midi(midi::Command::ListInputs {})),
+            None
+        );
+        assert_eq!(
+            engine_event(&Command::Midi(midi::Command::SelectInput { id: None })),
+            None
+        );
+        assert_eq!(
+            engine_event(&Command::History(history::Command::Undo {})),
+            None
+        );
     }
 }

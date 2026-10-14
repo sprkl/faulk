@@ -648,6 +648,7 @@ dependencies = [
  "getrandom 0.4.3",
  "log",
  "midir",
+ "project",
  "protocol",
  "regex",
  "rtrb",
@@ -1421,6 +1422,7 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "commands",
+ "project",
  "schemars",
  "serde",
  "serde_json",

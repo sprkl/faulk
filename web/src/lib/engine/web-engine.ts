@@ -1,6 +1,7 @@
 import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { commandToOp } from './wasm-ops'
+import { allNotesOff } from '../synth-commands'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -65,7 +66,7 @@ export class WebEngine implements Engine {
 
   /** Pauses audio without losing the engine (used while the helper plays). */
   async suspend() {
-    this.run({ type: 'note.all_off' })
+    this.run(allNotesOff())
     await this.context.suspend()
   }
 
@@ -74,7 +75,7 @@ export class WebEngine implements Engine {
   }
 
   async close() {
-    this.run({ type: 'note.all_off' })
+    this.run(allNotesOff())
     await this.context.close()
   }
 }
