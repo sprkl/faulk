@@ -101,11 +101,17 @@ pub fn catalog() -> Vec<ToolSpec> {
                 .find(|(n, _)| *n == name)
                 .map(|(_, s)| s.clone())
                 .unwrap_or(Value::Null);
+            // The `domain!` macro writes the three extensions on every command: a
+            // missing one is a programming error, never a default.
             ToolSpec {
                 description: v["description"].as_str().unwrap_or_default().to_owned(),
-                kind: serde_json::from_value(v["x-kind"].clone()).unwrap_or(Kind::Edit),
-                undo: serde_json::from_value(v["x-undo"].clone()).unwrap_or(UndoKind::Inverse),
-                destructive: v["x-destructive"].as_bool().unwrap_or(true),
+                kind: serde_json::from_value(v["x-kind"].clone())
+                    .unwrap_or_else(|e| panic!("{name}: x-kind: {e}")),
+                undo: serde_json::from_value(v["x-undo"].clone())
+                    .unwrap_or_else(|e| panic!("{name}: x-undo: {e}")),
+                destructive: v["x-destructive"]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("{name}: x-destructive missing")),
                 input_schema: tool_schema(&v, &input),
                 output_schema,
                 name,

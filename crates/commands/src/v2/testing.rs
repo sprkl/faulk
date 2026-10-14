@@ -42,7 +42,7 @@ impl Checked for crate::v2::Command {
 /// - its metadata are consistent ([`Meta::check`]);
 /// - it applies, and its output answers to its name;
 /// - `live` leaves the project as it was; `query` leaves everything as it was;
-///   `edit` reports at least one event;
+///   `edit` changes the state and reports at least one event;
 /// - `undo: inverse`: the inverse is an `edit`, applying it restores the state
 ///   exactly, and the inverse's own inverse (redo) brings the edited state back;
 ///   `undo: none`: the outcome carries no inverse.
@@ -70,6 +70,9 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
         Kind::Edit if outcome.events.is_empty() => {
             return Err(format!("{name}: an edit reports at least one event"));
         }
+        Kind::Edit if state == before => {
+            return Err(format!("{name}: an edit changed nothing"));
+        }
         _ => {}
     }
     match (meta.undo, outcome.undo) {
@@ -92,6 +95,12 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
             let undone = inverse
                 .apply(&mut state, &mut ctx)
                 .map_err(|e| format!("{name}: its inverse {} fails: {e}", inverse_meta.name))?;
+            if C::output_name(&undone.output) != inverse_meta.name {
+                return Err(format!(
+                    "{name}: the output of its inverse answers to {}",
+                    C::output_name(&undone.output)
+                ));
+            }
             if state != before {
                 return Err(format!(
                     "{name}: its inverse {} does not restore the state:\n before {before:#?}\n after undo {state:#?}",
@@ -104,8 +113,15 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
                     inverse_meta.name
                 ));
             };
-            redo.apply(&mut state, &mut ctx)
+            let redone = redo
+                .apply(&mut state, &mut ctx)
                 .map_err(|e| format!("{name}: redo {} fails: {e}", redo.meta().name))?;
+            if C::output_name(&redone.output) != redo.meta().name {
+                return Err(format!(
+                    "{name}: the output of its redo answers to {}",
+                    C::output_name(&redone.output)
+                ));
+            }
             if state != edited {
                 return Err(format!(
                     "{name}: redo {} does not bring the edit back",
@@ -395,6 +411,37 @@ mod tests {
             Some(rename("Untitled", Some(Fake::Refuse { taint: false }))),
         );
         assert!(run(&fake).unwrap_err().contains("redo fake.cmd fails"));
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_is_refused() {
+        let fake = rename(
+            "Untitled",
+            Some(rename("Untitled", Some(rename("Untitled", None)))),
+        );
+        assert!(run(&fake).unwrap_err().contains("changed nothing"));
+    }
+
+    #[test]
+    fn an_inverse_or_redo_answering_another_name_is_refused() {
+        let mut inverse = rename("Untitled", Some(rename("new", None)));
+        if let Fake::Rename { answers, .. } = &mut inverse {
+            *answers = "other.cmd";
+        }
+        let err = run(&rename("new", Some(inverse))).unwrap_err();
+        assert!(
+            err.contains("output of its inverse answers to other.cmd"),
+            "{err}"
+        );
+        let mut redo = rename("new", None);
+        if let Fake::Rename { answers, .. } = &mut redo {
+            *answers = "other.cmd";
+        }
+        let err = run(&rename("new", Some(rename("Untitled", Some(redo))))).unwrap_err();
+        assert!(
+            err.contains("output of its redo answers to other.cmd"),
+            "{err}"
+        );
     }
 
     #[test]

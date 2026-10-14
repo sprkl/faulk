@@ -253,6 +253,10 @@ fn malformed_commands_are_refused_with_a_useful_message() {
             r#"{"type":"view.select_track","track":"01ARZ3NDEKTSV4RRFFQ69G5FAI"}"#,
             "'I'",
         ),
+        (
+            r#"{"type":"view.select_track","track":"8ARZ3NDEKTSV4RRFFQ69G5FAV0"}"#,
+            "starts with 0 to 7",
+        ),
         ("[]", "string `type` field"),
         ("null", "string `type` field"),
     ];

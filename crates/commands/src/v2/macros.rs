@@ -37,7 +37,9 @@ pub const fn parse_undo(s: &str) -> crate::v2::contract::UndoKind {
 ///
 /// Every command has an `Output` variant of the same name (`=> {}` for an empty one),
 /// is tagged by `type` on both sides, refuses unknown fields, and carries `x-kind`,
-/// `x-undo` and `x-destructive` in its schema.
+/// `x-undo` and `x-destructive` in its schema. A command without fields is still a
+/// struct variant (`Play {}`): serde ignores unknown fields on an internally tagged
+/// unit variant, a struct variant refuses them.
 macro_rules! domain {
     (
         domain = $domain:literal, schema = ($cmd_schema:literal, $out_schema:literal);
@@ -57,7 +59,7 @@ macro_rules! domain {
                 $(#[$attr])*
                 #[serde(rename = $name)]
                 #[schemars(extend("x-kind" = $kind, "x-undo" = $undo, "x-destructive" = $destructive))]
-                $Variant $({ $( $(#[$fattr])* $field: $ty ),* })?,
+                $Variant { $( $( $(#[$fattr])* $field: $ty ),* )? },
             )*
         }
 
