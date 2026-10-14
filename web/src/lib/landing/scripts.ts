@@ -25,21 +25,23 @@ export function detectScript(frenchHref: string): string {
 }
 
 /**
- * Stores the language of a clicked `a[data-lang]` link, shared with the DAW. With `app`
+ * Stores the language of a clicked (or middle-clicked) `a[data-lang]` link, shared with the DAW. With `app`
  * (on `/en` and `/fr`, never on `/`, whose language is detected), a click on a link to the
  * DAW (`href` exactly `app.href`) also stores the page's language, so the DAW opens in the
- * language the reader chose by opening that page.
+ * language the reader chose by opening that page. The stored choice then also steers `/`
+ * (`detectScript`), like a choice made with the EN / FR switch.
  */
 export function rememberScript(app?: { href: string; lang: Lang }): string {
   const key = literal(LANG_STORAGE_KEY)
   const store = (value: string) => `try{localStorage.setItem(${key},${value})}catch(_){}`
   return (
-    `document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;` +
+    `(function(){function f(e){var t=e.target;if(!t||!t.closest)return;` +
     `var a=t.closest('a[data-lang]');if(a){${store("a.getAttribute('data-lang')")}return}` +
     (app
       ? `a=t.closest('a[href]');if(a&&a.getAttribute('href')===${literal(app.href)}){${store(literal(app.lang))}}`
       : '') +
-    `})`
+    // A middle click opens the link in a new tab without a `click` event.
+    `}document.addEventListener('click',f);document.addEventListener('auxclick',f)})()`
   )
 }
 

@@ -53,10 +53,11 @@ describe('detectScript', () => {
 describe('rememberScript', () => {
   type Target = { closest: (selector: string) => unknown } | null
   function setup(setItem: (key: string, value: string) => void, app?: { href: string; lang: 'en' | 'fr' }) {
-    let listener: ((e: { target: Target }) => void) | undefined
-    const document = { addEventListener: (_: string, fn: typeof listener) => (listener = fn) }
+    const listeners = new Map<string, (e: { target: Target }) => void>()
+    const document = { addEventListener: (type: string, fn: (e: { target: Target }) => void) => listeners.set(type, fn) }
     new Function('document', 'localStorage', rememberScript(app))(document, { setItem })
-    return (target: Target) => listener!({ target })
+    const click = (target: Target, type = 'click') => listeners.get(type)!({ target })
+    return click
   }
   /** A clicked element inside a link with these attributes (or inside no link). */
   const inside = (attrs: Record<string, string> | null): Target => ({
@@ -87,6 +88,25 @@ describe('rememberScript', () => {
       [LANG_STORAGE_KEY, 'fr'],
       [LANG_STORAGE_KEY, 'en'],
     ])
+  })
+
+  it('also stores on a middle click, which opens the DAW in a new tab', () => {
+    const stored: [string, string][] = []
+    const click = setup((k, v) => stored.push([k, v]), { href: '/app', lang: 'fr' })
+    click(inside({ href: '/app' }), 'auxclick')
+    expect(stored).toEqual([[LANG_STORAGE_KEY, 'fr']])
+  })
+
+  it('then steers the detection on /, like the EN / FR switch', () => {
+    const stored = new Map<string, string>()
+    const click = setup((k, v) => stored.set(k, v), { href: '/app', lang: 'en' })
+    click(inside({ href: '/app' }))
+    const replaced: string[] = []
+    const localStorage = { getItem: (k: string) => stored.get(k) ?? null }
+    new Function('localStorage', 'navigator', 'location', detectScript('/fr'))(localStorage, { language: 'fr-FR' }, {
+      replace: (href: string) => replaced.push(href),
+    })
+    expect(replaced).toEqual([])
   })
 
   it('on /, leaves the language alone when the reader opens the DAW', () => {
