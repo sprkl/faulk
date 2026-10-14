@@ -7,12 +7,39 @@ import { Worker } from 'node:worker_threads'
 import { describe, expect, it } from 'vitest'
 import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, type EngineExports } from './engine-abi'
 import { readFeedback } from './feedback'
+import { PushQueue } from './push-queue'
 
-const module = new WebAssembly.Module(readFileSync(new URL('./wasm/engine.wasm', import.meta.url)))
+const bytes = new Uint8Array(readFileSync(new URL('./wasm/engine.wasm', import.meta.url))).buffer
+const module = new WebAssembly.Module(bytes)
 const fixtures = new URL('../../../../crates/engine-wasm/tests/fixtures/', import.meta.url)
 /** libm differs slightly between the native targets and wasm32 (as in the Rust parity tests). */
 const TOLERANCE = 1e-5
 const QUANTUM = 128
+
+type Processor = {
+  port: { onmessage: ((event: MessageEvent) => void) | null; sent: unknown[] }
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean
+}
+
+/** The processor worklet.ts registers, built under a stub of the AudioWorkletGlobalScope. */
+async function shippedProcessor(): Promise<Processor> {
+  const scope = globalThis as unknown as Record<string, unknown>
+  let registered: (new () => Processor) | null = null
+  scope.AudioWorkletProcessor = class {
+    port = {
+      onmessage: null,
+      sent: [] as unknown[],
+      postMessage(message: unknown) {
+        this.sent.push(message)
+      },
+    }
+  }
+  scope.registerProcessor = (_name: string, processor: new () => Processor) => {
+    registered = processor
+  }
+  await import('./worklet')
+  return new registered!()
+}
 
 type Step = { push: Uint8Array } | { render: number }
 
@@ -105,56 +132,81 @@ describe('the shipped engine module, two instances on one shared memory', () => 
     expect(report!.peaks[0]).toBeGreaterThan(0.05)
   })
 
-  it('grows the shared memory from the prepare thread while the render instance plays', async () => {
+  it('grows the shared memory from the prepare thread while the shipped worklet plays', async () => {
     const memory = sharedMemory()
-    const { prepare, render, ch } = channel(memory)
+    const prepare = instantiate(module, memory)
+    const setup = createChannel(prepare, 48_000)
+    const ch = setup.channel
+    // The shipped processor (worklet.ts), its AudioWorkletGlobalScope stubbed.
+    const processor = await shippedProcessor()
+    processor.port.onmessage!({ data: { type: 'init', bytes: bytes.slice(0), memory, setup } } as MessageEvent)
+    expect(processor.port.sent).toEqual([{ type: 'ready' }])
     for (const step of steps('session.stream')) {
       if (!('push' in step)) break
       expect(push(prepare, memory, ch, step.push)).toBe(0)
     }
     const growth = steps('growth.stream').flatMap((s) => ('push' in s ? [s.push] : []))
     const done = new Int32Array(new SharedArrayBuffer(8))
-    // The prepare side on another thread: its own instance of the module, as the Worker.
-    // Its own stack and thread-local block, as every instance after the first needs.
+    // The prepare side on another thread: its own instance of the module, as the Worker,
+    // with its own stack and thread-local block, as every instance after the first needs.
     const stack = prepare.fk_alloc(1 << 20, 16)
     const tls = prepare.fk_alloc(Number(prepare.__tls_size.value), Number(prepare.__tls_align.value))
     const thread = { stackTop: stack + (1 << 20), tls }
     const worker = new Worker(PREPARE_THREAD, { eval: true, workerData: { module, memory, ch, growth, done, thread } })
     const errors: unknown[] = []
     worker.on('error', (e) => errors.push(e))
-    const allocs = [render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]
+    const allocs = [prepare.fk_allocs(ROLE_RENDER), prepare.fk_frees(ROLE_RENDER)]
     const before = memory.buffer.byteLength
-    let buffer = memory.buffer
-    let views = 0
+    const left = new Float32Array(QUANTUM)
+    const right = new Float32Array(QUANTUM)
     let blocks = 0
     let silent = 0
-    let left = new Float32Array(0)
+    const held = () => prepare.fk_host_counter(ch, 4) // read only, between two blocks
     const deadline = Date.now() + 60_000
-    while ((Atomics.load(done, 0) === 0 || render.fk_host_counter(ch, 4) < 4096) && Date.now() < deadline) {
-      const n = render.fk_render(ch, QUANTUM)
-      if (memory.buffer !== buffer || left.length === 0) {
-        buffer = memory.buffer
-        left = new Float32Array(buffer, render.fk_left(ch), MAX_FRAMES)
-        views++
-      }
+    while ((Atomics.load(done, 0) === 0 || held() < 4096) && Date.now() < deadline) {
+      processor.process([], [[left, right]])
       let peak = 0
-      for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(left[i]))
+      for (let i = 0; i < QUANTUM; i++) peak = Math.max(peak, Math.abs(left[i]))
       if (peak === 0) silent++
       blocks++
-      if (Atomics.load(done, 0) !== 0) prepare.fk_flush(ch) // nothing else runs here once the thread is done
+      if (Atomics.load(done, 0) !== 0) prepare.fk_flush(ch) // the thread is done: nothing else flushes
     }
     await worker.terminate()
     expect(errors).toEqual([])
     expect(Atomics.load(done, 1)).toBe(0) // the prepare thread saw no error code
-    expect(render.fk_host_counter(ch, 4)).toBe(4096) // tracks held
-    expect(render.fk_host_counter(ch, 3)).toBe(4096) // track table capacity
-    expect(render.fk_host_counter(ch, 1)).toBe(0) // skipped
+    expect(held()).toBe(4096)
+    expect(prepare.fk_host_counter(ch, 3)).toBe(4096) // track table capacity
+    expect(prepare.fk_host_counter(ch, 1)).toBe(0) // skipped
     expect(memory.buffer.byteLength).toBeGreaterThan(before)
-    expect(views).toBeGreaterThan(1)
+    // The processor re-took its views on the grown memory.
+    expect((processor as unknown as { buffer: ArrayBufferLike }).buffer).toBe(memory.buffer)
     expect(silent).toBe(0)
     expect(blocks).toBeGreaterThan(64)
-    expect([render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]).toEqual(allocs)
+    expect([prepare.fk_allocs(ROLE_RENDER), prepare.fk_frees(ROLE_RENDER)]).toEqual(allocs)
+    expect(processor.port.sent).toHaveLength(1) // nothing posted during audio
   }, 90_000)
+
+  it('resends what a busy engine refused, in order, and loses nothing', () => {
+    const memory = sharedMemory()
+    const { prepare, render, ch } = channel(memory)
+    const stopped: number[] = []
+    const queue = new PushQueue(prepare, memory, ch, (code) => stopped.push(code))
+    for (const step of steps('session.stream')) {
+      if (!('push' in step)) break
+      queue.push(step.push)
+    }
+    // Without rendering: 4 + 8 190 rt messages for a ring and a queue of 4 096 each.
+    for (const step of steps('growth.stream')) if ('push' in step) queue.push(step.push)
+    expect(queue.waiting).toBeGreaterThan(0)
+    for (let b = 0; b < 400 && (queue.waiting > 0 || render.fk_host_counter(ch, 4) < 4096); b++) {
+      queue.flush()
+      render.fk_render(ch, QUANTUM)
+    }
+    expect(stopped).toEqual([])
+    expect(queue.waiting).toBe(0)
+    expect(render.fk_host_counter(ch, 4)).toBe(4096)
+    expect(prepare.fk_prepare_counter(ch, 0)).toBe(0) // rejected
+  })
 
   it('turns a refused memory.grow into a typed error and keeps playing', () => {
     // A memory capped at 20 MiB (16 MiB initial) stands in for the 4 GiB cap.

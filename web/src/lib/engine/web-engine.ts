@@ -47,6 +47,18 @@ export class WebEngine implements Engine {
   /** Must be called from a user gesture (browsers start audio only then). */
   static async create(events: EngineEvents): Promise<WebEngine> {
     const context = new AudioContext({ latencyHint: 'interactive' })
+    let worker: Worker | null = null
+    try {
+      return await WebEngine.start(context, events, (w) => (worker = w))
+    } catch (error) {
+      // Nothing left behind: the Worker's flush timer and the audio context.
+      ;(worker as Worker | null)?.terminate()
+      await context.close().catch(() => {})
+      throw error
+    }
+  }
+
+  private static async start(context: AudioContext, events: EngineEvents, track: (w: Worker) => void): Promise<WebEngine> {
     const memory = engineMemory()
     const [bytes, project] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
@@ -54,6 +66,7 @@ export class WebEngine implements Engine {
       context.audioWorklet.addModule(workletUrl),
     ])
     const worker = new Worker(new URL('./prepare-worker.ts', import.meta.url), { type: 'module' })
+    track(worker)
     const ready = await new Promise<Extract<FromPrepare, { type: 'ready' }>>((resolve, reject) => {
       worker.onmessage = (event: MessageEvent<FromPrepare>) => {
         const data = event.data

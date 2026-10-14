@@ -25,7 +25,10 @@ export interface FeedbackReport {
  */
 export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): FeedbackReport | null {
   const view = new DataView(buffer, at, len)
-  const seq = view.getUint32(4, true)
+  // `seq` through Atomics: ordered with the engine's writes, so that an unchanged even `seq`
+  // after the body proves the body whole (the region is 4-byte aligned, little-endian wasm).
+  const words = new Int32Array(buffer, at, 2)
+  const seq = Atomics.load(words, 1) >>> 0
   if (seq === 0 || seq % 2 === 1) return null
   if (view.getUint8(0) !== FEEDBACK_VERSION) return null
   const tracks = Math.min(view.getUint32(40, true), Math.floor((len - FEEDBACK_HEADER_BYTES) / TRACK_METER_BYTES))
@@ -42,5 +45,5 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
     voices: view.getUint32(52, true),
     peaks,
   }
-  return view.getUint32(4, true) === seq ? report : null
+  return Atomics.load(words, 1) >>> 0 === seq ? report : null
 }
