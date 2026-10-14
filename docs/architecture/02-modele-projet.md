@@ -414,15 +414,20 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 
 ## 8. Proposition de MVP
 
-> Le [découpage du MVP](../specs/02-decoupage-mvp.md) (2026-10-14) ne planifie pas les points 1 (fusion à trois points) et 4 (binaire `faulk`, pilotes git) ni la part « fusion » du point 5 : le format v1 est *prêt pour git* (texte canonique, blobs LFS, `.gitattributes`), la fusion sémantique et le pilote viennent après le MVP, avec les versions et variantes. Ce point de périmètre est signalé au fondateur ; les points 2 et 3 sont couverts par SV-1, SV-2, SV-4 et AU-1.
+Ce que le [découpage du MVP](../specs/02-decoupage-mvp.md) (2026-10-14) planifie, avec les tâches qui le portent :
 
-1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, fusion à trois points, migrations.
-2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7.
-3. Commandes de projet selon le contrat que CT-4 retient (§ 5.2 : modèle mutable avec inverses, ou persistant avec annulation par instantané).
-4. Binaire `faulk` : pilotes git `merge` et `diff`, `git setup`.
-5. Tests : aller-retour octet pour octet, une fusion de référence par ligne du tableau § 4.4, propriétés de la fusion, un dépôt git réel où deux branches sont fusionnées par le pilote ; banc de charge.
+1. `crates/project` : types du § 1.2 (sans enveloppes de clip, audio élastique ni plugins tiers), écrivain et lecteur canoniques, validation, migrations (PR-1, SV-1).
+2. Format dossier du § 2, blobs du § 3, `.gitattributes` et `.gitignore`, instantané de cache et suivi des fichiers sales du § 7 (SV-1, SV-2, SV-4, AU-1).
+3. Commandes de projet selon le contrat que CT-4 retient (§ 5.2 : modèle mutable avec inverses, ou persistant avec annulation par instantané) (PR-2).
+4. Tests : aller-retour octet pour octet, propriétés de l'écrivain, fuzz du lecteur ; banc de charge (SV-1, QA-7).
 
-Phase 2 ensuite : versions et variantes dans l'application, comparaison A/B, fusion avec écoute.
+Le format v1 est ainsi *prêt pour git* (texte canonique, blobs compatibles LFS, attributs écrits), sans que git ni la fusion ne soient dans l'application.
+
+**Après le MVP** (l'étude les plaçait dans son MVP ; le découpage ne les planifie pas, point de périmètre signalé au fondateur) :
+
+- la fusion à trois points du § 4 dans `crates/project`, avec une fusion de référence par ligne du tableau § 4.4 et les propriétés de la fusion ;
+- le binaire `faulk` : pilotes git `merge` et `diff`, `git setup`, et un dépôt git réel où deux branches sont fusionnées par le pilote ;
+- puis les versions et variantes dans l'application, la comparaison A/B, la fusion avec écoute.
 
 ## 9. Décisions du fondateur (2026-10-14) et questions restantes
 
