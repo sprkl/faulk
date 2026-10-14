@@ -11,6 +11,7 @@
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../../lib/params'
   import { Session } from '../../lib/session.svelte'
+  import { watchLocalAccess } from '../../lib/engine/local-access'
 
   const session = new Session()
   const t = session.t
@@ -57,6 +58,8 @@
 
   onMount(() => {
     void session.checkHelper()
+    // The first probe may wait behind the browser's local network prompt: probe again on Allow.
+    const stopLocalAccess = watchLocalAccess(() => void session.onLocalAccessGranted())
     // Through the router: a raw history.replaceState conflicts with SvelteKit's.
     // `url` is the current path and query, already resolved against the base path.
     // eslint-disable-next-line svelte/no-navigation-without-resolve
@@ -69,6 +72,7 @@
     window.addEventListener('blur', release)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
+      stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
       window.removeEventListener('blur', release)
       document.removeEventListener('visibilitychange', onVisibility)
