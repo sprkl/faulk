@@ -384,3 +384,17 @@ fn mute_is_versioned_in_the_project_text() {
     assert_eq!(s.history.undo.len(), f.state.history.undo.len() + 1);
     s.project.validate().unwrap();
 }
+
+#[test]
+fn a_stale_solo_of_a_deleted_track_can_be_cleared_but_not_set() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let ghost = TrackId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
+    s.session.solo.insert(ghost.clone());
+    assert!(matches!(
+        refused(&solo(&ghost, true), &s),
+        CommandError::NotFound { .. }
+    ));
+    run(&solo(&ghost, false), &mut s, &mut context()).unwrap();
+    assert!(s.session.solo.is_empty());
+}

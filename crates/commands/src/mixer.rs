@@ -175,10 +175,11 @@ pub fn apply(
             ))
         }
         Command::SetSolo { track, solo } => {
-            if !state.project.tracks.contains_key(track) {
+            let previous = state.session.solo.contains(track);
+            // A stale id (a track deleted since) can always be unsoloed.
+            if !state.project.tracks.contains_key(track) && (*solo || !previous) {
                 return Err(not_found(track));
             }
-            let previous = state.session.solo.contains(track);
             let changed = if *solo {
                 state.session.solo.insert(track.clone())
             } else {
