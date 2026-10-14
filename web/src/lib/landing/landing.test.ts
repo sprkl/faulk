@@ -40,7 +40,7 @@ describe('landing components', () => {
 describe('landing device names', () => {
   it('lists every library card name as a device name (one name in every language)', () => {
     const source = readFileSync(new URL('Library.svelte', dir), 'utf8')
-    const names = [...source.matchAll(/\bname: '([\w.]+)'/g)].map((m) => m[1])
+    const names = [...source.matchAll(/\bname:\s*['"`]([\w.]+)['"`]/g)].map((m) => m[1])
     expect(names.length).toBeGreaterThan(0)
     for (const name of names) expect(LANDING_DEVICE_NAME_KEYS, name).toContain(name)
   })
