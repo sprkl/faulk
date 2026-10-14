@@ -50,13 +50,13 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 ## Versions, stockage et état d'écran
 
-**Version** : un instantané nommé du projet, qu'un geste explicite sauve ; l'enregistrement automatique n'en crée pas. Vocabulaire de l'interface (décision 9) : on ne dit jamais « commit » à l'utilisateur. Code : un commit git sous le capot ; commande à définir dans l'épopée SV du découpage.
+**Version** : un instantané nommé du projet, qu'un geste explicite sauve ; l'enregistrement automatique n'en crée pas. Vocabulaire de l'interface (décision 9) : on ne dit jamais « commit » à l'utilisateur. Code : commandes `version.save`, `version.list`, `version.restore` **(prévu)** ; un commit git sous le capot.
 
-**Variante** : une exploration parallèle du projet, créée depuis l'état courant, que l'on peut comparer puis fusionner. Vocabulaire de l'interface (décision 9) : on ne dit jamais « branche » à l'utilisateur. Un agent travaille dans une variante. Code : une branche git sous le capot.
+**Variante** : une exploration parallèle du projet, créée depuis l'état courant, que l'on peut comparer puis fusionner. Vocabulaire de l'interface (décision 9) : on ne dit jamais « branche » à l'utilisateur. Un agent travaille dans une variante. Code : commandes `variant.create`, `variant.switch`, `variant.compare`, `variant.merge` **(prévu)** ; une branche git sous le capot.
 
 **Blob** : un fichier binaire du projet adressé par son contenu (SHA-256), jamais modifié : audio, automation très dense, état opaque d'un instrument. Code : `Hash`, dossier `blobs/<sha256>` **(prévu)**.
 
-**Session** : l'état qui relève de l'écran ou de la machine et non de la musique : solo, entrée MIDI choisie, sélection, zoom, défilement, pistes repliées. Il est écrit dans `.faulk/`, ignoré par git, restauré à la réouverture et jamais versionné. Le solo est donc un état de session, alors que le mute est dans le projet. À ne pas confondre avec la connexion de pairage entre la page et le helper (`/session`, `crates/protocol`). Code : `SessionState`, `.faulk/session.json` **(prévu)**.
+**Session** : l'état qui relève de l'écran ou de la machine et non de la musique : solo, entrée MIDI choisie, sélection, zoom, défilement, pistes repliées. Il est écrit dans `.faulk/`, ignoré par git, restauré à la réouverture et jamais versionné. Le solo est donc un état de session, alors que le mute est dans le projet. À ne pas confondre avec la connexion de pairage entre la page et le helper (`/session`, `crates/protocol`) et de la classe web `Session` (`web/src/lib/session.svelte.ts`), qui porte l'état de la page et son chemin vers le moteur, pas cet état de session. Code : `SessionState`, `.faulk/session.json` **(prévu)**.
 
 ## Modes et extensions
 
