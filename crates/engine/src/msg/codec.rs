@@ -328,7 +328,8 @@ impl ControlMsg {
     /// [`ControlMsg::Reset`], whose header carries its own epoch, and `seq`), its payload,
     /// and zeros up to the next [`MSG_ALIGN`] boundary. A payload over
     /// [`limits::MAX_CONTROL_MSG_BYTES`] is [`MsgError::TooLarge`] and nothing is appended:
-    /// the sender splits it into chunks.
+    /// the sender splits it into chunks. A value the decoder would refuse is
+    /// [`MsgError::BadPayload`], and nothing is appended either.
     pub fn encode(&self, epoch: u16, seq: u32, out: &mut Vec<u8>) -> Result<(), MsgError> {
         let start = out.len();
         out.extend_from_slice(&[0; HEADER_BYTES]);
@@ -352,6 +353,12 @@ impl ControlMsg {
             len,
             seq,
         };
+        // What the decoder would refuse (a non-finite float, a MIDI value above 127, a
+        // device state that is not whole pairs) is refused here, where the mistake is made.
+        if let Err(error) = ControlMsg::decode(&header, &out[start + HEADER_BYTES..]) {
+            out.truncate(start);
+            return Err(error);
+        }
         out[start..start + HEADER_BYTES].copy_from_slice(&header.encode());
         out.resize(start + Header::frame_len(len), 0);
         Ok(())
@@ -627,6 +634,8 @@ impl ControlMsg {
                 let device = r.device()?;
                 let kind = DeviceKind(r.u32()?);
                 check(r.bytes.len().is_multiple_of(STATE_PAIR_BYTES))?;
+                // Every value finite, like any other float of a payload.
+                check(state_pairs(r.bytes).all(|(_, value)| value.is_finite()))?;
                 ControlMsg::DeviceInsert {
                     track,
                     device,

@@ -604,24 +604,30 @@ fn out_of_range_values_are_bad_payloads() {
         decode(&upload, 21, &u32::MAX.to_le_bytes()),
         bad(Tag::ClipNotesUpload)
     );
-    // A device state that is not whole pairs.
-    let mut bytes = Vec::new();
-    ControlMsg::DeviceInsert {
-        track: TrackSlot(0),
-        device: DeviceSlot(0),
-        kind: DeviceKind(1),
-        state: vec![1, 2, 3],
-    }
-    .encode(0, 0, &mut bytes)
-    .unwrap();
-    let header = Header::decode(&bytes, 0).unwrap();
-    assert_eq!(
-        ControlMsg::decode(
-            &header,
-            &bytes[HEADER_BYTES..HEADER_BYTES + header.len as usize]
-        ),
-        bad(Tag::DeviceInsert)
-    );
+    // A device state that is not whole pairs, or holds a non-finite value (written by hand:
+    // the encoder refuses both).
+    let insert = Header {
+        version: MSG_VERSION,
+        tag: Tag::DeviceInsert,
+        epoch: 0,
+        len: 0,
+        seq: 0,
+    };
+    let mut payload = vec![0u8; 10];
+    payload.extend_from_slice(&[1, 2, 3]);
+    let h = Header {
+        len: payload.len() as u32,
+        ..insert
+    };
+    assert_eq!(ControlMsg::decode(&h, &payload), bad(Tag::DeviceInsert));
+    let mut payload = vec![0u8; 10];
+    payload.extend_from_slice(&0u32.to_le_bytes());
+    payload.extend_from_slice(&f32::NAN.to_le_bytes());
+    let h = Header {
+        len: payload.len() as u32,
+        ..insert
+    };
+    assert_eq!(ControlMsg::decode(&h, &payload), bad(Tag::DeviceInsert));
 }
 
 #[test]
@@ -641,4 +647,50 @@ fn a_payload_over_the_limit_is_refused_by_the_encoder() {
         Err(MsgError::TooLarge(_))
     ));
     assert_eq!(out, vec![9], "nothing appended");
+}
+
+#[test]
+fn the_encoder_refuses_what_the_decoder_would() {
+    let tag = |t: Tag| Err(MsgError::BadPayload { tag: t as u16 });
+    for (msg, t) in [
+        (
+            ControlMsg::TrackSetMix {
+                track: TrackSlot(0),
+                gain: f32::NAN,
+                pan: 0.0,
+                mute: false,
+            },
+            Tag::TrackSetMix,
+        ),
+        (
+            ControlMsg::NoteOn {
+                track: TrackSlot(0),
+                pitch: 200,
+                velocity: 1,
+            },
+            Tag::NoteOn,
+        ),
+        (
+            ControlMsg::DeviceInsert {
+                track: TrackSlot(0),
+                device: DeviceSlot(0),
+                kind: DeviceKind(1),
+                state: vec![1, 2, 3],
+            },
+            Tag::DeviceInsert,
+        ),
+        (
+            ControlMsg::DeviceInsert {
+                track: TrackSlot(0),
+                device: DeviceSlot(0),
+                kind: DeviceKind(1),
+                state: engine::msg::encode_state(&[(ParamId(0), f32::INFINITY)]),
+            },
+            Tag::DeviceInsert,
+        ),
+    ] {
+        let mut out = vec![7];
+        assert_eq!(msg.encode(0, 0, &mut out), tag(t), "{msg:?}");
+        assert_eq!(out, vec![7], "nothing appended");
+    }
 }

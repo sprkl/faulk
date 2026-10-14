@@ -413,6 +413,7 @@ pub fn channel_with(
         placements: HashMap::new(),
         rejected: 0,
         collected: 0,
+        stopped_at: None,
     };
     let engine = Engine {
         state: try_box(State::try_new()?)?,
@@ -491,6 +492,14 @@ impl PagedShadow {
         Ok(Some(try_box(PagedGrowth { directory, page })?))
     }
 
+    /// Whether the page of `slot` was sent (a value may be there).
+    fn has_page(&self, slot: u32) -> bool {
+        self.pages
+            .get(slot as usize / PAGE_SLOTS)
+            .copied()
+            .unwrap_or(false)
+    }
+
     /// Reserves the flags of a growth (fallible, nothing changes).
     fn reserve<T>(&mut self, growth: &Option<Box<PagedGrowth<T>>>) -> Result<(), MsgError> {
         if let Some(directory) = growth.as_ref().and_then(|g| g.directory.as_ref()) {
@@ -567,6 +576,7 @@ pub struct Preparer {
     placements: HashMap<u32, Stage<Placement>>,
     rejected: u32,
     collected: u64,
+    stopped_at: Option<usize>,
 }
 
 impl core::fmt::Debug for Preparer {
@@ -644,10 +654,14 @@ impl Preparer {
 
     /// Decodes and handles a stream of messages (the binary format of `crate::msg`).
     /// Unknown tags, stale epochs and rejected messages are skipped and counted; a corrupt
-    /// stream, a refused allocation or a stalled engine stops it and is returned: the
-    /// project shows it and resyncs with a `Reset`.
+    /// stream, a refused allocation or a stalled engine stops it and is returned. The
+    /// messages before the one that stopped it were handled; [`Preparer::stopped_at`] gives
+    /// the offset of that message, from which the stream can be sent again once the cause
+    /// is gone (a refused message left nothing behind), or the project resyncs with a
+    /// `Reset`.
     pub fn submit(&mut self, stream: &[u8]) -> Result<(), MsgError> {
         let mut at = 0usize;
+        self.stopped_at = None;
         while at < stream.len() {
             let bytes = &stream[at..];
             match Header::decode(bytes, self.epoch) {
@@ -657,6 +671,7 @@ impl Preparer {
                         .and_then(|msg| self.handle(msg));
                     if let Err(error) = outcome {
                         if error.stops_the_stream() {
+                            self.stopped_at = Some(at);
                             return Err(error);
                         }
                         self.rejected = self.rejected.saturating_add(1);
@@ -674,10 +689,19 @@ impl Preparer {
                     self.rejected = self.rejected.saturating_add(1);
                     at = at.saturating_add(Header::frame_len(len));
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.stopped_at = Some(at);
+                    return Err(error);
+                }
             }
         }
         Ok(())
+    }
+
+    /// The byte offset, in the stream of the last [`Preparer::submit`], of the message that
+    /// stopped it; `None` when the whole stream was handled.
+    pub fn stopped_at(&self) -> Option<usize> {
+        self.stopped_at
     }
 
     /// Handles one decoded message: a live note goes to the live queue (on overflow it is
@@ -858,8 +882,19 @@ impl Preparer {
                 total,
                 notes,
             } => {
-                // Everything allocated before the chunk is staged: a refusal leaves the
-                // staging as it was.
+                if !completes(&self.notes, clip.0, first, total, notes.len()) {
+                    stage(
+                        &mut self.notes,
+                        clip.0,
+                        first,
+                        total,
+                        notes,
+                        &mut self.rejected,
+                    )?;
+                    return Ok(None);
+                }
+                // The last chunk: everything allocated before it is staged, so that a
+                // refusal leaves the staging as it was.
                 let (mut value, growth) = self.prepare_clip(
                     clip,
                     Clip {
@@ -884,6 +919,10 @@ impl Preparer {
             }
             ControlMsg::ClipRemove { clip } => {
                 self.notes.remove(&clip.0);
+                if !self.shadow.clips.has_page(clip.0) {
+                    // Never put (an upload rejected or not finished): nothing to remove.
+                    return Ok(None);
+                }
                 RtMsg::ClipRemove(clip)
             }
             ControlMsg::AudioSourceDeclare {
@@ -911,7 +950,12 @@ impl Preparer {
                     grown,
                 })
             }
-            ControlMsg::AudioSourceRelease { source } => RtMsg::SourceRemove(source),
+            ControlMsg::AudioSourceRelease { source } => {
+                if source.0 as usize >= self.shadow.sources {
+                    return Ok(None);
+                }
+                RtMsg::SourceRemove(source)
+            }
             ControlMsg::ClipAudioSet {
                 clip,
                 source,
@@ -965,8 +1009,19 @@ impl Preparer {
                 points,
             } => {
                 self.existing_track(track)?;
-                // Allocate the box and the grown table before staging the last chunk, so
-                // that a refusal leaves the staging as it was.
+                if !completes(&self.points, lane.0, first, total, points.len()) {
+                    stage(
+                        &mut self.points,
+                        lane.0,
+                        first,
+                        total,
+                        points,
+                        &mut self.rejected,
+                    )?;
+                    return Ok(None);
+                }
+                // The last chunk: allocate the box and the grown table before staging it,
+                // so that a refusal leaves the staging as it was.
                 let growth = self.shadow.lanes.growth(lane.0, limits::MAX_LANES)?;
                 self.shadow.lanes.reserve(&growth)?;
                 let mut value = try_box(Lane {
@@ -995,6 +1050,9 @@ impl Preparer {
             }
             ControlMsg::AutomationLaneRemove { lane } => {
                 self.points.remove(&lane.0);
+                if !self.shadow.lanes.has_page(lane.0) {
+                    return Ok(None);
+                }
                 RtMsg::LaneRemove(lane)
             }
             ControlMsg::SceneSetSlot { track, scene, clip } => {
@@ -1185,6 +1243,22 @@ fn live_event(msg: &ControlMsg) -> Option<LiveEvent> {
         ControlMsg::AllNotesOff { track } => Some(LiveEvent::AllNotesOff { track }),
         _ => None,
     }
+}
+
+/// Whether this chunk completes its upload, as [`stage`] would decide it.
+fn completes<T>(
+    map: &HashMap<u32, Stage<T>>,
+    slot: u32,
+    first: u32,
+    total: u32,
+    len: usize,
+) -> bool {
+    let staged = match map.get(&slot) {
+        Some(s) if s.items.len() as u64 == u64::from(first) && s.total == total => s.items.len(),
+        _ if first == 0 => 0,
+        _ => return false,
+    };
+    (staged as u64).saturating_add(len as u64) == u64::from(total)
 }
 
 /// Stages one chunk of an upload into `map[slot]` (module doc of `crate::msg`): appended
@@ -1403,10 +1477,17 @@ impl Engine {
                 Some(Garbage::Tracks(spare))
             }
             RtMsg::TrackRemove(track) => match take_slot(&mut state.tracks, track.0) {
-                Ok(old) => Some(Garbage::Tracks(Spare {
-                    table: None,
-                    item: old,
-                })),
+                Ok(old) => {
+                    // A removed track is no longer the live input's target; a track created
+                    // later in the slot starts unselected.
+                    if state.selected == Some(track) {
+                        state.selected = None;
+                    }
+                    Some(Garbage::Tracks(Spare {
+                        table: None,
+                        item: old,
+                    }))
+                }
                 Err(()) => {
                     skipped = true;
                     None

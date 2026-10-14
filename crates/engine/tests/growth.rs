@@ -288,6 +288,72 @@ fn every_rt_message_applies_without_allocating() {
 }
 
 #[test]
+fn removes_of_slots_never_put_send_nothing_and_count_nothing() {
+    let (mut p, mut e) = sides();
+    for msg in [
+        M::ClipRemove {
+            clip: ClipSlot(5000),
+        },
+        M::AutomationLaneRemove {
+            lane: LaneSlot(3000),
+        },
+        M::AudioSourceRelease {
+            source: SourceSlot(100),
+        },
+    ] {
+        assert!(p.prepare(msg).unwrap().is_none());
+    }
+    assert_eq!(e.skipped(), 0);
+    // A remove of a slot whose page exists does reach the engine.
+    cycle(&mut p, &mut e, upload(5000, 0, 1, 1));
+    cycle(
+        &mut p,
+        &mut e,
+        M::ClipRemove {
+            clip: ClipSlot(5000),
+        },
+    );
+    assert!(e.state().clip(ClipSlot(5000)).is_none());
+    assert_eq!(e.skipped(), 0);
+}
+
+#[test]
+fn a_removed_track_is_no_longer_selected() {
+    let (mut p, mut e) = sides();
+    cycle(&mut p, &mut e, create(3));
+    cycle(
+        &mut p,
+        &mut e,
+        M::SelectTrack {
+            track: Some(TrackSlot(3)),
+        },
+    );
+    cycle(
+        &mut p,
+        &mut e,
+        M::TrackRemove {
+            track: TrackSlot(3),
+        },
+    );
+    cycle(&mut p, &mut e, create(3));
+    assert_eq!(e.state().selected, None);
+}
+
+#[test]
+fn only_the_last_chunk_allocates_the_put() {
+    let (mut p, mut e) = sides();
+    // A first chunk of an upload into a page never used: nothing for the audio side, and
+    // the page is sent with the last chunk only.
+    assert!(p.prepare(upload(9000, 0, 4, 2)).unwrap().is_none());
+    let rt = p.prepare(upload(9000, 2, 4, 2)).unwrap().unwrap();
+    assert!(
+        matches!(&rt, RtMsg::ClipPut(put) if put.growth.as_ref().is_some_and(|g| g.page.is_some()))
+    );
+    assert_no_alloc(|| e.apply(rt));
+    assert_eq!(notes_of(&e, 9000), Some(4));
+}
+
+#[test]
 fn the_transport_and_launch_orders_land_in_the_state() {
     let (mut p, mut e) = sides();
     cycle(&mut p, &mut e, create(0));
@@ -676,6 +742,7 @@ fn a_chunked_upload_reaches_the_engine_whole_or_not_at_all() {
     assert_eq!(p.rejected(), 4);
     // partial → removed: the staging is gone, the next chunk continues nothing.
     assert!(p.prepare(upload(4, 0, 4, 2)).unwrap().is_none());
+    // Clip 4 shares the page of clip 1: its remove reaches the engine (an empty slot).
     cycle(&mut p, &mut e, M::ClipRemove { clip: ClipSlot(4) });
     assert!(p.prepare(upload(4, 2, 4, 2)).unwrap().is_none());
     assert_eq!(p.rejected(), 5);
@@ -713,10 +780,11 @@ fn a_chunked_upload_reaches_the_engine_whole_or_not_at_all() {
         points: vec![AutomationPoint::default()],
     };
     assert!(p.prepare(lane(0)).unwrap().is_none());
-    cycle(
-        &mut p,
-        &mut e,
-        M::AutomationLaneRemove { lane: LaneSlot(1) },
+    // The lane was never put: the remove only drops its staging.
+    assert!(
+        p.prepare(M::AutomationLaneRemove { lane: LaneSlot(1) })
+            .unwrap()
+            .is_none()
     );
     assert!(p.prepare(lane(1)).unwrap().is_none());
     assert_eq!(p.rejected(), 8);
@@ -833,7 +901,21 @@ fn a_full_queue_is_engine_busy_with_nothing_committed_then_resumes() {
     assert_eq!(p.pending(), pending as usize);
     // Busy: neither the track nor its shadow exist; a Reset does not adopt its epoch.
     assert_eq!(p.handle(create(4095)), Err(MsgError::EngineBusy));
-    assert_eq!(p.submit(&reset_stream(7)), Err(MsgError::EngineBusy));
+    // A stream whose first message is handled and whose second is refused: the offset of
+    // the refused one says where to resume.
+    // (a live note: it does not wait in the queue).
+    let mut stream = encode_stream(
+        0,
+        0,
+        &[M::AllNotesOff {
+            track: TrackSlot(0),
+        }],
+    )
+    .unwrap();
+    let second = stream.len();
+    stream.extend(reset_stream(7));
+    assert_eq!(p.submit(&stream), Err(MsgError::EngineBusy));
+    assert_eq!(p.stopped_at(), Some(second));
     assert_eq!(p.epoch(), 0, "a refused Reset leaves the epoch");
     assert_eq!(
         p.prepare(M::TrackSetSolo {
@@ -850,8 +932,9 @@ fn a_full_queue_is_engine_busy_with_nothing_committed_then_resumes() {
         p.flush();
     }
     assert_no_alloc(|| e.begin_block());
-    // The project resyncs: the same Reset is accepted now.
-    p.submit(&reset_stream(7)).unwrap();
+    // The project resends from the offset: the same Reset is accepted now.
+    p.submit(&stream[second..]).unwrap();
+    assert_eq!(p.stopped_at(), None);
     assert_eq!(p.epoch(), 7);
     p.handle(create(4095)).unwrap();
     assert_no_alloc(|| e.begin_block());
