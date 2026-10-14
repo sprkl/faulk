@@ -48,6 +48,8 @@ export class Session {
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
   /** Code from a `#pair=` link, used once audio has started (browsers need a click). */
   pendingPairCode = $state<string | null>(null)
+  /** Code from a `#pair=` link whose pairing reached no helper, tried again on access. */
+  private linkCodeToRetry: string | null = null
 
   /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
   private lastWebInput: string | null = null
@@ -126,14 +128,20 @@ export class Session {
     if (code) await this.pairFromLink(code)
   }
 
-  /** Pairs with a code from a link; a failure is a pairing failure, never thrown. */
+  /**
+   * Pairs with a code from a link; a failure is a pairing failure, never thrown. A code
+   * that reached no helper (the browser's local network prompt still open) is kept for
+   * one more try once the user allows (`onLocalAccessGranted`).
+   */
   private async pairFromLink(code: string) {
+    this.linkCodeToRetry = null
     try {
       await this.pair(code)
     } catch (error) {
       console.error(error)
       this.pairingMessage = { key: 'helper.failed' }
     }
+    if (this.pairingMessage?.key === 'helper.failed') this.linkCodeToRetry = code
   }
 
   private async enableWebMidi() {
@@ -217,11 +225,15 @@ export class Session {
 
   /**
    * The browser now lets the page reach this device (`engine/local-access.ts`): probe
-   * again if the last probe found nothing or is still waiting behind the prompt.
+   * again if the last probe found nothing or is still waiting behind the prompt, then
+   * retry a pairing link that could not reach the helper.
    */
-  onLocalAccessGranted() {
-    if (this.native) return
-    if (this.helper === 'absent' || this.helper === 'checking') void this.checkHelper()
+  async onLocalAccessGranted() {
+    if (this.native || (this.helper !== 'absent' && this.helper !== 'checking')) return
+    if ((await this.checkHelper()) !== 'available') return
+    const code = this.linkCodeToRetry
+    this.linkCodeToRetry = null
+    if (code && this.started && !this.paired && !this.native) await this.pairFromLink(code)
   }
 
   /**

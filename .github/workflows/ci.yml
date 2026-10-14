@@ -74,6 +74,11 @@ jobs:
       - name: Release build
         run: cargo build -p helper --release
 
+      # The defaults a published helper ships with (production origins, "Open Faulk" on the
+      # site) depend on the release profile: test them in that profile too.
+      - name: Release defaults
+        run: cargo test -p helper --release --bin faulk-helper
+
   web:
     runs-on: ubuntu-latest
     defaults:

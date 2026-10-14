@@ -58,7 +58,7 @@
   onMount(() => {
     void session.checkHelper()
     // The first probe may wait behind the browser's local network prompt: probe again on Allow.
-    const stopLocalAccess = watchLocalAccess(() => session.onLocalAccessGranted())
+    const stopLocalAccess = watchLocalAccess(() => void session.onLocalAccessGranted())
     // Through the router: a raw history.replaceState conflicts with SvelteKit's.
     // `url` is the current path and query, already resolved against the base path.
     // eslint-disable-next-line svelte/no-navigation-without-resolve
