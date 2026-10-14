@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compile } from 'json-schema-to-typescript'
+import { mergeRoots } from './schema-merge.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const out = fileURLToPath(new URL('../src/lib/generated/', import.meta.url))
@@ -17,62 +18,14 @@ const json = execFileSync(cargo, ['run', '-q', '-p', 'protocol', '--bin', 'expor
 const bundle = JSON.parse(json)
 writeFileSync(out + 'schema.json', JSON.stringify(bundle, null, 2) + '\n')
 
-// The four roots share definitions (`TrackId`, `Author`, ...). Compiling them one by one
-// either declares a shared type twice or leaves a type only one root uses undeclared, so
-// they are compiled as one schema: every root becomes a definition of a wrapper whose
-// definitions are the union of theirs, and each named type is declared once.
+// The four roots are compiled as one schema (see `schema-merge.mjs`).
 const roots = {
   Command: bundle.command.input,
   CommandOutput: bundle.command.output,
   ClientMessage: bundle.client_message,
   ServerMessage: bundle.server_message,
 }
-/** @typedef {Record<string, any>} Schema */
-/**
- * Two copies of a definition are the same when they differ only in key order, in `$schema`
- * (only on a root) or in `title` (a root carries its own, the copy is named by its key).
- * @param {unknown} v
- * @returns {unknown}
- */
-const canonical = (v) =>
-  Array.isArray(v)
-    ? v.map(canonical)
-    : v && typeof v === 'object'
-      ? Object.fromEntries(
-          Object.keys(v)
-            .sort()
-            .map((k) => [k, canonical(/** @type {Schema} */ (v)[k])]),
-        )
-      : v
-/** @param {Schema} schema @param {string[]} keys @returns {Schema} */
-const omit = (schema, keys) => Object.fromEntries(Object.entries(schema).filter(([k]) => !keys.includes(k)))
-/** @param {Schema} a @param {Schema} b */
-const same = (a, b) =>
-  JSON.stringify(canonical(omit(a, ['title']))) === JSON.stringify(canonical(omit(b, ['title'])))
-/**
- * A domain without commands yet is `{ "not": {} }`, a type with no values; the compiler
- * would make it an open object, which breaks narrowing on `type`. It is `never` instead.
- * @param {Schema} def
- * @returns {Schema}
- */
-const neverIfEmpty = (def) => {
-  const { description, not, ...rest } = def
-  const empty = not && typeof not === 'object' && Object.keys(not).length === 0
-  return empty && Object.keys(rest).length === 0 ? { description, tsType: 'never' } : def
-}
-/** @type {Record<string, Schema>} */
-const defs = {}
-for (const [name, root] of Object.entries(roots)) {
-  /** @type {Record<string, Schema>} */
-  const own = { ...root.$defs, [name]: { ...omit(root, ['$defs', '$schema']), title: name } }
-  for (const [key, def] of Object.entries(own)) {
-    if (key in defs && !same(defs[key], neverIfEmpty(def))) {
-      throw new Error(`schema definition ${key} differs between roots`)
-    }
-    // A root's own copy, titled, wins over a copy embedded in another root.
-    if (!(key in defs) || key === name) defs[key] = neverIfEmpty(def)
-  }
-}
+const defs = mergeRoots(roots)
 /** @type {import('json-schema-to-typescript').JSONSchema} */
 const wrapper = {
   title: 'Bundle',

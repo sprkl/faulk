@@ -343,3 +343,83 @@ fn the_author_is_a_string_in_the_output_schema() {
     .unwrap();
     assert_eq!(out["author"], "agent:a");
 }
+
+#[test]
+fn another_authors_edit_inside_a_group_splits_it_in_application_order() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut turn = agent("claude");
+    turn.group = Some(s.history.new_group());
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut turn).unwrap();
+    run(&set(&f.device, "gain", 0.2), &mut s, &mut context()).unwrap();
+    run(&rename("By agent"), &mut s, &mut turn).unwrap();
+    let groups: Vec<_> = s
+        .history
+        .undo
+        .iter()
+        .map(|e| (e.group, e.commands.len()))
+        .collect();
+    assert_eq!(
+        groups,
+        [(None, 1), (turn.group, 1), (None, 1), (turn.group, 1)],
+        "the fixture's rename, the turn, the user's edit, the turn again"
+    );
+    // Undone in the reverse order of application, one entry at a time.
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.name, "Demo");
+    assert_eq!(param(&s, &f.device, "gain"), 0.2);
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project, f.state.project);
+}
+
+#[test]
+fn a_group_its_author_abandons_is_closed_and_undo_works_again() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    run(
+        &h(history::Command::BeginGroup {}),
+        &mut s,
+        &mut agent("claude"),
+    )
+    .unwrap();
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut agent("claude")).unwrap();
+    // The agent goes away without ending its group: undo is refused to the user...
+    check_refusal(&h(history::Command::Undo {}), &s, &context()).unwrap();
+    // ...until the host abandons the group for that author, and only for that author.
+    assert!(!s.history.abandon_group(&Author::User));
+    assert!(s.history.open_group.is_some());
+    assert!(s.history.abandon_group(&Author::Agent {
+        name: "claude".into()
+    }));
+    assert_eq!(s.history.open_group, None);
+    assert!(!s.history.abandon_group(&Author::Agent {
+        name: "claude".into()
+    }));
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(
+        s.project, f.state.project,
+        "the abandoned group's edits are one entry"
+    );
+}
+
+#[test]
+fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let missing = ::project::DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
+    s.history.redo.push(Entry {
+        name: "device.set_param",
+        author: Author::User,
+        group: Some(GroupId(99)),
+        commands: vec![set(&missing, "attack", 0.1), rename("Half")],
+    });
+    let err = check_refusal(&h(history::Command::Redo {}), &s, &context()).unwrap();
+    assert_eq!(err.code(), "not_found");
+    let mut after = s.clone();
+    assert!(run(&h(history::Command::Redo {}), &mut after, &mut context()).is_err());
+    assert_eq!(
+        after, s,
+        "the entry is back on the redo stack, the undo stack untouched"
+    );
+}

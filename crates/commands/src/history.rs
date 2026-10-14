@@ -92,6 +92,20 @@ impl History {
         GroupId(self.next_group)
     }
 
+    /// Closes the group `author` left open, if any: what a host calls when that author
+    /// goes away without `history.end_group` (an agent's connection drops), since an
+    /// open group refuses undo and redo to everyone and only its author ends it.
+    /// Returns whether a group was closed.
+    pub fn abandon_group(&mut self, author: &Author) -> bool {
+        match &self.open_group {
+            Some((_, opener)) if opener == author => {
+                self.open_group = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -112,7 +126,11 @@ impl History {
     /// changed.
     ///
     /// - An edit with an inverse becomes a new entry, or joins the last entry when both
-    ///   belong to the same group; what could be redone is dropped.
+    ///   belong to the same group; what could be redone is dropped. Only the top entry
+    ///   is joined: when another author's edit lands between two edits of a group, the
+    ///   group goes on in a new entry, so the history stays in the order the edits were
+    ///   applied (joining an older entry would undo it before a later edit it may
+    ///   depend on). One undo then undoes the group's edits made after that edit.
     /// - An irreversible edit (destructive, no inverse) empties both stacks: the
     ///   inverses recorded before it may no longer apply.
     /// - Anything else (an edit that changed nothing, `live`, `query`) leaves the
