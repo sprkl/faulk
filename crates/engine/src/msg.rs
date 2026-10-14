@@ -1,13 +1,14 @@
 //! Project → engine synchronisation contract (CT-3, `docs/specs/02-decoupage-mvp.md` § 2.3).
 //!
-//! This module declares the types of the contract and the binary header; it holds no
-//! engine logic. The payload codecs, `Engine::prepare`, `Engine::apply` and the rings are
-//! MO-1's; the channel of each target (helper thread + `rtrb`, worklet + shared memory) is
-//! MO-2's. Until then nothing in the engine consumes these types.
+//! This module declares the types of the contract, the binary header of the control
+//! stream and the growth mechanism ([`Table`]); it holds no engine logic. The payload
+//! codecs, `Engine::prepare`, `Engine::apply` and the rings are MO-1's; the channel of each
+//! target (helper thread + `rtrb`, prepare Worker + shared memory) is MO-2's. Until then
+//! nothing in the engine consumes these types.
 //!
 //! # The three message kinds
 //!
-//! 1. [`ControlMsg`], what the project sends to the engine: created by the command layer
+//! 1. [`ControlMsg`], what the project sends to the engine: produced by the command layer
 //!    (`crates/commands`, in Rust, never in TypeScript), encoded in the binary format below,
 //!    carried from the page to the *prepare side* (a Worker in web mode, the helper's control
 //!    thread in Boost mode). Every structure it names is an engine **slot** (`u32` index)
@@ -15,56 +16,106 @@
 //!    (§ 2.4): the engine never sees a `TrackId`.
 //! 2. [`RtMsg`], what `Engine::prepare(ControlMsg)` produces **off the audio path** (it may
 //!    allocate) and `Engine::apply(RtMsg)` consumes **on the audio path** (it never
-//!    allocates): a Rust value, never serialized, moved through a lock-free single-producer
-//!    single-consumer ring. Natively the ring is `rtrb`; in the web build the same Rust ring
-//!    lives inside the shared linear memory, written by the prepare Worker's instance and
-//!    read by the worklet's instance (CT-3's measured choice, § 2.3).
+//!    allocates nor frees): a Rust value, never serialized, moved through a lock-free
+//!    single-producer single-consumer ring. Natively the ring is `rtrb`; in the web build
+//!    the same Rust ring lives inside the shared linear memory, pushed by the prepare
+//!    Worker's instance and popped by the worklet's instance (CT-3's measured choice, § 2.3).
+//!    Only the prepare side pushes on this ring; the live input has its own queue.
 //! 3. [`Feedback`], what the engine reports to the page about 30 times per second:
-//!    playhead, transport state, clip states, meters, load, counters. A fixed
-//!    little-endian layout written by the audio thread into a region the page reads
-//!    without stopping the engine, or sent as bytes by the helper.
+//!    playhead, transport state, active clips, meters, load, counters, the notes recorded
+//!    since the last report. A fixed little-endian layout written by the audio thread into
+//!    a region the page reads without stopping the engine, or sent as bytes by the helper.
+//!
+//! # From `ControlMsg` to `RtMsg`
+//!
+//! `prepare` turns each control message into **at most one** rt message (the garbage
+//! invariant below depends on it):
+//!
+//! | `ControlMsg` | `RtMsg` |
+//! |---|---|
+//! | `Reset { epoch }` | `Swap(Everything)`: a fresh engine state, the old one is one garbage item |
+//! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
+//! | `TrackCreate` | `Swap(Track)`, or `Swap(Tracks)` first when the track table is full |
+//! | `TrackRemove` | `Remove(Track)`: the track owns its devices and buffers, one garbage item |
+//! | `TrackSetMix/Solo/Arm/Monitor`, `DeviceSetEnabled`, `ParamSet`, `SceneSetSlot`, `ClipAudioSet` | the same, copied |
+//! | `DeviceInsert` | `Swap(Device)` (built by `prepare`) |
+//! | `DeviceRemove` | `Remove(Device)` |
+//! | `ClipNotesUpload` (last chunk) | `Swap(ClipNotes)`: the whole table, built from the chunks |
+//! | `AutomationLaneUpload` (last chunk) | `Swap(LanePoints)` |
+//! | `TrackPlacementsUpload` (last chunk) | `Swap(TrackPlacements)` |
+//! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `Remove(…)` |
+//! | `AudioSourceDeclare` | `Swap(AudioSource)`: the streaming buffers, built by `prepare` (AU-3) |
+//! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement` | `Launch(…)` |
+//! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
+//! | `NoteOn`, `NoteOff`, `AllNotesOff` | the live queue, never `prepare` |
+//!
+//! **Backpressure, no loss.** When the rt ring is full, `prepare` gets
+//! [`MsgError::EngineBusy`]: the prepare side keeps the rt message in its own ordered
+//! queue (it may allocate: it is off the audio path) and pushes it as soon as a slot frees;
+//! control messages are never dropped nor reordered. The project sees no error: its only
+//! bounds are the safety limits.
+//!
+//! **Chunked uploads.** Notes, points and placements arrive in chunks (`first`, `total`)
+//! staged on the prepare side per slot. A chunk whose `first` is not the staged length, or
+//! whose `total` differs from the staged one, restarts the staging from that chunk and is
+//! counted as rejected; the table is built and swapped only when `first + len == total`.
+//! `Reset` and the `Remove` of the slot discard its staging. A partial upload never reaches
+//! the audio side.
 //!
 //! # Growth without a visible cap (decision 7)
 //!
 //! The engine has no fixed capacities. Every table ([`Table`]) is a boxed slice with a
-//! length: pushing into a full table fails with [`TableFull`] and never allocates. The cycle:
+//! length: pushing into a full table fails with [`TableFull`] and never allocates. Two
+//! kinds of tables, two growth paths:
 //!
-//! 1. `prepare` finds the table full → it builds the next one off the audio path, with twice
-//!    the capacity, through a **fallible** allocation (`try_reserve`, never
-//!    `handle_alloc_error`): a refused allocation (`memory.grow` refused, machine out of
-//!    memory) is [`MsgError::OutOfMemory`], reported to the project and shown, never a trap
-//!    nor a silence;
-//! 2. the next table travels in [`RtMsg::Swap`] as a [`Prepared`] value;
-//! 3. `apply` moves the items of the old table into the new one ([`Table::take_from`],
-//!    no allocation), swaps the two in one block, and pushes the old table as [`Garbage`]
-//!    on the second ring;
-//! 4. the prepare side drops the garbage. Nothing is ever freed on the audio thread.
+//! - **Content tables** (the notes of a clip, the points of a lane, the placements of a
+//!   track) are immutable snapshots of the project's data: `prepare` builds the whole table
+//!   from the upload and `apply` swaps a pointer. They never grow in place: an edit is a new
+//!   upload. The cost on the audio thread does not depend on the table's size.
+//! - **Runtime tables** (tracks, audio sources: state the audio thread mutates) hold one
+//!   boxed entry per slot. When one is full, `prepare` builds the next one, empty, with
+//!   twice the capacity; `apply` moves the entries into it ([`Table::take_from`]: one
+//!   pointer per slot, bounded by the limit of that table, measured by `msg_cost`), swaps,
+//!   and pushes the old table to [`Garbage`].
 //!
-//! Invariant that keeps `apply` from ever dropping: the garbage ring has the capacity of the
-//! rt ring ([`limits::RT_RING_CAPACITY`]) and `prepare` drains the garbage ring before
-//! each push, so for every `RtMsg` in flight there is a free garbage slot.
+//! Every allocation of `prepare` is **fallible**: [`Table::try_with_capacity`] and
+//! [`try_box`], never `Box::new` nor `handle_alloc_error`. A refused allocation
+//! (`memory.grow` refused, machine out of memory) is [`MsgError::OutOfMemory`], reported
+//! to the project and shown, never a trap nor a silence.
+//!
+//! Nothing is ever freed on the audio thread: what `apply` replaces or removes goes back
+//! as **one** [`Garbage`] item per rt message on the second ring, and the prepare side drops
+//! it. Invariant that keeps `apply` from ever dropping: the garbage ring has the capacity
+//! of the rt ring ([`limits::RT_RING_CAPACITY`]), only `prepare` pushes on the rt ring, each
+//! rt message yields at most one garbage item, and `prepare` drains the garbage ring before
+//! each push, so for every rt message in flight there is a free garbage slot.
 //!
 //! Above the tables stand the **safety limits** of [`limits`], very high and checked by the
 //! project before a message is sent ([`MsgError::LimitExceeded`]): the engine itself never
-//! fails in real time. They are sized so that the whole engine, every table at its limit
-//! and doubled during a growth, plus the PCM budget of the audio tracks, stays under the
-//! 4 GiB of wasm32 (test `limits_fit_under_the_wasm32_cap`).
+//! fails in real time. They are counts; the memory they imply, every table at its limit and
+//! doubled during a growth, plus the PCM budget of the audio tracks, the rings and the
+//! fragmentation of a linear memory that never shrinks, stays under the 4 GiB of wasm32
+//! with margin (test `limits_fit_under_the_wasm32_cap`). The memory of the devices is not
+//! a count: each device kind declares its size (CT-5's descriptor) and the project refuses
+//! an insert that would take the declared total past [`limits::ENGINE_MEMORY_BUDGET_BYTES`].
 //!
 //! # Linear memory (web)
 //!
-//! The module reserves an initial memory and grows it only in `prepare` (the Worker),
-//! never in `process`. The memory is shared: a `memory.grow` leaves the worklet's existing
-//! views valid (they keep their length); the worklet re-takes its views at the start of a
-//! block when `memory.buffer` changed, a constant-cost comparison.
+//! The module reserves [`limits::WASM_INITIAL_PAGES`] and grows only in `prepare` (the
+//! Worker), never in `process`. The memory is shared: a `memory.grow` leaves the worklet's
+//! existing views valid (they keep their length); the worklet re-takes its views at the
+//! start of a block when `memory.buffer` changed, a constant-cost comparison.
 //!
 //! # Live input
 //!
 //! Clip and automation events never cross a bounded queue: the engine reads them in their
 //! tables while rendering. Only the live input (MIDI, keyboard: [`ControlMsg::NoteOn`],
-//! [`ControlMsg::NoteOff`]) is queued, in [`limits::LIVE_QUEUE_CAPACITY`] slots, far beyond
-//! what a human produces between two blocks. On overflow the event is dropped and counted
-//! ([`Feedback`]`.live_overflows`); the producer then sends [`RtMsg::AllNotesOff`] for that
-//! track as its first message once a slot frees, so no note stays stuck.
+//! [`ControlMsg::NoteOff`], [`ControlMsg::AllNotesOff`]) is queued, in
+//! [`limits::LIVE_QUEUE_CAPACITY`] slots, far beyond what a human produces between two
+//! blocks. On overflow the event is dropped and the producer increments [`LiveOverflow`];
+//! the audio side reads the counter at the start of every block and, when it moved,
+//! releases every live note (the same mechanism the helper has today), so no note stays
+//! stuck even if nothing else is ever sent. The count is reported in [`Feedback`].
 //!
 //! # Binary format of `ControlMsg`
 //!
@@ -84,18 +135,24 @@
 //! ```
 //!
 //! - An unknown `tag` does not stop the stream: the receiver skips the message by its `len`
-//!   and counts it ([`Feedback`]`.rejected`). A wrong version or a `len` over the limit is
-//!   a corrupt stream: [`MsgError::UnsupportedVersion`], [`MsgError::TooLarge`].
-//! - `epoch` is the engine generation held by the page. When the page switches engine (web
-//!   ↔ helper, or a worklet restarted after an error), it increments the epoch and resends
-//!   the whole project to the new engine with the new epoch; a message of an older epoch
-//!   still in flight is dropped ([`MsgError::StaleEpoch`]), so an engine switch in the
-//!   middle of a message sequence never applies half of it to the wrong engine.
-//! - Payloads larger than [`limits::MAX_CONTROL_MSG_BYTES`] are split by the sender: notes
-//!   and automation points go in chunks ([`ControlMsg::ClipNotesUpload`],
-//!   [`ControlMsg::AutomationLaneUpload`] carry `first` and `total`).
+//!   and counts it ([`Feedback`]`.rejected`). A wrong version, a reserved bit set or a
+//!   `len` over the limit is a corrupt stream: [`MsgError::UnsupportedVersion`],
+//!   [`MsgError::Corrupt`], [`MsgError::TooLarge`].
+//! - `epoch` is the engine generation held by the page. Only [`ControlMsg::Reset`] may
+//!   carry a new epoch: the engine adopts it and discards every staging of the previous
+//!   one; any other message whose epoch is not the current one is dropped and counted
+//!   ([`MsgError::StaleEpoch`]), equality only, no ordering across wraparound. When the
+//!   page switches engine (web ↔ helper) or comes back to an engine it had suspended, it
+//!   increments the epoch and resends the whole project after a `Reset`: a chunked upload
+//!   cut by the switch never completes in the old epoch, and a message of the old epoch
+//!   still in flight on either channel is dropped.
+//! - Payloads larger than [`limits::MAX_CONTROL_MSG_BYTES`] are split by the sender.
 //! - The PCM of the audio tracks never goes through a message: AU-3 streams it into buffers
 //!   that [`ControlMsg::AudioSourceDeclare`] only declares.
+
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 
 /// Version of the `ControlMsg` binary format ([`Header::version`]).
 pub const MSG_VERSION: u8 = 1;
@@ -109,14 +166,6 @@ pub const HEADER_BYTES: usize = 16;
 /// Alignment of a message start in a stream, in bytes.
 pub const MSG_ALIGN: usize = 4;
 
-/// Position of a message in the project's time, in ticks (`engine::time::Tick`, 960 per
-/// quarter note, CT-2). The wire representation, so that this module does not depend on
-/// CT-2's merge; the project converts.
-pub type TickRaw = i64;
-
-/// Position in an audio file, in frames (`engine::time::Frame`, CT-2); wire representation.
-pub type FrameRaw = u64;
-
 /// The safety limits: very high, enforced by the project before a message is sent, never
 /// reached by a human, and sized together under the wasm32 cap (see the module doc).
 pub mod limits {
@@ -126,8 +175,10 @@ pub mod limits {
     pub const MAX_DEVICES_PER_TRACK: u32 = 64;
     /// Clips in a project (grid and arrangement together).
     pub const MAX_CLIPS: u32 = 65_536;
-    /// Placements in the arrangement.
+    /// Placements in a project, every track together.
     pub const MAX_PLACEMENTS: u32 = 1_048_576;
+    /// Placements in one track's arrangement.
+    pub const MAX_PLACEMENTS_PER_TRACK: u32 = 65_536;
     /// Notes in a project, every clip together.
     pub const MAX_NOTES: u32 = 16_777_216;
     /// Notes in one clip.
@@ -136,12 +187,19 @@ pub mod limits {
     pub const MAX_LANES: u32 = 65_536;
     /// Automation points in a project, every lane together.
     pub const MAX_AUTOMATION_POINTS: u32 = 16_777_216;
+    /// Automation points in one lane.
+    pub const MAX_POINTS_PER_LANE: u32 = 1_048_576;
     /// Audio sources (files) declared to the engine.
     pub const MAX_AUDIO_SOURCES: u32 = 4096;
     /// Scenes of the launch grid.
     pub const MAX_SCENES: u32 = 1024;
     /// Memory the streaming buffers of the audio tracks may hold together (AU-3).
     pub const PCM_BUDGET_BYTES: u64 = 1 << 30;
+    /// Memory the project lets the engine's tables and devices take together, from the
+    /// sizes the device descriptors declare (CT-5) and the tables' sizes.
+    pub const ENGINE_MEMORY_BUDGET_BYTES: u64 = (3 << 30) - WASM_RESERVED_BYTES;
+    /// Memory kept out of the budgets for the module's code, data, stacks and rings.
+    pub const WASM_RESERVED_BYTES: u64 = 64 << 20;
     /// Payload of one `ControlMsg`; larger uploads are chunked.
     pub const MAX_CONTROL_MSG_BYTES: u32 = 16 << 20;
     /// Slots of the live input queue (notes played live).
@@ -149,7 +207,7 @@ pub mod limits {
     /// Slots of the `RtMsg` ring and of the garbage ring.
     pub const RT_RING_CAPACITY: usize = 4096;
     /// Most `RtMsg` applied at the start of one block; the rest wait for the next block.
-    pub const MAX_APPLY_PER_BLOCK: usize = 256;
+    pub const MAX_APPLY_PER_BLOCK: usize = 128;
     /// Largest render block, in frames (Web Audio allows up to 2048).
     pub const MAX_BLOCK_FRAMES: usize = 2048;
     /// Initial size of the web module's linear memory, in 64 KiB pages (16 MiB).
@@ -169,11 +227,11 @@ pub struct TrackSlot(pub u32);
 pub struct DeviceSlot(pub u16);
 
 /// Index of a clip in the engine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ClipSlot(pub u32);
 
 /// Index of a placement (a clip in the arrangement) in the engine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PlacementSlot(pub u32);
 
 /// Index of a scene of the launch grid.
@@ -205,28 +263,29 @@ pub enum TrackKind {
 pub struct DeviceKind(pub u32);
 
 /// A note of a MIDI clip, as the project stores it (no identifier, CT-4 decides one).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Note {
-    pub start: TickRaw,
-    pub length: TickRaw,
+    pub start: Tick,
+    pub length: Tick,
     pub pitch: u8,
     pub velocity: u8,
 }
 
 /// Shape of the transition after an automation point.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Curve {
+    #[default]
     Step = 0,
     Linear = 1,
 }
 
 /// A point of an automation lane; at most one per tick.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct AutomationPoint {
-    pub tick: TickRaw,
+    pub tick: Tick,
     pub value: f32,
     pub curve: Curve,
 }
@@ -239,31 +298,59 @@ pub enum AutomationTarget {
     MixerPan,
 }
 
-/// Loop region `[start, end)` in ticks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LoopRaw {
-    pub start: TickRaw,
-    pub end: TickRaw,
+/// A clip placed in a track's arrangement: start in ticks, the clip's own offset and the
+/// length played, in ticks for a MIDI clip, in frames for an audio clip ([`Span`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Placement {
+    pub placement: PlacementSlot,
+    pub clip: ClipSlot,
+    pub start: Tick,
+    pub span: Span,
 }
 
-/// Launch quantization, as the project encodes `engine::time::Quantize` (CT-2) on the wire:
-/// `0` none, otherwise the length in ticks.
-pub type QuantizeRaw = u32;
+/// The extent of a placement: offset into the clip and length, in the clip's unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Span {
+    Ticks { offset: Tick, length: Tick },
+    Frames { offset: Frame, length: Frame },
+}
+
+impl Default for Span {
+    fn default() -> Self {
+        Span::Ticks {
+            offset: Tick(0),
+            length: Tick(0),
+        }
+    }
+}
 
 // ---------------------------------------------------------------- ControlMsg
 
 /// What the project sends to the engine. One variant per MVP action, including the ones
-/// whose implementation comes later (automation, audio sources): the list is the contract.
+/// whose implementation comes later (automation, audio sources, recording, metronome): the
+/// list is the contract.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlMsg {
-    /// Forgets everything: tracks, clips, sources, lanes. Sent before a full resend.
-    Reset,
-    /// Tempo (BPM, 20–999), time signature, launch quantization.
+    /// Forgets everything (tracks, clips, sources, lanes, staging) and adopts `epoch`.
+    /// Sent before a full resend, on load and on every engine switch.
+    Reset {
+        epoch: u16,
+    },
     SetTransport {
-        tempo_bpm: f64,
-        numerator: u8,
-        denominator: u8,
-        launch_quantize: QuantizeRaw,
+        tempo: Tempo,
+        signature: TimeSignature,
+        launch_quantize: Quantize,
+    },
+    /// Metronome (TR-2): on or off, its level, bars of count-in before a recording.
+    SetMetronome {
+        enabled: bool,
+        volume: f32,
+        count_in_bars: u8,
+    },
+    /// Master mix (MX-1).
+    SetMaster {
+        gain: f32,
+        mute: bool,
     },
     // tracks
     TrackCreate {
@@ -284,10 +371,19 @@ pub enum ControlMsg {
         track: TrackSlot,
         solo: bool,
     },
-    /// Arms a track: the live input also reaches it.
+    /// Arms a track (RE-1): the live input and the recording reach it.
     TrackArm {
         track: TrackSlot,
         armed: bool,
+    },
+    /// Monitors the live input through the track's chain (RE-1).
+    TrackSetMonitor {
+        track: TrackSlot,
+        monitor: bool,
+    },
+    /// The track the live input goes to when no track is armed (RE-1).
+    SelectTrack {
+        track: Option<TrackSlot>,
     },
     // devices
     DeviceInsert {
@@ -315,10 +411,10 @@ pub enum ControlMsg {
     },
     // MIDI clips
     /// The notes of a clip, in chunks: `first` is the index of `notes[0]` among `total`.
-    /// The engine swaps the clip's table in once the last chunk arrived.
+    /// The table is swapped in once the last chunk arrived (module doc, chunked uploads).
     ClipNotesUpload {
         clip: ClipSlot,
-        length: TickRaw,
+        length: Tick,
         looped: bool,
         first: u32,
         total: u32,
@@ -333,7 +429,7 @@ pub enum ControlMsg {
         source: SourceSlot,
         sample_rate: u32,
         channels: u8,
-        frames: FrameRaw,
+        frames: Frame,
     },
     AudioSourceRelease {
         source: SourceSlot,
@@ -342,20 +438,16 @@ pub enum ControlMsg {
     ClipAudioSet {
         clip: ClipSlot,
         source: SourceSlot,
-        start: FrameRaw,
-        length: FrameRaw,
+        start: Frame,
+        length: Frame,
     },
     // arrangement
-    ClipPlace {
+    /// The arrangement of one track, in chunks like the notes.
+    TrackPlacementsUpload {
         track: TrackSlot,
-        placement: PlacementSlot,
-        clip: ClipSlot,
-        start: TickRaw,
-        offset: TickRaw,
-        length: TickRaw,
-    },
-    ClipUnplace {
-        placement: PlacementSlot,
+        first: u32,
+        total: u32,
+        placements: Vec<Placement>,
     },
     // automation
     /// The points of a lane, in chunks like the notes.
@@ -387,17 +479,20 @@ pub enum ControlMsg {
         track: TrackSlot,
     },
     StopAll,
+    /// Every track plays its arrangement again (AR-2).
+    BackToArrangement,
     // transport
     Play {
-        from: TickRaw,
+        from: Tick,
     },
     Stop,
     Seek {
-        tick: TickRaw,
+        tick: Tick,
     },
     SetLoop {
-        region: Option<LoopRaw>,
+        region: Option<LoopRegion>,
     },
+    /// Recording on or off (RE-2); the take comes back through `Feedback::recorded`.
     SetRecording {
         recording: bool,
     },
@@ -423,11 +518,15 @@ pub enum ControlMsg {
 pub enum Tag {
     Reset = 0,
     SetTransport = 1,
+    SetMetronome = 2,
+    SetMaster = 3,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
     TrackSetSolo = 13,
     TrackArm = 14,
+    TrackSetMonitor = 15,
+    SelectTrack = 16,
     DeviceInsert = 20,
     DeviceRemove = 21,
     DeviceSetEnabled = 22,
@@ -437,8 +536,7 @@ pub enum Tag {
     AudioSourceDeclare = 40,
     AudioSourceRelease = 41,
     ClipAudioSet = 42,
-    ClipPlace = 50,
-    ClipUnplace = 51,
+    TrackPlacementsUpload = 50,
     AutomationLaneUpload = 60,
     AutomationLaneRemove = 61,
     SceneSetSlot = 70,
@@ -446,6 +544,7 @@ pub enum Tag {
     LaunchScene = 72,
     StopTrack = 73,
     StopAll = 74,
+    BackToArrangement = 75,
     Play = 80,
     Stop = 81,
     Seek = 82,
@@ -458,14 +557,18 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 33] = [
+    pub const ALL: [Tag; 37] = [
         Tag::Reset,
         Tag::SetTransport,
+        Tag::SetMetronome,
+        Tag::SetMaster,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
         Tag::TrackSetSolo,
         Tag::TrackArm,
+        Tag::TrackSetMonitor,
+        Tag::SelectTrack,
         Tag::DeviceInsert,
         Tag::DeviceRemove,
         Tag::DeviceSetEnabled,
@@ -475,8 +578,7 @@ impl Tag {
         Tag::AudioSourceDeclare,
         Tag::AudioSourceRelease,
         Tag::ClipAudioSet,
-        Tag::ClipPlace,
-        Tag::ClipUnplace,
+        Tag::TrackPlacementsUpload,
         Tag::AutomationLaneUpload,
         Tag::AutomationLaneRemove,
         Tag::SceneSetSlot,
@@ -484,6 +586,7 @@ impl Tag {
         Tag::LaunchScene,
         Tag::StopTrack,
         Tag::StopAll,
+        Tag::BackToArrangement,
         Tag::Play,
         Tag::Stop,
         Tag::Seek,
@@ -506,16 +609,21 @@ impl Tag {
 }
 
 impl ControlMsg {
-    /// The tag written in the header of this message.
+    /// The tag written in the header of this message (exhaustive: a new variant without a
+    /// tag does not compile).
     pub fn tag(&self) -> Tag {
         match self {
-            ControlMsg::Reset => Tag::Reset,
+            ControlMsg::Reset { .. } => Tag::Reset,
             ControlMsg::SetTransport { .. } => Tag::SetTransport,
+            ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
+            ControlMsg::SetMaster { .. } => Tag::SetMaster,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
             ControlMsg::TrackSetSolo { .. } => Tag::TrackSetSolo,
             ControlMsg::TrackArm { .. } => Tag::TrackArm,
+            ControlMsg::TrackSetMonitor { .. } => Tag::TrackSetMonitor,
+            ControlMsg::SelectTrack { .. } => Tag::SelectTrack,
             ControlMsg::DeviceInsert { .. } => Tag::DeviceInsert,
             ControlMsg::DeviceRemove { .. } => Tag::DeviceRemove,
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
@@ -525,8 +633,7 @@ impl ControlMsg {
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
             ControlMsg::AudioSourceRelease { .. } => Tag::AudioSourceRelease,
             ControlMsg::ClipAudioSet { .. } => Tag::ClipAudioSet,
-            ControlMsg::ClipPlace { .. } => Tag::ClipPlace,
-            ControlMsg::ClipUnplace { .. } => Tag::ClipUnplace,
+            ControlMsg::TrackPlacementsUpload { .. } => Tag::TrackPlacementsUpload,
             ControlMsg::AutomationLaneUpload { .. } => Tag::AutomationLaneUpload,
             ControlMsg::AutomationLaneRemove { .. } => Tag::AutomationLaneRemove,
             ControlMsg::SceneSetSlot { .. } => Tag::SceneSetSlot,
@@ -534,6 +641,7 @@ impl ControlMsg {
             ControlMsg::LaunchScene { .. } => Tag::LaunchScene,
             ControlMsg::StopTrack { .. } => Tag::StopTrack,
             ControlMsg::StopAll => Tag::StopAll,
+            ControlMsg::BackToArrangement => Tag::BackToArrangement,
             ControlMsg::Play { .. } => Tag::Play,
             ControlMsg::Stop => Tag::Stop,
             ControlMsg::Seek { .. } => Tag::Seek,
@@ -560,87 +668,153 @@ impl ControlMsg {
                 })
             }
         }
-        match self {
-            ControlMsg::TrackCreate { track, .. }
-            | ControlMsg::TrackRemove { track }
-            | ControlMsg::TrackSetMix { track, .. }
-            | ControlMsg::TrackSetSolo { track, .. }
-            | ControlMsg::TrackArm { track, .. }
-            | ControlMsg::StopTrack { track }
-            | ControlMsg::NoteOn { track, .. }
-            | ControlMsg::NoteOff { track, .. }
-            | ControlMsg::AllNotesOff { track } => {
-                below("tracks", track.0.into(), MAX_TRACKS.into())
+        fn chunk(
+            what: &'static str,
+            first: u32,
+            len: usize,
+            total: u32,
+            limit: u32,
+        ) -> Result<(), MsgError> {
+            below(what, u64::from(total), u64::from(limit) + 1)?;
+            let end = u64::from(first) + len as u64;
+            if end > u64::from(total) {
+                return Err(MsgError::LimitExceeded {
+                    what,
+                    limit: u64::from(total),
+                    requested: end,
+                });
             }
-            ControlMsg::DeviceInsert { track, device, .. }
-            | ControlMsg::DeviceRemove { track, device }
-            | ControlMsg::DeviceSetEnabled { track, device, .. }
-            | ControlMsg::ParamSet { track, device, .. } => {
-                below("tracks", track.0.into(), MAX_TRACKS.into())?;
-                below(
-                    "devices per track",
-                    device.0.into(),
-                    MAX_DEVICES_PER_TRACK.into(),
-                )
+            Ok(())
+        }
+        let track = |t: &TrackSlot| below("tracks", t.0.into(), MAX_TRACKS.into());
+        let clip = |c: &ClipSlot| below("clips", c.0.into(), MAX_CLIPS.into());
+        let source = |s: &SourceSlot| below("audio sources", s.0.into(), MAX_AUDIO_SOURCES.into());
+        let scene = |s: &SceneSlot| below("scenes", s.0.into(), MAX_SCENES.into());
+        let lane = |l: &LaneSlot| below("lanes", l.0.into(), MAX_LANES.into());
+        let device = |d: &DeviceSlot| {
+            below(
+                "devices per track",
+                d.0.into(),
+                MAX_DEVICES_PER_TRACK.into(),
+            )
+        };
+        match self {
+            ControlMsg::TrackCreate { track: t, .. }
+            | ControlMsg::TrackRemove { track: t }
+            | ControlMsg::TrackSetMix { track: t, .. }
+            | ControlMsg::TrackSetSolo { track: t, .. }
+            | ControlMsg::TrackArm { track: t, .. }
+            | ControlMsg::TrackSetMonitor { track: t, .. }
+            | ControlMsg::StopTrack { track: t }
+            | ControlMsg::NoteOn { track: t, .. }
+            | ControlMsg::NoteOff { track: t, .. }
+            | ControlMsg::AllNotesOff { track: t } => track(t),
+            ControlMsg::SelectTrack { track: t } => t.as_ref().map_or(Ok(()), track),
+            ControlMsg::DeviceInsert {
+                track: t,
+                device: d,
+                ..
+            }
+            | ControlMsg::DeviceRemove {
+                track: t,
+                device: d,
+            }
+            | ControlMsg::DeviceSetEnabled {
+                track: t,
+                device: d,
+                ..
+            }
+            | ControlMsg::ParamSet {
+                track: t,
+                device: d,
+                ..
+            } => {
+                track(t)?;
+                device(d)
             }
             ControlMsg::ClipNotesUpload {
-                clip, first, total, ..
-            } => {
-                below("clips", clip.0.into(), MAX_CLIPS.into())?;
-                below(
-                    "notes per clip",
-                    u64::from(*first) + u64::from(*total),
-                    u64::from(MAX_NOTES_PER_CLIP) + 1,
-                )
-            }
-            ControlMsg::ClipRemove { clip } => below("clips", clip.0.into(), MAX_CLIPS.into()),
-            ControlMsg::AudioSourceDeclare { source, .. }
-            | ControlMsg::AudioSourceRelease { source } => {
-                below("audio sources", source.0.into(), MAX_AUDIO_SOURCES.into())
-            }
-            ControlMsg::ClipAudioSet { clip, source, .. } => {
-                below("clips", clip.0.into(), MAX_CLIPS.into())?;
-                below("audio sources", source.0.into(), MAX_AUDIO_SOURCES.into())
-            }
-            ControlMsg::ClipPlace {
-                track,
-                placement,
-                clip,
-                ..
-            } => {
-                below("tracks", track.0.into(), MAX_TRACKS.into())?;
-                below("placements", placement.0.into(), MAX_PLACEMENTS.into())?;
-                below("clips", clip.0.into(), MAX_CLIPS.into())
-            }
-            ControlMsg::ClipUnplace { placement } => {
-                below("placements", placement.0.into(), MAX_PLACEMENTS.into())
-            }
-            ControlMsg::AutomationLaneUpload {
-                lane,
-                track,
+                clip: c,
                 first,
                 total,
+                notes,
                 ..
             } => {
-                below("lanes", lane.0.into(), MAX_LANES.into())?;
-                below("tracks", track.0.into(), MAX_TRACKS.into())?;
-                below(
-                    "automation points",
-                    u64::from(*first) + u64::from(*total),
-                    u64::from(MAX_AUTOMATION_POINTS) + 1,
+                clip(c)?;
+                chunk(
+                    "notes per clip",
+                    *first,
+                    notes.len(),
+                    *total,
+                    MAX_NOTES_PER_CLIP,
                 )
             }
-            ControlMsg::AutomationLaneRemove { lane } => {
-                below("lanes", lane.0.into(), MAX_LANES.into())
+            ControlMsg::ClipRemove { clip: c } => clip(c),
+            ControlMsg::AudioSourceDeclare { source: s, .. }
+            | ControlMsg::AudioSourceRelease { source: s } => source(s),
+            ControlMsg::ClipAudioSet {
+                clip: c, source: s, ..
+            } => {
+                clip(c)?;
+                source(s)
             }
-            ControlMsg::SceneSetSlot { track, scene, .. } | ControlMsg::LaunchClip { track, scene } => {
-                below("tracks", track.0.into(), MAX_TRACKS.into())?;
-                below("scenes", scene.0.into(), MAX_SCENES.into())
+            ControlMsg::TrackPlacementsUpload {
+                track: t,
+                first,
+                total,
+                placements,
+            } => {
+                track(t)?;
+                for p in placements {
+                    below("placements", p.placement.0.into(), MAX_PLACEMENTS.into())?;
+                    clip(&p.clip)?;
+                }
+                chunk(
+                    "placements per track",
+                    *first,
+                    placements.len(),
+                    *total,
+                    MAX_PLACEMENTS_PER_TRACK,
+                )
             }
-            ControlMsg::LaunchScene { scene } => below("scenes", scene.0.into(), MAX_SCENES.into()),
-            ControlMsg::Reset
+            ControlMsg::AutomationLaneUpload {
+                lane: l,
+                track: t,
+                first,
+                total,
+                points,
+                ..
+            } => {
+                lane(l)?;
+                track(t)?;
+                chunk(
+                    "points per lane",
+                    *first,
+                    points.len(),
+                    *total,
+                    MAX_POINTS_PER_LANE,
+                )
+            }
+            ControlMsg::AutomationLaneRemove { lane: l } => lane(l),
+            ControlMsg::SceneSetSlot {
+                track: t,
+                scene: s,
+                clip: c,
+            } => {
+                track(t)?;
+                scene(s)?;
+                c.as_ref().map_or(Ok(()), clip)
+            }
+            ControlMsg::LaunchClip { track: t, scene: s } => {
+                track(t)?;
+                scene(s)
+            }
+            ControlMsg::LaunchScene { scene: s } => scene(s),
+            ControlMsg::Reset { .. }
             | ControlMsg::SetTransport { .. }
+            | ControlMsg::SetMetronome { .. }
+            | ControlMsg::SetMaster { .. }
             | ControlMsg::StopAll
+            | ControlMsg::BackToArrangement
             | ControlMsg::Play { .. }
             | ControlMsg::Stop
             | ControlMsg::Seek { .. }
@@ -675,7 +849,7 @@ pub enum MsgError {
     Corrupt,
     /// `len` above `MAX_CONTROL_MSG_BYTES`: a corrupt stream.
     TooLarge(u32),
-    /// A message of a previous engine generation, dropped.
+    /// A message of another engine generation than the current one, dropped.
     StaleEpoch { message: u16, current: u16 },
     /// A safety limit the project must refuse before sending.
     LimitExceeded {
@@ -685,7 +859,7 @@ pub enum MsgError {
     },
     /// `prepare` could not get the memory (allocation or `memory.grow` refused).
     OutOfMemory { bytes: usize },
-    /// The rt ring is full: `prepare` must retry later, it never blocks.
+    /// The rt ring is full: the prepare side queues the message and retries, never blocks.
     EngineBusy,
 }
 
@@ -701,10 +875,10 @@ impl Header {
         out
     }
 
-    /// Reads a header from the start of `bytes` and checks it against the current `epoch`.
+    /// Reads a header from the start of `bytes` and checks it against the current `epoch`
+    /// (a `Reset` is accepted with any epoch: it is how the engine adopts a new one).
     ///
-    /// The checks go in this order: size, version, reserved bits, `len`, epoch, then the tag
-    /// (an unknown tag comes last so that its `skip` is trustworthy).
+    /// The checks go in this order: size, version, reserved bits, `len`, tag, epoch.
     pub fn decode(bytes: &[u8], current_epoch: u16) -> Result<Header, MsgError> {
         if bytes.len() < HEADER_BYTES {
             return Err(MsgError::Truncated {
@@ -723,19 +897,19 @@ impl Header {
         if len > limits::MAX_CONTROL_MSG_BYTES {
             return Err(MsgError::TooLarge(len));
         }
+        let raw_tag = u16::from_le_bytes([bytes[2], bytes[3]]);
+        let tag = Tag::from_u16(raw_tag).ok_or(MsgError::UnknownTag {
+            tag: raw_tag,
+            skip: Header::frame_len(len),
+        })?;
         let epoch = u16::from_le_bytes([bytes[4], bytes[5]]);
-        if epoch != current_epoch {
+        if epoch != current_epoch && tag != Tag::Reset {
             return Err(MsgError::StaleEpoch {
                 message: epoch,
                 current: current_epoch,
             });
         }
         let seq = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        let raw_tag = u16::from_le_bytes([bytes[2], bytes[3]]);
-        let tag = Tag::from_u16(raw_tag).ok_or(MsgError::UnknownTag {
-            tag: raw_tag,
-            skip: Header::frame_len(len),
-        })?;
         Ok(Header {
             version,
             tag,
@@ -749,6 +923,25 @@ impl Header {
     pub fn frame_len(len: u32) -> usize {
         (HEADER_BYTES + len as usize).next_multiple_of(MSG_ALIGN)
     }
+}
+
+// ---------------------------------------------------------------- fallible allocation
+
+/// Boxes a value through a fallible allocation: `prepare`'s only way to box, so that a
+/// refused `memory.grow` is a typed error and never a trap (`Box::new` aborts).
+pub fn try_box<T>(value: T) -> Result<Box<T>, MsgError> {
+    let mut slot = Vec::new();
+    slot.try_reserve_exact(1)
+        .map_err(|_| MsgError::OutOfMemory {
+            bytes: size_of::<T>(),
+        })?;
+    slot.push(value);
+    let mut boxed: Box<[T]> = slot.into_boxed_slice();
+    let ptr = boxed.as_mut_ptr();
+    core::mem::forget(boxed);
+    // SAFETY: `ptr` is the start of a boxed slice of exactly one `T`, whose ownership
+    // `forget` just released; a `Box<T>` has the same layout as a `Box<[T; 1]>` allocation.
+    Ok(unsafe { Box::from_raw(ptr) })
 }
 
 // ---------------------------------------------------------------- RtMsg and growth
@@ -765,7 +958,7 @@ pub struct Table<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TableFull;
 
-impl<T: Default + Copy> Table<T> {
+impl<T: Default> Table<T> {
     /// Allocates a table of `capacity` slots, or fails typed when the memory is refused.
     pub fn try_with_capacity(capacity: usize) -> Result<Self, MsgError> {
         let mut items = Vec::new();
@@ -774,7 +967,7 @@ impl<T: Default + Copy> Table<T> {
             .map_err(|_| MsgError::OutOfMemory {
                 bytes: capacity.saturating_mul(size_of::<T>()),
             })?;
-        items.resize(capacity, T::default());
+        items.resize_with(capacity, T::default);
         Ok(Self {
             items: items.into_boxed_slice(),
             len: 0,
@@ -784,6 +977,24 @@ impl<T: Default + Copy> Table<T> {
     /// The capacity `prepare` gives the next table: double, at least 1.
     pub fn next_capacity(&self) -> usize {
         (self.capacity() * 2).max(1)
+    }
+
+    /// Moves the items of `old` into this (larger) table, on the audio path: one move per
+    /// item, no allocation, `old` keeps its storage (emptied) and goes to the garbage.
+    /// Items beyond this capacity stay in `old` (never happens when `prepare` doubled it).
+    pub fn take_from(&mut self, old: &mut Table<T>) {
+        let n = old.len.min(self.items.len() - self.len);
+        for (dst, src) in self.items[self.len..self.len + n]
+            .iter_mut()
+            .zip(old.items[..n].iter_mut())
+        {
+            *dst = core::mem::take(src);
+        }
+        self.len += n;
+        old.len -= n;
+        if old.len > 0 {
+            old.items.rotate_left(n);
+        }
     }
 }
 
@@ -821,80 +1032,60 @@ impl<T> Table<T> {
         self.len += 1;
         Ok(())
     }
-
-    /// Moves the items of `old` into this (larger) table, on the audio path: no allocation,
-    /// `old` keeps its storage and goes to the garbage. Items beyond this capacity stay in
-    /// `old` (never happens when `prepare` doubled the capacity).
-    pub fn take_from(&mut self, old: &mut Table<T>) {
-        let n = old.len.min(self.items.len() - self.len);
-        for (dst, src) in self.items[self.len..self.len + n]
-            .iter_mut()
-            .zip(old.items[..n].iter_mut())
-        {
-            core::mem::swap(dst, src);
-        }
-        self.len += n;
-        old.len -= n;
-        if old.len > 0 {
-            old.items.rotate_left(n);
-        }
-    }
 }
 
-/// Which engine structure a [`Swap`] replaces.
+/// An opaque engine structure built by `prepare` (a track with its devices, a device, the
+/// whole engine state): the concrete types are MO-3's and CT-5's.
+pub type Opaque = Box<dyn core::any::Any + Send>;
+
+/// Which engine structure a [`Swap`] or a [`RtMsg::Remove`] targets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TableKind {
+    /// The whole engine state (`Reset`).
+    Everything,
+    /// The runtime table of the tracks (grown when full).
     Tracks,
-    /// The notes of one clip.
-    ClipNotes(ClipSlot),
-    /// The points of one lane.
-    LanePoints(LaneSlot),
-    Placements,
-    AudioSources,
-    /// A device built by `prepare` (insert or replace).
+    Track(TrackSlot),
     Device(TrackSlot, DeviceSlot),
+    /// The notes of one clip (content snapshot).
+    ClipNotes(ClipSlot),
+    /// The points of one lane (content snapshot).
+    LanePoints(LaneSlot),
+    /// The arrangement of one track (content snapshot).
+    TrackPlacements(TrackSlot),
+    /// The runtime table of the audio sources (grown when full).
+    AudioSources,
+    AudioSource(SourceSlot),
 }
 
-/// A structure `prepare` built, carried into `apply` by [`RtMsg::Swap`]. The entry types
-/// are placeholders that MO-1, MO-3 and AU-3 fill in (adding fields to an entry changes
-/// nothing in this contract); a device is a boxed trait object of CT-5.
+/// A structure `prepare` built, carried into `apply` by [`RtMsg::Swap`]. Runtime tables
+/// hold one boxed entry per slot ([`Opaque`]); content tables hold the values.
 #[derive(Debug)]
 pub enum Prepared {
-    Tracks(Table<TrackEntry>),
+    Everything(Opaque),
+    Tracks(Table<Option<Opaque>>),
+    Track(Opaque),
+    Device(Opaque),
     ClipNotes(Table<Note>),
     LanePoints(Table<AutomationPoint>),
-    Placements(Table<PlacementEntry>),
-    AudioSources(Table<SourceEntry>),
-    Device(Box<dyn core::any::Any + Send>),
+    TrackPlacements(Table<Placement>),
+    AudioSources(Table<Option<Opaque>>),
+    AudioSource(Opaque),
 }
 
-/// What `apply` sends back on the garbage ring, dropped on the prepare side only.
+/// What `apply` sends back on the garbage ring, one per rt message, dropped on the
+/// prepare side only. A removed track carries its devices and buffers inside its box.
 #[derive(Debug)]
 pub enum Garbage {
-    Tracks(Table<TrackEntry>),
+    Everything(Opaque),
+    Tracks(Table<Option<Opaque>>),
+    Track(Opaque),
+    Device(Opaque),
     ClipNotes(Table<Note>),
     LanePoints(Table<AutomationPoint>),
-    Placements(Table<PlacementEntry>),
-    AudioSources(Table<SourceEntry>),
-    Device(Box<dyn core::any::Any + Send>),
-}
-
-/// Placeholder entry of the track table (MO-3 fills it).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TrackEntry {
-    pub slot: u32,
-}
-
-/// Placeholder entry of the placements table (AR-1 fills it).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PlacementEntry {
-    pub slot: u32,
-}
-
-/// Placeholder entry of the audio sources table (AU-3 fills it).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SourceEntry {
-    pub slot: u32,
+    TrackPlacements(Table<Placement>),
+    AudioSources(Table<Option<Opaque>>),
+    AudioSource(Opaque),
 }
 
 /// Replaces one engine structure in one block.
@@ -907,10 +1098,10 @@ pub struct Swap {
 /// Transport order carried to the audio thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportMsg {
-    Play { from: TickRaw },
+    Play { from: Tick },
     Stop,
-    Seek { tick: TickRaw },
-    SetLoop { region: Option<LoopRaw> },
+    Seek { tick: Tick },
+    SetLoop { region: Option<LoopRegion> },
     SetRecording { recording: bool },
 }
 
@@ -921,6 +1112,7 @@ pub enum LaunchMsg {
     Scene { scene: SceneSlot },
     StopTrack { track: TrackSlot },
     StopAll,
+    BackToArrangement,
 }
 
 /// What `prepare` hands to `apply`: a Rust value moved through the ring, never serialized.
@@ -931,12 +1123,19 @@ pub enum RtMsg {
     Swap(Swap),
     /// Removes a structure; what it held goes to [`Garbage`].
     Remove(TableKind),
-    ParamSet {
-        track: TrackSlot,
-        device: DeviceSlot,
-        param: ParamId,
-        value: f32,
-        offset: u16,
+    SetTransport {
+        tempo: Tempo,
+        signature: TimeSignature,
+        launch_quantize: Quantize,
+    },
+    SetMetronome {
+        enabled: bool,
+        volume: f32,
+        count_in_bars: u8,
+    },
+    SetMaster {
+        gain: f32,
+        mute: bool,
     },
     TrackSetMix {
         track: TrackSlot,
@@ -952,10 +1151,24 @@ pub enum RtMsg {
         track: TrackSlot,
         armed: bool,
     },
+    TrackSetMonitor {
+        track: TrackSlot,
+        monitor: bool,
+    },
+    SelectTrack {
+        track: Option<TrackSlot>,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
         enabled: bool,
+    },
+    ParamSet {
+        track: TrackSlot,
+        device: DeviceSlot,
+        param: ParamId,
+        value: f32,
+        offset: u16,
     },
     SceneSetSlot {
         track: TrackSlot,
@@ -965,14 +1178,8 @@ pub enum RtMsg {
     ClipAudioSet {
         clip: ClipSlot,
         source: SourceSlot,
-        start: FrameRaw,
-        length: FrameRaw,
-    },
-    SetTransport {
-        tempo_bpm: f64,
-        numerator: u8,
-        denominator: u8,
-        launch_quantize: QuantizeRaw,
+        start: Frame,
+        length: Frame,
     },
     Transport(TransportMsg),
     Launch(LaunchMsg),
@@ -993,6 +1200,28 @@ pub enum RtMsg {
     },
 }
 
+/// Counter of the live events dropped because the live queue was full, incremented by the
+/// producer, read by the audio side at the start of every block: when it moved, the audio
+/// side releases every live note (no stuck note, whatever is sent afterwards).
+#[derive(Debug, Default)]
+pub struct LiveOverflow(AtomicU32);
+
+impl LiveOverflow {
+    pub const fn new() -> Self {
+        Self(AtomicU32::new(0))
+    }
+
+    /// Producer side: one more event lost.
+    pub fn record(&self) {
+        self.0.fetch_add(1, Ordering::Release);
+    }
+
+    /// Audio side: the total so far; a change since the last block means a release is due.
+    pub fn total(&self) -> u32 {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
 // ---------------------------------------------------------------- Feedback
 
 /// State of the transport in [`Feedback`].
@@ -1005,17 +1234,27 @@ pub enum TransportState {
     Recording = 2,
 }
 
-/// State of a clip slot of the launch grid in [`Feedback`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// State of a clip slot of the launch grid in [`Feedback`]; only the slots that are not
+/// stopped are reported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ClipState {
-    #[default]
-    Empty = 0,
-    Stopped = 1,
-    Queued = 2,
-    Playing = 3,
-    Stopping = 4,
+    Queued = 1,
+    Playing = 2,
+    Stopping = 3,
 }
+
+/// A grid slot that is queued, playing or stopping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct ActiveClip {
+    pub track: TrackSlot,
+    pub scene: SceneSlot,
+    pub state: ClipState,
+}
+
+/// Size of an [`ActiveClip`] on the wire.
+pub const ACTIVE_CLIP_BYTES: usize = 8;
 
 /// Meters of one track, linear amplitude.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1030,8 +1269,20 @@ pub struct TrackMeter {
 /// Size of a [`TrackMeter`] on the wire.
 pub const TRACK_METER_BYTES: usize = 16;
 
+/// A note the engine recorded since the last report (RE-2): the page turns the take into
+/// a clip with one undoable command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct RecordedNote {
+    pub track: TrackSlot,
+    pub note: Note,
+}
+
+/// Size of a [`RecordedNote`] on the wire.
+pub const RECORDED_NOTE_BYTES: usize = 24;
+
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 48;
+pub const FEEDBACK_HEADER_BYTES: usize = 56;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1046,34 +1297,51 @@ pub const FEEDBACK_HEADER_BYTES: usize = 48;
 ///     16    8 playhead_frame (u64)
 ///     24    4 cpu_load (f32, 0..1, render time over block time)
 ///     28    4 live_overflows (u32, cumulative)
-///     32    4 rejected (u32, cumulative: unknown tags, stale epochs)
+///     32    4 rejected (u32, cumulative: unknown tags, stale epochs, bad chunks)
 ///     36    4 disk_underruns (u32, cumulative, AU-3)
 ///     40    4 tracks (u32)
-///     44    4 clip_slots (u32) = tracks × scenes
-///     48      TrackMeter × tracks (16 bytes each)
-///          then ClipState × clip_slots (1 byte each), padded to 4
+///     44    4 active_clips (u32, at most 2 per track: one playing, one queued)
+///     48    4 recorded (u32, notes recorded since the last report, drained)
+///     52    4 reserved
+///     56      TrackMeter × tracks (16 bytes each)
+///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8)
+///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
+///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
 /// ```
-///
-/// Recorded notes are not part of it: they go through the record take (RE epic), which
-/// returns them to the page outside the 30 Hz report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Feedback {
     pub transport: TransportState,
     pub epoch: u16,
     pub seq: u32,
-    pub playhead_tick: TickRaw,
-    pub playhead_frame: FrameRaw,
+    pub playhead_tick: Tick,
+    pub playhead_frame: Frame,
     pub cpu_load: f32,
     pub live_overflows: u32,
     pub rejected: u32,
     pub disk_underruns: u32,
     pub meters: Vec<TrackMeter>,
-    pub clips: Vec<ClipState>,
+    pub active_clips: Vec<ActiveClip>,
+    pub recorded: Vec<RecordedNote>,
 }
 
 impl Feedback {
-    /// Bytes of a report for `tracks` tracks and `clip_slots` grid slots.
-    pub fn size_for(tracks: usize, clip_slots: usize) -> usize {
-        (FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES + clip_slots).next_multiple_of(4)
+    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots and `recorded` notes.
+    pub fn size_for(tracks: usize, active_clips: usize, recorded: usize) -> usize {
+        FEEDBACK_HEADER_BYTES
+            + tracks * TRACK_METER_BYTES
+            + active_clips * ACTIVE_CLIP_BYTES
+            + recorded * RECORDED_NOTE_WIRE_BYTES
+    }
+
+    /// The region the audio side writes into: sized for the limits of the moment, resized
+    /// by `prepare` when the track table grows.
+    pub fn max_size_for(tracks: usize) -> usize {
+        Feedback::size_for(tracks, 2 * tracks, MAX_RECORDED_PER_REPORT)
     }
 }
+
+/// Size of a [`RecordedNote`] on the wire (padded).
+pub const RECORDED_NOTE_WIRE_BYTES: usize = 32;
+
+/// Most recorded notes one report carries; the rest wait for the next one.
+pub const MAX_RECORDED_PER_REPORT: usize = 1024;
