@@ -297,21 +297,60 @@ fn tick_to_sample_round_trip_over_a_bar_at_each_rate_and_tempo() {
     }
 }
 
+/// The exact sample position of a tick as a rational in i128, rounded once to f64:
+/// `tick * 60 * rate / (bpm * 960)` with the tempo given as `bpm_hundredths / 100`.
+fn exact_sample(tick: Tick, bpm_hundredths: i128, rate: SampleRate) -> f64 {
+    let num = i128::from(tick.0) * 60 * i128::from(rate.hz()) * 100;
+    let den = bpm_hundredths * 960;
+    (num / den) as f64 + (num % den) as f64 / den as f64
+}
+
 #[test]
-fn no_drift_over_ten_minutes_at_120_bpm() {
-    // 10 minutes at 120 BPM: 1200 quarters, 1 152 000 ticks, 600 s.
+fn no_drift_over_ten_minutes() {
+    // 10 minutes at 120 BPM: 1200 quarters, 1 152 000 ticks, 600 s, exact ratios.
     let t120 = Tempo::new(120.0).unwrap();
     let end = Tick(1200 * PPQ);
     assert_eq!(t120.tick_to_seconds(end), 600.0);
     for rate in RATES {
-        let expected = 600.0 * f64::from(rate.hz());
-        assert_eq!(t120.tick_to_sample(end, rate), expected);
-        // Walking tick by tick and converting each absolute position gives the same end.
-        let mut last = 0.0;
-        for tick in (0..=end.0).step_by(PPQ as usize) {
-            last = t120.tick_to_sample(Tick(tick), rate);
+        assert_eq!(t120.tick_to_sample(end, rate), 600.0 * f64::from(rate.hz()));
+    }
+    // At every bar of ten minutes, at exact and inexact ratios alike, the position stays
+    // within 4 ulps of the true rational. An implementation that accumulated
+    // `samples_per_tick` bar after bar would drift by about one ulp per step and fail
+    // this bound well before the 150th bar.
+    for (bpm, hundredths) in [(120.0, 12_000), (133.33, 13_333), (999.0, 99_900)] {
+        let tempo = Tempo::new(bpm).unwrap();
+        let bar = TimeSignature::COMMON.ticks_per_bar().0;
+        let bars = (600.0 * bpm / 60.0 / 4.0) as i64;
+        for rate in RATES {
+            let mut accumulated = 0.0;
+            let spt_bar = tempo.samples_per_tick(rate) * bar as f64;
+            for n in 0..=bars {
+                let tick = Tick(n * bar);
+                let got = tempo.tick_to_sample(tick, rate);
+                let exact = exact_sample(tick, hundredths, rate);
+                let ulp = exact.abs() * f64::EPSILON;
+                assert!(
+                    (got - exact).abs() <= 4.0 * ulp,
+                    "{bpm} BPM, {} Hz, bar {n}: got {got}, exact {exact}",
+                    rate.hz()
+                );
+                if n > 0 {
+                    accumulated += spt_bar;
+                }
+            }
+            // The control: the accumulating walk does drift at an inexact ratio, which
+            // proves the bound above can tell the two apart.
+            let end = Tick(bars * bar);
+            let exact = exact_sample(end, hundredths, rate);
+            if bpm == 133.33 {
+                assert!(
+                    (accumulated - exact).abs() > 4.0 * exact.abs() * f64::EPSILON,
+                    "control: accumulation should drift at {} Hz",
+                    rate.hz()
+                );
+            }
         }
-        assert_eq!(last, expected);
     }
 }
 
@@ -324,12 +363,9 @@ fn inexact_ratios_stay_within_a_few_ulps_and_never_accumulate() {
     for rate in RATES {
         for tick in [Tick(1), Tick(PPQ), Tick(1200 * PPQ), Tick(1 << 40)] {
             let got = tempo.tick_to_sample(tick, rate);
-            // The true value as a rational: tick * 60 * rate * 100 / (13333 * 960), in
-            // exact i128 arithmetic, then one rounding to f64 (the quotient is below
-            // 2^53, so it is exact; the remainder adds less than one unit).
-            let num = i128::from(tick.0) * 60 * i128::from(rate.hz()) * 100;
-            let den: i128 = 13_333 * 960;
-            let exact = (num / den) as f64 + (num % den) as f64 / den as f64;
+            // The true value as a rational in exact i128 arithmetic, rounded once (the
+            // quotient is below 2^53, so it is exact; the remainder adds less than one).
+            let exact = exact_sample(tick, 13_333, rate);
             let ulp = exact.abs() * f64::EPSILON;
             assert!(
                 (got - exact).abs() <= 4.0 * ulp,
@@ -519,10 +555,11 @@ fn next_boundary_for_every_quantize_value() {
     let after = |q: Quantize, pos: i64| q.next_boundary_after(Tick(pos), common);
     for q in Quantize::ALL {
         let Some(grid) = q.grid(common) else {
-            // No quantization: both functions give the position itself, always.
+            // No quantization: at-or-after is the position itself (launch now); strictly
+            // after has no answer, so a loop over boundaries ends instead of spinning.
             for pos in [-5, 0, 1, 239, 240, 3840, 100_000, i64::MAX, i64::MIN] {
                 assert_eq!(at(q, pos), Some(Tick(pos)));
-                assert_eq!(after(q, pos), Some(Tick(pos)));
+                assert_eq!(after(q, pos), None);
             }
             continue;
         };
@@ -587,7 +624,7 @@ proptest! {
         let after = q.next_boundary_after(pos, sig);
         let Some(grid) = q.grid(sig) else {
             prop_assert_eq!(at_or_after, Some(pos));
-            prop_assert_eq!(after, Some(pos));
+            prop_assert_eq!(after, None);
             return Ok(());
         };
         let g = grid.0;

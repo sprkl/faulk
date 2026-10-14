@@ -534,7 +534,7 @@ impl Quantize {
     }
 
     /// The first grid point at or after `pos`: a launch asked exactly on a boundary happens
-    /// now. [`Quantize::None`] has no grid and gives `pos` itself (launch at once). Negative
+    /// now. [`Quantize::None`] has no grid and gives `Some(pos)` (launch at once). Negative
     /// positions (count-in) use the same grid anchored at tick 0. `None` when the next
     /// grid point lies beyond `i64::MAX`.
     pub fn next_boundary_at_or_after(self, pos: Tick, sig: TimeSignature) -> Option<Tick> {
@@ -551,16 +551,15 @@ impl Quantize {
         }
     }
 
-    /// The first grid point strictly after `pos`. [`Quantize::None`] has no grid and gives
-    /// `pos` itself. `None` when the next grid point lies beyond `i64::MAX`.
+    /// The first grid point strictly after `pos`. `None` when there is none: under
+    /// [`Quantize::None`] (no grid, so a loop that steps from boundary to boundary ends at
+    /// once instead of spinning on `pos`) or when the next grid point lies beyond
+    /// `i64::MAX`.
     pub fn next_boundary_after(self, pos: Tick, sig: TimeSignature) -> Option<Tick> {
-        match self.grid(sig) {
-            None => Some(pos),
-            Some(grid) => pos
-                .0
-                .checked_add(grid.0 - pos.0.rem_euclid(grid.0))
-                .map(Tick),
-        }
+        let grid = self.grid(sig)?;
+        pos.0
+            .checked_add(grid.0 - pos.0.rem_euclid(grid.0))
+            .map(Tick)
     }
 }
 

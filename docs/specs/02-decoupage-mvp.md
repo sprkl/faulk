@@ -61,6 +61,14 @@ Les décisions 1 à 4 et 7 à 8 du § 7 fixent ce socle ; les tâches de contrat
 - Le moteur convertit ticks ↔ échantillons avec une position `f64` ; les événements (notes, points d'automation, départs de clips audio) sont placés **à l'échantillon près** (découpage du bloc aux offsets).
 - **Quantification de lancement** (décision 8) : globale au projet, **1 mesure par défaut**, réglable parmi : aucune, 1/16, 1 temps, 1, 2, 4, 8 mesures. Un réglage par clip viendra plus tard : champ optionnel dans le fichier du clip, absent = réglage global. Boucle du transport : région `[début, fin)` en ticks.
 
+Figé par CT-2 (#38) dans `engine::time`, réexporté par `crates/project` :
+
+- `Tick(i64)` et `Frame(u64)` sont des newtypes (un tick et une frame ne se mélangent pas), `PPQ = 960` ; `Tempo(f64)` fini dans `[20, 999]` ; `TimeSignature` (numérateur `1..=32`, dénominateur puissance de deux `1..=32`) ; `Quantize` est une énumération fermée (`None, Sixteenth, Beat, Bar, Bars2, Bars4, Bars8`, sur disque `none, sixteenth, beat, bar, bars_2, bars_4, bars_8`) ; `LoopRegion` refuse une région vide ou plus longue que `i64::MAX` ticks.
+- Le **temps** est la valeur du dénominateur de la signature (en 6/8, une croche, 480 ticks) ; c'est ce que « 1 temps » et l'affichage mesure:temps:tick comptent. Choix à confirmer par le fondateur (l'alternative en mesure composée est la noire pointée).
+- Grille ancrée au tick 0 (division euclidienne : les positions négatives du décompte sont sur la même grille). `next_boundary_at_or_after` rend le premier point de grille à partir de la position (un lancement demandé sur une frontière part tout de suite) ; `next_boundary_after` le premier strictement après. Les deux rendent `None` quand il n'y a pas de point (au-delà de `i64::MAX`) ; sans quantification, la première rend la position elle-même et la seconde `None`.
+- Conversions sur `Tempo`, fonctions pures de la position absolue (jamais accumulées, donc sans dérive) : tick → secondes et tick → échantillon en `f64` (`tick × 60 × fréquence / (BPM × 960)`, à quelques ulp près ; le moteur garde cette position fractionnaire pour découper le bloc) ; secondes, échantillons et frames → tick **au plus proche, demi vers l'extérieur** (`f64::round`, identique sur toutes les cibles) ; entrée non finie → tick 0, entrée finie hors plage → saturation par signe. L'aller-retour tick → échantillon → tick est l'identité pour `|tick| ≤ 2^40` à 44,1, 48 et 96 kHz ; l'inverse ne l'est pas (à 120 BPM et 48 kHz un tick dure 25 échantillons).
+- Fin en ticks d'un clip audio : `début + frames_to_ticks(frames)`, la durée arrondie au tick le plus proche puis ajoutée au début (à tempo constant ; une carte de tempo viendra après le MVP).
+
 ### 2.3 Synchronisation projet → moteur sans verrou et sans plafond visible
 
 Un seul code pour les deux cibles :
