@@ -19,7 +19,7 @@ const TEXTS = {
     pending:
       'Ton navigateur peut te demander d’autoriser Faulk à joindre les applications de cet appareil. Autorise-le pour que la page trouve le helper.',
     blocked:
-      'Ton navigateur bloque l’accès aux applications de cet appareil : la page ne peut pas joindre le helper. Autorise-le dans les paramètres du site (icône à gauche de l’adresse), puis vérifie à nouveau.',
+      'Ton navigateur bloque l’accès aux applications de cet appareil : la page ne peut pas joindre le helper. Autorise-le dans les paramètres du site (icône à gauche de l’adresse), puis clique sur « Chercher à nouveau ».',
   },
 } as const
 

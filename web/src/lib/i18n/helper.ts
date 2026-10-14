@@ -33,7 +33,7 @@ export const helper = defineFeature(
     'helper.localAccessPending':
       'Ton navigateur peut te demander d’autoriser Faulk à joindre les applications de cet appareil. Autorise-le pour que la page trouve le helper.',
     'helper.localAccessBlocked':
-      'Ton navigateur bloque l’accès aux applications de cet appareil : la page ne peut pas joindre le helper. Autorise-le dans les paramètres du site (icône à gauche de l’adresse), puis vérifie à nouveau.',
+      'Ton navigateur bloque l’accès aux applications de cet appareil : la page ne peut pas joindre le helper. Autorise-le dans les paramètres du site (icône à gauche de l’adresse), puis clique sur « Chercher à nouveau ».',
     'helper.helperOlder':
       'Ce helper est plus ancien que la page (protocole {v}). Relance-le pour installer sa mise à jour, ou retélécharge-le sur get.faulk.app/helper/windows.',
     'helper.helperNewer': 'Cette page est plus ancienne que ton helper (protocole {v}). Recharge la page.',
