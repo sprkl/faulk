@@ -1,27 +1,18 @@
 //! A stand-in host of the prepare/apply cycle, for tests only (feature `testing`): the two
-//! sides of [`channel`] on one thread, the test devices as factories, and
-//! a minimal render of the tracks' chains so that a test can listen to what `apply` built.
-//! The native tests and the web module's test build (`engine-wasm`, feature
-//! `engine-cycle`) run this same code, which is what makes their outputs comparable.
-//!
-//! The render is **not** MO-3's graph: each track's instrument receives the live notes of
-//! that track at offset 0, every enabled audio effect follows, MIDI effects are skipped,
-//! and the tracks are summed with their gain and mute, then the master's. It never
-//! allocates.
+//! sides of [`channel`] on one thread, the test devices as factories, and the graph's
+//! render (`Engine::process`, MO-3) so that a test can listen to what `apply` built. The
+//! native tests and the web module's test build (`engine-wasm`, feature `engine-cycle`)
+//! run this same code, which is what makes their outputs comparable. It never allocates
+//! on the audio side.
 
 use super::{Engine, Preparer, channel};
-use crate::device::{AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, VoiceId};
-use crate::msg::{LiveEvent, MsgError, TrackSlot, limits};
+use crate::device::DeviceSetup;
+use crate::msg::{MsgError, TrackSlot, limits};
 
-/// The two sides of the channel and the buffers of the stand-in render.
+/// The two sides of the channel and the output buffers.
 pub struct Cycle {
     pub preparer: Preparer,
     pub engine: Engine,
-    sample_rate: f32,
-    events: EventBuffer,
-    scratch: EventBuffer,
-    track_left: Box<[f32]>,
-    track_right: Box<[f32]>,
     left: Box<[f32]>,
     right: Box<[f32]>,
     inbox: Vec<u8>,
@@ -33,11 +24,6 @@ fn buffer(frames: usize) -> Result<Box<[f32]>, MsgError> {
         .map_err(|_| MsgError::OutOfMemory { bytes: frames * 4 })?;
     v.resize(frames, 0.0);
     Ok(v.into_boxed_slice())
-}
-
-/// The voice id of a live note: its key, plus one (0 is not a voice id).
-fn voice(pitch: u8) -> Option<VoiceId> {
-    VoiceId::new(u32::from(pitch) + 1)
 }
 
 impl Cycle {
@@ -52,11 +38,6 @@ impl Cycle {
         Ok(Cycle {
             preparer,
             engine,
-            sample_rate,
-            events: EventBuffer::try_with_capacity(limits::LIVE_QUEUE_CAPACITY + 2)?,
-            scratch: EventBuffer::try_with_capacity(1)?,
-            track_left: buffer(limits::MAX_BLOCK_FRAMES)?,
-            track_right: buffer(limits::MAX_BLOCK_FRAMES)?,
             left: buffer(limits::MAX_BLOCK_FRAMES)?,
             right: buffer(limits::MAX_BLOCK_FRAMES)?,
             inbox: Vec::new(),
@@ -88,100 +69,12 @@ impl Cycle {
         result
     }
 
-    /// The audio side: one block of `frames` (clamped to the buffers), `begin_block` then
-    /// the stand-in render. Returns the frames rendered.
+    /// The audio side: one block of `frames` (clamped to the buffers) through the graph
+    /// (`Engine::process`). Returns the frames rendered.
     pub fn render(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
-        self.engine.begin_block();
-        let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
-        left.fill(0.0);
-        right.fill(0.0);
-        let ctx = BlockCtx {
-            sample_rate: self.sample_rate,
-            frames: frames as u32,
-            transport: Default::default(),
-        };
-        let release = self.engine.release_live();
-        let tracks = self.engine.state().tracks.capacity();
-        for slot in 0..tracks {
-            let slot = TrackSlot(slot as u32);
-            if self.engine.state().track(slot).is_none() {
-                continue;
-            }
-            self.events.clear();
-            for event in self.engine.live_events() {
-                let event = match *event {
-                    LiveEvent::NoteOn {
-                        track,
-                        pitch,
-                        velocity,
-                    } if track == slot => voice(pitch).map(|voice| Event::NoteOn {
-                        offset: 0,
-                        voice,
-                        key: pitch,
-                        velocity: f32::from(velocity) / 127.0,
-                        tune_cents: 0.0,
-                    }),
-                    LiveEvent::NoteOff { track, pitch } if track == slot => {
-                        voice(pitch).map(|voice| Event::NoteOff {
-                            offset: 0,
-                            voice,
-                            key: pitch,
-                        })
-                    }
-                    LiveEvent::AllNotesOff { track } if track == slot => {
-                        Some(Event::AllNotesOff { offset: 0 })
-                    }
-                    _ => None,
-                };
-                if let Some(event) = event {
-                    self.events.push(event);
-                }
-            }
-            if release {
-                self.events.push(Event::AllNotesOff { offset: 0 });
-            }
-            self.events.finish();
-            let Some(track) = self.engine.state_mut().track_mut(slot) else {
-                continue;
-            };
-            let (tl, tr) = (
-                &mut self.track_left[..frames],
-                &mut self.track_right[..frames],
-            );
-            tl.fill(0.0);
-            tr.fill(0.0);
-            for entry in track.devices.as_mut_slice().iter_mut().flatten() {
-                if !entry.enabled {
-                    continue;
-                }
-                let events = match entry.device.descriptor().role {
-                    DeviceRole::Instrument => self.events.events(),
-                    DeviceRole::Effect => &[],
-                    DeviceRole::MidiEffect => continue,
-                };
-                self.scratch.clear();
-                let mut io = AudioIo {
-                    left: tl,
-                    right: tr,
-                    events_out: &mut self.scratch,
-                };
-                entry.device.process(&ctx, events, &mut io);
-            }
-            if !track.mute {
-                for (out, s) in left.iter_mut().zip(tl.iter()) {
-                    *out += s * track.gain;
-                }
-                for (out, s) in right.iter_mut().zip(tr.iter()) {
-                    *out += s * track.gain;
-                }
-            }
-        }
-        let master = self.engine.state().master;
-        let gain = if master.mute { 0.0 } else { master.gain };
-        for s in left.iter_mut().chain(right.iter_mut()) {
-            *s *= gain;
-        }
+        self.engine
+            .process(&mut self.left[..frames], &mut self.right[..frames]);
         frames
     }
 
@@ -244,7 +137,7 @@ pub enum Step {
 /// A held note on track 0, then, between rendered blocks, a growth of every runtime table
 /// (tracks 16 → 64, the device row of track 0 4 → 16, its scene row 8 → 32, the clip
 /// directory with a 300 000-note upload in three chunks, the lane directory, the source
-/// table), then the release. The tone must sound without a gap from its first block to its
+/// table), then the graph's mixes, a MIDI effect, removals and a solo, then the release. The tone must sound without a gap from its first block to its
 /// release. The same steps run natively and in the web module (parity).
 pub fn scenario() -> Result<Vec<Step>, MsgError> {
     use crate::device::testing::{GAIN, TONE, gain, tone};
@@ -389,12 +282,73 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
     submit(&msgs, &mut steps)?;
     steps.push(Step::Render(8));
 
+    // The graph (MO-3): a MIDI effect before track 3's tone, mixes (pan, gain, mute),
+    // tracks 40 to 47 removed while they play and slot 40 created again, then a cumulative
+    // solo that keeps track 0 playing.
+    use crate::device::testing::{TRANSPOSE, transpose};
+    let mut msgs = vec![
+        M::DeviceInsert {
+            track: track(3),
+            device: DeviceSlot(1),
+            kind: TONE.kind_id,
+            state: encode_state(&[(tone::GAIN, 0.3)]),
+        },
+        M::DeviceInsert {
+            track: track(3),
+            device: DeviceSlot(0),
+            kind: TRANSPOSE.kind_id,
+            state: encode_state(&[(transpose::SEMITONES, 12.0)]),
+        },
+        M::NoteOn {
+            track: track(3),
+            pitch: 64,
+            velocity: 90,
+        },
+        M::TrackSetMix {
+            track: track(0),
+            gain: 0.9,
+            pan: -0.5,
+            mute: false,
+        },
+        M::TrackSetMix {
+            track: track(2),
+            gain: 1.0,
+            pan: 0.0,
+            mute: true,
+        },
+    ];
+    for slot in 40..48u32 {
+        msgs.push(M::TrackRemove { track: track(slot) });
+    }
+    msgs.push(M::TrackCreate {
+        track: track(40),
+        kind: TrackKind::Midi,
+    });
+    msgs.push(tone_insert(40, 0.1));
+    msgs.push(M::NoteOn {
+        track: track(40),
+        pitch: 76,
+        velocity: 80,
+    });
+    submit(&msgs, &mut steps)?;
+    steps.push(Step::Render(6));
+    let mut msgs = Vec::new();
+    for slot in [0, 3] {
+        msgs.push(M::TrackSetSolo {
+            track: track(slot),
+            solo: true,
+        });
+    }
+    submit(&msgs, &mut steps)?;
+    steps.push(Step::Render(6));
+
     // The release: every note off, then silence.
     let mut msgs = Vec::new();
     msgs.push(M::NoteOff {
         track: track(0),
         pitch: 57,
     });
+    msgs.push(M::AllNotesOff { track: track(3) });
     for slot in (2..48u32).step_by(2) {
         msgs.push(M::AllNotesOff { track: track(slot) });
     }

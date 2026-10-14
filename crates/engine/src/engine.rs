@@ -13,8 +13,13 @@
 //!
 //! [`channel`] builds both sides, their rings and the initial [`State`]. The transport of
 //! each target (the helper's thread, the web Worker on shared memory) is MO-2's; rendering
-//! the tracks is MO-3's; routing events with their offsets MO-4's; the transport clock
-//! TR-1's; launching LA's. [`State`] holds what they will read, nothing more.
+//! the tracks is the graph's ([`crate::graph`], MO-3: [`Engine::render`]); routing events
+//! with their offsets MO-4's; the transport clock TR-1's; launching LA's. [`State`] holds
+//! what they will read, nothing more.
+//!
+//! A track that leaves its slot (removed, replaced, or dropped by a `Reset`) is not garbage
+//! at `apply`: it fades out in the graph, then comes back through the retire ring, which
+//! [`Preparer::collect`] drains with the garbage ring.
 //!
 //! # The shadow
 //!
@@ -31,7 +36,8 @@ use std::sync::Arc;
 
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
-use crate::device::{Device, DeviceSetup, Factory};
+use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
+use crate::graph::{Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Garbage,
     HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note, PAGE_SLOTS,
@@ -67,6 +73,9 @@ pub fn builtin_factory(_kind: DeviceKind) -> Option<Factory> {
 pub struct DeviceEntry {
     pub device: Box<dyn Device>,
     pub enabled: bool,
+    /// A MIDI effect's output, sized by `prepare` from its declared bounds
+    /// ([`crate::graph::TRACK_INPUT_EVENTS`]); `None` for the other roles.
+    pub events_out: Option<EventBuffer>,
 }
 
 impl core::fmt::Debug for DeviceEntry {
@@ -101,6 +110,8 @@ pub struct Track {
     pub placements: Table<Placement>,
     /// The last launch asked for this track, not yet executed.
     pub launch: Option<LaunchRequest>,
+    /// The graph's levels of the track, and its link while it retires.
+    pub graph: TrackGraph,
 }
 
 /// What a clip plays.
@@ -390,6 +401,7 @@ pub fn channel_with(
     let (rt_tx, rt_rx) = RingBuffer::new(rt_capacity);
     let (gc_tx, gc_rx) = RingBuffer::new(rt_capacity + 1);
     let (live_tx, live_rx) = RingBuffer::new(limits::LIVE_QUEUE_CAPACITY);
+    let (retired_tx, retired_rx) = RingBuffer::new(RETIRE_RING_CAPACITY);
     let overflow = Arc::new(LiveOverflow::new());
     let mut pending = VecDeque::new();
     pending
@@ -403,6 +415,7 @@ pub fn channel_with(
         factories,
         rt: rt_tx,
         garbage: gc_rx,
+        retired: retired_rx,
         live: live_tx,
         overflow: Arc::clone(&overflow),
         pending,
@@ -417,6 +430,7 @@ pub fn channel_with(
     };
     let engine = Engine {
         state: try_box(State::try_new()?)?,
+        graph: Graph::try_new(&setup, retired_tx)?,
         rt: rt_rx,
         garbage: gc_tx,
         live: live_rx,
@@ -566,6 +580,7 @@ pub struct Preparer {
     factories: Resolver,
     rt: Producer<RtMsg>,
     garbage: Consumer<Garbage>,
+    retired: Consumer<Box<Track>>,
     live: Producer<LiveEvent>,
     overflow: Arc<LiveOverflow>,
     pending: VecDeque<RtMsg>,
@@ -738,11 +753,16 @@ impl Preparer {
         }
     }
 
-    /// Drops what the audio side sent back; returns how many items.
+    /// Drops what the audio side sent back (the garbage, and the tracks that finished
+    /// fading out); returns how many items.
     pub fn collect(&mut self) -> usize {
         let mut n = 0;
         while let Ok(garbage) = self.garbage.pop() {
             drop(garbage);
+            n += 1;
+        }
+        while let Ok(track) = self.retired.pop() {
+            drop(track);
             n += 1;
         }
         self.collected += n as u64;
@@ -1131,6 +1151,7 @@ impl Preparer {
             scenes: Table::try_filled(initial::SCENES_PER_TRACK)?,
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            graph: TrackGraph::new(),
         })?;
         let shadow = TrackShadow::try_new()?;
         let grown = grow_for(self.shadow.tracks.len(), slot, limits::MAX_TRACKS)?;
@@ -1167,9 +1188,17 @@ impl Preparer {
             built.set_param(id, value);
         }
         built.reset();
+        let descriptor = built.descriptor();
+        let events_out = match (descriptor.role, descriptor.midi_output) {
+            (DeviceRole::MidiEffect, Some(bounds)) => Some(EventBuffer::try_with_capacity(
+                bounds.capacity(TRACK_INPUT_EVENTS),
+            )?),
+            _ => None,
+        };
         let value = try_box(DeviceEntry {
             device: built,
             enabled: true,
+            events_out,
         })?;
         let slot = device.0 as usize;
         let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
@@ -1319,6 +1348,7 @@ fn stage<T>(
 /// messages at the start of each block. Nothing here allocates, frees, locks or panics.
 pub struct Engine {
     state: Box<State>,
+    graph: Graph,
     rt: Consumer<RtMsg>,
     garbage: Producer<Garbage>,
     live: Consumer<LiveEvent>,
@@ -1387,6 +1417,36 @@ impl Engine {
         &mut self.state
     }
 
+    /// The graph that renders the state (MO-3).
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+
+    /// Renders one block of the graph ([`crate::graph`]) into `left` and `right` (their
+    /// common length), with the live events [`Engine::begin_block`] took: the first render
+    /// of at least one frame delivers them, later ones until the next `begin_block` render
+    /// without them (a note is never played twice). No allocation, no free, no lock, no
+    /// panic.
+    pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.graph.render(
+            &mut self.state,
+            self.live_block.as_slice(),
+            self.release_live,
+            left,
+            right,
+        );
+        if left.len().min(right.len()) > 0 {
+            self.live_block.clear();
+            self.release_live = false;
+        }
+    }
+
+    /// A whole block of the audio side: [`Engine::begin_block`], then [`Engine::render`].
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.begin_block();
+        self.render(left, right);
+    }
+
     /// Rt messages applied so far.
     pub fn applied(&self) -> u64 {
         self.applied
@@ -1442,7 +1502,16 @@ impl Engine {
         let state = &mut *self.state;
         let mut skipped = false;
         let garbage = match msg {
-            RtMsg::Reset(next) => Some(Garbage::State(core::mem::replace(&mut self.state, next))),
+            RtMsg::Reset(next) => {
+                let mut old = core::mem::replace(&mut self.state, next);
+                // The old project's tracks fade out (at most `MAX_TRACKS` boxes moved).
+                for entry in old.tracks.as_mut_slice() {
+                    if let Some(track) = entry.take() {
+                        self.graph.retire(track);
+                    }
+                }
+                Some(Garbage::State(old))
+            }
             RtMsg::SetTransport {
                 tempo,
                 signature,
@@ -1472,8 +1541,17 @@ impl Engine {
                 None
             }
             RtMsg::TrackPut(put) => {
-                let (spare, out) = put_slot(&mut state.tracks, put);
+                let slot = put.slot as usize;
+                let (mut spare, out) = put_slot(&mut state.tracks, put);
                 skipped = out;
+                // Inside the table the put happened and the spare item is the track it
+                // replaced, which was playing: it fades out. Beyond, it is the new track,
+                // never heard: garbage.
+                if slot < state.tracks.capacity()
+                    && let Some(old) = spare.item.take()
+                {
+                    self.graph.retire(old);
+                }
                 Some(Garbage::Tracks(spare))
             }
             RtMsg::TrackRemove(track) => match take_slot(&mut state.tracks, track.0) {
@@ -1483,10 +1561,11 @@ impl Engine {
                     if state.selected == Some(track) {
                         state.selected = None;
                     }
-                    Some(Garbage::Tracks(Spare {
-                        table: None,
-                        item: old,
-                    }))
+                    // It fades out, then comes back through the retire ring.
+                    if let Some(old) = old {
+                        self.graph.retire(old);
+                    }
+                    None
                 }
                 Err(()) => {
                     skipped = true;
@@ -1536,8 +1615,12 @@ impl Engine {
             }
             RtMsg::DevicePut { track, put } => match state.track_mut(track) {
                 Some(t) => {
+                    let midi = is_midi_effect(&put.value);
                     let (spare, out) = put_slot(&mut t.devices, put);
                     skipped = out;
+                    if midi || spare.item.as_deref().is_some_and(is_midi_effect) {
+                        t.graph.release_notes();
+                    }
                     Some(Garbage::Devices(spare))
                 }
                 None => {
@@ -1549,10 +1632,15 @@ impl Engine {
                 }
             },
             RtMsg::DeviceRemove { track, device } => {
-                match state
-                    .track_mut(track)
-                    .map(|t| take_slot(&mut t.devices, device.0.into()))
-                {
+                match state.track_mut(track).map(|t| {
+                    let old = take_slot(&mut t.devices, device.0.into());
+                    if let Ok(Some(entry)) = &old
+                        && is_midi_effect(entry)
+                    {
+                        t.graph.release_notes();
+                    }
+                    old
+                }) {
                     Some(Ok(old)) => Some(Garbage::Devices(Spare {
                         table: None,
                         item: old,
@@ -1568,9 +1656,16 @@ impl Engine {
                 device,
                 enabled,
             } => {
+                let mut release = false;
                 match device_mut(state, track, device) {
-                    Some(entry) => entry.enabled = enabled,
+                    Some(entry) => {
+                        release = entry.enabled != enabled && is_midi_effect(entry);
+                        entry.enabled = enabled;
+                    }
                     None => skipped = true,
+                }
+                if release && let Some(t) = state.track_mut(track) {
+                    t.graph.release_notes();
                 }
                 None
             }
@@ -1713,6 +1808,12 @@ impl Engine {
             self.leaked = self.leaked.saturating_add(1);
         }
     }
+}
+
+/// Whether a chain entry is a MIDI effect: changing one switches the instrument's note
+/// stream between two voice-id spaces, so the graph releases the track's notes (MO-3).
+fn is_midi_effect(entry: &DeviceEntry) -> bool {
+    entry.device.descriptor().role == DeviceRole::MidiEffect
 }
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {
