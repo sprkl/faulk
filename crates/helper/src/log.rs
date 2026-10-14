@@ -46,7 +46,8 @@ pub fn path() -> Option<&'static Path> {
     PATH.get().map(PathBuf::as_path)
 }
 
-/// Moves `path` to `helper.old.log` beside it when it is larger than `max` bytes.
+/// Moves `path` to `helper.old.log` beside it when it is larger than `max` bytes,
+/// replacing an older one (`rename` replaces an existing target on every platform).
 pub fn rotate(path: &Path, max: u64) -> std::io::Result<()> {
     match std::fs::metadata(path) {
         Ok(meta) if meta.len() > max => {
@@ -136,6 +137,11 @@ mod tests {
         std::fs::write(&log, b"0123456789A").unwrap();
         rotate(&log, 10).unwrap();
         assert!(!log.exists() && old.exists(), "above the limit: moved");
+
+        std::fs::write(&log, b"second run, above").unwrap();
+        rotate(&log, 10).expect("a second rotation replaces the old file");
+        assert_eq!(std::fs::read(&old).unwrap(), b"second run, above");
+        assert!(!log.exists());
 
         rotate(&log, 10).unwrap(); // missing file: nothing to do
         std::fs::remove_dir_all(&dir).unwrap();
