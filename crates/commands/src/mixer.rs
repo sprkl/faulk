@@ -293,7 +293,8 @@ fn gain_outcome(
     }
 }
 
-/// Refuses to edit a gain that is outside the range (a document edited by hand: the
+/// Refuses to edit a gain that is outside the range (a document edited by hand: the volume
+/// then cannot be changed by a command until the project is fixed, since the
 /// project accepts any finite gain): the edit could not be undone exactly.
 fn check_current(mixer: &Mixer) -> Result<(), CommandError> {
     to_db(from_db(mixer.gain_db))
@@ -301,7 +302,7 @@ fn check_current(mixer: &Mixer) -> Result<(), CommandError> {
         .map_err(|_| CommandError::Invalid {
             field: "gain_db".into(),
             message: format!(
-                "the current gain, {} dB, is outside {MIN_GAIN_DB} to {MAX_GAIN_DB} dB:                  a command could not undo the edit exactly",
+                "the current gain, {} dB, is outside {MIN_GAIN_DB} to {MAX_GAIN_DB} dB: a command could not undo the edit exactly",
                 mixer.gain_db
             ),
         })
