@@ -27,7 +27,7 @@ The repository is a monorepo; keep this section in sync with the code. `modules/
 | `crates/protocol` | Messages exchanged between the page and the helper, versioned (`PROTOCOL_VERSION`), and the schema bundle (commands, messages, parameter ids and defaults) the web app generates its types from. | Rust + generated TypeScript types (`web/src/lib/generated/`, `pnpm gen:protocol`) |
 | `web/` | One web app for both modes: the public landing page at `/` (prerendered, light theme; its only client JavaScript is the lazily loaded WebGL animation of the sound objects, `src/lib/landing/anim/`) and the DAW at `/app` (client-only, dark theme). | TypeScript, SvelteKit 3 (adapter-static), Svelte 5, Vite, Vitest, pnpm |
 | `modules/` | Faulk's own instruments and effects. | Faust (first), Rust → WASM |
-| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). | Node 24, ESM, no dependency, `node --test` |
+| `scripts/` | Agent guardrails: Judge Dredd's brief and headless run (`agent-review/`), verification records and the hooks of `.claude/settings.json` (`agent-qa/`). The helper's publication to the Vercel Blob store behind `get.faulk.app` (`helper-release/`, used by `release-helper.yml`). | Node 24, ESM, `node --test`; no dependency except `@vercel/blob` in `helper-release/` (pinned, loaded only for a real upload) |
 
 Core rules:
 

@@ -11,7 +11,8 @@ concurrency:
 
 jobs:
   agent-scripts:
-    # The agent guardrails (hooks, Judge Dredd brief, verification records).
+    # The agent guardrails (hooks, Judge Dredd brief, verification records) and the helper's
+    # Blob publication (its logic needs no dependency; @vercel/blob is loaded for real uploads only).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

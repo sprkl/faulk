@@ -7,6 +7,14 @@ export type ProbeResult =
   | { status: 'available' }
   | { status: 'incompatible'; protocol: number }
 
+/**
+ * The message for a helper that speaks another protocol: an older helper needs its update,
+ * a newer helper needs a newer page. Both must match exactly (no range is accepted).
+ */
+export function incompatibleMessage(helperProtocol: number): 'helper.helperOlder' | 'helper.helperNewer' {
+  return helperProtocol < PROTOCOL_VERSION ? 'helper.helperOlder' : 'helper.helperNewer'
+}
+
 export function parseServerMessage(data: unknown): ServerMessage | null {
   if (typeof data !== 'string') return null
   try {

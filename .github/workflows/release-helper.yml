@@ -3,15 +3,22 @@ name: release-helper
 # Builds, packages and publishes the native helper with Velopack.
 # See docs/architecture/04-distribution-helper.md.
 #
-# Ways in, and only the first two publish:
+# The downloads and the update feed are served from the Vercel Blob store behind
+# get.faulk.app (scripts/helper-release/publish.mjs, token: secret HELPER_RELEASES_READ_WRITE_TOKEN).
+# A release of this repository keeps the archive and the changelog.
+#
+# Ways in, and only the first three publish:
 #
 #  - push of a tag `helper-v<version>`: the normal way to release. Builds, creates the release in
-#    this repository, then recreates it in the public sprkl/faulk-release when RELEASES_TOKEN exists;
+#    this repository, then publishes the files to Blob;
 #  - workflow_dispatch with a `version`: the same without typing a tag (the release creates the tag
 #    `helper-v<version>` on the built commit). Stable versions only from `main`, pre-releases from
-#    `main` or `develop`. `draft` keeps both releases as drafts;
-#  - workflow_dispatch without a version, or a pull request that touches this workflow or the
-#    updater: a trial build. Artifacts only (installer, packages, feed), no release.
+#    `main` or `develop`. `draft` keeps the release as a draft and publishes nothing to Blob;
+#  - workflow_dispatch with `mirror` (a tag such as `helper-v0.1.0`): publishes the files of that
+#    existing release of this repository to Blob, without building (versions released before Blob);
+#  - workflow_dispatch without a version, or a pull request that touches this workflow, the
+#    updater or the publication: a trial build. Artifacts only, and a dry run of the Blob
+#    publication on them.
 on:
   push:
     tags: ['helper-v*']
@@ -25,6 +32,9 @@ on:
       - 'crates/helper/src/lib.rs'
       - 'crates/helper/Cargo.toml'
       - 'Cargo.lock'
+      # The publication and the redirects it must match: the trial build dry-runs it.
+      - 'scripts/helper-release/**'
+      - 'web/vercel.json'
   workflow_dispatch:
     inputs:
       version:
@@ -32,18 +42,21 @@ on:
         required: false
         default: ''
       draft:
-        description: 'Keep the releases as drafts'
+        description: 'Keep the release as a draft (nothing is published to Blob)'
         type: boolean
         default: false
+      mirror:
+        description: 'Publish an existing release of this repository to Blob (e.g. helper-v0.1.0), without building'
+        required: false
+        default: ''
 
 concurrency:
-  group: release-helper-${{ github.ref }}-${{ inputs.version }}
+  group: release-helper-${{ github.ref }}-${{ inputs.version }}-${{ inputs.mirror }}
   cancel-in-progress: false
 
 env:
   PACK_ID: FaulkHelper
   VPK_VERSION: '1.2.161' # must match the `velopack` crate pinned in crates/helper/Cargo.toml
-  PUBLIC_REPO: sprkl/faulk-release
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -55,6 +68,8 @@ jobs:
       value: ${{ steps.resolve.outputs.value }}
       pack: ${{ steps.resolve.outputs.pack }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      mirror: ${{ steps.resolve.outputs.mirror }}
     steps:
       # Full history: a tagged commit is checked against main and develop below.
       - uses: actions/checkout@v4
@@ -68,12 +83,31 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           INPUT: ${{ inputs.version }}
+          MIRROR: ${{ inputs.mirror }}
           RUN: ${{ github.run_number }}
         run: |
-          case "$REF" in
-            refs/tags/helper-v*) value="${REF#refs/tags/helper-v}" ;;
-            *) if [ "$EVENT" = workflow_dispatch ]; then value="${INPUT#v}"; else value=""; fi ;;
-          esac
+          mirror=false
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "$MIRROR" ]; then
+            if [ -n "$INPUT" ]; then
+              echo "::error::give either version or mirror, not both"
+              exit 1
+            fi
+            case "$MIRROR" in
+              helper-v*) value="${MIRROR#helper-v}" ;;
+              *) echo "::error::mirror '$MIRROR': expected a tag helper-v<version>"; exit 1 ;;
+            esac
+            # Mirroring builds nothing, but it moves a channel: from the release branches only.
+            if [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/develop ]; then
+              echo "::error::a mirror is dispatched from main or develop only (ref: $REF)"
+              exit 1
+            fi
+            mirror=true
+          else
+            case "$REF" in
+              refs/tags/helper-v*) value="${REF#refs/tags/helper-v}" ;;
+              *) if [ "$EVENT" = workflow_dispatch ]; then value="${INPUT#v}"; else value=""; fi ;;
+            esac
+          fi
           # A malformed version would make a tag and packages no client can compare: refused here.
           # Each suffix part starts and ends with an alphanumeric character.
           part='[0-9A-Za-z]([0-9A-Za-z-]*[0-9A-Za-z])?'
@@ -81,10 +115,10 @@ jobs:
             echo "::error::version '$value': expected X.Y.Z or X.Y.Z-suffix"
             exit 1
           fi
-          case "$value" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          case "$value" in *-*) prerelease=true; channel=beta ;; *) prerelease=false; channel=stable ;; esac
           # A dispatched version is published from the release branches only: a stable version
           # from an unmerged branch would become the stable feed of every installed helper.
-          if [ "$EVENT" = workflow_dispatch ] && [ -n "$value" ]; then
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "$value" ] && [ "$mirror" = false ]; then
             if [ "$prerelease" = false ] && [ "$REF" != refs/heads/main ]; then
               echo "::error::a stable version is dispatched from main only (ref: $REF)"
               exit 1
@@ -113,14 +147,17 @@ jobs:
             echo "value=$value"
             echo "pack=$pack"
             echo "prerelease=$prerelease"
+            echo "channel=$channel"
+            echo "mirror=$mirror"
           } >> "$GITHUB_OUTPUT"
-          echo "version='$value' pack='$pack' prerelease=$prerelease"
+          echo "version='$value' pack='$pack' prerelease=$prerelease channel=$channel mirror=$mirror"
 
   # ---------------------------------------------------------------------------
   # Windows x64: the only published platform for now.
   # ---------------------------------------------------------------------------
   windows:
     needs: version
+    if: needs.version.outputs.mirror != 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     outputs:
@@ -143,6 +180,14 @@ jobs:
       - name: Install vpk
         shell: bash
         run: dotnet tool install -g vpk --version "$VPK_VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install the publication script
+        working-directory: scripts/helper-release
+        run: npm ci
 
       - name: Test
         run: cargo test -p helper
@@ -174,20 +219,23 @@ jobs:
           fi
 
       # Deltas: vpk builds the delta of this version against the newest full package in the
-      # output folder, so it needs the latest STABLE release. Pre-releases get no delta: the
-      # beta channel installs full packages (see `filter_feed` in updater.rs).
-      # Releases only: a trial build (version 0.0.1-trial.N) would otherwise be packed next to
-      # a newer stable package, which is not what a release produces.
-      - name: Previous stable release, for the delta
+      # output folder, so it needs the latest STABLE package, read from the Blob store (its
+      # SHA-256 checked against the stable feed). Pre-releases get no delta: the beta channel
+      # installs full packages (see `filter_feed` in updater.rs). Releases only: a trial build
+      # (version 0.0.1-trial.N) would otherwise be packed next to a newer stable package.
+      - name: Previous stable package, for the delta
         if: needs.version.outputs.value != '' && needs.version.outputs.prerelease != 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.HELPER_RELEASES_READ_WRITE_TOKEN }}
         run: |
-          if ! vpk download github --repoUrl "https://github.com/$PUBLIC_REPO" --channel win --token "$GH_TOKEN" --outputDir releases; then
-            echo "::warning::no previous stable release could be downloaded from $PUBLIC_REPO: this version has no delta package (expected for the first release)"
+          mkdir -p releases
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "::warning::no HELPER_RELEASES_READ_WRITE_TOKEN: no previous package, no delta (the release job will refuse to publish anyway)"
+            exit 0
           fi
-          ls -la releases || true
+          node scripts/helper-release/publish.mjs previous --os win --out releases
+          ls -la releases
 
       - name: Package
         shell: bash
@@ -208,19 +256,29 @@ jobs:
             --outputDir releases
           ls -la releases
 
-      # Only this version's files: the previous full package downloaded for the delta stays in
-      # its own release, where the feed's redirect finds it.
+      # Only this version's files: the previous full package downloaded for the delta is
+      # already in the store (the feed cites it; the publication checks it is there).
+      - name: Files of this version
+        shell: bash
+        run: |
+          mkdir -p out
+          for f in "$PACK_ID-$VERSION-full.nupkg" "$PACK_ID-$VERSION-delta.nupkg" \
+                   "$PACK_ID-win-Setup.exe" "$PACK_ID-win-Portable.zip" \
+                   releases.win.json assets.win.json RELEASES; do
+            if [ -f "releases/$f" ]; then cp "releases/$f" out/; fi
+          done
+          ls -la out
+
+      # The publication on the real vpk output, against an in-memory store: no token, nothing
+      # sent. A release runs the real one in the release job.
+      - name: Dry run of the Blob publication
+        if: needs.version.outputs.value == ''
+        run: node scripts/helper-release/publish.mjs publish --dir out --os win --version ${{ needs.version.outputs.pack }} --dry-run
+
       - uses: actions/upload-artifact@v4
         with:
           name: helper-win-${{ needs.version.outputs.pack }}
-          path: |
-            releases/${{ env.PACK_ID }}-${{ needs.version.outputs.pack }}-full.nupkg
-            releases/${{ env.PACK_ID }}-${{ needs.version.outputs.pack }}-delta.nupkg
-            releases/${{ env.PACK_ID }}-win-Setup.exe
-            releases/${{ env.PACK_ID }}-win-Portable.zip
-            releases/releases.win.json
-            releases/assets.win.json
-            releases/RELEASES
+          path: out/
           if-no-files-found: error
           retention-days: 14
 
@@ -230,6 +288,7 @@ jobs:
   # ---------------------------------------------------------------------------
   unix:
     needs: version
+    if: needs.version.outputs.mirror != 'true'
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -272,14 +331,18 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # The releases: here (private, the team's download point), then the public copy that
+  # The release: here (private, the archive and the changelog), then the Blob store that
   # get.faulk.app redirects to.
   # ---------------------------------------------------------------------------
   release:
     needs: [version, windows]
-    if: needs.version.outputs.value != ''
+    if: needs.version.outputs.value != '' && needs.version.outputs.mirror != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    # One publication per channel at a time: the channel guard reads the feed, then writes.
+    concurrency:
+      group: helper-blob-${{ needs.version.outputs.channel }}
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -287,8 +350,6 @@ jobs:
       TAG: helper-v${{ needs.version.outputs.value }}
       PRERELEASE: ${{ needs.version.outputs.prerelease }}
       DRAFT: ${{ inputs.draft }}
-      # A secret cannot be tested in an `if`: expose whether it exists, not its value.
-      HAS_PUBLIC_TOKEN: ${{ secrets.RELEASES_TOKEN != '' }}
     steps:
       - name: Refuse an unwired helper
         if: needs.windows.outputs.wired != 'true'
@@ -296,60 +357,43 @@ jobs:
           echo "::error::the helper does not start the updater (helper::updater::startup() first in main, and Updater::start): publishing it would ship a helper that never updates. See docs/architecture/04-distribution-helper.md."
           exit 1
 
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: helper-win-${{ needs.version.outputs.value }}
           path: dist
 
-      # Shared by both releases: the flags, and whether this version may become "latest".
       # GitHub makes every new non-prerelease "latest" by default; re-running an older tag
-      # would then move the stable feed backwards. Only a version newer than the current
-      # latest takes it.
-      - name: Release flags
-        id: flags
-        shell: bash
-        run: |
-          cat > flags.sh <<'EOF'
-          # usage: flags <repo>  -> prints the gh release flags, one per line
-          flags() {
-            [ "$PRERELEASE" = true ] && echo "--prerelease"
-            [ "$DRAFT" = true ] && echo "--draft"
-            if [ "$PRERELEASE" = true ]; then echo "--latest=false"; return; fi
-            current=$(gh release view --repo "$1" --json tagName -q .tagName 2>/dev/null || true)
-            current="${current#helper-v}"
-            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ]; then
-              echo "--latest"
-            else
-              echo "::warning::$VERSION is not newer than the latest release $current of $1: it does not become latest" >&2
-              echo "--latest=false"
-            fi
-          }
-          # usage: resync <repo>  -> a re-run on an existing release: replaces its files, then
-          # sets its state as this run would have created it (a draft becomes published when
-          # `draft` is off, pre-release and latest follow the version).
-          resync() {
-            echo "::notice::$TAG already exists in $1: its files are replaced and its state synced"
-            gh release upload "$TAG" dist/* --repo "$1" --clobber
-            latest=$(flags "$1" | grep -- '--latest')
-            if [ "$DRAFT" = true ]; then draft=true; else draft=false; fi
-            gh release edit "$TAG" --repo "$1" --draft="$draft" --prerelease="$PRERELEASE" "$latest"
-          }
-          EOF
-          ls -la dist
-
+      # would then mark it latest. Only a version newer than the current latest takes it.
       - name: Create the release here
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          . ./flags.sh
-          # Idempotent: a re-run (after adding RELEASES_TOKEN, or after a failed public copy)
-          # finds the release and syncs it instead of failing.
+          flags() {
+            [ "$PRERELEASE" = true ] && echo "--prerelease"
+            [ "$DRAFT" = true ] && echo "--draft"
+            if [ "$PRERELEASE" = true ]; then echo "--latest=false"; return; fi
+            current=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+            current="${current#helper-v}"
+            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ]; then
+              echo "--latest"
+            else
+              echo "::warning::$VERSION is not newer than the latest release $current: it does not become latest" >&2
+              echo "--latest=false"
+            fi
+          }
+          # Idempotent: a re-run finds the release, replaces its files and syncs its state.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            resync "$GITHUB_REPOSITORY"
+            echo "::notice::$TAG already exists: its files are replaced and its state synced"
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            latest=$(flags | grep -- '--latest')
+            if [ "$DRAFT" = true ]; then as_draft=true; else as_draft=false; fi
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft="$as_draft" --prerelease="$PRERELEASE" "$latest"
             exit 0
           fi
-          mapfile -t f < <(flags "$GITHUB_REPOSITORY")
+          mapfile -t f < <(flags)
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
@@ -357,57 +401,70 @@ jobs:
             --generate-notes \
             "${f[@]}"
 
-      - name: Public copy skipped (no RELEASES_TOKEN)
-        if: env.HAS_PUBLIC_TOKEN != 'true'
-        run: |
-          echo "::notice title=Public copy skipped::The secret RELEASES_TOKEN does not exist, so $TAG was NOT copied to $PUBLIC_REPO and no installed helper will see it. Create a fine-grained token with Contents: write on $PUBLIC_REPO, store it as the RELEASES_TOKEN secret of this repository, then re-run this job."
+      - name: Draft, nothing published to Blob
+        if: inputs.draft
+        run: echo "::notice title=Draft::$TAG is a draft release; nothing was published to the Blob store, no installed helper sees it."
 
-      # Same files, same tag, same flags. The notes are fixed text: the generated ones list the
-      # titles and authors of the private pull requests. `gh` creates the release as a draft,
-      # uploads, then publishes: a feed is never visible before its packages.
-      - name: Publish the public copy
-        if: env.HAS_PUBLIC_TOKEN == 'true'
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.draft }}
+        with:
+          node-version: 24
+
+      # Packages first, the feed last; an older version than the channel's feed uploads its
+      # packages only. Re-running only this job reuses the built files and completes a partial
+      # publication; a full re-run rebuilds different bytes and is refused (bump the version).
+      - name: Publish to the Blob store
+        if: ${{ !inputs.draft }}
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.HELPER_RELEASES_READ_WRITE_TOKEN }}
         run: |
-          . ./flags.sh
-          # Idempotent, like the private release: a re-run completes a partial upload and
-          # publishes a former draft.
-          if gh release view "$TAG" --repo "$PUBLIC_REPO" >/dev/null 2>&1; then
-            resync "$PUBLIC_REPO"
-            exit 0
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "::error::the secret HELPER_RELEASES_READ_WRITE_TOKEN does not exist: nothing published, no installed helper sees $VERSION"
+            exit 1
           fi
-          mapfile -t f < <(flags "$PUBLIC_REPO")
-          printf 'Faulk Helper %s.\n\nWindows installer: https://get.faulk.app/helper/windows\n' "$VERSION" > notes.md
-          gh release create "$TAG" dist/* \
-            --repo "$PUBLIC_REPO" \
-            --target main \
-            --title "Faulk Helper $VERSION" \
-            --notes-file notes.md \
-            "${f[@]}"
+          (cd scripts/helper-release && npm ci)
+          node scripts/helper-release/publish.mjs publish --dir dist --os win --version "$VERSION"
 
-      # The beta feed: get.faulk.app/helper/beta/releases.win.json redirects to the rolling
-      # pre-release `helper-beta` of the public repository, never "latest". A draft is skipped:
-      # its packages are not downloadable, every beta helper would fail on them.
-      - name: Update the beta feed
-        if: env.HAS_PUBLIC_TOKEN == 'true' && needs.version.outputs.prerelease == 'true'
+  # ---------------------------------------------------------------------------
+  # A release made before Blob (helper-v0.1.0), published to Blob from its files here.
+  # ---------------------------------------------------------------------------
+  mirror:
+    needs: version
+    if: needs.version.outputs.mirror == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: helper-blob-${{ needs.version.outputs.channel }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.value }}
+      TAG: helper-v${{ needs.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Files of the release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$DRAFT" = true ]; then
-            echo "::notice::draft pre-release: the beta feed is not updated"
-            exit 0
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          ls -la dist
+
+      - name: Publish to the Blob store
+        shell: bash
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.HELPER_RELEASES_READ_WRITE_TOKEN }}
+        run: |
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "::error::the secret HELPER_RELEASES_READ_WRITE_TOKEN does not exist"
+            exit 1
           fi
-          if ! gh release view helper-beta --repo "$PUBLIC_REPO" >/dev/null 2>&1; then
-            gh release create helper-beta \
-              --repo "$PUBLIC_REPO" \
-              --target main \
-              --prerelease \
-              --latest=false \
-              --title "Faulk Helper - beta channel feed" \
-              --notes "Update feed of the beta channel. The packages are in the helper-v* releases."
-          fi
-          gh release upload helper-beta dist/releases.win.json dist/assets.win.json dist/RELEASES \
-            --repo "$PUBLIC_REPO" --clobber
+          (cd scripts/helper-release && npm ci)
+          node scripts/helper-release/publish.mjs publish --dir dist --os win --version "$VERSION"

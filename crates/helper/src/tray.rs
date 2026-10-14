@@ -6,7 +6,10 @@
 //! wakes it. Nothing here touches the audio thread.
 
 use crate::server::HelperEvent;
-use crate::tray_text::{Label, Lang, TrayState, label, lang_from_langid, pairing_url};
+use crate::tray_text::{
+    EntryChange, Label, Lang, RestartEntry, TrayState, label, lang_from_langid, pairing_url,
+};
+use crate::updater::{UpdateStatus, Updater};
 use std::sync::mpsc::Receiver;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
@@ -181,17 +184,19 @@ impl Waker {
 }
 
 /// What the tray needs from the helper.
-pub struct TrayConfig {
+pub struct TrayConfig<'a> {
     pub lang: Lang,
     pub app_url: String,
     /// The command line stored for "start with Windows".
     pub run_command: String,
     pub events: Receiver<HelperEvent>,
+    /// The helper's updater, for "Check for updates" and "Restart to update".
+    pub updater: &'a Updater,
 }
 
 /// Shows the tray icon and runs the message loop until the user picks Quit.
 /// Fails without a loop when the icon cannot be created.
-pub fn run(config: TrayConfig) -> Result<(), String> {
+pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
     let lang = config.lang;
     let mut state = TrayState::default();
 
@@ -204,6 +209,12 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
         start_at_login(&config.run_command),
         None,
     );
+    let updater = config.updater;
+    let updates_on = !matches!(updater.status(), UpdateStatus::Disabled { .. });
+    let check = MenuItem::new(label(lang, Label::CheckForUpdates), updates_on, None);
+    // Inserted right after `check` while an update is ready, removed otherwise.
+    let restart = MenuItem::new("", true, None);
+    let mut restart_entry = RestartEntry::default();
     let quit = MenuItem::new(label(lang, Label::Quit), true, None);
     let menu = Menu::new();
     menu.append_items(&[
@@ -213,9 +224,12 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
         &open,
         &login,
         &PredefinedMenuItem::separator(),
+        &check,
+        &PredefinedMenuItem::separator(),
         &quit,
     ])
     .map_err(|e| format!("cannot build the tray menu: {e}"))?;
+    const RESTART_POSITION: usize = 7;
 
     // SAFETY: no arguments, no preconditions.
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
@@ -227,7 +241,7 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
         .with_tooltip(state.tooltip(lang))
-        .with_menu(Box::new(menu))
+        .with_menu(Box::new(menu.clone()))
         .build()
         .map_err(|e| format!("cannot create the tray icon: {e}"))?;
 
@@ -248,8 +262,27 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
         }
         changed
     };
+    // Shows, retitles or removes "Restart to update to {version}" as the updater goes.
+    let follow_updates = |entry: &mut RestartEntry| {
+        let result = match entry.follow_status(lang, &updater.status()) {
+            EntryChange::Keep => Ok(()),
+            EntryChange::Show(text) => {
+                restart.set_text(text);
+                menu.insert(&restart, RESTART_POSITION)
+            }
+            EntryChange::Retext(text) => {
+                restart.set_text(text);
+                Ok(())
+            }
+            EntryChange::Hide => menu.remove(&restart),
+        };
+        if let Err(e) = result {
+            crate::log!("cannot update the tray menu: {e}");
+        }
+    };
     apply_events(&mut state);
     refresh(&state);
+    follow_updates(&mut restart_entry);
     crate::log!("tray icon shown");
     // Windows drops thread messages while a modal loop runs (the open menu, a message
     // box), so a wake-up can be lost. A thread timer makes the loop look at the channel
@@ -275,6 +308,7 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
         if apply_events(&mut state) {
             refresh(&state);
         }
+        follow_updates(&mut restart_entry);
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == quit.id() {
                 crate::log!("quit from the tray");
@@ -288,6 +322,19 @@ pub fn run(config: TrayConfig) -> Result<(), String> {
             } else if event.id == code.id() {
                 if let Err(e) = copy_to_clipboard(&state.code) {
                     crate::log!("{e}");
+                }
+            } else if event.id == check.id() {
+                if updater.check_now() {
+                    crate::log!("update: check asked from the tray");
+                }
+            } else if event.id == restart.id() && restart_entry.is_shown() {
+                crate::log!("update: restart to update asked from the tray");
+                // On success the process exits inside the call: hide the icon first, or
+                // Windows keeps a dead one in the notification area until the mouse passes.
+                let _ = tray.set_visible(false);
+                if let Err(e) = updater.apply_and_restart() {
+                    crate::log!("update: cannot restart to update: {e}");
+                    let _ = tray.set_visible(true);
                 }
             } else if event.id == login.id() {
                 let wanted = login.is_checked();
