@@ -41,7 +41,7 @@ Hors MVP (décision 5 du § 7) : l'**enregistrement audio** (il arrive juste apr
 | `web/src/lib/i18n.ts` : un seul fichier de chaînes ; `App.svelte` : un seul écran. | Points chauds de conflits pour l'interface. |
 | Pas de temps musical, de piste, de clip, d'identifiant stable. | Tout le socle est à construire avant les fonctions visibles. |
 | Mode Boost écrit mais non vérifié. | À vérifier avant d'empiler le multi-pistes dessus. |
-| Pas d'isolation cross-origin : les commandes vont au worklet par `postMessage`. | À activer avant le canal partagé vers le moteur et avant les pistes audio (décision 4). |
+| Isolation cross-origin en place sur tout le site (AU-0, en-têtes dans `web/vercel.json`), mais les commandes vont encore au worklet par `postMessage`. | La mémoire partagée vers le moteur et les pistes audio restent à construire (CT-3, MO-2, AU-3). |
 
 ## 2. Décisions d'architecture du socle
 
