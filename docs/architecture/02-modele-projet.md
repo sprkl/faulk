@@ -40,8 +40,8 @@ Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Dé
 Nouvelle crate `crates/project` : le modèle, la lecture et l'écriture canoniques, la validation, la fusion. Pure (elle reçoit et rend des octets, aucune entrée-sortie directe), compilable en natif et en WASM (côté page, hors worklet, donc `wasm-bindgen` y est possible). `crates/commands` en dépend ; le moteur n'en dépend pas : il reçoit un graphe de rendu dérivé du modèle. Sa création modifie la table « Stack and layout » de `CLAUDE.md` : c'est une décision du fondateur.
 
 ```rust
-pub type Tick = i64;          // 960 per quarter note
-pub type Frame = u64;         // sample index in an audio file
+pub struct Tick(pub i64);     // 960 per quarter note (engine::time, CT-2)
+pub struct Frame(pub u64);    // sample index in an audio file (engine::time, CT-2)
 pub type Id = Ulid;           // 26 chars, Crockford base32, time-sortable
 pub type OrderKey = String;   // fractional index, compared bytewise
 pub type Hash = [u8; 32];     // SHA-256 of a blob
@@ -59,8 +59,8 @@ pub struct Project {
 }
 
 pub struct TransportSettings {
-    pub launch_quantize: Quantize,       // None | 1/16 | Beat | Bars(1 | 2 | 4 | 8); default Bars(1)
-    pub loop_region: Option<LoopRegion>, // [start, end) in ticks
+    pub launch_quantize: Quantize,       // None | Sixteenth | Beat | Bar | Bars2 | Bars4 | Bars8; default Bar (engine::time)
+    pub loop_region: Option<LoopRegion>, // [start, end) in ticks (engine::time)
     pub loop_enabled: bool,
     pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
 }

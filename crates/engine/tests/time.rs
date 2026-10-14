@@ -2,8 +2,13 @@
 //! boundaries, loop regions. Property tests cover the whole input space, so no public
 //! function may panic.
 
+use assert_no_alloc::AllocDisabler;
 use engine::time::{Frame, LoopRegion, PPQ, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use proptest::prelude::*;
+
+// The allocation detector is a global allocator: without it `assert_no_alloc` sees nothing.
+#[global_allocator]
+static ALLOCATOR: AllocDisabler = AllocDisabler;
 
 const RATES: [SampleRate; 3] = [
     SampleRate::HZ_44100,
@@ -234,6 +239,18 @@ fn non_finite_and_huge_inputs_do_not_panic() {
     }
     assert_eq!(t.seconds_to_tick(1e300), Tick(i64::MAX));
     assert_eq!(t.seconds_to_tick(-1e300), Tick(i64::MIN));
+    // A finite input whose product overflows f64 (1e306 * 1920 > f64::MAX) saturates too,
+    // by sign, instead of falling through the non-finite rule.
+    assert_eq!(t.seconds_to_tick(1e306), Tick(i64::MAX));
+    assert_eq!(t.seconds_to_tick(-1e306), Tick(i64::MIN));
+    assert_eq!(
+        t.sample_to_tick(f64::MAX, SampleRate::new(1).unwrap()),
+        Tick(i64::MAX)
+    );
+    assert_eq!(
+        t.sample_to_tick(-f64::MAX, SampleRate::new(1).unwrap()),
+        Tick(i64::MIN)
+    );
     assert_eq!(
         t.tick_to_sample_rounded(Tick(i64::MAX), SampleRate::HZ_96000),
         i64::MAX
@@ -307,7 +324,12 @@ fn inexact_ratios_stay_within_a_few_ulps_and_never_accumulate() {
     for rate in RATES {
         for tick in [Tick(1), Tick(PPQ), Tick(1200 * PPQ), Tick(1 << 40)] {
             let got = tempo.tick_to_sample(tick, rate);
-            let exact = (tick.0 as f64) * 60.0 * f64::from(rate.hz()) / (133.33 * 960.0);
+            // The true value as a rational: tick * 60 * rate * 100 / (13333 * 960), in
+            // exact i128 arithmetic, then one rounding to f64 (the quotient is below
+            // 2^53, so it is exact; the remainder adds less than one unit).
+            let num = i128::from(tick.0) * 60 * i128::from(rate.hz()) * 100;
+            let den: i128 = 13_333 * 960;
+            let exact = (num / den) as f64 + (num % den) as f64 / den as f64;
             let ulp = exact.abs() * f64::EPSILON;
             assert!(
                 (got - exact).abs() <= 4.0 * ulp,
@@ -604,7 +626,11 @@ proptest! {
 fn loop_region_rejects_empty_or_reversed() {
     assert!(LoopRegion::new(Tick(10), Tick(10)).is_none());
     assert!(LoopRegion::new(Tick(10), Tick(9)).is_none());
-    assert!(LoopRegion::new(Tick(i64::MIN), Tick(i64::MAX)).is_some());
+    // Longer than i64::MAX ticks: refused, so that `len` is exact.
+    assert!(LoopRegion::new(Tick(i64::MIN), Tick(i64::MAX)).is_none());
+    assert!(LoopRegion::new(Tick(-1), Tick(i64::MAX)).is_none());
+    assert!(LoopRegion::new(Tick(0), Tick(i64::MAX)).is_some());
+    assert!(LoopRegion::new(Tick(i64::MIN), Tick(-1)).is_some());
     let region = LoopRegion::new(Tick(0), Tick(3840)).unwrap();
     assert_eq!(region.start(), Tick(0));
     assert_eq!(region.end(), Tick(3840));
@@ -630,10 +656,16 @@ fn loop_region_contains_and_wraps() {
     assert_eq!(region.wrap(Tick(0)), Tick(4800 - 960));
     assert_eq!(region.wrap(Tick(-1)), Tick(4800 - 961));
     // Extreme values.
-    let whole = LoopRegion::new(Tick(i64::MIN), Tick(i64::MAX)).unwrap();
+    let whole = LoopRegion::new(Tick(0), Tick(i64::MAX)).unwrap();
     assert_eq!(whole.len(), Tick(i64::MAX));
-    assert_eq!(whole.wrap(Tick(i64::MAX)), Tick(i64::MIN));
+    assert_eq!(whole.start() + whole.len(), whole.end());
+    assert_eq!(whole.wrap(Tick(i64::MAX)), Tick(0));
+    assert_eq!(whole.wrap(Tick(-1)), Tick(i64::MAX - 1));
     assert_eq!(whole.wrap(Tick(7)), Tick(7));
+    let negative = LoopRegion::new(Tick(i64::MIN), Tick(-1)).unwrap();
+    assert_eq!(negative.len(), Tick(i64::MAX));
+    assert_eq!(negative.wrap(Tick(-1)), Tick(i64::MIN));
+    assert_eq!(negative.wrap(Tick(0)), Tick(i64::MIN + 1));
 }
 
 proptest! {
@@ -646,9 +678,11 @@ proptest! {
         tick in any::<i64>(),
     ) {
         let Some(region) = LoopRegion::new(Tick(start), Tick(end)) else {
-            prop_assert!(end <= start);
+            let len = i128::from(end) - i128::from(start);
+            prop_assert!(len <= 0 || len > i128::from(i64::MAX));
             return Ok(());
         };
+        prop_assert_eq!(region.start() + region.len(), region.end());
         let wrapped = region.wrap(Tick(tick));
         prop_assert!(region.contains(wrapped));
         prop_assert_eq!(region.wrap(wrapped), wrapped);

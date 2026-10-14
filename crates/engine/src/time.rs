@@ -32,9 +32,11 @@
 //! - The round trip tick -> fractional sample -> tick is the identity for `|tick| <= 2^40`
 //!   at every tempo and rate in range (the relative error of the two `f64` operations is
 //!   far below half a tick). The round trip sample -> tick -> sample is *not* the identity:
-//!   several samples share one tick (a tick lasts at least 2.76 samples over the whole
-//!   tempo and rate range), which is why the engine never stores an event by its integer
-//!   sample.
+//!   at the rates the engine runs at (44.1 kHz and above) several samples share one tick
+//!   (a tick lasts at least 2.76 samples at 999 BPM and 44.1 kHz), which is why the engine
+//!   never stores an event by its integer sample. [`SampleRate`] accepts any positive rate
+//!   so that a file at an unusual rate can still be converted; below 2 kHz a tick is
+//!   shorter than a sample and several ticks share one sample instead.
 //! - A quantization boundary is `None` when the next grid point lies beyond `i64::MAX`:
 //!   the grid never saturates to a tick that is off the grid.
 //! - An audio clip has no length in ticks on disk; its end tick is computed from its frame
@@ -290,7 +292,8 @@ impl Tempo {
         60.0 * f64::from(rate.hz()) / (self.0 * PPQ as f64)
     }
 
-    /// The time of a tick, in seconds from tick 0 (exact `f64` arithmetic, no rounding).
+    /// The time of a tick, in seconds from tick 0 (`f64`, within a few ulps of the exact
+    /// value; see the module documentation).
     pub fn tick_to_seconds(self, tick: Tick) -> f64 {
         (tick.0 as f64 * 60.0) / (self.0 * PPQ as f64)
     }
@@ -298,7 +301,7 @@ impl Tempo {
     /// The nearest tick to a time in seconds (ties away from zero). Non-finite gives
     /// [`Tick::ZERO`]; out of range saturates.
     pub fn seconds_to_tick(self, seconds: f64) -> Tick {
-        round_to_tick(seconds * self.0 * PPQ as f64 / 60.0)
+        round_to_tick(seconds, self.0 * PPQ as f64 / 60.0)
     }
 
     /// The fractional sample position of a tick at `rate`, from tick 0.
@@ -316,7 +319,7 @@ impl Tempo {
     /// The nearest tick to a sample position at `rate` (ties away from zero). Non-finite
     /// gives [`Tick::ZERO`]; out of range saturates.
     pub fn sample_to_tick(self, sample: f64, rate: SampleRate) -> Tick {
-        round_to_tick(sample * self.0 * PPQ as f64 / (60.0 * f64::from(rate.hz())))
+        round_to_tick(sample, self.0 * PPQ as f64 / (60.0 * f64::from(rate.hz())))
     }
 
     /// The duration in ticks of `frames` sample frames of an audio file at `rate`, rounded
@@ -354,13 +357,20 @@ impl From<Tempo> for f64 {
     }
 }
 
-/// Nearest tick to a fractional tick count (ties away from zero); non-finite gives zero,
-/// out of range saturates (`as` saturates).
-fn round_to_tick(ticks: f64) -> Tick {
+/// Nearest tick to `input * scale` (ties away from zero). A non-finite input gives zero;
+/// a finite input whose product overflows `f64` or `i64` saturates by sign (`as`
+/// saturates, and an infinite product of a finite input is sent to the matching end).
+fn round_to_tick(input: f64, scale: f64) -> Tick {
+    if !input.is_finite() {
+        return Tick::ZERO;
+    }
+    let ticks = input * scale;
     if ticks.is_finite() {
         Tick(ticks.round() as i64)
+    } else if ticks > 0.0 {
+        Tick(i64::MAX)
     } else {
-        Tick::ZERO
+        Tick(i64::MIN)
     }
 }
 
@@ -558,7 +568,8 @@ impl Quantize {
 // LoopRegion
 // ---------------------------------------------------------------------------------------
 
-/// The transport's loop: a half-open region `[start, end)` in ticks, never empty.
+/// The transport's loop: a half-open region `[start, end)` in ticks, never empty, and
+/// never longer than `i64::MAX` ticks so that its length is itself a [`Tick`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",
@@ -571,12 +582,11 @@ pub struct LoopRegion {
 }
 
 impl LoopRegion {
-    /// A loop region; `None` when `end <= start`.
+    /// A loop region; `None` when `end <= start` or when `end - start` exceeds `i64::MAX`.
     pub const fn new(start: Tick, end: Tick) -> Option<Self> {
-        if end.0 > start.0 {
-            Some(LoopRegion { start, end })
-        } else {
-            None
+        match end.0.checked_sub(start.0) {
+            Some(len) if len > 0 => Some(LoopRegion { start, end }),
+            _ => None,
         }
     }
 
@@ -590,10 +600,9 @@ impl LoopRegion {
         self.end
     }
 
-    /// The length of the loop, in ticks (always positive).
-    pub fn len(self) -> Tick {
-        // Exact: `end > start`, and the difference of two i64 fits an i128.
-        Tick((i128::from(self.end.0) - i128::from(self.start.0)).min(i128::from(i64::MAX)) as i64)
+    /// The length of the loop, in ticks (always positive, exact: `start + len() == end`).
+    pub const fn len(self) -> Tick {
+        Tick(self.end.0 - self.start.0)
     }
 
     /// Whether `tick` is inside `[start, end)`.
@@ -654,7 +663,7 @@ pub enum TimeError {
     Tempo,
     /// A numerator outside `1..=32`, or a denominator that is not a power of two in `1..=32`.
     TimeSignature,
-    /// A loop region whose end is not after its start.
+    /// A loop region whose end is not after its start, or longer than `i64::MAX` ticks.
     LoopRegion,
 }
 
@@ -666,7 +675,9 @@ impl core::fmt::Display for TimeError {
             TimeError::TimeSignature => {
                 "time signature needs a numerator in 1..=32 and a power-of-two denominator in 1..=32"
             }
-            TimeError::LoopRegion => "loop region end must be after its start",
+            TimeError::LoopRegion => {
+                "loop region end must be after its start, at most i64::MAX ticks later"
+            }
         })
     }
 }
