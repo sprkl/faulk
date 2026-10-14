@@ -11,6 +11,8 @@ use commands::{
     device, history, live, midi, mixer, project, view,
 };
 
+mod clip_examples;
+
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 fn track() -> TrackId {
@@ -96,6 +98,9 @@ fn examples() -> Vec<(Command, State)> {
         })),
         on(Command::View(view::Command::SelectTrack { track: None })),
     ]
+    .into_iter()
+    .chain(clip_examples::examples())
+    .collect()
 }
 
 #[test]

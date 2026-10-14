@@ -14,6 +14,9 @@ const cargo = process.env.CARGO ?? 'cargo'
 const json = execFileSync(cargo, ['run', '-q', '-p', 'protocol', '--bin', 'export-schema'], {
   cwd: root,
   encoding: 'utf8',
+  // The bundle repeats the shared definitions in every tool of the catalog: it passed the
+  // 1 MB default of execFileSync with the clip commands.
+  maxBuffer: 256 * 1024 * 1024,
 })
 const bundle = JSON.parse(json)
 writeFileSync(out + 'schema.json', JSON.stringify(bundle, null, 2) + '\n')

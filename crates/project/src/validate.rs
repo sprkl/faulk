@@ -52,7 +52,8 @@ pub enum ViolationKind {
     BadKey,
     /// A note outside `[0, clip length]`.
     NoteOutsideClip,
-    /// A note with a pitch above 127, a velocity outside `1..=127` or a length ≤ 0.
+    /// A note with a pitch above 127, a velocity outside `1..=127`, a length ≤ 0, cents
+    /// outside `-50..=50`, a chance above 100 or a repeat outside `1..=16`.
     BadNote,
     /// A length that is zero, negative or above the safety limit.
     BadLength,
@@ -394,7 +395,7 @@ fn validate_content(c: &mut Checker<'_>, content: &ClipContent, path: &str, note
             c.count(clip_notes.len(), c.limits.notes_per_clip, path);
             *notes = notes.saturating_add(clip_notes.len());
             for n in clip_notes {
-                let ok = n.pitch <= 127 && (1..=127).contains(&n.velocity) && n.length.get() > 0;
+                let ok = n.fields_in_range() && n.length.get() > 0;
                 c.check(ok, path, ViolationKind::BadNote);
                 let inside = n.start.get() >= 0
                     && n.start

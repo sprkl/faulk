@@ -160,10 +160,11 @@ fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) -> Pro
                         .notes
                         .iter()
                         .map(|&(s, p, l, v)| Note {
-                            start: Tick(s),
-                            pitch: p,
-                            length: Tick(l),
-                            velocity: v,
+                            // The optional fields take every value of their range.
+                            cents: (i16::from(p) % 101 - 50) as i8,
+                            chance: v % 101,
+                            repeat: 1 + p % 16,
+                            ..Note::new(Tick(s), p, Tick(l), v)
                         })
                         .collect::<BTreeSet<_>>(),
                 }
