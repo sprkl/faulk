@@ -69,8 +69,11 @@ fn param(param: Param, value: f32) -> M {
     }
 }
 
+/// The host's routing (live notes at offset 0, parameter sets, the track's fade-in, the
+/// master): the registered synth in the host renders as a lone synth driven by its own calls.
+/// The synth itself is checked against the pre-DV-1 synth in `tests/osc_synth.rs`.
 #[test]
-fn the_adapter_renders_the_synth_sample_for_sample() {
+fn the_host_renders_the_registered_synth_as_its_own_calls_do() {
     let mut session = Session::new();
     // The new track fades in over 5 ms (MO-3's graph): let it reach unity first.
     for _ in 0..4 {
