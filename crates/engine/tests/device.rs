@@ -124,18 +124,14 @@ fn frequency(signal: &[f32]) -> f32 {
 
 #[test]
 fn every_descriptor_is_valid() {
-    for d in builtin_descriptors()
-        .iter()
-        .copied()
-        .chain([&TONE, &GAIN, &TRANSPOSE])
-    {
+    for d in builtin_descriptors().chain([&TONE, &GAIN, &TRANSPOSE]) {
         assert_eq!(d.validate(), Ok(()), "{}", d.kind);
     }
 }
 
 #[test]
 fn builtin_kinds_and_numbers_are_unique() {
-    let all = builtin_descriptors();
+    let all: Vec<_> = builtin_descriptors().collect();
     for (i, a) in all.iter().enumerate() {
         for b in &all[..i] {
             assert_ne!(a.kind, b.kind);

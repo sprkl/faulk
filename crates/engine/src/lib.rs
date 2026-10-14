@@ -4,10 +4,10 @@
 //! The same code runs natively in the helper and as WebAssembly in an `AudioWorklet`.
 
 pub mod device;
-mod synth;
+pub mod devices;
 pub mod time;
 
-pub use synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, Waveform};
+pub use devices::osc_synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, Waveform};
 pub mod engine;
 pub mod graph;
 pub mod msg;

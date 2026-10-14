@@ -54482,7 +54482,7 @@
     {
       "kind": "faulk.osc_synth",
       "kind_id": 1,
-      "memory_bytes": 816,
+      "memory_bytes": 968,
       "midi_output": null,
       "name": "Oscillator",
       "params": [
@@ -54819,6 +54819,7 @@
   },
   "single_synth": {
     "device": "00000000000000000000000002",
+    "kind": "faulk.osc_synth",
     "track": "00000000000000000000000001"
   }
 }

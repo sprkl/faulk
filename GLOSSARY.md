@@ -14,9 +14,9 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Piste audio** : une piste dont les clips sont des fichiers audio, lus par le lecteur de clips ; import et lecture seulement dans le MVP, sans enregistrement audio. Code : `TrackKind::Audio`.
 
-**Device** : un maillon de la chaîne d'une piste : un effet MIDI, un instrument ou un effet audio, dans cet ordre. Un module de l'Atelier ou un plugin tiers est un device ; une entrée MIDI physique n'en est pas un (c'est un réglage de la session). Un device a un rôle, un état activé ou non, des paramètres et une place dans la chaîne. Son nom est unique et jamais traduit. Code : `Device`, `DeviceRole`, `DeviceSource` ; côté moteur, le trait `Device`, `engine::device::DeviceRole` et le descripteur par type `DeviceDescriptor` (`kind`, par exemple `"faulk.osc_synth"`), dans `crates/engine/src/device.rs` (contrat CT-5). Le projet ne connaît pas encore le rôle d'effet MIDI.
+**Device** : un maillon de la chaîne d'une piste : un effet MIDI, un instrument ou un effet audio, dans cet ordre. Un module de l'Atelier ou un plugin tiers est un device ; une entrée MIDI physique n'en est pas un (c'est un réglage de la session). Un device a un rôle, un état activé ou non, des paramètres et une place dans la chaîne. Son nom est unique et jamais traduit. Code : `Device`, `DeviceRole`, `DeviceSource` ; côté moteur, le trait `Device`, `engine::device::DeviceRole` et le descripteur par type `DeviceDescriptor` (`kind`, par exemple `"faulk.osc_synth"`), dans `crates/engine/src/device.rs` (contrat CT-5) ; les devices intégrés et leur registre (une ligne par device, `REGISTRY`, résolu par `engine::builtin_factory`) sont dans `crates/engine/src/devices/`, un fichier par device (DV-1). Le projet ne connaît pas encore le rôle d'effet MIDI.
 
-**Instrument** : le device qui produit le son d'une piste à partir de notes. Code : `DeviceRole::Instrument` ; le synthétiseur actuel est `Synth` (`crates/engine/src/synth.rs`).
+**Instrument** : le device qui produit le son d'une piste à partir de notes. Code : `DeviceRole::Instrument` ; le synthétiseur actuel est le device `faulk.osc_synth`, affiché « Oscillator » : `Synth` (`crates/engine/src/devices/osc_synth.rs`, DV-1).
 
 **Effet** : un device qui transforme un signal (effet audio), après l'instrument. Code : `DeviceRole::Effect`.
 
@@ -42,7 +42,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Clip** : un contenu musical, MIDI (notes, longueur et boucle en ticks) ou audio (plage d'un fichier en frames). Le clip est le contenu ; l'emplacement le met dans la grille, le placement le pose dans l'arrangement. Copier un clip crée un clip indépendant, sauf option « lié ». Code : `Clip`, `ClipContent::{Midi, Audio}`, `AudioMedia`.
 
-**Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité, et trois champs optionnels : accord fin en cents (-50 à 50), chance (0 à 100 %) et répétitions (1 à 16), absents du fichier quand ils valent leur défaut. Une note hors de la longueur de son clip est refusée par les commandes, jamais tronquée en silence (seul `clip.set_length` avec `trim` coupe). Code : `Note { start, pitch, length, velocity, cents, chance, repeat }` ; le moteur actuel joue des notes par `Synth::note_on` et `Synth::note_off`.
+**Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité, et trois champs optionnels : accord fin en cents (-50 à 50), chance (0 à 100 %) et répétitions (1 à 16), absents du fichier quand ils valent leur défaut. Une note hors de la longueur de son clip est refusée par les commandes, jamais tronquée en silence (seul `clip.set_length` avec `trim` coupe). Code : `Note { start, pitch, length, velocity, cents, chance, repeat }` ; le moteur joue des notes par les événements `NoteOn` et `NoteOff` du contrat de device (`engine::device::Event`).
 
 **Arrangement** : la ligne de temps d'un morceau, propre à chaque piste : l'ensemble de ses placements. Code : `Track::placements` ; `arrangement.tsv` **(prévu)**.
 

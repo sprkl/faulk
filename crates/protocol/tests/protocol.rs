@@ -117,6 +117,22 @@ fn the_single_synth_ids_are_valid_and_distinct() {
 }
 
 #[test]
+fn the_single_synth_kind_names_an_exported_descriptor() {
+    let bundle = schema_bundle();
+    let kind = &bundle["single_synth"]["kind"];
+    assert_eq!(kind, "faulk.osc_synth");
+    let devices = bundle["devices"].as_array().unwrap();
+    assert_eq!(devices.iter().filter(|d| &d["kind"] == kind).count(), 1);
+    // One exported descriptor per device of the registry, in its order.
+    let kinds: Vec<_> = devices.iter().map(|d| d["kind"].clone()).collect();
+    let registry: Vec<_> = engine::devices::REGISTRY
+        .iter()
+        .map(|b| serde_json::Value::from(b.descriptor.kind))
+        .collect();
+    assert_eq!(kinds, registry);
+}
+
+#[test]
 fn a_command_cannot_be_smuggled_into_pairing() {
     let json = r#"{"type":"pair","code":"1","command":{"type":"live.all_notes_off"}}"#;
     assert!(serde_json::from_str::<ClientMessage>(json).is_err());
