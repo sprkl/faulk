@@ -163,6 +163,20 @@ impl fmt::Display for Rgb {
     }
 }
 
+impl schemars::JsonSchema for Rgb {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Rgb".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "description": "A colour, written #rrggbb."
+        })
+    }
+}
+
 impl Serialize for Rgb {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(self)

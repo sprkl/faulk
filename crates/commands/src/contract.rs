@@ -12,7 +12,7 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
-use project::{DeviceId, IdGenerator, Project, SessionState, TrackId};
+use project::{ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TrackId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -197,9 +197,36 @@ pub enum ProjectEvent {
     },
     /// The chosen MIDI input changed; `null` when none is chosen.
     MidiInputSelected { id: Option<String> },
+    /// A clip was created or brought back, with the placements it came with. The page
+    /// reads the clip from its own copy of the project, to which the same command applies.
+    ClipCreated {
+        track: TrackId,
+        clip: ClipId,
+        placements: Vec<PlacementId>,
+    },
+    /// A clip was deleted, with its placements.
+    ClipDeleted {
+        track: TrackId,
+        clip: ClipId,
+        placements: Vec<PlacementId>,
+    },
+    /// Part of a clip changed.
+    ClipChanged { clip: ClipId, part: ClipPart },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+}
+
+/// Which part of a clip a [`ProjectEvent::ClipChanged`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipPart {
+    Name,
+    Length,
+    Loop,
+    Notes,
+    /// Length, loop and notes at once.
+    Content,
 }
 
 /// What the project sends to the engine after a command (spec § 2.3). CT-3 (#39)
