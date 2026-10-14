@@ -15,8 +15,11 @@ pnpm dev          # compile le moteur en WebAssembly puis ouvre http://localhost
 Pour le mode Boost (helper natif, latence basse, MIDI natif) :
 
 ```bash
-cargo run --release -p helper   # affiche un code d'appairage à saisir dans la page
+cargo run -p helper             # debug : console, le code d'appairage s'y affiche
+cargo run --release -p helper   # release : sans console, icône dans la zone de notification
 ```
+
+Sous Windows, le helper vit dans la zone de notification : son état, le code d'appairage (un clic le copie), « Ouvrir Faulk » qui ouvre la page et l'appaire sans saisie, le lancement au démarrage de Windows et « Quitter ». Le journal est dans `%APPDATA%\faulk\logs\helper.log`. Sous macOS et Linux, il n'y a pas encore d'icône : le helper tourne dans son terminal et y affiche le code. Une seule instance par port : relancer le helper ouvre simplement Faulk. L'option `--app-url` change la page ouverte (par défaut `http://localhost:5173/`).
 
 ## Travailler sur le projet
 
