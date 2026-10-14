@@ -3,6 +3,12 @@
 //! The UI, the MCP tools and the ACP agents all act through [`Command`]: the UI has
 //! no private path to the engine. Each variant's doc comment is its description for
 //! agents, exported in the JSON Schema (see the `export-schema` binary).
+//!
+//! This root is the v1 contract, applied straight to the synth; the helper, the
+//! worklet and the web app still use it. The v2 contract (CT-4), applied to the
+//! project, lives in [`v2`]; PR-2 promotes it here and migrates these commands.
+
+pub mod v2;
 
 use engine::{Param, Synth};
 use schemars::JsonSchema;
