@@ -9,7 +9,8 @@
   import Library from './Library.svelte'
   import Modes from './Modes.svelte'
   import Nav from './Nav.svelte'
-  import { detectScript, inlineScript, rememberScript } from './scripts'
+  import { animBootScript, detectScript, inlineScript, rememberScript } from './scripts'
+  import { url as animUrl } from 'virtual:landing-anim'
   import './landing.css'
 
   /** `detect`: this is `/`, which moves French readers to `/fr`. */
@@ -21,7 +22,9 @@
     fr: resolve('/[lang=lang]', { lang: 'fr' }),
   }
   const scripts = $derived(
-    (detect ? inlineScript(detectScript(hrefs.fr)) : '') + inlineScript(rememberScript()),
+    (detect ? inlineScript(detectScript(hrefs.fr)) : '') +
+      inlineScript(rememberScript()) +
+      inlineScript(animBootScript(animUrl), 'module'),
   )
 </script>
 
@@ -32,7 +35,8 @@
   <link rel="alternate" hreflang="en" href={hrefs.en} />
   <link rel="alternate" hreflang="fr" href={hrefs.fr} />
   <link rel="alternate" hreflang="x-default" href={resolve('/')} />
-  <!-- Generated from tested code (scripts.ts); the page has no other JavaScript. -->
+  <!-- Generated from tested code (scripts.ts); the page has no other JavaScript besides the
+       animation module the last script loads lazily. -->
   <!-- eslint-disable-next-line svelte/no-at-html-tags -->
   {@html scripts}
 </svelte:head>

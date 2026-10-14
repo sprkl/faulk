@@ -20,7 +20,7 @@
       <figcaption class="lp-mono tag">{t('atelier.example')}</figcaption>
       <blockquote>{t('atelier.prompt')}</blockquote>
       <div class="module">
-        <div class="object lp-grain" aria-hidden="true"></div>
+        <div class="object lp-grain" aria-hidden="true" data-fk-anim="kick" data-fk-anim-bg="transparent"></div>
         <div class="specs">
           <span class="lp-display name">{t('atelier.module')}</span>
           <dl>
@@ -99,6 +99,21 @@
     flex-shrink: 0;
     border-radius: 50%;
     background: radial-gradient(circle at 42% 40%, #ffb27a 0%, #ff6a3d 30%, #c2185b 62%, #2a0e5c 100%);
+  }
+  /* Live (WebGL) object: its canvas overflows the circle for the shock rings; the CSS disc goes quiet. */
+  .object:global(.is-live) {
+    overflow: visible;
+    background: none;
+    animation: none;
+  }
+  .object:global(.is-live)::before,
+  .object:global(.is-live)::after {
+    display: none;
+  }
+  .object:global(.is-live) :global(.fk-anim-canvas) {
+    inset: -28px;
+    width: calc(100% + 56px);
+    height: calc(100% + 56px);
   }
   /* The example kick thumps like the DRY KICK card: a quick swell every 1.2 s. */
   @keyframes thump {

@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-14
+* **Update** (#5): the landing page's sound objects are animated in WebGL2 (OGL), loaded lazily as a progressive enhancement. `agents/verification.md` adds the animation checks (still frame under reduced motion, pause off screen, frame times, seek harness). `CLAUDE.md` follows.
+
 ## 2026-10-13
 * **Update** (#5): `web/` moves to SvelteKit with the public landing page at `/` (`/en`, `/fr`) and the DAW at `/app` (founder's decision of 2026-10-13: one app, no separate site). `architecture/01-architecture.md` lists SvelteKit in the `web/` stack; `agents/verification.md` adds the landing page checks to the Web UI section.
 * **Update**: `agents/issue-tracker.md`: the lead merges a ready pull request into `develop` itself (founder's decision of 2026-10-13); one waiting on a founder decision or on user-facing text to validate waits for the founder. `CLAUDE.md` follows.

@@ -25,7 +25,12 @@
     {#each CARDS as card (card.art)}
       <li class="card lp-reveal">
         <!-- Each sound object moves like its sound: thump, drift, stepped flicker, echoes. -->
-        <div class="stage {card.art}" class:lp-grain={card.art === 'kick' || card.art === 'haze'} aria-hidden="true">
+        <div
+          class="stage {card.art}"
+          class:lp-grain={card.art === 'kick' || card.art === 'haze'}
+          aria-hidden="true"
+          data-fk-anim={card.art}
+        >
           <div class="object" class:lp-grain={card.art === 'crush' || card.art === 'echo'}></div>
           {#if card.art === 'haze'}
             <div class="object second"></div>
@@ -220,6 +225,12 @@
     50% {
       transform: scale(0.94);
     }
+  }
+  /* Live (WebGL) object: the canvas paints the stage, the CSS object underneath goes quiet. */
+  .stage:global(.is-live) .object,
+  .stage:global(.is-live) .ring {
+    animation: none;
+    visibility: hidden;
   }
   @media (prefers-reduced-motion: no-preference) {
     .kick .object {

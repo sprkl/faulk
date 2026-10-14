@@ -32,7 +32,7 @@
       <a class="lp-pill lp-pill-outline" href="#boost">{t('hero.secondary')}</a>
     </div>
   </div>
-  <div class="stage lp-grain lp-grain-live lp-enter" style="--lp-delay: 420ms">
+  <div class="stage lp-grain lp-grain-live lp-enter" style="--lp-delay: 420ms" data-fk-anim="hero">
     <div class="glow" aria-hidden="true"></div>
     <figure class="screen">
       <svg viewBox="0 0 800 180" preserveAspectRatio="none" aria-hidden="true">
@@ -136,6 +136,20 @@
       transform-origin: 50% 50%;
       animation: breathe 4.8s ease-in-out infinite;
     }
+  }
+  /* Live (WebGL) stage: the shader paints the glow, the panel and the waveform's particles. */
+  .stage:global(.is-live) .glow {
+    display: none;
+  }
+  .stage:global(.is-live) .screen {
+    background: transparent;
+  }
+  .stage:global(.is-live) polyline {
+    animation: none;
+  }
+  /* The particles replace the drawn waveform (not without float textures: the line stays). */
+  .stage:global(.has-particles) polyline {
+    visibility: hidden;
   }
   .screen {
     position: absolute;

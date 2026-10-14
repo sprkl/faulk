@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LANG_STORAGE_KEY } from '../i18n/lang'
-import { detectScript, inlineScript, rememberScript } from './scripts'
+import { animBootScript, detectScript, inlineScript, rememberScript } from './scripts'
 
 /** Runs the generated detection script, as a browser would, against fake globals. */
 function runDetect(stored: string | null | 'throws', language: string | undefined) {
@@ -73,5 +73,65 @@ describe('rememberScript', () => {
       throw new Error('quota')
     })
     expect(() => click(link('en'))).not.toThrow()
+  })
+})
+
+describe('animBootScript', () => {
+  /** Runs the generated bootstrap against fake globals; returns what it observed and imported. */
+  function boot(opts: { webgl2?: boolean; saveData?: boolean; elements?: number; intersecting?: boolean }) {
+    const observed: unknown[] = []
+    const imported: string[] = []
+    let callback: ((entries: { isIntersecting: boolean }[]) => void) | undefined
+    let disconnected = 0
+    class IntersectionObserver {
+      constructor(cb: typeof callback, readonly options: unknown) {
+        callback = cb
+      }
+      observe(el: unknown) {
+        observed.push(el)
+      }
+      disconnect() {
+        disconnected++
+      }
+    }
+    const window = {
+      WebGL2RenderingContext: opts.webgl2 === false ? undefined : class {},
+      IntersectionObserver,
+    }
+    const navigator = { connection: opts.saveData ? { saveData: true } : undefined }
+    const els = Array.from({ length: opts.elements ?? 2 }, (_, i) => ({ i }))
+    const document = { querySelectorAll: () => els }
+    const source = animBootScript('/landing/anim.abc.js').replace(/import\(/g, '__import(')
+    const __import = (url: string) => {
+      imported.push(url)
+      return { then: () => ({ catch: () => {} }) }
+    }
+    new Function('window', 'navigator', 'document', 'IntersectionObserver', '__import', source)(window, navigator, document, IntersectionObserver, __import)
+    if (callback && opts.intersecting !== undefined) callback([{ isIntersecting: opts.intersecting }])
+    return { observed, imported, disconnected, options: callback ? 'set' : 'unset' }
+  }
+
+  it('imports the module once an element intersects, then stops observing', () => {
+    const r = boot({ intersecting: true })
+    expect(r.observed.length).toBe(2)
+    expect(r.imported).toEqual(['/landing/anim.abc.js'])
+    expect(r.disconnected).toBe(1)
+  })
+
+  it('does nothing before an element intersects', () => {
+    const r = boot({ intersecting: false })
+    expect(r.imported).toEqual([])
+    expect(r.disconnected).toBe(0)
+  })
+
+  it('never loads without WebGL2, with data saver, or without animated elements', () => {
+    expect(boot({ webgl2: false, intersecting: true }).imported).toEqual([])
+    expect(boot({ saveData: true, intersecting: true }).imported).toEqual([])
+    expect(boot({ elements: 0, intersecting: true }).observed).toEqual([])
+  })
+
+  it('cannot close its script tag', () => {
+    expect(animBootScript('/x</script><script>alert(1)//')).not.toContain('</script>')
+    expect(inlineScript('x', 'module')).toBe('<script type="module">x</script>')
   })
 })
