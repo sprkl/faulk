@@ -7,7 +7,7 @@ status: draft
 
 # Atelier et modules
 
-> **Proposition, en attente des décisions du fondateur** (document « Faulk — Plan MVP et swarm »). Ce document reprend l'étude du 2026-10-13 sur l'Atelier. Il propose, il ne décide pas : les décisions à prendre sont à la fin. Les faits datés ont été vérifiés en ligne le 2026-10-13 ; ce qui n'a pas pu l'être est marqué « à vérifier ». Le [découpage du MVP](02-decoupage-mvp.md) place l'Atelier après le MVP.
+> **Proposition ; décisions du fondateur du 2026-10-14 intégrées** là où elles s'appliquent (licence de faustwasm, § 7 et § 8). Ce document reprend l'étude du 2026-10-13 sur l'Atelier. Pour le reste il propose, il ne décide pas : les décisions à prendre sont à la fin. Les faits datés ont été vérifiés en ligne le 2026-10-13 ; ce qui n'a pas pu l'être est marqué « à vérifier ». Le [découpage du MVP](02-decoupage-mvp.md) place l'Atelier après le MVP.
 
 ## Résumé
 
@@ -441,7 +441,7 @@ process = channel, channel;
 3. **Mesure du CPU dans le worklet** incertaine (§ 5.2).
 4. **Parité des fonctions mathématiques** entre JS et wasmtime (§ 5.4) : sinon, les tests de parité devront tolérer un écart.
 5. **Qualité du Faust généré par l'IA** : moins d'exemples d'entraînement que pour Rust ; à évaluer sur une série de demandes types.
-6. **Licences** : faustwasm est LGPL-3.0 (bibliothèque chargée dynamiquement dans la page, à confirmer selon le modèle de distribution) ; les bibliothèques Faust ont des licences par fichier, et le code généré hérite de celles des fonctions utilisées.
+6. **Licences** : faustwasm est LGPL-3.0 ; le fondateur a tranché le 2026-10-14 que c'est acceptable si Faulk est open source, et à revoir sinon (le modèle de distribution reste une décision ouverte de la [vision](../product/01-vision.md)) ; les bibliothèques Faust ont des licences par fichier, et le code généré hérite de celles des fonctions utilisées.
 7. **Surcoût de copie** entre la mémoire du moteur et celle de chaque module : à mesurer avec une chaîne de 10 modules.
 8. **Dépendance à un seul compilateur** pour le niveau principal : atténuée par l'éjection vers Rust et par l'autonomie du `.wasm` produit.
 
@@ -451,7 +451,7 @@ process = channel, channel;
 2. Polyphonie : 8 voix par défaut avec vol de voix ; faut-il de l'unisson dès le MVP (gestion des voix par le module) ?
 3. Limiteur de protection de l'Atelier : seuil et comportement (couper, ou limiter et prévenir) ?
 4. Les versions de modules vivent-elles dans le projet, dans une bibliothèque personnelle, ou les deux ? (Lié à la question des sources Faust dans le [modèle de projet](../architecture/02-modele-projet.md).)
-5. Faulk peut-il distribuer faustwasm (LGPL-3.0) avec le modèle de distribution choisi ?
+5. ~~Faulk peut-il distribuer faustwasm (LGPL-3.0) avec le modèle de distribution choisi ?~~ Décidé le 2026-10-14 : acceptable si Faulk est open source, à revoir sinon.
 6. Le premier module « recréé par mesure » : lequel, et sur quels critères d'écoute le jugera-t-on réussi ?
 
 ## Sources
