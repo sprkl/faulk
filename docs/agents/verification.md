@@ -16,6 +16,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+cargo build -p project-wasm --target wasm32-unknown-unknown --release
 ```
 
 ## Engine and modules

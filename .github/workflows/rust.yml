@@ -39,6 +39,9 @@ jobs:
       - name: WASM build of the engine
         run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 
+      - name: WASM build of the project
+        run: cargo build -p project-wasm --target wasm32-unknown-unknown --release
+
   # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
   helper-windows:
     runs-on: windows-latest
