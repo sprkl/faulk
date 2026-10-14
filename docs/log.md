@@ -2,6 +2,7 @@
 
 ## 2026-10-14
 * **Update** (#5, merge of #12): the helper's tray opens the DAW at `/app` (`APP_PATH`), pairing link included; `README.md` gives the new default of `--app-url`.
+* **Update** (#5, code review): `architecture/01-architecture.md` describes the `web/` row as one app, the landing page at `/` and the DAW at `/app`.
 * **Update** (#5): the landing page's sound objects are animated in WebGL2 (OGL), loaded lazily as a progressive enhancement. `agents/verification.md` adds the animation checks (still frame under reduced motion, pause off screen, frame times, seek harness). `CLAUDE.md` follows.
 * **Update** (#12): `architecture/01-architecture.md` principle 4 records the helper's tray icon on Windows (status, pairing code, open the page, start at login, quit) and the startup error box, as controls of the helper process kept outside `crates/commands`.
 * **Update**: `specs/02-decoupage-mvp.md` records the founder's answers: the three-way merge and the `faulk` git driver stay after the MVP; a task whose only founder tag is UI text gets `ready-for-agent` once unblocked.

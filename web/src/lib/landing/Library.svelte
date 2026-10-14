@@ -1,11 +1,14 @@
 <script lang="ts">
   import type { LandingKey } from '../i18n/landing'
+  import type { Kind } from './anim/stages'
   import type { Text } from './types'
 
   let { t }: { t: Text } = $props()
 
   /** Sketches of sound objects: no module exists yet, the cards say so. */
-  const CARDS: { name: LandingKey; kind: LandingKey; art: 'kick' | 'haze' | 'crush' | 'echo' }[] = [
+  // `art` is the sound object's kind, the same set the animation module draws (`anim/stages.ts`).
+  // The first card is the module of the Atelier's example, so it shares that section's name.
+  const CARDS: { name: LandingKey; kind: LandingKey; art: Exclude<Kind, 'hero'> }[] = [
     { name: 'atelier.module', kind: 'library.instrument', art: 'kick' },
     { name: 'library.haze', kind: 'library.instrument', art: 'haze' },
     { name: 'library.crush', kind: 'library.effect', art: 'crush' },
