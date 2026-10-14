@@ -8,21 +8,29 @@
 // --version into <dir>, so that `vpk pack` builds a delta from it. Both read the store with the token in
 // BLOB_READ_WRITE_TOKEN, except `publish --dry-run`, which runs against an empty in-memory
 // store and prints what it would write (an output with a delta stops at the check of its
-// base package, which the empty store lacks: the guard working). `--vercel-json` (default web/vercel.json) gives the
-// Blob origin get.faulk.app redirects to; a token for another store is refused.
+// base package, which the empty store lacks: the guard working). `--vercel-json` (default
+// web/vercel.json) gives the Blob origin get.faulk.app redirects to; a token of another store is
+// refused before anything is written.
 // `@vercel/blob` is loaded only for a real run: `npm ci` in this folder first.
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { blobOriginFromVercelJson, memoryStore, previousFull, publish } from './publish-core.mjs'
+import { blobOriginFromVercelJson, memoryStore, previousFull, publish, tokenMatchesOrigin } from './publish-core.mjs'
 
 const here = import.meta.dirname
 
-/** The real store: the public Blob store of BLOB_READ_WRITE_TOKEN. */
-async function blobStore() {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+/** The real store: the public Blob store of BLOB_READ_WRITE_TOKEN, which must be `origin`. */
+async function blobStore(origin) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+  if (!token) {
     throw new Error('BLOB_READ_WRITE_TOKEN is not set (GitHub secret HELPER_RELEASES_READ_WRITE_TOKEN)')
+  }
+  if (!tokenMatchesOrigin(token, origin)) {
+    throw new Error(
+      `BLOB_READ_WRITE_TOKEN is not a token of the store get.faulk.app redirects to (${origin}): ` +
+        `fix the secret HELPER_RELEASES_READ_WRITE_TOKEN or web/vercel.json. Nothing was written.`,
+    )
   }
   const blob = await import('@vercel/blob')
   const head = async (path) => {
@@ -86,7 +94,7 @@ async function main() {
     case 'publish': {
       if (!values.dir || !values.version) throw new Error('publish needs --dir and --version')
       const dry = values['dry-run']
-      const store = dry ? memoryStore(origin) : await blobStore()
+      const store = dry ? memoryStore(origin) : await blobStore(origin)
       log(`${dry ? '[dry-run] ' : ''}publishing ${values.version} (${values.os}) to ${origin}`)
       const result = await publish({
         files: readDir(values.dir),
@@ -105,7 +113,7 @@ async function main() {
     }
     case 'previous': {
       if (!values.out || !values.version) throw new Error('previous needs --out and --version')
-      const found = await previousFull({ store: await blobStore(), os: values.os, below: values.version, log })
+      const found = await previousFull({ store: await blobStore(origin), os: values.os, below: values.version, log })
       if (found) writeFileSync(join(values.out, found.name), found.bytes)
       break
     }

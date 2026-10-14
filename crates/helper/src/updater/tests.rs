@@ -1134,6 +1134,7 @@ fn start_outside_an_installation_is_disabled_and_offline() {
 // ---------------------------------------------------------------------------
 
 struct Rule {
+    source_text: String,
     source: regex::Regex,
     names: Vec<String>,
     destination: String,
@@ -1201,6 +1202,7 @@ fn rules() -> Vec<Rule> {
             assert_eq!(r["permanent"], false, "redirects stay temporary");
             let (source, names) = compile(r["source"].as_str().unwrap());
             Rule {
+                source_text: r["source"].as_str().unwrap().to_owned(),
                 source,
                 names,
                 destination: r["destination"].as_str().unwrap().to_owned(),
@@ -1211,8 +1213,20 @@ fn rules() -> Vec<Rule> {
 
 /// Where get.faulk.app sends a URL: the first matching rule, as Vercel applies them.
 fn redirect(url: &str) -> String {
+    redirect_by(url, true).unwrap_or_else(|| panic!("no redirect for {url}"))
+}
+
+/// The source of the catch-all rule, which matches every path.
+const CATCH_ALL: &str = "/:path(.*)";
+
+/// Like [`redirect`], optionally without the catch-all: a URL the page tells users to type must
+/// have a rule of its own, not land on the installer only because everything does.
+fn redirect_by(url: &str, with_catch_all: bool) -> Option<String> {
     let path = url.strip_prefix("https://get.faulk.app").unwrap();
     for rule in rules() {
+        if !with_catch_all && rule.source_text == CATCH_ALL {
+            continue;
+        }
         if let Some(caps) = rule.source.captures(path) {
             let mut dest = rule.destination.clone();
             // Longest names first, so `:file` never eats part of `:filename`.
@@ -1221,10 +1235,10 @@ fn redirect(url: &str) -> String {
             for (i, name) in named {
                 dest = dest.replace(&format!(":{name}"), &caps[i + 1]);
             }
-            return dest;
+            return Some(dest);
         }
     }
-    panic!("no redirect for {url}");
+    None
 }
 
 /// The Blob store get.faulk.app redirects to, read from `web/vercel.json` (the one place that
@@ -1324,9 +1338,17 @@ fn the_download_address_in_the_page_texts_is_a_real_route() {
     assert!(found.len() >= 2, "the address is cited in both languages");
     for address in found {
         assert_eq!(
-            redirect(&format!("https://{address}")),
-            installer(),
-            "{address}"
+            redirect_by(&format!("https://{address}"), false),
+            Some(installer()),
+            "{address} must have its own rule, not only the catch-all"
         );
     }
+    // The check has teeth: a mistyped address reaches the installer only through the catch-all.
+    let typo = "https://get.faulk.app/helper/window";
+    assert_eq!(redirect(typo), installer());
+    assert_eq!(redirect_by(typo, false), None);
+    assert!(
+        rules().iter().any(|r| r.source_text == CATCH_ALL),
+        "the catch-all is the rule this test sets aside"
+    );
 }

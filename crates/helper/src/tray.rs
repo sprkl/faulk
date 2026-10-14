@@ -11,7 +11,7 @@ use crate::tray_text::{
 };
 use crate::updater::{UpdateStatus, Updater};
 use std::sync::mpsc::Receiver;
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
@@ -183,6 +183,56 @@ impl Waker {
     }
 }
 
+/// The "Restart to update to {version}" entry, inserted right after "Check for updates" while
+/// an update is ready, and removed otherwise ([`RestartEntry`] decides).
+struct UpdateItems {
+    menu: Menu,
+    check: MenuId,
+    restart: MenuItem,
+    entry: RestartEntry,
+}
+
+impl UpdateItems {
+    fn new(menu: Menu, check: &MenuItem) -> Self {
+        UpdateItems {
+            menu,
+            check: check.id().clone(),
+            restart: MenuItem::new("", true, None),
+            entry: RestartEntry::default(),
+        }
+    }
+
+    /// Follows the updater's status.
+    fn follow(&mut self, lang: Lang, status: &UpdateStatus) -> Result<(), String> {
+        self.restart.set_enabled(RestartEntry::clickable(status));
+        match self.entry.follow_status(lang, status) {
+            EntryChange::Keep => Ok(()),
+            EntryChange::Show(text) => {
+                self.restart.set_text(text);
+                let position = self
+                    .menu
+                    .items()
+                    .iter()
+                    .position(|item| item.id() == &self.check)
+                    .ok_or("no Check for updates entry in the menu")?;
+                self.menu
+                    .insert(&self.restart, position + 1)
+                    .map_err(|e| e.to_string())
+            }
+            EntryChange::Retext(text) => {
+                self.restart.set_text(text);
+                Ok(())
+            }
+            EntryChange::Hide => self.menu.remove(&self.restart).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Whether a menu event is a click on the shown restart entry.
+    fn is_restart(&self, id: &MenuId) -> bool {
+        self.entry.is_shown() && id == self.restart.id()
+    }
+}
+
 /// What the tray needs from the helper.
 pub struct TrayConfig<'a> {
     pub lang: Lang,
@@ -212,9 +262,6 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
     let updater = config.updater;
     let updates_on = !matches!(updater.status(), UpdateStatus::Disabled { .. });
     let check = MenuItem::new(label(lang, Label::CheckForUpdates), updates_on, None);
-    // Inserted right after `check` while an update is ready, removed otherwise.
-    let restart = MenuItem::new("", true, None);
-    let mut restart_entry = RestartEntry::default();
     let quit = MenuItem::new(label(lang, Label::Quit), true, None);
     let menu = Menu::new();
     menu.append_items(&[
@@ -229,7 +276,7 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
         &quit,
     ])
     .map_err(|e| format!("cannot build the tray menu: {e}"))?;
-    const RESTART_POSITION: usize = 7;
+    let mut updates = UpdateItems::new(menu.clone(), &check);
 
     // SAFETY: no arguments, no preconditions.
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
@@ -262,29 +309,15 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
         }
         changed
     };
-    // Shows, retitles or removes "Restart to update to {version}" as the updater goes.
-    let follow_updates = |entry: &mut RestartEntry| {
-        let status = updater.status();
-        restart.set_enabled(RestartEntry::clickable(&status));
-        let result = match entry.follow_status(lang, &status) {
-            EntryChange::Keep => Ok(()),
-            EntryChange::Show(text) => {
-                restart.set_text(text);
-                menu.insert(&restart, RESTART_POSITION)
-            }
-            EntryChange::Retext(text) => {
-                restart.set_text(text);
-                Ok(())
-            }
-            EntryChange::Hide => menu.remove(&restart),
-        };
-        if let Err(e) = result {
+    // Shows, retitles, greys or removes "Restart to update to {version}" as the updater goes.
+    let follow_updates = |updates: &mut UpdateItems| {
+        if let Err(e) = updates.follow(lang, &updater.status()) {
             crate::log!("cannot update the tray menu: {e}");
         }
     };
     apply_events(&mut state);
     refresh(&state);
-    follow_updates(&mut restart_entry);
+    follow_updates(&mut updates);
     crate::log!("tray icon shown");
     // Windows drops thread messages while a modal loop runs (the open menu, a message
     // box), so a wake-up can be lost. A thread timer makes the loop look at the channel
@@ -310,7 +343,7 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
         if apply_events(&mut state) {
             refresh(&state);
         }
-        follow_updates(&mut restart_entry);
+        follow_updates(&mut updates);
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == quit.id() {
                 crate::log!("quit from the tray");
@@ -329,7 +362,7 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
                 if updater.check_now() {
                     crate::log!("update: check asked from the tray");
                 }
-            } else if event.id == restart.id() && restart_entry.is_shown() {
+            } else if updates.is_restart(&event.id) {
                 crate::log!("update: restart to update asked from the tray");
                 // On success the process exits inside the call: hide the icon first, or
                 // Windows keeps a dead one in the notification area until the mouse passes.
@@ -356,6 +389,77 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The real menu (muda), driven as the tray loop drives it: the restart entry appears right
+    /// after "Check for updates", follows the version, greys while busy, and goes away.
+    #[test]
+    fn the_restart_entry_is_inserted_retitled_greyed_and_removed_in_the_menu() {
+        let check = MenuItem::new("Check for updates", true, None);
+        let quit = MenuItem::new("Quit", true, None);
+        let menu = Menu::new();
+        menu.append_items(&[
+            &MenuItem::new("Open Faulk", true, None),
+            &PredefinedMenuItem::separator(),
+            &check,
+            &PredefinedMenuItem::separator(),
+            &quit,
+        ])
+        .unwrap();
+        let texts = |menu: &Menu| -> Vec<String> {
+            menu.items()
+                .iter()
+                .map(|i| match i.as_menuitem() {
+                    Some(item) => item.text(),
+                    None => "-".into(),
+                })
+                .collect()
+        };
+        let mut updates = UpdateItems::new(menu.clone(), &check);
+        let ready = |v: &str| UpdateStatus::Ready { version: v.into() };
+
+        updates.follow(Lang::En, &UpdateStatus::Idle).unwrap();
+        assert_eq!(texts(&menu).len(), 5, "nothing to apply: no entry");
+        assert!(!updates.is_restart(updates.restart.id()));
+
+        updates.follow(Lang::En, &ready("0.2.0")).unwrap();
+        assert_eq!(
+            texts(&menu),
+            [
+                "Open Faulk",
+                "-",
+                "Check for updates",
+                "Restart to update to 0.2.0",
+                "-",
+                "Quit"
+            ]
+        );
+        assert!(updates.restart.is_enabled());
+        assert!(updates.is_restart(updates.restart.id()));
+        assert!(!updates.is_restart(quit.id()));
+
+        updates.follow(Lang::En, &UpdateStatus::Checking).unwrap();
+        assert_eq!(texts(&menu)[3], "Restart to update to 0.2.0", "kept");
+        assert!(!updates.restart.is_enabled(), "greyed while busy");
+
+        updates.follow(Lang::En, &ready("0.2.1")).unwrap();
+        assert_eq!(texts(&menu)[3], "Restart to update to 0.2.1");
+        assert_eq!(texts(&menu).len(), 6, "retitled, not inserted twice");
+        assert!(updates.restart.is_enabled());
+
+        updates
+            .follow(
+                Lang::En,
+                &UpdateStatus::UpToDate {
+                    version: "0.2.1".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            texts(&menu),
+            ["Open Faulk", "-", "Check for updates", "-", "Quit"]
+        );
+        assert!(!updates.is_restart(updates.restart.id()));
+    }
 
     #[test]
     fn the_run_value_is_written_compared_and_removed() {

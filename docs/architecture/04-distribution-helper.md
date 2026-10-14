@@ -58,7 +58,7 @@ Les règles de la publication (`scripts/helper-release/publish-core.mjs`, testé
 
 1. **les paquets d'abord**, jamais remplacés, et seulement ceux de la version publiée que cite son flux (un paquet de trop dans le dossier fait échouer la publication : il deviendrait un fichier immuable impossible à corriger) : un paquet absent est envoyé ; présent avec le même contenu (SHA-256), il est sauté ; présent avec un autre contenu, la publication échoue (« a published version is never replaced »). Un helper qui a déjà lu un flux ne trouve donc jamais un autre paquet que celui que le flux annonce ;
 2. **chaque paquet que cite le nouveau flux doit être dans le magasin** (le flux cite aussi le paquet complet de la version précédente, base du différentiel) ; sinon le flux n'est pas écrit ;
-3. **le magasin doit être celui vers lequel `get.faulk.app` redirige** (l'origine lue dans `web/vercel.json`), sinon rien d'écrasable n'est écrit ;
+3. **le magasin doit être celui vers lequel `get.faulk.app` redirige** (l'origine lue dans `web/vercel.json`) : un jeton d'un autre magasin est refusé avant toute écriture (l'identifiant du magasin, dans le jeton `vercel_blob_rw_<id>_…`, doit être l'hôte `<id en minuscules>.public.blob.vercel-storage.com`), et l'origine de chaque réponse est vérifiée ensuite ;
 4. puis l'installeur et la version portable, les index, et **le flux en dernier**. Un client ne voit jamais un flux qui cite un paquet absent ; pendant les 60 s du cache, il peut encore voir l'ancien flux, dont les paquets existent toujours ;
 5. **un canal ne recule jamais** : si le flux du canal annonce déjà une version plus récente, seuls les paquets sont envoyés ; la même version est republiée (relance). Deux publications d'un même canal ne tournent jamais ensemble (groupe de concurrence `helper-blob-<canal>` de la CI), et le flux est relu à une adresse propre à sa version (son etag, donné par l'API Blob), pas dans une copie en cache. GitHub ne garde qu'un job en attente par groupe : un troisième run annule celui qui attend, qui apparaît alors annulé ; il suffit de relancer ce job, la publication reprend là où elle en est ;
 6. **Windows seulement** : le helper demande ses paquets à `get.faulk.app/helper/packages/<fichier>`, sans le système, et `web/vercel.json` mène cette adresse aux paquets Windows. La publication refuse donc tout autre système (`PUBLISHED_OS`) tant que le helper n'a pas un chemin de paquets par système.
@@ -84,7 +84,7 @@ Elles vivent dans `web/vercel.json`, lu par le projet Vercel qui déploie `web/`
 
 Deux tests lisent `web/vercel.json`, seul endroit où figure l'adresse du magasin :
 
-- `crates/helper/src/updater/tests.rs` vérifie que chaque URL construite par le helper aboutit au bon chemin du magasin, que toutes les règles mènent à une seule origine `https://<id>.public.blob.vercel-storage.com`, et que l'adresse de téléchargement citée par les textes de la page (`web/src/lib/i18n/app.ts`) mène à l'installeur ;
+- `crates/helper/src/updater/tests.rs` vérifie que chaque URL construite par le helper aboutit au bon chemin du magasin, que toutes les règles mènent à une seule origine `https://<id>.public.blob.vercel-storage.com`, et que l'adresse de téléchargement citée par les textes de la page (`web/src/lib/i18n/app.ts`) mène à l'installeur par une règle à elle, sans compter sur la règle « tout le reste » ;
 - `scripts/helper-release/publish-core.test.mjs` vérifie que ces mêmes URL aboutissent aux chemins où le script écrit.
 
 Leur limite : ils traduisent eux-mêmes la syntaxe des sources (sous-ensemble de path-to-regexp). Le compilateur de routes de Vercel (`@vercel/routing-utils`, `getTransformedRoutes`) a accepté le fichier et donné les mêmes destinations le 14 octobre 2026 ; il ne remplace pas la vérification après déploiement (voir [Ce que le lead doit faire](#ce-que-le-lead-doit-faire)).
@@ -123,7 +123,7 @@ Leur limite : ils traduisent eux-mêmes la syntaxe des sources (sous-ensemble de
 **Les entrées du menu de la zone de notification** (#133, textes décidés par le lead) :
 
 - « Check for updates » / « Rechercher des mises à jour » : `updater.check_now()` ; grisée quand l'updater est désactivé (helper lancé par `cargo`) ;
-- « Restart to update to {version} » / « Redémarrer pour passer à la {version} » : `updater.apply_and_restart()`. Elle apparaît quand l'updater passe `Ready`, change de texte si une version plus récente est téléchargée, reste pendant une vérification ou un téléchargement (le paquet déjà téléchargé reste applicable, et la cacher à chaque vérification périodique la ferait clignoter), et disparaît quand l'updater revient à un état sans paquet (`UpToDate`, `Failed`, `Idle`, `Disabled`). La règle est une fonction pure testée pour chaque état (`RestartEntry::follow_status`, `tray_text.rs`). Pendant une vérification ou un téléchargement, elle est grisée (l'application serait refusée). Au clic, l'icône est retirée (Velopack quitte le processus en cas de succès, et Windows garderait une icône morte), puis réaffichée si l'application est refusée.
+- « Restart to update to {version} » / « Redémarrer pour passer à la {version} » : `updater.apply_and_restart()`. Elle apparaît quand l'updater passe `Ready`, change de texte si une version plus récente est téléchargée, reste pendant une vérification ou un téléchargement (le paquet déjà téléchargé reste applicable, et la cacher à chaque vérification périodique la ferait clignoter), et disparaît quand l'updater revient à un état sans paquet (`UpToDate`, `Failed`, `Idle`, `Disabled`). La règle est une fonction pure testée pour chaque état (`RestartEntry::follow_status`, `tray_text.rs`), et son application au vrai menu (insertion juste après « Rechercher des mises à jour », nouveau texte, grisé, retrait) est testée sous Windows (`UpdateItems`, `tray.rs`). Le clic sur un helper installé n'a pas encore été éprouvé. Pendant une vérification ou un téléchargement, elle est grisée (l'application serait refusée). Au clic, l'icône est retirée (Velopack quitte le processus en cas de succès, et Windows garderait une icône morte), puis réaffichée si l'application est refusée.
 
 Limites connues : un refus (« another helper is running ») n'est écrit qu'au journal, et « Rechercher des mises à jour » ne montre pas de résultat tant qu'aucune mise à jour n'est prête ; un retour visible demande de nouveaux textes, à décider. L'application quitte le processus sans le relâchement des voix que fait « Quitter » : une note tenue est coupée net (`apply_and_restart` le dit déjà : la sortie audio s'arrête le temps de la relance).
 
@@ -215,9 +215,9 @@ Enfin, le 14 octobre 2026, avec le **vrai helper câblé** (`main.rs` de cette b
 
 ## Ce que le lead doit faire
 
-Le secret `HELPER_RELEASES_READ_WRITE_TOKEN` et le magasin existent (fondateur, 14 octobre 2026). Le domaine `get.faulk.app` doit être rattaché au projet Vercel `faulk` (Settings → Domains, avec l'enregistrement DNS que Vercel affiche).
+Le secret `HELPER_RELEASES_READ_WRITE_TOKEN` et le magasin existent (fondateur, 14 octobre 2026). Le projet Vercel `faulk` déploie la production depuis `main`, et `get.faulk.app` y est rattaché et vérifié (lu le 14 octobre 2026 avec `vercel api /v9/projects/faulk` et `/v9/projects/faulk/domains`).
 
-1. **Ordre de la bascule** : tant que le magasin est vide, `get.faulk.app` renverrait des 404 (installeur et flux). Une fois cette branche sur `develop`, et **avant** que `web/vercel.json` n'atteigne la production, publier la 0.1.0 dans le magasin :
+1. **Ordre de la bascule** : tant que le magasin est vide, `get.faulk.app` renverrait des 404 (installeur et flux). La production venant de `main`, la fusion dans `develop` ne change pas encore `get.faulk.app`. Une fois cette branche sur `develop`, et **avant** la release de `develop` vers `main`, publier la 0.1.0 dans le magasin :
    ```bash
    gh workflow run release-helper.yml --ref develop -f mirror=helper-v0.1.0
    ```
@@ -230,7 +230,7 @@ Le secret `HELPER_RELEASES_READ_WRITE_TOKEN` et le magasin existent (fondateur, 
    curl -sI https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/win/stable/releases.win.json   # 200
    ```
 3. **Éprouver un envoi réel** sans toucher au canal stable : une pré-version depuis `develop`, `gh workflow run release-helper.yml --ref develop -f version=0.1.1-beta.1` ; elle n'atteint que le dossier `beta`.
-4. **Changer de magasin** : remplacer l'origine dans les quatre règles de `web/vercel.json` (les tests en dépendent, rien d'autre), et le secret. La publication refuse un jeton d'un autre magasin que celui de `web/vercel.json`.
+4. **Changer de magasin** : remplacer l'origine dans les quatre règles de `web/vercel.json` (les tests en dépendent, rien d'autre), et le secret. La publication refuse, avant toute écriture, un jeton d'un autre magasin que celui de `web/vercel.json`.
 5. **Plus tard** : le compte Azure Artifact Signing (Windows), le compte Apple Developer (macOS).
 
 ## Références

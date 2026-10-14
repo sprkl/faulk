@@ -15,6 +15,7 @@ import {
   previousFull,
   publish,
   sha256,
+  tokenMatchesOrigin,
 } from './publish-core.mjs'
 
 const ORIGIN = 'https://abc123.public.blob.vercel-storage.com'
@@ -252,6 +253,20 @@ describe('previousFull', () => {
     await run(store, '0.1.0')
     store.blobs.delete('helper/win/packages/FaulkHelper-0.1.0-full.nupkg')
     await assert.rejects(previousFull({ store, os: 'win', below: '0.2.0' }), /not in the store/)
+  })
+})
+
+describe('tokenMatchesOrigin', () => {
+  it('accepts a token of the store, whatever the case of its id', () => {
+    assert.ok(tokenMatchesOrigin('vercel_blob_rw_AbC123_secretPart', ORIGIN))
+  })
+
+  it('refuses a token of another store, or anything that is not a read-write token', () => {
+    assert.ok(!tokenMatchesOrigin('vercel_blob_rw_Other1_secret', ORIGIN))
+    assert.ok(!tokenMatchesOrigin('vercel_blob_ro_AbC123_secret', ORIGIN))
+    assert.ok(!tokenMatchesOrigin('AbC123', ORIGIN))
+    assert.ok(!tokenMatchesOrigin('', ORIGIN))
+    assert.ok(!tokenMatchesOrigin('vercel_blob_rw__secret', 'https://.public.blob.vercel-storage.com'))
   })
 })
 

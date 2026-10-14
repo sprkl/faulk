@@ -301,6 +301,19 @@ export function blobOriginFromVercelJson(json) {
   return origin
 }
 
+/**
+ * Whether a read-write token belongs to the store at `origin`, checked before anything is
+ * written (the origin of each answer is checked again afterwards). A token reads
+ * `vercel_blob_rw_<storeId>_<secret>` (`parseStoreIdFromReadWriteToken` of `@vercel/blob`), and a
+ * public store answers at `https://<storeId, lower case>.public.blob.vercel-storage.com`
+ * (`vercel blob get-store` shows both).
+ */
+export function tokenMatchesOrigin(token, origin) {
+  const [vercel, blob, rw, storeId = ''] = String(token).split('_')
+  if (vercel !== 'vercel' || blob !== 'blob' || rw !== 'rw' || !/^[0-9A-Za-z]+$/.test(storeId)) return false
+  return origin === `https://${storeId.toLowerCase()}.public.blob.vercel-storage.com`
+}
+
 /** An in-memory store, for the dry run and the tests. */
 export function memoryStore(origin, { seed = new Map(), log = () => {} } = {}) {
   const blobs = new Map(seed)
