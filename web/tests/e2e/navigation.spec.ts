@@ -64,13 +64,15 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(tabs).toHaveCount(panel.length)
       expect(await tabs.evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')!.slice(6)))).toEqual(panel)
 
+      // The screen before the audio starts is the first one a user sees.
+      expect(await overflows(page), 'before the audio starts').toEqual([])
+
       // Audio: the top bar's button, then the engine state shows the mode.
       await page.getByTestId('engine-state').getByRole('button').click()
       await expect(page.getByTestId('engine-mode')).toBeVisible()
       await expect(page.getByTestId('voices')).toBeVisible()
 
-      let previous = await page.getByTestId('view').getAttribute('data-view')
-      for (const id of [...main, ...main.slice().reverse().slice(0, 1)]) {
+      for (const id of main) {
         const button = page.getByTestId(`nav-${id}`)
         await expect(button).not.toBeEmpty()
         await button.click()
@@ -79,9 +81,7 @@ for (const lang of ['en', 'fr'] as const) {
         await expect(page.locator('[data-testid^=nav-][aria-current=page]')).toHaveCount(1)
         await expect(page.getByTestId('view')).toHaveAccessibleName(await button.innerText())
         expect(await overflows(page), `view ${id}`).toEqual([])
-        previous = id
       }
-      expect(previous).not.toBeNull()
 
       for (const id of panel) {
         const tab = page.getByTestId(`panel-${id}`)
@@ -92,6 +92,7 @@ for (const lang of ['en', 'fr'] as const) {
         // Each panel with each main view: the panel never pushes the main area out.
         for (const view of main) {
           await page.getByTestId(`nav-${view}`).click()
+          await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
           expect(await overflows(page), `panel ${id} over view ${view}`).toEqual([])
         }
       }
