@@ -65,22 +65,22 @@ pub struct TransportSettings {
     pub metronome: Metronome,            // { enabled: bool, gain_db: f64, count_in_bars: u8 }
 }
 
-pub struct Scene { pub name: String, pub order: OrderKey, pub tempo: Option<f64> }
+pub struct Scene { pub name: String, pub order: OrderKey } // a tempo per scene: after the MVP (constant tempo)
 
 pub struct Track {
     pub name: String,
     pub color: Option<Rgb>,
     pub order: OrderKey,
-    pub kind: TrackKind,                 // Instrument | Audio | Return
+    pub kind: TrackKind,                 // Midi | Audio (Return: after the MVP, no sends or returns)
     pub mixer: Mixer,
-    pub output: Output,                  // Master | Track(Id) (group or return)
+    pub output: Output,                  // Master in the MVP; Track(Id) (group or return) after it
     pub devices: BTreeMap<Id, Device>,   // instrument + effects, ordered by Device::order
     pub clips: BTreeMap<Id, Clip>,
     pub placements: BTreeMap<Id, Placement>, // this track's arrangement
     pub automation: BTreeMap<Id, AutomationLane>,
 }
 
-pub struct Mixer { pub gain_db: f64, pub pan: f64, pub mute: bool, pub sends: BTreeMap<Id, Send> }
+pub struct Mixer { pub gain_db: f64, pub pan: f64, pub mute: bool } // sends: after the MVP; solo lives in the session state
 
 pub struct Device {
     pub order: OrderKey,
