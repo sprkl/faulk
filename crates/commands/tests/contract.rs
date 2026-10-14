@@ -286,10 +286,9 @@ fn a_refused_command_leaves_the_state_untouched() {
 }
 
 #[test]
-fn rename_undo_is_exact_from_the_default_state_and_at_the_boundaries() {
-    use commands::v2::State;
+fn rename_undo_is_exact_from_the_examples_state_and_at_the_boundaries() {
     let rename = |name: &str| Command::Project(project::Command::Rename { name: name.into() });
-    check(&rename("Demo"), &State::default(), &context()).unwrap();
+    check(&rename("Demo"), &state(), &context()).unwrap();
     let mut boundary = state();
     boundary.project.name = "x".repeat(project::MAX_NAME_CHARS);
     check(&rename("Demo"), &boundary, &context()).unwrap();
@@ -415,4 +414,15 @@ fn errors_carry_a_stable_code() {
     assert_eq!(json["code"], "not_found");
     assert_eq!(err.code(), "not_found");
     assert_eq!(err.to_string(), format!("track {TRACK} not found"));
+}
+
+#[test]
+fn the_examples_project_id_never_meets_a_generated_id() {
+    // The examples' state and context are seeded apart: the ids the commands generate
+    // never collide with the project's own id (one id space per project).
+    let project = state().project.id.0;
+    let mut ctx = context();
+    for _ in 0..1000 {
+        assert_ne!(ctx.ids.next_id(), project);
+    }
 }

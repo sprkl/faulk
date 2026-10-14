@@ -170,12 +170,12 @@ pub fn context() -> Context {
     Context::new(crate::v2::Author::User, project::IdGenerator::for_tests())
 }
 
-/// The state the examples run from: a valid project (a project has a name).
+/// The state the examples run from: a valid empty project. Its id comes from a seed of
+/// its own, so it never equals an id the examples' [`context`] generates.
 pub fn state() -> State {
+    let mut ids = project::IdGenerator::new(1_600_000_000_000, 0x00FF_0000_0000_0000_0000);
     State {
-        project: project::Project {
-            name: "Untitled".into(),
-        },
+        project: project::Project::new(project::ProjectId::generate(&mut ids), "Untitled"),
         session: project::SessionState::default(),
     }
 }
