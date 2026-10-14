@@ -38,6 +38,7 @@ domain! {
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
+        #[schemars(required)]
         previous: Option<f64>,
     };
 
@@ -76,12 +77,13 @@ domain! {
         gain_db: Option<f64>,
     } => {
         /// The volume before the command, in dB; `null` was silence.
+        #[schemars(required)]
         previous: Option<f64>,
     };
 
-    /// Solo or unsolo a track: while any track is soloed, only the soloed tracks are
-    /// heard. Session state: not undoable, not in the history, not saved with the
-    /// project (it is restored with the session).
+    /// Solo or unsolo a track. The soloed tracks are those in the session's solo set;
+    /// the audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).
+    /// Session state: not undoable, not in the history, not saved with the project.
     "mixer.set_solo" (kind = "live", undo = "none", destructive = false)
     SetSolo {
         track: TrackId,

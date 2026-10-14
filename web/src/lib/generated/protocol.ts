@@ -223,7 +223,7 @@ export type MixerOutput = ({
 /**
  * The volume before the command, in dB; `null` was silence.
  */
-previous?: (number | null)
+previous: number
 type: "mixer.set_volume"
 } | {
 /**
@@ -241,7 +241,7 @@ type: "mixer.set_mute"
 /**
  * The volume before the command, in dB; `null` was silence.
  */
-previous?: (number | null)
+previous: number
 type: "mixer.set_master_volume"
 } | {
 /**

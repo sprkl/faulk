@@ -435,7 +435,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+            "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
             "properties": {
               "solo": {
                 "type": "boolean"
@@ -968,7 +968,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -1335,10 +1335,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -1346,7 +1343,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -1393,10 +1391,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -1404,7 +1399,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -1905,7 +1901,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -2281,10 +2277,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -2292,7 +2285,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -2339,10 +2333,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -2350,7 +2341,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -2852,7 +2844,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -3230,10 +3222,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -3241,7 +3230,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -3288,10 +3278,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -3299,7 +3286,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -3405,13 +3393,12 @@
             "previous": {
               "description": "The volume before the command, in dB; `null` was silence.",
               "format": "double",
-              "type": [
-                "number",
-                "null"
-              ]
+              "type": "number"
             }
           },
-          "required": [],
+          "required": [
+            "previous"
+          ],
           "type": "object"
         },
         "undo": "inverse"
@@ -3802,7 +3789,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -4176,10 +4163,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -4187,7 +4171,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -4234,10 +4219,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -4245,7 +4227,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -4747,7 +4730,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -5118,10 +5101,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -5129,7 +5109,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -5176,10 +5157,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -5187,7 +5165,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -5688,7 +5667,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -6062,10 +6041,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -6073,7 +6049,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -6120,10 +6097,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -6131,7 +6105,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -6237,19 +6212,18 @@
             "previous": {
               "description": "The volume before the command, in dB; `null` was silence.",
               "format": "double",
-              "type": [
-                "number",
-                "null"
-              ]
+              "type": "number"
             }
           },
-          "required": [],
+          "required": [
+            "previous"
+          ],
           "type": "object"
         },
         "undo": "inverse"
       },
       {
-        "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+        "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -6634,7 +6608,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -7005,10 +6979,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -7016,7 +6987,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -7063,10 +7035,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -7074,7 +7043,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -7575,7 +7545,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -7936,10 +7906,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -7947,7 +7914,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -7994,10 +7962,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -8005,7 +7970,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -8499,7 +8465,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -8867,10 +8833,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -8878,7 +8841,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -8925,10 +8889,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -8936,7 +8897,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -9438,7 +9400,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -9819,10 +9781,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -9830,7 +9789,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -9877,10 +9837,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -9888,7 +9845,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -10382,7 +10340,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -10756,10 +10714,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -10767,7 +10722,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -10814,10 +10770,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -10825,7 +10778,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -11319,7 +11273,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -11680,10 +11634,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -11691,7 +11642,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -11738,10 +11690,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -11749,7 +11698,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -12243,7 +12193,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -12604,10 +12554,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -12615,7 +12562,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -12662,10 +12610,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -12673,7 +12618,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -13186,7 +13132,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -13547,10 +13493,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -13558,7 +13501,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -13605,10 +13549,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -13616,7 +13557,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -14129,7 +14071,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -14490,10 +14432,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -14501,7 +14440,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -14548,10 +14488,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -14559,7 +14496,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -15060,7 +14998,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -15421,10 +15359,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -15432,7 +15367,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -15479,10 +15415,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -15490,7 +15423,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -15991,7 +15925,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+                  "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
                       "type": "boolean"
@@ -16359,10 +16293,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_volume",
@@ -16370,7 +16301,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -16417,10 +16349,7 @@
                     "previous": {
                       "description": "The volume before the command, in dB; `null` was silence.",
                       "format": "double",
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
@@ -16428,7 +16357,8 @@
                     }
                   },
                   "required": [
-                    "type"
+                    "type",
+                    "previous"
                   ],
                   "type": "object"
                 },
@@ -16932,7 +16862,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Solo or unsolo a track: while any track is soloed, only the soloed tracks are\nheard. Session state: not undoable, not in the history, not saved with the\nproject (it is restored with the session).",
+              "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
               "properties": {
                 "solo": {
                   "type": "boolean"
@@ -17340,10 +17270,7 @@
                 "previous": {
                   "description": "The volume before the command, in dB; `null` was silence.",
                   "format": "double",
-                  "type": [
-                    "number",
-                    "null"
-                  ]
+                  "type": "number"
                 },
                 "type": {
                   "const": "mixer.set_volume",
@@ -17351,7 +17278,8 @@
                 }
               },
               "required": [
-                "type"
+                "type",
+                "previous"
               ],
               "type": "object"
             },
@@ -17398,10 +17326,7 @@
                 "previous": {
                   "description": "The volume before the command, in dB; `null` was silence.",
                   "format": "double",
-                  "type": [
-                    "number",
-                    "null"
-                  ]
+                  "type": "number"
                 },
                 "type": {
                   "const": "mixer.set_master_volume",
@@ -17409,7 +17334,8 @@
                 }
               },
               "required": [
-                "type"
+                "type",
+                "previous"
               ],
               "type": "object"
             },
