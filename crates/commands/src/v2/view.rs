@@ -14,9 +14,8 @@ domain! {
 
     /// Select a track, where live MIDI and the keyboard go; `null` deselects. Session
     /// state: not undoable, not saved with the project.
-    ///
-    /// Until PR-1 gives the project its tracks, the identifier is only checked for
-    /// its form; PR-8 refuses an unknown track with `not_found`.
+    // Until PR-1 gives the project its tracks, the identifier is only checked for
+    // its form; PR-8 refuses an unknown track with `not_found`.
     "view.select_track" (kind = "live", undo = "none", destructive = false)
     SelectTrack { track: Option<TrackId> } => {
         /// The track selected before the command.
