@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { watchLocalAccess } from './local-access'
+import { absentHelperMessages, watchLocalAccess } from './local-access'
 
 /** A permission status whose state the test changes, as the browser would on Allow or Block. */
 class FakeStatus extends EventTarget {
@@ -87,5 +87,51 @@ describe('watchLocalAccess', () => {
     loopback.set('granted')
     expect(add).not.toHaveBeenCalled()
     expect(onGranted).not.toHaveBeenCalled()
+  })
+})
+
+describe('watchLocalAccess state', () => {
+  it('reports the state once known and at each change', async () => {
+    const loopback = new FakeStatus()
+    const onState = vi.fn()
+    watchLocalAccess(() => {}, permissions({ 'loopback-network': loopback }), onState)
+    await settle()
+    expect(onState).toHaveBeenLastCalledWith('prompt')
+    loopback.set('denied')
+    expect(onState).toHaveBeenLastCalledWith('denied')
+    loopback.set('granted')
+    expect(onState).toHaveBeenLastCalledWith('granted')
+    expect(onState).toHaveBeenCalledTimes(3)
+  })
+
+  it('reports nothing without the permission', async () => {
+    const onState = vi.fn()
+    watchLocalAccess(() => {}, permissions({}), onState)
+    await settle()
+    expect(onState).not.toHaveBeenCalled()
+  })
+
+  it('reports nothing once stopped', async () => {
+    const loopback = new FakeStatus()
+    const onState = vi.fn()
+    const stop = watchLocalAccess(() => {}, permissions({ 'loopback-network': loopback }), onState)
+    await settle()
+    onState.mockClear()
+    stop()
+    loopback.set('denied')
+    expect(onState).not.toHaveBeenCalled()
+  })
+})
+
+describe('absentHelperMessages', () => {
+  it('explains a blocked permission instead of saying no helper was found', () => {
+    expect(absentHelperMessages('denied')).toEqual(['helper.localAccessBlocked'])
+  })
+  it('adds the pending hint to the absent message while the permission is to be asked', () => {
+    expect(absentHelperMessages('prompt')).toEqual(['helper.absent', 'helper.localAccessPending'])
+  })
+  it('keeps the plain message when granted, unknown or unsupported', () => {
+    expect(absentHelperMessages('granted')).toEqual(['helper.absent'])
+    expect(absentHelperMessages(null)).toEqual(['helper.absent'])
   })
 })

@@ -13,17 +13,20 @@ export const LOCAL_ACCESS_PERMISSIONS = ['loopback-network', 'local-network-acce
 type PermissionsLike = Pick<Permissions, 'query'>
 
 /**
- * Calls `onGranted` each time the permission turns to `granted`. Returns a function
- * that stops watching, safe to call before the query has answered.
+ * Calls `onGranted` each time the permission turns to `granted`, and `onState` with the
+ * state once known and at each change. Returns a function that stops watching, safe to call before the query has answered.
  */
 export function watchLocalAccess(
   onGranted: () => void,
   permissions: PermissionsLike | undefined = globalThis.navigator?.permissions,
+  onState: (state: PermissionState) => void = () => {},
 ): () => void {
   let stopped = false
   let status: PermissionStatus | null = null
   const onChange = () => {
-    if (!stopped && status?.state === 'granted') onGranted()
+    if (stopped || !status) return
+    onState(status.state)
+    if (status.state === 'granted') onGranted()
   }
   void (async () => {
     if (!permissions) return
@@ -37,6 +40,7 @@ export function watchLocalAccess(
       if (stopped) return
       status = found
       status.addEventListener('change', onChange)
+      onState(status.state)
       return
     }
   })()
@@ -44,4 +48,18 @@ export function watchLocalAccess(
     stopped = true
     status?.removeEventListener('change', onChange)
   }
+}
+
+/**
+ * The message to show when no helper answered: the browser's permission explains the
+ * failure when it is still to be asked (`prompt`, the prompt may be open) or refused
+ * (`denied`). Anything else, or a browser without the permission (`null`), is a plain
+ * absent helper.
+ */
+export function absentHelperMessages(
+  access: PermissionState | null,
+): ('helper.absent' | 'helper.localAccessPending' | 'helper.localAccessBlocked')[] {
+  if (access === 'denied') return ['helper.localAccessBlocked']
+  if (access === 'prompt') return ['helper.absent', 'helper.localAccessPending']
+  return ['helper.absent']
 }
