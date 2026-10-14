@@ -1,114 +1,159 @@
-//! Native cost of the engine channel (CT-3), on this machine: per rt message (push, pop,
-//! apply of a `ParamSet`) and per growth (the `apply` of a `Swap` that moves a full track
-//! table of boxed entries, and the drop of the old table on the control side). Ignored by
-//! default; run with:
+//! Native cost of the engine channel, on this machine (CT-3's measure, redone on MO-1's
+//! real `Preparer` and `Engine`): per rt message (prepare and push of a `ParamSet`, then
+//! pop and apply on the audio side), and per growth (the `apply` that swaps a full runtime
+//! table for one twice as large: the track table at its limit, the clip directory at its
+//! limit, a device row at its limit; and the drop of the old table on the prepare side).
+//! Ignored by default; run with:
 //!
 //! `cargo test -p engine --release --test msg_cost -- --ignored --nocapture`
 
 use std::time::Instant;
 
+use engine::device::DeviceSetup;
+use engine::device::testing::{GAIN, factory, gain};
+use engine::engine::{Engine, Preparer, channel};
 use engine::msg::{
-    DeviceSlot, Garbage, Opaque, ParamId, Prepared, RtMsg, Swap, Table, TableKind, TrackSlot,
-    limits,
+    ClipSlot, ControlMsg as M, DeviceSlot, Note, PAGE_SLOTS, TrackKind, TrackSlot, limits,
 };
-use rtrb::RingBuffer;
+use engine::time::Tick;
+
+fn create(slot: u32) -> M {
+    M::TrackCreate {
+        track: TrackSlot(slot),
+        kind: TrackKind::Midi,
+    }
+}
+
+/// Prepares `msg`, then times its `apply` alone (µs) and the drop of its garbage (µs).
+fn timed(p: &mut Preparer, e: &mut Engine, msg: M) -> (f64, f64) {
+    let rt = p.prepare(msg).unwrap().unwrap();
+    let t0 = Instant::now();
+    e.apply(rt);
+    let t1 = Instant::now();
+    p.collect();
+    let t2 = Instant::now();
+    (
+        (t1 - t0).as_nanos() as f64 / 1000.0,
+        (t2 - t1).as_nanos() as f64 / 1000.0,
+    )
+}
 
 #[test]
 #[ignore = "prints numbers, run in release by hand"]
 fn per_message_and_per_growth_cost() {
-    let (mut rt_tx, mut rt_rx) = RingBuffer::<RtMsg>::new(limits::RT_RING_CAPACITY);
-    let (mut gc_tx, mut gc_rx) = RingBuffer::<Garbage>::new(limits::RT_RING_CAPACITY);
+    let (mut p, mut e) = channel(DeviceSetup::default(), factory).unwrap();
+    p.handle(create(0)).unwrap();
+    p.handle(M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(0),
+        kind: GAIN.kind_id,
+        state: vec![],
+    })
+    .unwrap();
+    e.begin_block();
 
-    // Per message: fill the ring, drain it applying each message to a parameter slot.
-    let mut params = vec![0f32; 64];
+    // Per message: the prepare side fills the ring with ParamSets, the audio side drains it.
     let rounds = 200;
     let n = limits::RT_RING_CAPACITY;
-    let mut push_ns = 0f64;
-    let mut pop_ns = 0f64;
-    for _ in 0..rounds {
+    let (mut push_ns, mut apply_ns) = (0f64, 0f64);
+    for round in 0..rounds {
         let t0 = Instant::now();
         for i in 0..n {
-            rt_tx
-                .push(RtMsg::ParamSet {
-                    track: TrackSlot(0),
-                    device: DeviceSlot(0),
-                    param: ParamId((i % 64) as u32),
-                    value: i as f32,
-                    offset: 0,
-                })
-                .unwrap();
+            p.handle(M::ParamSet {
+                track: TrackSlot(0),
+                device: DeviceSlot(0),
+                param: gain::GAIN,
+                value: ((i + round) % 100) as f32 / 100.0,
+            })
+            .unwrap();
         }
         let t1 = Instant::now();
-        while let Ok(msg) = rt_rx.pop() {
-            if let RtMsg::ParamSet { param, value, .. } = msg {
-                params[param.0 as usize] = value;
-            }
+        while e.applied() < ((round + 1) * n + 2) as u64 {
+            e.begin_block();
         }
         let t2 = Instant::now();
         push_ns += (t1 - t0).as_nanos() as f64 / n as f64;
-        pop_ns += (t2 - t1).as_nanos() as f64 / n as f64;
+        apply_ns += (t2 - t1).as_nanos() as f64 / n as f64;
     }
     println!(
-        "per message: push {:.0} ns, pop + apply {:.0} ns (ring of {n}, {rounds} rounds)",
+        "per message: prepare + push {:.0} ns, pop + apply {:.0} ns (ParamSet, {rounds} rounds of {n})",
         push_ns / rounds as f64,
-        pop_ns / rounds as f64
+        apply_ns / rounds as f64
     );
-    assert!(params[1] > 0.0);
 
-    // Per growth: a full track table of MAX_TRACKS boxed entries moved into one twice as
-    // large, in apply; then the drop of the emptied table on the control side.
-    for tracks in [64usize, 1024, limits::MAX_TRACKS as usize] {
-        let mut audio: Table<Option<Opaque>> = Table::try_filled(tracks).unwrap();
-        for (i, slot) in audio.as_mut_slice().iter_mut().enumerate() {
-            *slot = Some(Box::new([i as u8; 256]));
+    // Per growth of the track table: 64, 1024 and 2048 tracks (the last doubles to the
+    // limit, 4096), each track with a device.
+    for tracks in [64u32, 1024, limits::MAX_TRACKS / 2] {
+        let (mut p, mut e) = channel(DeviceSetup::default(), factory).unwrap();
+        for slot in 0..tracks {
+            let rt = p.prepare(create(slot)).unwrap().unwrap();
+            e.apply(rt);
+            p.collect();
         }
-        let next: Table<Option<Opaque>> = Table::try_filled(tracks * 2).unwrap();
-        rt_tx
-            .push(RtMsg::Swap(Swap {
-                kind: TableKind::Tracks,
-                next: Prepared::Tracks(next),
-            }))
-            .unwrap();
-        let t0 = Instant::now();
-        let RtMsg::Swap(Swap {
-            next: Prepared::Tracks(mut next),
-            ..
-        }) = rt_rx.pop().unwrap()
-        else {
-            unreachable!()
-        };
-        next.take_from(&mut audio);
-        let old = core::mem::replace(&mut audio, next);
-        gc_tx.push(Garbage::Tracks(old)).unwrap();
-        let t1 = Instant::now();
-        drop(gc_rx.pop().unwrap());
-        let t2 = Instant::now();
+        assert_eq!(e.state().tracks.capacity(), tracks as usize);
+        let (apply, drop) = timed(&mut p, &mut e, create(tracks));
         println!(
-            "per growth of the track table, {tracks} entries: apply {:.1} µs, drop off-thread {:.1} µs",
-            (t1 - t0).as_nanos() as f64 / 1000.0,
-            (t2 - t1).as_nanos() as f64 / 1000.0
+            "growth of the track table, {tracks} tracks moved: apply {apply:.1} µs, drop off-thread {drop:.1} µs"
         );
-        assert_eq!(audio.capacity(), tracks * 2);
-        assert_eq!(
-            audio.as_slice().iter().filter(|e| e.is_some()).count(),
-            tracks
-        );
+        assert_eq!(e.state().tracks.capacity(), 2 * tracks as usize);
     }
 
-    // The counter-example that fixes the rule "content tables are snapshots": moving
-    // a million notes in apply, as a growth in place would.
-    let n = 1_000_000;
-    let mut notes: Table<engine::msg::Note> = Table::try_with_capacity(n).unwrap();
-    for _ in 0..n {
-        notes.push(engine::msg::Note::default()).unwrap();
+    // Per growth of the clip directory to its limit: one pointer per page.
+    let (mut p, mut e) = channel(DeviceSetup::default(), factory).unwrap();
+    let upload = |clip: u32| M::ClipNotesUpload {
+        clip: ClipSlot(clip),
+        length: Tick(960),
+        looped: false,
+        first: 0,
+        total: 1,
+        notes: vec![Note::default()],
+    };
+    let half = limits::MAX_CLIPS / 2;
+    for page in 0..half / PAGE_SLOTS as u32 {
+        let rt = p
+            .prepare(upload(page * PAGE_SLOTS as u32))
+            .unwrap()
+            .unwrap();
+        e.apply(rt);
+        p.collect();
     }
-    let mut next: Table<engine::msg::Note> = Table::try_with_capacity(n * 2).unwrap();
-    let t0 = Instant::now();
-    next.take_from(&mut notes);
-    let t1 = Instant::now();
+    let (apply, drop) = timed(&mut p, &mut e, upload(half));
     println!(
-        "moving {n} notes in apply would cost {:.0} µs (hence content tables are swapped by pointer)",
-        (t1 - t0).as_nanos() as f64 / 1000.0
+        "growth of the clip directory, {} pages moved ({} clips addressed): apply {apply:.1} µs, drop {drop:.1} µs",
+        half / PAGE_SLOTS as u32,
+        half
     );
-    assert_eq!(next.len(), n);
+    assert_eq!(e.state().clips.capacity(), limits::MAX_CLIPS as usize);
+
+    // A device row to its limit.
+    let (mut p, mut e) = channel(DeviceSetup::default(), factory).unwrap();
+    p.handle(create(0)).unwrap();
+    e.begin_block();
+    let devices = limits::MAX_DEVICES_PER_TRACK / 2;
+    for d in 0..devices {
+        let rt = p
+            .prepare(M::DeviceInsert {
+                track: TrackSlot(0),
+                device: DeviceSlot(d as u16),
+                kind: GAIN.kind_id,
+                state: vec![],
+            })
+            .unwrap()
+            .unwrap();
+        e.apply(rt);
+        p.collect();
+    }
+    let (apply, drop) = timed(
+        &mut p,
+        &mut e,
+        M::DeviceInsert {
+            track: TrackSlot(0),
+            device: DeviceSlot(devices as u16),
+            kind: GAIN.kind_id,
+            state: vec![],
+        },
+    );
+    println!(
+        "growth of a device row, {devices} devices moved: apply {apply:.1} µs, drop {drop:.1} µs"
+    );
 }

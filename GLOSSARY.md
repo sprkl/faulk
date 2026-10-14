@@ -82,7 +82,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 ## Modes et extensions
 
-**Message moteur** : ce que le projet envoie au moteur (`ControlMsg`, encodage binaire versionné), ce que `prepare` prépare hors chemin audio pour `apply` (`RtMsg`, jamais sérialisé, déplacé dans un anneau) et ce que le moteur renvoie à la page environ 30 fois par seconde (`Feedback`). Le projet nomme les structures du moteur par des emplacements (`TrackSlot`, `ClipSlot`…), jamais par ses identifiants. Code : `crates/engine/src/msg.rs` (contrat CT-3 ; `prepare` et `apply` viennent avec MO-1).
+**Message moteur** : ce que le projet envoie au moteur (`ControlMsg`, encodage binaire versionné), ce que `prepare` prépare hors chemin audio pour `apply` (`RtMsg`, jamais sérialisé, déplacé dans un anneau) et ce que le moteur renvoie à la page environ 30 fois par seconde (`Feedback`). Le projet nomme les structures du moteur par des emplacements (`TrackSlot`, `ClipSlot`…), jamais par ses identifiants. Code : `crates/engine/src/msg.rs` (contrat CT-3, codecs des messages) ; `Preparer::prepare` et `Engine::apply` dans `crates/engine/src/engine.rs` (MO-1).
 
 **Mode Web** : Faulk dans le navigateur seul, le moteur tourne dans un `AudioWorklet`. Code : `crates/engine-wasm`.
 

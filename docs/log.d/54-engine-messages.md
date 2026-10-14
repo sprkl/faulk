@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#54): the prepare/apply cycle (MO-1) is in the code: payload codecs of every `ControlMsg` (`crates/engine/src/msg/codec.rs`), `Preparer` and `Engine` with their rings, chunk staging, backpressure queue and garbage (`crates/engine/src/engine.rs`); a growth now travels in the same rt message as its item, clips and lanes are paged, `ParamSet` loses its offset; `specs/02-decoupage-mvp.md` § 2.3 records these choices and the measured costs, `GLOSSARY.md` ("Message moteur") points to the code.
