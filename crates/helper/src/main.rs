@@ -2,6 +2,10 @@
 //!
 //! Usage: `faulk-helper [--port 47800] [--allow-origin <origin>]... [--app-url <url>]`
 //!
+//! By default the helper accepts the production site and the local dev servers, and
+//! "Open Faulk" opens `https://www.faulk.app/app` in a release build and the dev server in
+//! a debug build (`tray_text::app_url`).
+//!
 //! On Windows the helper lives in the notification area (tray): status, pairing code,
 //! "Open Faulk", start with Windows, Quit. A release build has no console; its log is
 //! `<config dir>/faulk/logs/helper.log` (`%APPDATA%\faulk\logs` on Windows). On other
@@ -36,8 +40,12 @@ use std::time::{Duration, Instant};
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 const DEFAULT_PORT: u16 = 47800;
-/// The web app's dev server (`pnpm dev`, 5173) and its static preview (`pnpm preview`, 4173).
-const DEFAULT_ORIGINS: [&str; 4] = [
+/// The production site (the apex redirects to `www`, accepted in case that changes), then
+/// the web app's dev server (`pnpm dev`, 5173) and its static preview (`pnpm preview`,
+/// 4173). The same list in every build.
+const DEFAULT_ORIGINS: [&str; 6] = [
+    "https://www.faulk.app",
+    "https://faulk.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
@@ -392,7 +400,13 @@ mod tests {
         let a = args(&[]).unwrap();
         assert_eq!(a.port, DEFAULT_PORT);
         assert_eq!(a.origins, DEFAULT_ORIGINS);
-        assert_eq!(a.app_url, "http://localhost:5173/app");
+        // Tests run in a debug build unless `cargo test --release`.
+        let expected = if cfg!(debug_assertions) {
+            "http://localhost:5173/app"
+        } else {
+            "https://www.faulk.app/app"
+        };
+        assert_eq!(a.app_url, expected);
     }
 
     #[test]
@@ -516,5 +530,43 @@ mod tests {
         ] {
             assert!(DEFAULT_ORIGINS.contains(&origin), "{origin}");
         }
+    }
+
+    #[test]
+    fn default_origins_cover_the_production_site() {
+        for origin in ["https://www.faulk.app", "https://faulk.app"] {
+            assert!(DEFAULT_ORIGINS.contains(&origin), "{origin}");
+        }
+    }
+
+    #[test]
+    fn a_release_build_opens_the_site_and_a_debug_build_the_dev_server() {
+        assert_eq!(tray_text::app_url(true), "https://www.faulk.app/app");
+        assert_eq!(tray_text::app_url(false), "http://localhost:5173/app");
+        assert_eq!(
+            tray_text::default_app_url(),
+            tray_text::app_url(!cfg!(debug_assertions))
+        );
+    }
+
+    #[test]
+    fn both_default_pages_can_pair_with_the_default_origins() {
+        for release in [true, false] {
+            let url = tray_text::app_url(release);
+            assert!(DEFAULT_ORIGINS.contains(&origin_of(&url)), "{url}");
+        }
+    }
+
+    #[test]
+    fn flags_replace_the_production_defaults() {
+        let a = args(&[
+            "--allow-origin",
+            "https://example.test",
+            "--app-url",
+            "https://example.test/app",
+        ])
+        .unwrap();
+        assert_eq!(a.origins, ["https://example.test"]);
+        assert_eq!(a.app_url, "https://example.test/app");
     }
 }

@@ -111,6 +111,28 @@ Trois façons de lancer :
 
 `gh workflow run` ne fonctionne qu'une fois le workflow présent sur la branche par défaut (`develop`).
 
+## La page que le helper sert et ouvre
+
+Depuis la 0.1.1 (#138), un helper publié travaille avec le site de production. La 0.1.0 gardait les réglages de développement : elle refusait `https://www.faulk.app` et « Ouvrir Faulk » ouvrait `http://localhost:5173/app`.
+
+- **Origines acceptées par défaut**, dans toutes les versions : `https://www.faulk.app`, `https://faulk.app` (le domaine nu redirige aujourd'hui vers `www` par une redirection 308 du domaine sur Vercel, hors dépôt ; il est accepté au cas où cela change), puis les origines de développement `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:4173` et `http://127.0.0.1:4173` (`DEFAULT_ORIGINS`, `crates/helper/src/main.rs`). L'origine est comparée octet par octet à l'en-tête `Origin` que le navigateur envoie.
+- **Page ouverte par « Ouvrir Faulk »** : `https://www.faulk.app/app` dans un build de release, `http://localhost:5173/app` dans un build de debug (`tray_text::app_url`). La règle est `cfg!(debug_assertions)`, le même interrupteur que la fenêtre de console et le détecteur d'allocations : la CI empaquette `cargo build --release`, et `cargo run` sert au développement à côté de `pnpm dev`. Conséquence : `cargo run --release -p helper` ouvre lui aussi le site de production ; `--app-url http://localhost:5173/app` ramène la page locale.
+- `--allow-origin` (répétable) remplace toute la liste, `--app-url` remplace la page ouverte. Les tests de `main.rs` vérifient les deux valeurs par défaut et que la page de chacune est parmi les origines acceptées.
+
+### L'accès au réseau local dans Chrome et Edge
+
+Chrome et Edge demandent l'accord de l'utilisateur avant qu'une page publique joigne un service de la machine (Local Network Access). Depuis Chrome 147 (avril 2026, d'après la couverture de cette version ; le billet de Chrome de 2025 annonçait les WebSockets pour plus tard), cela vaut aussi pour les WebSockets, donc pour `ws://127.0.0.1:47800`. Le serveur n'a aucun en-tête à envoyer : contrairement à l'ancien Private Network Access, il n'y a ni prévol ni `Access-Control-Allow-Private-Network`, seulement l'autorisation de l'utilisateur. `ws://127.0.0.1` depuis une page HTTPS n'est pas du contenu mixte : la boucle locale est une origine de confiance.
+
+Constaté le 14 octobre 2026 avec Chrome 155.0.8059.41 et Edge 155.0.4283.45 sous Windows 11, profils neufs, pilotés par Playwright, contre un helper de release construit sur la branche de #138 :
+
+- au chargement de `https://www.faulk.app/app`, la sonde du helper ouvre une bulle sous la barre d'adresse : « www.faulk.app wants to — Access other apps and services on this device — Allow / Block » (Chrome en anglais). Les permissions `loopback-network` et `local-network-access` valent `prompt` ;
+- tant que la bulle est ouverte, la connexion attend ; la sonde abandonne après 1,5 s (« WebSocket is closed before the connection is established ») et la page affiche « No helper found » ;
+- **Allow** (cliqué à la main dans la bulle de Chrome lors d'un premier essai, puis posé par le protocole de débogage, `Browser.setPermission`, dans les autres) : les deux permissions passent à `granted` et sont retenues pour le site. La page en production ne sonde pas de nouveau d'elle-même : il faut « Check again », puis l'appairage et le passage en Boost fonctionnent (note jouée, `voices: 1` dans le retour du helper). Depuis #138, la page sonde de nouveau dès que la permission passe à `granted` (`web/src/lib/engine/local-access.ts`) ;
+- **Block** (posé par `Browser.setPermission`) : chaque connexion échoue aussitôt avec `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` et la page affiche « No helper found », ce qui est trompeur : le helper tourne, c'est le navigateur qui bloque. Revenir en arrière passe par les réglages du site (icône à gauche de l'adresse) ;
+- une page servie en local (`http://localhost:4173/app`) joint le helper sans aucune demande.
+
+L'interface doit expliquer cette demande (`constraints/01-contraintes.md`). Ce sont de nouveaux textes d'interface : ils attendent la validation du fondateur, proposés dans la pull request de #138.
+
 ## Compatibilité avec la page
 
 Le helper se met désormais à jour à son rythme, indépendamment du déploiement de `faulk.app`.
@@ -185,4 +207,5 @@ Enfin, le 14 octobre 2026, avec le **vrai helper câblé** (`main.rs` de cette b
 - [Velopack : démarrage en Rust](https://docs.velopack.io/getting-started/rust), [canaux](https://docs.velopack.io/packaging/channels), [hébergement](https://docs.velopack.io/distributing/overview), [signature](https://docs.velopack.io/packaging/signing)
 - [Vercel : redirections de `vercel.json`](https://vercel.com/docs/project-configuration#redirects)
 - [axoupdater](https://docs.rs/axoupdater), [self_update](https://docs.rs/self_update)
+- [Chrome : Local Network Access](https://developer.chrome.com/blog/local-network-access), [Chrome 147 et les WebSockets locaux (Phoronix)](https://www.phoronix.com/news/Chrome-147-Stable-Released)
 - [Azure Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)

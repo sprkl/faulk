@@ -25,7 +25,7 @@ Une latence n'est jamais annoncée sans mesure.
 - Web MIDI : Chrome, Edge, Firefox ; pas Safari.
 - `SharedArrayBuffer` exige l'isolation cross-origin (en-têtes COOP et COEP, ou `Document-Isolation-Policy` dans Chromium). Décision du fondateur du 2026-10-14 : l'isolation est acceptée, parce que le streaming des pistes audio et le canal vers le moteur en ont besoin ; elle est mise en place par la tâche AU-0 du [découpage du MVP](../specs/02-decoupage-mvp.md). Conséquences : polices et bibliothèques auto-hébergées, prudence avec les fenêtres d'autres origines (authentification), `credentialless` absent de Safari. Le code actuel ne l'utilise pas encore (commandes par `postMessage`).
 - Chrome ne transmet pas un `WebAssembly.Module` compilé à un `AudioWorklet` : on envoie les octets du module.
-- Le helper sur `localhost` déclenche une demande d'autorisation d'accès au réseau local dans Chrome : l'interface doit l'expliquer.
+- Le helper sur `localhost` déclenche, depuis une page publique comme `https://www.faulk.app`, une demande d'autorisation d'accès au réseau local dans Chrome et Edge (Local Network Access, WebSockets compris depuis Chrome 147 ; constatée avec Chrome et Edge 155, voir [Distribution du helper](../architecture/04-distribution-helper.md#laccès-au-réseau-local-dans-chrome-et-edge)) : l'interface doit l'expliquer. Une page servie en local n'en déclenche pas.
 
 ## Sécurité du pont local
 

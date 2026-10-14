@@ -39,6 +39,8 @@ export class Session {
   voices = $state(0)
   helper = $state<HelperState>('checking')
   helperProtocol = $state<number | null>(null)
+  /** Counts probes, so a late answer from an older probe never overwrites a newer one. */
+  private probes = 0
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
   /** Which engine plays: the page's (Web) or the helper's (Boost). */
   mode = $state<'web' | 'native'>('web')
@@ -195,17 +197,27 @@ export class Session {
     }
   }
 
-  /** Probes for the helper; returns what was found. */
+  /** Probes for the helper; returns what was found. Only the latest probe decides. */
   async checkHelper(): Promise<HelperState> {
+    const probe = ++this.probes
     this.helper = 'checking'
     const result = await probeHelper()
-    if (this.native) return this.helper
+    if (this.native || probe !== this.probes) return this.helper
     if (result.status === 'available') this.helper = 'available'
     else if (result.status === 'incompatible') {
       this.helper = 'incompatible'
       this.helperProtocol = result.protocol
     } else this.helper = 'absent'
     return this.helper
+  }
+
+  /**
+   * The browser now lets the page reach this device (`engine/local-access.ts`): probe
+   * again if the last probe found nothing or is still waiting behind the prompt.
+   */
+  onLocalAccessGranted() {
+    if (this.native) return
+    if (this.helper === 'absent' || this.helper === 'checking') void this.checkHelper()
   }
 
   /**
