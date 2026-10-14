@@ -1,0 +1,25 @@
+name: Agent scripts
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent-scripts:
+    # The agent guardrails (hooks, Judge Dredd brief, verification records) and the helper's
+    # Blob publication (its logic needs no dependency; @vercel/blob is loaded for real uploads only).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the agent scripts
+        run: node --test "scripts/**/*.test.mjs"

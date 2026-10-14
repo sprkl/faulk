@@ -34,7 +34,7 @@ cargo build -p project-wasm --target wasm32-unknown-unknown --release
 
 ## Web UI (any change under `web/`)
 
-1. In `web/`: `pnpm gen:protocol` (no diff), `pnpm typecheck`, `pnpm lint`, `pnpm test` (builds the wasm engine and runs it under Node), `pnpm build`.
+1. In `web/`: `pnpm gen:check` (regenerates `src/lib/generated/`, fails on a diff; `dev`, `build` and `test` regenerate it too), `pnpm typecheck`, `pnpm lint`, `pnpm test` (builds the wasm engine and runs it under Node), `pnpm build`.
 2. Start the dev server (`pnpm dev`, port 5173): the landing page is at `/` (`/en`, `/fr`) and the DAW at `/app`. Check the landing page with Playwright at 1440 and 390 px in both languages (no horizontal scroll, keyboard focus, no request to another host, no JavaScript loaded besides the lazily loaded animation chunk `landing/anim.*.js`, no wasm). The sound objects' animation (`web/src/lib/landing/anim/`): six `.is-live` stages, no console error, a still frame under `prefers-reduced-motion: reduce`, no rendering while off screen or in a hidden tab, axe 0 violation, and frame times measured while hovering the hero and the library (`?fk-anim-t=<s>&fk-anim-p=<x>,<y>` gives a reproducible frame for screenshots). Open the DAW (`/app`) with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
 3. Explore beyond the scripted flow: double clicks, reload during playback, helper connected then disconnected, tab in the background.
 
