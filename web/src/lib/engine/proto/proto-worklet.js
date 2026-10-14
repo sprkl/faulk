@@ -58,6 +58,7 @@ class FaulkProto extends AudioWorkletProcessor {
       msgCount: 0,
       bursts: {},
       grows: [],
+      fills: [],
       viewsRefreshed: 0,
       peak: 0,
       silentBlocks: 0,
@@ -91,9 +92,11 @@ class FaulkProto extends AudioWorkletProcessor {
         const module = new WebAssembly.Module(message.bytes)
         if (this.mode === 'a') {
           this.exports = new WebAssembly.Instance(module, {}).exports
-          this.exports.fk_proto_set_role(2)
           this.proto = this.exports.fk_proto_new(1)
           this.inst = this.exports.fk_new(sampleRate)
+          // The role (and its allocation counter) starts after the one-time setup, so that
+          // the counter holds what prepare-between-quanta costs, not the rings and instance.
+          this.exports.fk_proto_set_role(2)
         } else {
           const instance = new WebAssembly.Instance(module, {
             env: { memory: message.memory },
@@ -144,6 +147,18 @@ class FaulkProto extends AudioWorkletProcessor {
           collected,
           detached,
         })
+      } else if (message.type === 'fill') {
+        // Way (a): `n` boxed tracks prepared here, between two quanta, then applied.
+        const t0 = this.now()
+        let failed = 0
+        for (let i = 0; i < message.n; i++) failed += this.exports.fk_proto_prepare_track(this.proto, i)
+        let pumped = 0
+        while (pumped < message.n) {
+          const n = this.exports.fk_proto_pump(this.proto, this.inst)
+          if (n === 0) break
+          pumped += n
+        }
+        this.stats.fills.push({ us: Number(this.now() - t0) / this.ticksPerUs, n: message.n, failed, pumped })
       } else if (message.type === 'report') {
         const s = this.stats
         this.port.postMessage({
@@ -161,6 +176,9 @@ class FaulkProto extends AudioWorkletProcessor {
           msgUsHandler: s.msgCount ? Number(s.msgTicks / BigInt(s.msgCount)) / this.ticksPerUs : 0,
           bursts: Object.values(s.bursts).map((b) => ({ n: b.n, usPerMsg: Number(b.last - b.first) / this.ticksPerUs / b.n })),
           grows: s.grows,
+          fills: s.fills,
+          skipped: this.exports.fk_proto_skipped(this.proto),
+          garbageRefused: this.exports.fk_proto_garbage_refused(this.proto),
           viewsRefreshed: s.viewsRefreshed,
           peak: s.peak,
           silentBlocks: s.silentBlocks,
@@ -169,6 +187,7 @@ class FaulkProto extends AudioWorkletProcessor {
           applied: this.exports.fk_proto_applied(this.proto),
           notes: this.exports.fk_proto_notes_len(this.proto),
           tracksCapacity: this.exports.fk_proto_tracks_capacity(this.proto),
+          tracksLen: this.exports.fk_proto_tracks_len(this.proto),
           memoryBytes: this.exports.memory.buffer.byteLength,
           sampleRate,
         })

@@ -46,8 +46,11 @@ onmessage = (event) => {
       const tracks = exports.fk_proto_prepare_tracks(proto, message.tracks)
       const ms = performance.now() - t0
       postMessage({ type: 'grow-done', ms, before, after: memory.buffer.byteLength, notes, tracks })
-    } else if (message.type === 'track') {
-      postMessage({ type: 'track-done', result: exports.fk_proto_prepare_track(proto, message.slot) })
+    } else if (message.type === 'fill') {
+      const t0 = performance.now()
+      let failed = 0
+      for (let i = 0; i < message.n; i++) failed += exports.fk_proto_prepare_track(proto, i)
+      postMessage({ type: 'fill-done', ms: performance.now() - t0, failed })
     } else if (message.type === 'collect') {
       postMessage({ type: 'collect-done', collected: exports.fk_proto_collect(proto) })
     } else if (message.type === 'counters') {
@@ -55,11 +58,9 @@ onmessage = (event) => {
         type: 'counters-done',
         prepare: { allocs: exports.fk_proto_allocs(1), frees: exports.fk_proto_frees(1) },
         render: { allocs: exports.fk_proto_allocs(2), frees: exports.fk_proto_frees(2) },
+        // Only the prepare side's own fields: the render side's counters are read by the
+        // worklet, never from here (one writer, one reader per field, no shared &mut).
         busy: exports.fk_proto_busy(proto),
-        applied: exports.fk_proto_applied(proto),
-        notes: exports.fk_proto_notes_len(proto),
-        tracksLen: exports.fk_proto_tracks_len(proto),
-        tracksCapacity: exports.fk_proto_tracks_capacity(proto),
         role: exports.fk_proto_role(),
       })
     }

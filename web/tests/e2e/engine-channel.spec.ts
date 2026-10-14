@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -20,8 +20,31 @@ const build = `${proto}build/`
 
 test.describe.configure({ mode: 'serial' })
 
+// One measurement is enough: the prototype does not depend on the server, so the suite runs
+// under the dev project only (the preview project would repeat it on a busier machine).
+test.skip(({ browserName }) => Boolean(browserName) && test.info().project.name !== 'dev', 'measured once, under the dev project')
+
+/** Newest modification time under a directory (the crate's sources and manifest). */
+function newest(dir: string): number {
+  let t = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'target') continue
+    const path = `${dir}/${entry.name}`
+    t = Math.max(t, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs)
+  }
+  return t
+}
+
 test.beforeAll(() => {
-  if (!existsSync(`${build}plain.wasm`) || !existsSync(`${build}shared.wasm`) || process.env.CI) {
+  // Build the prototype when its artefacts are missing or older than the crate or the
+  // engine crates it depends on; a fresh checkout in CI builds once.
+  const outputs = [`${build}plain.wasm`, `${build}shared.wasm`]
+  const crates = fileURLToPath(new URL('../../../crates/', import.meta.url))
+  const sources = [`${proto}crate`, `${crates}engine`, `${crates}engine-wasm`]
+  const stale =
+    outputs.some((o) => !existsSync(o)) ||
+    Math.min(...outputs.map((o) => statSync(o).mtimeMs)) < Math.max(...sources.map(newest))
+  if (stale) {
     execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/build-proto.mjs', import.meta.url))], {
       stdio: 'inherit',
     })
@@ -56,6 +79,9 @@ type Report = {
   msgUsHandler: number
   bursts: { n: number; usPerMsg: number }[]
   grows: { us: number; before: number; after: number; notes: number; tracks: number; pumped: number; collected: number; detached: boolean }[]
+  fills: { us: number; n: number; failed: number; pumped: number }[]
+  skipped: number
+  garbageRefused: number
   viewsRefreshed: number
   peak: number
   silentBlocks: number
@@ -64,6 +90,7 @@ type Report = {
   applied: number
   notes: number
   tracksCapacity: number
+  tracksLen: number
   memoryBytes: number
   sampleRate: number
 }
@@ -77,14 +104,11 @@ type Run = {
   worker?: {
     bursts: { ms: number; busy: number }[]
     grows: { ms: number; before: number; after: number; notes: number; tracks: number }[]
+    fill: { ms: number; failed: number }
     counters: {
       prepare: { allocs: number; frees: number }
       render: { allocs: number; frees: number }
       busy: number
-      applied: number
-      notes: number
-      tracksLen: number
-      tracksCapacity: number
       role: number
     }
     maximumPages: number
@@ -178,11 +202,14 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
     await sleep(1000)
     const idle = (await ask({ type: 'report' })) as unknown as Report
 
-    // Load: ten bursts of 100 messages, then three growths of a million-note snapshot plus the
-    // track table at its limit (4096), each applied while the note keeps playing.
+    // Load: ten bursts of 100 messages; then the track table grown to its limit (4096) and
+    // filled with 4096 boxed tracks; then three growths, each a million-note snapshot plus
+    // the track table doubled (8192, 16384, 32768 slots: 4096 entries moved in apply each
+    // time), all applied while the note keeps playing.
     await ask({ type: 'reset' })
     const workerBursts: Record<string, unknown>[] = []
     const workerGrows: Record<string, unknown>[] = []
+    let workerFill: Record<string, unknown> = {}
     for (let burst = 0; burst < 10; burst++) {
       if (mode === 'a') {
         for (let i = 0; i < 100; i++) {
@@ -197,9 +224,19 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
       }
       await sleep(50)
     }
+    if (mode === 'a') {
+      node.port.postMessage({ type: 'grow', notes: 0, tracks: 4096 })
+      node.port.postMessage({ type: 'fill', n: 4096 })
+    } else {
+      workerGrows.push(await askWorker!({ type: 'grow', notes: 0, tracks: 4096 }))
+      workerFill = await askWorker!({ type: 'fill', n: 4096 })
+      // 4096 swaps drain at 128 per block: about 32 blocks.
+      await sleep(300)
+    }
     for (let i = 0; i < 3; i++) {
-      if (mode === 'a') node.port.postMessage({ type: 'grow', notes: 1_000_000, tracks: 4096 })
-      else workerGrows.push(await askWorker!({ type: 'grow', notes: 1_000_000, tracks: 4096 }))
+      const tracks = 8192 << i
+      if (mode === 'a') node.port.postMessage({ type: 'grow', notes: 1_000_000, tracks })
+      else workerGrows.push(await askWorker!({ type: 'grow', notes: 1_000_000, tracks }))
       await sleep(200)
     }
     if (mode === 'b') await askWorker!({ type: 'collect' })
@@ -219,7 +256,7 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
       load,
       worker:
         mode === 'b'
-          ? ({ bursts: workerBursts, grows: workerGrows, counters, maximumPages } as unknown as Run['worker'])
+          ? ({ bursts: workerBursts, grows: workerGrows, fill: workerFill, counters, maximumPages } as unknown as Run['worker'])
           : undefined,
       workletRole: ready.role as number,
     }
@@ -239,25 +276,29 @@ function table(run: Run) {
     lines.push(
       `  per message on the render thread: handler ${us(load.msgUsHandler)} µs (${load.msgCount} messages); burst of 100 incl. event dispatch: ${us(Math.min(...bursts))}–${us(Math.max(...bursts))} µs/msg`,
     )
-    for (const g of load.grows)
+    for (const f of load.fills) lines.push(`  fill of ${f.n} tracks on the render thread: ${us(f.us)} µs (failed ${f.failed}, pumped ${f.pumped})`)
+    for (const [i, g] of load.grows.entries())
       lines.push(
-        `  growth on the render thread: ${us(g.us)} µs (prepare 1 M notes + 4096 tracks, pump ${g.pumped}, collect ${g.collected}), memory ${g.before >> 20} → ${g.after >> 20} MiB, buffer detached ${g.detached}`,
+        `  growth on the render thread: ${us(g.us)} µs (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + table doubled, 4096 entries moved'}, pump ${g.pumped}, collect ${g.collected}), memory ${g.before >> 20} → ${g.after >> 20} MiB, buffer detached ${g.detached}`,
       )
-    lines.push(`  render-side allocations ${load.renderAllocs}, frees ${load.renderFrees} (prepare runs there in this way)`)
+    lines.push(`  render-side allocations ${load.renderAllocs}, frees ${load.renderFrees} (prepare runs there in this way; the one-time setup is not counted)`)
   } else {
     lines.push(
       `  per message on the render thread: pump ${us(load.pumpUsPerMsg)} µs/msg (${load.pumped} messages in ${load.pumpCalls} pumps, ${us(load.pumpUsPerCall)} µs per pump incl. empty ones, longest pump ${us(load.pumpMaxUs)} µs incl. the swaps; idle pump ${us(idle.pumpUsPerCall)} µs)`,
     )
+    lines.push(`  fill of 4096 tracks: prepare in the worker ${run.worker!.fill.ms.toFixed(2)} ms (failed ${run.worker!.fill.failed})`)
     for (const [i, g] of run.worker!.grows.entries())
       lines.push(
-        `  growth: prepare in the worker ${g.ms.toFixed(2)} ms (1 M notes + 4096 tracks, codes ${g.notes}/${g.tracks}), memory ${g.before >> 20} → ${g.after >> 20} MiB; worker burst ${i < run.worker!.bursts.length ? run.worker!.bursts[i].ms.toFixed(3) : '-'} ms/100`,
+        `  growth: prepare in the worker ${g.ms.toFixed(2)} ms (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + table doubled, 4096 entries moved in the pump'}, codes ${g.notes}/${g.tracks}), memory ${g.before >> 20} → ${g.after >> 20} MiB; worker burst ${i < run.worker!.bursts.length ? run.worker!.bursts[i].ms.toFixed(3) : '-'} ms/100`,
       )
     const c = run.worker!.counters
     lines.push(
       `  render-side allocations ${c.render.allocs}, frees ${c.render.frees}; prepare-side ${c.prepare.allocs}/${c.prepare.frees}; ring busy ${c.busy}; maximum ${run.worker!.maximumPages} pages; roles worker ${c.role} / worklet ${run.workletRole}`,
     )
   }
-  lines.push(`  views re-taken ${load.viewsRefreshed} times, memory ${load.memoryBytes >> 20} MiB, notes table ${load.notes}, track capacity ${load.tracksCapacity}`)
+  lines.push(
+    `  views re-taken ${load.viewsRefreshed} times, memory ${load.memoryBytes >> 20} MiB, notes table ${load.notes}, tracks ${load.tracksLen} in ${load.tracksCapacity} slots, applied ${load.applied}, skipped ${load.skipped}, garbage refused ${load.garbageRefused}`,
+  )
   return lines.join('\n')
 }
 
@@ -272,18 +313,22 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     expect(run.ticksPerUs).toBeGreaterThan(1)
     expect(load.msgCount).toBe(1000)
     expect(load.peak).toBeGreaterThan(0.01)
-    expect(load.grows).toHaveLength(3)
+    expect(load.grows).toHaveLength(4)
     for (const g of load.grows) {
       expect(g.notes).toBe(0)
       expect(g.tracks).toBe(0)
       expect(g.pumped).toBe(2)
     }
+    expect(load.fills).toEqual([expect.objectContaining({ n: 4096, failed: 0, pumped: 4096 })])
+    expect(load.tracksLen).toBe(4096)
+    expect(load.skipped).toBe(0)
+    expect(load.garbageRefused).toBe(0)
     // Attack: memory.grow while the worklet holds views. A plain memory detaches the old
     // buffer; the views are re-taken at the next block and the audio goes on.
-    expect(load.grows[0].detached).toBe(true)
+    expect(load.grows.some((g) => g.detached)).toBe(true)
     expect(load.viewsRefreshed).toBeGreaterThanOrEqual(1)
     expect(load.notes).toBe(1_000_000)
-    expect(load.tracksCapacity).toBe(4096)
+    expect(load.tracksCapacity).toBe(32768)
     // The budget, with margin: a message costs under 50 µs of render thread, dispatch included.
     for (const b of load.bursts) expect(b.usPerMsg).toBeLessThan(50)
     // Prepare on the render thread is the price of this way: it allocates and frees there.
@@ -303,23 +348,33 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     // each with its own thread-local role and its own stack.
     expect(c.role).toBe(1)
     expect(run.workletRole).toBe(2)
-    expect(load.pumped).toBe(1000 + 6)
-    expect(c.applied).toBe(1000 + 6)
+    // 1000 parameters, the growth to 4096 slots (two swaps: an empty notes table and the
+    // slot array), 4096 tracks, three growths of two swaps.
+    expect(load.pumped).toBe(1000 + 2 + 4096 + 6)
+    expect(load.applied).toBe(1000 + 2 + 4096 + 6)
     expect(c.busy).toBe(0)
+    expect(run.worker!.fill.failed).toBe(0)
+    expect(load.tracksLen).toBe(4096)
+    expect(load.skipped).toBe(0)
+    expect(load.garbageRefused).toBe(0)
     expect(load.peak).toBeGreaterThan(0.01)
     // The render side never allocated nor freed: the growths were prepared in the worker and
     // the old tables dropped there.
     expect(load.renderAllocs).toBe(0)
     expect(load.renderFrees).toBe(0)
     expect(c.prepare.frees).toBeGreaterThan(0)
-    expect(c.notes).toBe(1_000_000)
-    expect(c.tracksCapacity).toBe(4096)
+    expect(load.notes).toBe(1_000_000)
+    expect(load.tracksCapacity).toBe(32768)
+    expect(run.worker!.grows).toHaveLength(4)
     for (const g of run.worker!.grows) {
       expect(g.notes).toBe(0)
       expect(g.tracks).toBe(0)
       expect(g.after).toBeGreaterThanOrEqual(g.before)
     }
-    expect(run.worker!.grows[0].after).toBeGreaterThan(run.worker!.grows[0].before)
+    expect(run.worker!.grows[1].after).toBeGreaterThan(run.worker!.grows[1].before)
+    // The budget for a swap of a runtime table at its limit (4096 entries moved in the
+    // pump), with margin: the longest pump stays under 500 µs.
+    expect(load.pumpMaxUs).toBeLessThan(500)
     // Attack: memory.grow while the worklet holds views. A shared memory keeps the old buffer
     // valid; the worklet re-took its views (memory.buffer changed) and the audio went on.
     expect(load.viewsRefreshed).toBeGreaterThanOrEqual(1)

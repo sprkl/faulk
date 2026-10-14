@@ -58,11 +58,11 @@ fn per_message_and_per_growth_cost() {
     // Per growth: a full track table of MAX_TRACKS boxed entries moved into one twice as
     // large, in apply; then the drop of the emptied table on the control side.
     for tracks in [64usize, 1024, limits::MAX_TRACKS as usize] {
-        let mut audio: Table<Option<Opaque>> = Table::try_with_capacity(tracks).unwrap();
-        for i in 0..tracks {
-            audio.push(Some(Box::new([i as u8; 256]))).unwrap();
+        let mut audio: Table<Option<Opaque>> = Table::try_filled(tracks).unwrap();
+        for (i, slot) in audio.as_mut_slice().iter_mut().enumerate() {
+            *slot = Some(Box::new([i as u8; 256]));
         }
-        let next: Table<Option<Opaque>> = Table::try_with_capacity(tracks * 2).unwrap();
+        let next: Table<Option<Opaque>> = Table::try_filled(tracks * 2).unwrap();
         rt_tx
             .push(RtMsg::Swap(Swap {
                 kind: TableKind::Tracks,
@@ -88,8 +88,11 @@ fn per_message_and_per_growth_cost() {
             (t1 - t0).as_nanos() as f64 / 1000.0,
             (t2 - t1).as_nanos() as f64 / 1000.0
         );
-        assert_eq!(audio.len(), tracks);
         assert_eq!(audio.capacity(), tracks * 2);
+        assert_eq!(
+            audio.as_slice().iter().filter(|e| e.is_some()).count(),
+            tracks
+        );
     }
 
     // The counter-example that fixes the rule "content tables are snapshots": moving

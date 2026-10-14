@@ -1,10 +1,11 @@
 //! The frozen parts of `engine::msg` (CT-3): header codec, tags, limits, sizes.
 
 use engine::msg::{
-    ACTIVE_CLIP_BYTES, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind,
-    DeviceSlot, FEEDBACK_HEADER_BYTES, Feedback, HEADER_BYTES, Header, LaneSlot, MSG_ALIGN,
-    MSG_VERSION, MsgError, Note, Opaque, ParamId, Placement, RECORDED_NOTE_WIRE_BYTES, RtMsg,
-    SceneSlot, SourceSlot, TRACK_METER_BYTES, Tag, TrackKind, TrackSlot, limits,
+    ACTIVE_CLIP_BYTES, ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg,
+    DeviceKind, DeviceSlot, FEEDBACK_HEADER_BYTES, Feedback, HEADER_BYTES, Header, LaneSlot,
+    MSG_ALIGN, MSG_VERSION, MsgError, Note, Opaque, ParamId, Placement, RECORDED_NOTE_WIRE_BYTES,
+    RecordedNote, RtMsg, SceneSlot, SourceSlot, TRACK_METER_BYTES, Tag, TrackKind, TrackMeter,
+    TrackSlot, limits,
 };
 use engine::time::{Frame, Quantize, Tempo, Tick, TimeSignature};
 
@@ -274,9 +275,16 @@ fn a_bad_header_is_a_typed_error() {
             current: 4
         })
     );
-    // Only a Reset crosses epochs.
+    // Only a Reset crosses epochs, and only forward: a late Reset of a past epoch is stale.
     let reset = header(Tag::Reset, 0).encode();
-    assert_eq!(Header::decode(&reset, 4).map(|h| h.epoch), Ok(3));
+    assert_eq!(Header::decode(&reset, 2).map(|h| h.epoch), Ok(3));
+    assert_eq!(
+        Header::decode(&reset, 4),
+        Err(MsgError::StaleEpoch {
+            message: 3,
+            current: 4
+        })
+    );
 }
 
 #[test]
@@ -353,6 +361,10 @@ fn an_rt_message_is_small_and_sent_by_move() {
         size_of::<Note>()
     );
     assert_eq!(Feedback::size_for(0, 0, 0), FEEDBACK_HEADER_BYTES);
+    // The wire sizes of the Feedback records are their repr(C) sizes.
+    assert_eq!(size_of::<TrackMeter>(), TRACK_METER_BYTES);
+    assert_eq!(size_of::<ActiveClip>(), ACTIVE_CLIP_BYTES);
+    assert_eq!(size_of::<RecordedNote>(), RECORDED_NOTE_WIRE_BYTES);
     assert_eq!(
         Feedback::size_for(2, 3, 4),
         FEEDBACK_HEADER_BYTES

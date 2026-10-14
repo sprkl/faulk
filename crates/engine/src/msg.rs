@@ -49,11 +49,16 @@
 //! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
 //! | `NoteOn`, `NoteOff`, `AllNotesOff` | the live queue, never `prepare` |
 //!
-//! **Backpressure, no loss.** When the rt ring is full, `prepare` gets
-//! [`MsgError::EngineBusy`]: the prepare side keeps the rt message in its own ordered
-//! queue (it may allocate: it is off the audio path) and pushes it as soon as a slot frees;
-//! control messages are never dropped nor reordered. The project sees no error: its only
-//! bounds are the safety limits.
+//! **Backpressure, no loss.** When the rt ring is full, the prepare side keeps the rt
+//! message in its own ordered queue (it may allocate: it is off the audio path) and
+//! pushes it as soon as a slot frees; control messages are never dropped nor reordered.
+//! That queue is bounded too ([`limits::PENDING_QUEUE_CAPACITY`]): beyond it the engine
+//! is not consuming (audio context suspended, device lost) and `prepare` returns
+//! [`MsgError::EngineBusy`] to the project, which shows the stalled engine, stops sending,
+//! and resyncs with a `Reset` once the engine runs again. In web mode the page knows its
+//! `AudioContext` is suspended (background tab) and stops sending before that point. The
+//! memory of the tables parked in the queue is bounded only by the fallible allocation of
+//! `prepare` ([`MsgError::OutOfMemory`]), never by a trap.
 //!
 //! **Chunked uploads.** Notes, points and placements arrive in chunks (`first`, `total`)
 //! staged on the prepare side per slot. A chunk whose `first` is not the staged length, or
@@ -72,11 +77,16 @@
 //!   track) are immutable snapshots of the project's data: `prepare` builds the whole table
 //!   from the upload and `apply` swaps a pointer. They never grow in place: an edit is a new
 //!   upload. The cost on the audio thread does not depend on the table's size.
-//! - **Runtime tables** (tracks, audio sources: state the audio thread mutates) hold one
-//!   boxed entry per slot. When one is full, `prepare` builds the next one, empty, with
-//!   twice the capacity; `apply` moves the entries into it ([`Table::take_from`]: one
-//!   pointer per slot, bounded by the limit of that table, measured by `msg_cost`), swaps,
-//!   and pushes the old table to [`Garbage`].
+//! - **Runtime tables** (tracks, audio sources: state the audio thread mutates) are
+//!   **slot arrays**: every slot exists (`len == capacity`, built by
+//!   [`Table::try_filled`]), an empty slot holds `None`, and a message addresses a slot
+//!   directly (the project assigns slots, reuses freed ones, never above the limit). When
+//!   a message names a slot at or beyond the capacity, `prepare` first builds the next
+//!   table, empty, with the capacity doubled until the slot fits; `apply` moves the entries
+//!   into it ([`Table::take_from`]: one pointer per slot, bounded by the limit of that
+//!   table, measured by `msg_cost` and by the e2e suite), swaps, and pushes the old table
+//!   to [`Garbage`]. A slot beyond the capacity in `apply` is a contract violation: the
+//!   message is skipped and counted, never a panic.
 //!
 //! Every allocation of `prepare` is **fallible**: [`Table::try_with_capacity`] and
 //! [`try_box`], never `Box::new` nor `handle_alloc_error`. A refused allocation
@@ -140,8 +150,10 @@
 //!   [`MsgError::Corrupt`], [`MsgError::TooLarge`].
 //! - `epoch` is the engine generation held by the page. Only [`ControlMsg::Reset`] may
 //!   carry a new epoch: the engine adopts it and discards every staging of the previous
-//!   one; any other message whose epoch is not the current one is dropped and counted
-//!   ([`MsgError::StaleEpoch`]), equality only, no ordering across wraparound. When the
+//!   one, provided the epoch is **newer** (wrapping comparison, `(epoch - current) as i16 > 0`:
+//!   a `Reset` of a past epoch that was duplicated or replayed is dropped and counted, so a
+//!   late `Reset` never rolls the engine back); any other message whose epoch is not the
+//!   current one is dropped and counted ([`MsgError::StaleEpoch`]), equality only. When the
 //!   page switches engine (web ↔ helper) or comes back to an engine it had suspended, it
 //!   increments the epoch and resends the whole project after a `Reset`: a chunked upload
 //!   cut by the switch never completes in the old epoch, and a message of the old epoch
@@ -206,6 +218,8 @@ pub mod limits {
     pub const LIVE_QUEUE_CAPACITY: usize = 4096;
     /// Slots of the `RtMsg` ring and of the garbage ring.
     pub const RT_RING_CAPACITY: usize = 4096;
+    /// Rt messages the prepare side parks when the ring is full; beyond, `EngineBusy`.
+    pub const PENDING_QUEUE_CAPACITY: usize = 4096;
     /// Most `RtMsg` applied at the start of one block; the rest wait for the next block.
     pub const MAX_APPLY_PER_BLOCK: usize = 128;
     /// Largest render block, in frames (Web Audio allows up to 2048).
@@ -876,7 +890,8 @@ impl Header {
     }
 
     /// Reads a header from the start of `bytes` and checks it against the current `epoch`
-    /// (a `Reset` is accepted with any epoch: it is how the engine adopts a new one).
+    /// (a `Reset` of a newer epoch is accepted: it is how the engine adopts one; a `Reset`
+    /// of an older epoch is as stale as any other message).
     ///
     /// The checks go in this order: size, version, reserved bits, `len`, tag, epoch.
     pub fn decode(bytes: &[u8], current_epoch: u16) -> Result<Header, MsgError> {
@@ -903,7 +918,8 @@ impl Header {
             skip: Header::frame_len(len),
         })?;
         let epoch = u16::from_le_bytes([bytes[4], bytes[5]]);
-        if epoch != current_epoch && tag != Tag::Reset {
+        let newer = epoch.wrapping_sub(current_epoch) as i16 > 0;
+        if epoch != current_epoch && !(tag == Tag::Reset && newer) {
             return Err(MsgError::StaleEpoch {
                 message: epoch,
                 current: current_epoch,
@@ -980,18 +996,32 @@ impl<T: Default> Table<T> {
         (self.capacity() * 2).max(1)
     }
 
+    /// A slot array: `capacity` slots that all exist (`len == capacity`), each holding
+    /// `T::default()`; the runtime tables are built this way.
+    pub fn try_filled(capacity: usize) -> Result<Self, MsgError> {
+        let mut table = Self::try_with_capacity(capacity)?;
+        table.len = capacity;
+        Ok(table)
+    }
+
     /// Moves the items of `old` into this (larger) table, on the audio path: one move per
     /// item, no allocation, `old` keeps its storage (emptied) and goes to the garbage.
-    /// Items beyond this capacity stay in `old` (never happens when `prepare` doubled it).
+    /// Into a slot array (`len == capacity`) the items land in the first slots; into a
+    /// growing list they are appended. Items beyond this capacity stay in `old` (never
+    /// happens when `prepare` doubled it).
     pub fn take_from(&mut self, old: &mut Table<T>) {
-        let n = old.len.min(self.items.len() - self.len);
-        for (dst, src) in self.items[self.len..self.len + n]
+        let slot_array = self.is_full();
+        let start = if slot_array { 0 } else { self.len };
+        let n = old.len.min(self.items.len() - start);
+        for (dst, src) in self.items[start..start + n]
             .iter_mut()
             .zip(old.items[..n].iter_mut())
         {
             *dst = core::mem::take(src);
         }
-        self.len += n;
+        if !slot_array {
+            self.len += n;
+        }
         old.len -= n;
         if old.len > 0 {
             old.items.rotate_left(n);
@@ -1280,9 +1310,6 @@ pub struct RecordedNote {
     pub note: Note,
 }
 
-/// Size of a [`RecordedNote`] on the wire.
-pub const RECORDED_NOTE_BYTES: usize = 24;
-
 /// Size of the fixed part of a [`Feedback`] on the wire.
 pub const FEEDBACK_HEADER_BYTES: usize = 56;
 
@@ -1294,7 +1321,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///      0    1 version = FEEDBACK_VERSION
 ///      1    1 transport (TransportState)
 ///      2    2 epoch
-///      4    4 seq (+1 per report; a reader that sees it change while reading re-reads)
+///      4    4 seq (seqlock: the writer makes it odd before the body and even after;
+///             a reader takes an even seq, the body, then the same seq again, or re-reads)
 ///      8    8 playhead_tick (i64)
 ///     16    8 playhead_frame (u64)
 ///     24    4 cpu_load (f32, 0..1, render time over block time)

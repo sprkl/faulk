@@ -24,13 +24,16 @@ struct TrackState {
     devices: Vec<Opaque>,
 }
 
-/// The audio side: the live tables and the two rings' ends it holds.
+/// The audio side: the live tables (the track table is a slot array) and the two rings'
+/// ends it holds.
 struct AudioSide {
     tracks: Table<Option<Opaque>>,
     notes: Table<Note>,
     rt: Consumer<RtMsg>,
     garbage: Producer<Garbage>,
     applied: u32,
+    /// Messages naming a slot beyond the table: a contract violation, counted, no panic.
+    skipped: u32,
     rendered_blocks: u32,
     overflow_seen: u32,
     releases: u32,
@@ -57,17 +60,28 @@ impl AudioSide {
                 RtMsg::Swap(Swap {
                     kind: TableKind::Track(slot),
                     next: Prepared::Track(track),
-                }) => {
-                    let entry = &mut self.tracks.as_mut_slice()[slot.0 as usize];
-                    match entry.replace(track) {
+                }) => match self.tracks.as_mut_slice().get_mut(slot.0 as usize) {
+                    Some(entry) => match entry.replace(track) {
                         Some(old) => Garbage::Track(old),
                         None => continue,
+                    },
+                    None => {
+                        // Beyond the capacity: skipped, and the boxed track goes to the
+                        // garbage like anything else apply does not keep.
+                        self.skipped += 1;
+                        Garbage::Track(track)
                     }
-                }
+                },
                 RtMsg::Remove(TableKind::Track(slot)) => {
-                    match self.tracks.as_mut_slice()[slot.0 as usize].take() {
-                        Some(old) => Garbage::Track(old),
-                        None => continue,
+                    match self.tracks.as_mut_slice().get_mut(slot.0 as usize) {
+                        Some(entry) => match entry.take() {
+                            Some(old) => Garbage::Track(old),
+                            None => continue,
+                        },
+                        None => {
+                            self.skipped += 1;
+                            continue;
+                        }
                     }
                 }
                 _ => unreachable!("this prototype swaps clip notes and tracks only"),
@@ -90,6 +104,14 @@ impl AudioSide {
         self.apply_pending();
         self.rendered_blocks += 1;
     }
+
+    fn filled(&self) -> usize {
+        self.tracks
+            .as_slice()
+            .iter()
+            .filter(|e| e.is_some())
+            .count()
+    }
 }
 
 /// The control side: prepares, queues what the ring refuses, collects the garbage.
@@ -98,6 +120,9 @@ struct ControlSide {
     garbage: Consumer<Garbage>,
     /// What the full ring refused, in order; pushed as soon as a slot frees.
     pending: VecDeque<RtMsg>,
+    pending_capacity: usize,
+    /// The capacity of the track table it last gave the audio side.
+    track_capacity: usize,
     collected: u32,
     busy: u32,
 }
@@ -111,17 +136,29 @@ impl ControlSide {
         }
     }
 
-    /// Sends an rt message: through the ring, or into the ordered queue when it is full.
-    fn send(&mut self, msg: RtMsg) {
-        self.collect();
+    /// Sends an rt message: through the ring, or into the ordered queue when it is full;
+    /// `EngineBusy` once the queue is full too (the engine is not consuming).
+    fn send(&mut self, msg: RtMsg) -> Result<(), MsgError> {
         self.flush();
+        if !self.pending.is_empty() || self.rt.is_full() {
+            if self.pending.len() >= self.pending_capacity {
+                return Err(MsgError::EngineBusy);
+            }
+            self.busy += 1;
+            self.pending.push_back(msg);
+            return Ok(());
+        }
         if let Err(rtrb::PushError::Full(refused)) = self.rt.push(msg) {
             self.busy += 1;
             self.pending.push_back(refused);
         }
+        Ok(())
     }
 
+    /// Pushes what waited, in order, after draining the garbage (the invariant holds for
+    /// every push, queued or not).
     fn flush(&mut self) {
+        self.collect();
         while let Some(msg) = self.pending.pop_front() {
             if let Err(rtrb::PushError::Full(refused)) = self.rt.push(msg) {
                 self.pending.push_front(refused);
@@ -130,30 +167,34 @@ impl ControlSide {
         }
     }
 
-    /// `Engine::prepare` for a full notes table: a new snapshot with one more note.
+    /// `Engine::prepare` for a notes upload: a new snapshot.
     fn prepare_notes(&mut self, notes: &[Note]) -> Result<(), MsgError> {
         let mut next = Table::<Note>::try_with_capacity(notes.len())?;
         for n in notes {
-            next.push(*n).unwrap();
+            let _ = next.push(*n);
         }
         self.send(RtMsg::Swap(Swap {
             kind: TableKind::ClipNotes(CLIP),
             next: Prepared::ClipNotes(next),
-        }));
-        Ok(())
+        }))
     }
 
-    /// `Engine::prepare` for a full track table: the next one, empty, twice as large.
+    /// `Engine::prepare` for a track table too small: the next slot array, twice as large.
     fn prepare_grow_tracks(&mut self, next_capacity: usize) -> Result<(), MsgError> {
-        let next = Table::<Option<Opaque>>::try_with_capacity(next_capacity)?;
+        let next = Table::<Option<Opaque>>::try_filled(next_capacity)?;
+        self.track_capacity = next_capacity;
         self.send(RtMsg::Swap(Swap {
             kind: TableKind::Tracks,
             next: Prepared::Tracks(next),
-        }));
-        Ok(())
+        }))
     }
 
+    /// `Engine::prepare` for a track: grows the table first when the slot is beyond it.
     fn prepare_track(&mut self, slot: TrackSlot, devices: usize) -> Result<(), MsgError> {
+        while slot.0 as usize >= self.track_capacity {
+            let next = (self.track_capacity * 2).max(1);
+            self.prepare_grow_tracks(next)?;
+        }
         let mut state = TrackState {
             devices: Vec::new(),
         };
@@ -163,8 +204,7 @@ impl ControlSide {
         self.send(RtMsg::Swap(Swap {
             kind: TableKind::Track(slot),
             next: Prepared::Track(try_box(state)?),
-        }));
-        Ok(())
+        }))
     }
 }
 
@@ -176,15 +216,18 @@ fn sides(ring_capacity: usize, table_capacity: usize) -> (ControlSide, AudioSide
             rt: rt_tx,
             garbage: gc_rx,
             pending: VecDeque::new(),
+            pending_capacity: limits::PENDING_QUEUE_CAPACITY,
+            track_capacity: table_capacity,
             collected: 0,
             busy: 0,
         },
         AudioSide {
-            tracks: Table::try_with_capacity(table_capacity).unwrap(),
+            tracks: Table::try_filled(table_capacity).unwrap(),
             notes: Table::try_with_capacity(0).unwrap(),
             rt: rt_rx,
             garbage: gc_tx,
             applied: 0,
+            skipped: 0,
             rendered_blocks: 0,
             overflow_seen: 0,
             releases: 0,
@@ -206,41 +249,61 @@ fn a_runtime_table_goes_through_every_transition_without_allocating_on_the_audio
     let (mut control, mut audio) = sides(limits::RT_RING_CAPACITY, 2);
     let overflow = LiveOverflow::new();
 
-    // empty → filling → full: the push refuses typed, the table is unchanged.
-    assert!(audio.tracks.is_empty());
-    assert_no_alloc(|| {
-        audio.tracks.push(None).unwrap();
-        audio.tracks.push(None).unwrap();
-        assert!(audio.tracks.is_full());
-        assert!(matches!(audio.tracks.push(None), Err(TableFull(None))));
-    });
+    // A slot array: every slot exists, empty.
+    assert_eq!(audio.tracks.len(), 2);
+    assert_eq!(audio.filled(), 0);
+    // empty → filling → full: two tracks fill the two slots, with no allocation in apply.
     control.prepare_track(TrackSlot(0), 2).unwrap();
     control.prepare_track(TrackSlot(1), 0).unwrap();
     assert_no_alloc(|| audio.render_block(&overflow));
-    assert!(audio.tracks.as_slice().iter().all(Option::is_some));
+    assert_eq!(audio.filled(), 2);
+    assert_eq!(audio.tracks.capacity(), 2);
 
-    // full → growing: prepare builds the next table (this allocates, off the audio side).
-    let next_capacity = audio.tracks.next_capacity();
-    assert_eq!(next_capacity, 4);
-    control.prepare_grow_tracks(next_capacity).unwrap();
+    // full → growing: a track in slot 2 makes prepare build the next table first (this
+    // allocates, off the audio side); nothing changes before apply.
+    control.prepare_track(TrackSlot(2), 1).unwrap();
+    assert_eq!(control.track_capacity, 4);
     assert_eq!(audio.tracks.capacity(), 2, "nothing changes before apply");
 
-    // growing → swapped: apply moves the boxed entries (one pointer each) and swaps,
-    // with no allocation and no free.
+    // growing → swapped: apply moves the boxed entries (one pointer each) into the first
+    // slots of the new array, swaps, then lands the third track, with no allocation and
+    // no free.
     assert_no_alloc(|| audio.render_block(&overflow));
-    assert_eq!(audio.applied, 3);
+    assert_eq!(audio.applied, 4);
     assert_eq!(audio.tracks.capacity(), 4);
-    assert_eq!(audio.tracks.len(), 2);
-    assert!(audio.tracks.as_slice().iter().all(Option::is_some));
-    assert_no_alloc(|| {
-        audio.tracks.push(None).unwrap();
-        audio.tracks.push(None).unwrap();
-    });
+    assert_eq!(audio.filled(), 3);
+    assert_eq!(audio.skipped, 0);
 
     // swapped → collected: the old (emptied) table is freed on the control side.
     assert_eq!(control.collected, 0);
     control.collect();
     assert_eq!(control.collected, 1);
+}
+
+#[test]
+fn a_slot_beyond_the_table_is_skipped_and_counted_never_a_panic() {
+    // A contract violation (the project named a slot prepare did not grow for): the
+    // message is skipped, its box goes to the garbage, the audio side keeps rendering.
+    let (mut control, mut audio) = sides(8, 2);
+    let overflow = LiveOverflow::new();
+    control
+        .send(RtMsg::Swap(Swap {
+            kind: TableKind::Track(TrackSlot(5)),
+            next: Prepared::Track(try_box([0u8; 16]).unwrap() as Opaque),
+        }))
+        .unwrap();
+    control
+        .send(RtMsg::Remove(TableKind::Track(TrackSlot(7))))
+        .unwrap();
+    assert_no_alloc(|| audio.render_block(&overflow));
+    assert_eq!(audio.applied, 2);
+    assert_eq!(audio.skipped, 2);
+    assert_eq!(audio.filled(), 0);
+    control.collect();
+    assert_eq!(
+        control.collected, 1,
+        "the refused box was freed off the audio path"
+    );
 }
 
 #[test]
@@ -264,39 +327,28 @@ fn a_content_table_is_a_snapshot_swapped_by_pointer_whatever_its_size() {
 fn growth_during_playback_loses_nothing_and_skips_no_block() {
     let (mut control, mut audio) = sides(16, 1);
     let overflow = LiveOverflow::new();
-    let mut created = 0u32;
-    let mut grows = 0;
-    for _block in 0..600 {
+    for slot in 0..600u32 {
         // The project keeps creating tracks while the audio side renders every block.
-        if audio.tracks.push(None).is_err() {
-            control
-                .prepare_grow_tracks(audio.tracks.next_capacity())
-                .unwrap();
-            grows += 1;
-        } else {
-            control.prepare_track(TrackSlot(created), 1).unwrap();
-            created += 1;
-        }
+        control.prepare_track(TrackSlot(slot), 1).unwrap();
         assert_no_alloc(|| audio.render_block(&overflow));
     }
-    assert_eq!(audio.rendered_blocks, 600);
-    assert!(grows >= 9, "the table doubled at least nine times: {grows}");
-    assert_eq!(audio.tracks.len() as u32, created);
-    assert!(
-        audio.tracks.as_slice().iter().all(Option::is_some),
-        "every track kept its place"
-    );
+    for _ in 0..4 {
+        assert_no_alloc(|| audio.render_block(&overflow));
+        control.flush();
+    }
+    assert_eq!(audio.rendered_blocks, 604);
+    assert_eq!(control.track_capacity, 1024, "the table doubled ten times");
+    assert_eq!(audio.tracks.capacity(), 1024);
+    assert_eq!(audio.filled(), 600, "every track kept its place");
+    assert_eq!(audio.skipped, 0);
     control.collect();
-    assert_eq!(control.collected, grows);
+    assert_eq!(control.collected, 10);
 }
 
 #[test]
 fn a_full_rt_ring_queues_on_the_control_side_and_loses_nothing() {
     let (mut control, mut audio) = sides(2, 8);
     let overflow = LiveOverflow::new();
-    for _ in 0..8 {
-        audio.tracks.push(None).unwrap();
-    }
     for slot in 0..8 {
         control.prepare_track(TrackSlot(slot), 0).unwrap();
     }
@@ -310,37 +362,73 @@ fn a_full_rt_ring_queues_on_the_control_side_and_loses_nothing() {
     }
     assert_eq!(audio.applied, 8);
     assert!(control.pending.is_empty());
-    assert!(audio.tracks.as_slice().iter().all(Option::is_some));
+    assert_eq!(audio.filled(), 8);
+}
+
+#[test]
+fn a_full_pending_queue_is_engine_busy_for_the_project() {
+    // The engine is not consuming (suspended context): the ring fills, then the queue, then
+    // the project gets a typed error instead of unbounded parking.
+    let (mut control, mut audio) = sides(2, 8);
+    control.pending_capacity = 3;
+    for slot in 0..5 {
+        control.prepare_track(TrackSlot(slot), 0).unwrap();
+    }
+    assert_eq!(
+        control.prepare_track(TrackSlot(5), 0),
+        Err(MsgError::EngineBusy)
+    );
+    assert_eq!(control.pending.len(), 3);
+    // Once the engine consumes again, the queue drains in order and sending resumes.
+    let overflow = LiveOverflow::new();
+    for _ in 0..4 {
+        assert_no_alloc(|| audio.render_block(&overflow));
+        control.flush();
+    }
+    assert!(control.pending.is_empty());
+    control.prepare_track(TrackSlot(5), 0).unwrap();
+    assert_no_alloc(|| audio.render_block(&overflow));
+    assert_eq!(audio.filled(), 6);
 }
 
 #[test]
 fn the_garbage_ring_never_fills_because_prepare_drains_it_first() {
     // Ring of 2: two swaps in flight fill the rt ring; apply pushes two garbage entries,
-    // which is exactly the garbage ring's capacity. The third send drains them first.
+    // which is exactly the garbage ring's capacity. The third send drains them first, and
+    // so does every flush of the queue.
     let (mut control, mut audio) = sides(2, 1);
     let overflow = LiveOverflow::new();
     control.prepare_grow_tracks(2).unwrap();
     control.prepare_grow_tracks(4).unwrap();
+    control.prepare_grow_tracks(8).unwrap();
+    control.prepare_grow_tracks(16).unwrap();
+    assert_eq!(control.pending.len(), 2);
     assert_no_alloc(|| audio.render_block(&overflow));
     assert_eq!(control.collected, 0);
-    control.prepare_grow_tracks(8).unwrap();
-    assert_eq!(control.collected, 2);
+    control.flush();
+    assert_eq!(
+        control.collected, 2,
+        "the flush drained the garbage before pushing"
+    );
     assert_no_alloc(|| audio.render_block(&overflow));
-    assert_eq!(audio.applied, 3);
+    assert_eq!(audio.applied, 4);
+    control.collect();
+    assert_eq!(control.collected, 4);
 }
 
 #[test]
 fn removing_a_track_with_its_devices_is_one_garbage_item() {
     let (mut control, mut audio) = sides(2, 1);
     let overflow = LiveOverflow::new();
-    audio.tracks.push(None).unwrap();
     control.prepare_track(TrackSlot(0), 8).unwrap();
     assert_no_alloc(|| audio.render_block(&overflow));
-    control.send(RtMsg::Remove(TableKind::Track(TrackSlot(0))));
+    control
+        .send(RtMsg::Remove(TableKind::Track(TrackSlot(0))))
+        .unwrap();
     // The remove frees the track and its eight devices: one garbage item, no free in apply.
     assert_no_alloc(|| audio.render_block(&overflow));
     assert_eq!(audio.applied, 2);
-    assert!(audio.tracks.as_slice()[0].is_none());
+    assert_eq!(audio.filled(), 0);
     control.collect();
     assert_eq!(control.collected, 1);
 }
@@ -363,9 +451,11 @@ fn a_refused_allocation_is_a_typed_error_not_a_crash() {
     assert_no_alloc(|| audio.render_block(&overflow));
     assert_eq!(audio.applied, 0);
     assert_eq!(audio.tracks.capacity(), 1);
-    // Boxing goes through the same fallible path.
+    // Boxing goes through the same fallible path; a full table gives the item back.
     let boxed = try_box(7u64).unwrap();
     assert_eq!(*boxed, 7);
+    let mut full = Table::<u64>::try_with_capacity(0).unwrap();
+    assert_eq!(full.push(9), Err(TableFull(9)));
 }
 
 #[test]
@@ -518,8 +608,8 @@ fn an_engine_switch_in_the_middle_of_an_upload_drops_the_old_epoch_and_restarts(
     // Chunks of epoch 1 were in flight when the page switched engine and came back.
     let mut current = 1u16;
     assert!(Header::decode(&header(Tag::ClipNotesUpload, 1), current).is_ok());
-    // The page resets with epoch 3: adopted whatever the current epoch (it discards the
-    // staging of the cut upload).
+    // The page resets with epoch 3: adopted because newer (it discards the staging of the
+    // cut upload).
     let reset = Header::decode(&header(Tag::Reset, 3), current).unwrap();
     assert_eq!(reset.epoch, 3);
     current = reset.epoch;
@@ -532,6 +622,21 @@ fn an_engine_switch_in_the_middle_of_an_upload_drops_the_old_epoch_and_restarts(
         })
     );
     assert!(Header::decode(&header(Tag::ClipNotesUpload, 3), current).is_ok());
+    // A Reset of epoch 2 replayed late (a reconnect, a backlog) never rolls the engine
+    // back: it is as stale as any other message.
+    assert_eq!(
+        Header::decode(&header(Tag::Reset, 2), current),
+        Err(MsgError::StaleEpoch {
+            message: 2,
+            current: 3
+        })
+    );
+    // The epoch wraps: 0 is newer than 65535.
+    assert_eq!(
+        Header::decode(&header(Tag::Reset, 0), 65535).map(|h| h.epoch),
+        Ok(0)
+    );
+    assert!(Header::decode(&header(Tag::Reset, 65535), 0).is_err());
 }
 
 /// The chunk staging of the prepare side, as the module doc states it.

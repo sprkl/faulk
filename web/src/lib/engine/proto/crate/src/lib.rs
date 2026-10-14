@@ -1,13 +1,15 @@
 //! Prototype of the engine channel (CT-3): the real engine (`engine-wasm`'s `fk_*` exports
-//! come along with the rlib) plus the rt ring, a runtime table that grows, a content table
-//! swapped by pointer, and the garbage ring of `engine::msg`.
+//! come along with the rlib) plus the rt ring, a runtime table that grows (a slot array), a
+//! content table swapped by pointer, and the garbage ring of `engine::msg`.
 //!
 //! Way (a): one instance in the worklet, which calls the prepare exports between two quanta.
 //! Way (b): two instances on one shared memory; the Worker calls the prepare exports, the
 //! worklet only `fk_proto_pump` and `fk_render`.
 //!
-//! Every export takes a `Proto` pointer that must be null or a live pointer from
-//! [`fk_proto_new`]; a null pointer is ignored. Allocations on each instance are counted
+//! The state is split in two halves with one owner each: [`PrepareSide`] (the Worker, or
+//! the worklet between quanta in way (a)) and [`RenderSide`] (the worklet's `process`).
+//! Every export forms a `&mut` to its own half only, through the raw pointer, never to the
+//! whole [`Proto`]: the two threads never alias. Allocations on each instance are counted
 //! per role (a thread-local, so that two instances on one memory count apart) and read by
 //! the worklet to prove that the render side never allocates nor frees.
 
@@ -16,19 +18,11 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use engine::msg::{
-    Garbage, Note, Opaque, ParamId, Prepared, RtMsg, Swap, Table, TableFull, TableKind, TrackSlot,
-    limits,
+    Garbage, Note, Opaque, ParamId, Prepared, RtMsg, Swap, Table, TableKind, TrackSlot, limits,
 };
 use engine::time::Tick;
 use engine_wasm::Instance;
 use rtrb::{Consumer, Producer, RingBuffer};
-
-// Keep engine-wasm's exports linked in: the rlib's `#[no_mangle]` symbols are exported by
-// this cdylib as long as the crate is used.
-#[allow(dead_code)]
-fn link_engine_wasm(sample_rate: f32) -> *mut Instance {
-    engine_wasm::fk_new(sample_rate)
-}
 
 thread_local! {
     /// 0: unknown, 1: prepare side, 2: render side (set by `fk_proto_set_role`).
@@ -60,33 +54,70 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// The two rings and the audio side's tables.
-pub struct Proto {
+/// The prepare side's half: the rt producer, the garbage consumer, its counters.
+pub struct PrepareSide {
     rt_tx: Producer<RtMsg>,
-    rt_rx: Consumer<RtMsg>,
-    gc_tx: Producer<Garbage>,
     gc_rx: Consumer<Garbage>,
-    tracks: Table<Option<Opaque>>,
-    notes: Table<Note>,
-    applied: u32,
     busy: u32,
 }
 
-/// Converts an exported pointer back, or `None` when null.
+/// The render side's half: the rt consumer, the garbage producer, the tables.
+pub struct RenderSide {
+    rt_rx: Consumer<RtMsg>,
+    gc_tx: Producer<Garbage>,
+    tracks: Table<Option<Opaque>>,
+    notes: Table<Note>,
+    applied: u32,
+    /// Messages naming a slot beyond the track table (a contract violation, no panic).
+    skipped: u32,
+    /// Garbage the ring refused (the invariant broken); parked, never dropped here.
+    garbage_refused: u32,
+    parked: Option<Garbage>,
+}
+
+/// Both halves, allocated once by the prepare side.
+pub struct Proto {
+    prepare: PrepareSide,
+    render: RenderSide,
+}
+
+/// The prepare half, or `None` when null.
 ///
 /// # Safety
-/// `ptr` must be null or a pointer returned by [`fk_proto_new`] and not yet freed.
-unsafe fn proto<'a>(ptr: *mut Proto) -> Option<&'a mut Proto> {
-    // SAFETY: the caller guarantees `ptr` is null or a live pointer from `fk_proto_new`.
-    // The prepare side touches only `rt_tx`, `gc_rx`, `busy`; the render side only
-    // `rt_rx`, `gc_tx`, `tracks`, `notes`, `applied`: disjoint fields, one writer each.
-    unsafe { ptr.as_mut() }
+/// `ptr` must be null or a pointer returned by [`fk_proto_new`] and not yet freed, and
+/// only the prepare thread may call the exports that use this half.
+unsafe fn prepare_side<'a>(ptr: *mut Proto) -> Option<&'a mut PrepareSide> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: the caller guarantees a live pointer; the reference covers the `prepare`
+    // field only, through a place projection on the raw pointer (no `&mut Proto` is ever
+    // formed), and that field has one owner thread.
+    Some(unsafe { &mut (*ptr).prepare })
+}
+
+/// The render half, or `None` when null.
+///
+/// # Safety
+/// As [`prepare_side`], for the render thread.
+unsafe fn render_side<'a>(ptr: *mut Proto) -> Option<&'a mut RenderSide> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: as in `prepare_side`, for the `render` field.
+    Some(unsafe { &mut (*ptr).render })
 }
 
 /// Sets the role of this instance (1 prepare, 2 render) for the allocation counters.
 #[unsafe(no_mangle)]
 pub extern "C" fn fk_proto_set_role(role: u32) {
     ROLE.with(|r| r.set(role));
+}
+
+/// The role of this instance, to check that two instances keep their own thread-locals.
+#[unsafe(no_mangle)]
+pub extern "C" fn fk_proto_role() -> u32 {
+    ROLE.with(|r| r.get())
 }
 
 #[unsafe(no_mangle)]
@@ -99,30 +130,38 @@ pub extern "C" fn fk_proto_frees(role: u32) -> u32 {
     FREES[(role as usize).min(2)].load(Ordering::Relaxed)
 }
 
-/// Creates the rings and the tables (prepare side, allocates).
+/// Creates the rings and the tables (prepare side, allocates). The track table is a slot
+/// array of `track_capacity` slots.
 #[unsafe(no_mangle)]
 pub extern "C" fn fk_proto_new(track_capacity: u32) -> *mut Proto {
     let (rt_tx, rt_rx) = RingBuffer::new(limits::RT_RING_CAPACITY);
     let (gc_tx, gc_rx) = RingBuffer::new(limits::RT_RING_CAPACITY);
-    let Ok(tracks) = Table::try_with_capacity(track_capacity as usize) else {
+    let Ok(tracks) = Table::try_filled(track_capacity as usize) else {
         return core::ptr::null_mut();
     };
     let Ok(notes) = Table::try_with_capacity(0) else {
         return core::ptr::null_mut();
     };
     Box::into_raw(Box::new(Proto {
-        rt_tx,
-        rt_rx,
-        gc_tx,
-        gc_rx,
-        tracks,
-        notes,
-        applied: 0,
-        busy: 0,
+        prepare: PrepareSide {
+            rt_tx,
+            gc_rx,
+            busy: 0,
+        },
+        render: RenderSide {
+            rt_rx,
+            gc_tx,
+            tracks,
+            notes,
+            applied: 0,
+            skipped: 0,
+            garbage_refused: 0,
+            parked: None,
+        },
     }))
 }
 
-/// Leaks `bytes` of the shared heap: the stack and TLS area of a second instance.
+/// Leaks `bytes` of the shared heap: the stack of a second instance.
 #[unsafe(no_mangle)]
 pub extern "C" fn fk_proto_alloc(bytes: u32) -> *mut u8 {
     let mut v: Vec<u8> = Vec::new();
@@ -133,43 +172,59 @@ pub extern "C" fn fk_proto_alloc(bytes: u32) -> *mut u8 {
     Box::into_raw(v.into_boxed_slice()) as *mut u8
 }
 
-/// Prepare side: one `ParamSet` on the rt ring. Returns 1 when the ring is full.
-///
-/// # Safety
-/// `ptr` as in [`proto`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_proto_push_param(ptr: *mut Proto, param: u32, value: f32) -> u32 {
-    // SAFETY: forwarded from this function's contract.
-    let Some(p) = (unsafe { proto(ptr) }) else {
-        return 1;
-    };
-    let msg = RtMsg::ParamSet {
-        track: TrackSlot(0),
-        device: engine::msg::DeviceSlot(0),
-        param: ParamId(param),
-        value,
-        offset: 0,
-    };
+fn collect(p: &mut PrepareSide) -> u32 {
+    let mut n = 0;
+    while let Ok(garbage) = p.gc_rx.pop() {
+        drop(garbage);
+        n += 1;
+    }
+    n
+}
+
+/// Drains the garbage first (the invariant), then pushes; 0 ok, 2 ring full.
+fn send(p: &mut PrepareSide, msg: RtMsg) -> u32 {
+    collect(p);
     if p.rt_tx.push(msg).is_err() {
         p.busy += 1;
-        1
+        2
     } else {
         0
     }
+}
+
+/// Prepare side: one `ParamSet` on the rt ring. Returns 2 when the ring is full.
+///
+/// # Safety
+/// `ptr` as in [`prepare_side`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_proto_push_param(ptr: *mut Proto, param: u32, value: f32) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(p) = (unsafe { prepare_side(ptr) }) else {
+        return 2;
+    };
+    send(
+        p,
+        RtMsg::ParamSet {
+            track: TrackSlot(0),
+            device: engine::msg::DeviceSlot(0),
+            param: ParamId(param),
+            value,
+            offset: 0,
+        },
+    )
 }
 
 /// Prepare side: a content snapshot of `n` notes, swapped by pointer (0 ok, 1 out of
 /// memory, 2 ring full).
 ///
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`prepare_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_prepare_notes(ptr: *mut Proto, n: u32) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    let Some(p) = (unsafe { proto(ptr) }) else {
+    let Some(p) = (unsafe { prepare_side(ptr) }) else {
         return 2;
     };
-    collect(p);
     let Ok(mut next) = Table::<Note>::try_with_capacity(n as usize) else {
         return 1;
     };
@@ -181,87 +236,77 @@ pub unsafe extern "C" fn fk_proto_prepare_notes(ptr: *mut Proto, n: u32) -> u32 
             velocity: 100,
         });
     }
-    let swap = RtMsg::Swap(Swap {
-        kind: TableKind::ClipNotes(engine::msg::ClipSlot(0)),
-        next: Prepared::ClipNotes(next),
-    });
-    if p.rt_tx.push(swap).is_err() {
-        p.busy += 1;
-        2
-    } else {
-        0
-    }
+    send(
+        p,
+        RtMsg::Swap(Swap {
+            kind: TableKind::ClipNotes(engine::msg::ClipSlot(0)),
+            next: Prepared::ClipNotes(next),
+        }),
+    )
 }
 
-/// Prepare side: the next track table, `capacity` slots (0 ok, 1 out of memory, 2 full).
+/// Prepare side: the next track slot array, `capacity` slots (0 ok, 1 out of memory,
+/// 2 full).
 ///
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`prepare_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_prepare_tracks(ptr: *mut Proto, capacity: u32) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    let Some(p) = (unsafe { proto(ptr) }) else {
+    let Some(p) = (unsafe { prepare_side(ptr) }) else {
         return 2;
     };
-    collect(p);
-    let Ok(next) = Table::<Option<Opaque>>::try_with_capacity(capacity as usize) else {
+    let Ok(next) = Table::<Option<Opaque>>::try_filled(capacity as usize) else {
         return 1;
     };
-    let swap = RtMsg::Swap(Swap {
-        kind: TableKind::Tracks,
-        next: Prepared::Tracks(next),
-    });
-    if p.rt_tx.push(swap).is_err() {
-        p.busy += 1;
-        2
-    } else {
-        0
-    }
+    send(
+        p,
+        RtMsg::Swap(Swap {
+            kind: TableKind::Tracks,
+            next: Prepared::Tracks(next),
+        }),
+    )
 }
 
-/// Prepare side: a boxed track in `slot` (0 ok, 1 out of memory, 2 full).
+/// Prepare side: a boxed track for `slot` (0 ok, 1 out of memory, 2 full). The caller
+/// grows the table first when the slot is beyond it.
 ///
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`prepare_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_prepare_track(ptr: *mut Proto, slot: u32) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    let Some(p) = (unsafe { proto(ptr) }) else {
+    let Some(p) = (unsafe { prepare_side(ptr) }) else {
         return 2;
     };
-    collect(p);
     let Ok(track) = engine::msg::try_box([slot as u8; 256]) else {
         return 1;
     };
-    let swap = RtMsg::Swap(Swap {
-        kind: TableKind::Track(TrackSlot(slot)),
-        next: Prepared::Track(track as Opaque),
-    });
-    if p.rt_tx.push(swap).is_err() {
-        p.busy += 1;
-        2
-    } else {
-        0
-    }
-}
-
-fn collect(p: &mut Proto) -> u32 {
-    let mut n = 0;
-    while let Ok(garbage) = p.gc_rx.pop() {
-        drop(garbage);
-        n += 1;
-    }
-    n
+    send(
+        p,
+        RtMsg::Swap(Swap {
+            kind: TableKind::Track(TrackSlot(slot)),
+            next: Prepared::Track(track as Opaque),
+        }),
+    )
 }
 
 /// Prepare side: drops what the render side replaced; returns how many.
 ///
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`prepare_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_collect(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, collect)
+    unsafe { prepare_side(ptr) }.map_or(0, collect)
+}
+
+/// # Safety
+/// `ptr` as in [`prepare_side`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_proto_busy(ptr: *mut Proto) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { prepare_side(ptr) }.map_or(0, |p| p.busy)
 }
 
 /// Render side: pops up to `MAX_APPLY_PER_BLOCK` messages and applies them to the engine
@@ -269,18 +314,23 @@ pub unsafe extern "C" fn fk_proto_collect(ptr: *mut Proto) -> u32 {
 /// how many were applied.
 ///
 /// # Safety
-/// `ptr` as in [`proto`]; `inst` null or a live pointer from `fk_new`.
+/// `ptr` as in [`render_side`]; `inst` null or a live pointer from `fk_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_pump(ptr: *mut Proto, inst: *mut Instance) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    let Some(p) = (unsafe { proto(ptr) }) else {
+    let Some(r) = (unsafe { render_side(ptr) }) else {
         return 0;
     };
     // SAFETY: forwarded from this function's contract (single render thread).
     let mut inst = unsafe { inst.as_mut() };
+    if let Some(parked) = r.parked.take()
+        && let Err(rtrb::PushError::Full(again)) = r.gc_tx.push(parked)
+    {
+        r.parked = Some(again);
+    }
     let mut n = 0;
     for _ in 0..limits::MAX_APPLY_PER_BLOCK {
-        let Ok(msg) = p.rt_rx.pop() else { break };
+        let Ok(msg) = r.rt_rx.pop() else { break };
         n += 1;
         let garbage = match msg {
             RtMsg::ParamSet { param, value, .. } => {
@@ -294,86 +344,95 @@ pub unsafe extern "C" fn fk_proto_pump(ptr: *mut Proto, inst: *mut Instance) -> 
             RtMsg::Swap(Swap {
                 kind: TableKind::ClipNotes(_),
                 next: Prepared::ClipNotes(next),
-            }) => Some(Garbage::ClipNotes(core::mem::replace(&mut p.notes, next))),
+            }) => Some(Garbage::ClipNotes(core::mem::replace(&mut r.notes, next))),
             RtMsg::Swap(Swap {
                 kind: TableKind::Tracks,
                 next: Prepared::Tracks(mut next),
             }) => {
-                next.take_from(&mut p.tracks);
-                Some(Garbage::Tracks(core::mem::replace(&mut p.tracks, next)))
+                next.take_from(&mut r.tracks);
+                Some(Garbage::Tracks(core::mem::replace(&mut r.tracks, next)))
             }
             RtMsg::Swap(Swap {
                 kind: TableKind::Track(slot),
                 next: Prepared::Track(track),
-            }) => {
-                let i = slot.0 as usize;
-                if i < p.tracks.len() {
-                    p.tracks.as_mut_slice()[i]
-                        .replace(track)
-                        .map(Garbage::Track)
-                } else {
-                    // A new slot; a full table refuses it (never happens when the prepare
-                    // side grows the table first), and the boxed track is then dropped by
-                    // the prepare side as garbage.
-                    p.tracks
-                        .push(Some(track))
-                        .err()
-                        .and_then(|TableFull(t)| t.map(Garbage::Track))
+            }) => match r.tracks.as_mut_slice().get_mut(slot.0 as usize) {
+                Some(entry) => entry.replace(track).map(Garbage::Track),
+                None => {
+                    // Beyond the slot array: skipped, the box goes to the garbage.
+                    r.skipped += 1;
+                    Some(Garbage::Track(track))
                 }
-            }
+            },
+            // The other variants carry no heap in this prototype.
             _ => None,
         };
         if let Some(garbage) = garbage {
-            // The invariant (garbage drained before each push) makes this slot free.
-            let _ = p.gc_tx.push(garbage);
+            // The invariant (garbage drained before each push) makes this slot free; if it
+            // ever is not, the item is parked for the next pump, never dropped here.
+            if let Err(rtrb::PushError::Full(refused)) = r.gc_tx.push(garbage) {
+                r.garbage_refused += 1;
+                if r.parked.is_none() {
+                    r.parked = Some(refused);
+                } else {
+                    // A second refusal while one is parked: leaked rather than freed on
+                    // the render thread, and counted (the e2e asserts the counter is 0).
+                    core::mem::forget(refused);
+                }
+            }
         }
     }
-    p.applied += n;
+    r.applied += n;
     n
 }
 
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`render_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_applied(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, |p| p.applied)
+    unsafe { render_side(ptr) }.map_or(0, |r| r.applied)
 }
 
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`render_side`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_proto_busy(ptr: *mut Proto) -> u32 {
+pub unsafe extern "C" fn fk_proto_skipped(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, |p| p.busy)
+    unsafe { render_side(ptr) }.map_or(0, |r| r.skipped)
 }
 
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`render_side`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_proto_garbage_refused(ptr: *mut Proto) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { render_side(ptr) }.map_or(0, |r| r.garbage_refused)
+}
+
+/// Filled slots of the track table.
+///
+/// # Safety
+/// `ptr` as in [`render_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_tracks_len(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, |p| p.tracks.len() as u32)
+    unsafe { render_side(ptr) }.map_or(0, |r| {
+        r.tracks.as_slice().iter().filter(|e| e.is_some()).count() as u32
+    })
 }
 
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`render_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_tracks_capacity(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, |p| p.tracks.capacity() as u32)
+    unsafe { render_side(ptr) }.map_or(0, |r| r.tracks.capacity() as u32)
 }
 
 /// # Safety
-/// `ptr` as in [`proto`].
+/// `ptr` as in [`render_side`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fk_proto_notes_len(ptr: *mut Proto) -> u32 {
     // SAFETY: forwarded from this function's contract.
-    unsafe { proto(ptr) }.map_or(0, |p| p.notes.len() as u32)
-}
-
-/// The role of this instance, to check that two instances keep their own thread-locals.
-#[unsafe(no_mangle)]
-pub extern "C" fn fk_proto_role() -> u32 {
-    ROLE.with(|r| r.get())
+    unsafe { render_side(ptr) }.map_or(0, |r| r.notes.len() as u32)
 }
