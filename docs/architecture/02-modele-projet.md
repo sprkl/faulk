@@ -103,7 +103,8 @@ pub enum ClipContent {
     // Musical time: length and loop in ticks.
     Midi { length: Tick, looping: Option<Loop>, notes: BTreeSet<Note> },
     // Source time: a range of the audio file in frames; no length in ticks is stored.
-    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64, looping: Option<Loop> },
+    // Loop in source frames, relative to `start`, within [0, frames]: never in ticks.
+    Audio { media: Hash, sample_rate: u32, start: Frame, frames: Frame, gain_db: f64, looping: Option<FrameLoop> },
 }
 
 // Ord compares fields in declaration order: (start, pitch, length, velocity).
