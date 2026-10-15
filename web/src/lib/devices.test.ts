@@ -41,6 +41,11 @@ describe('device panels from the descriptors', () => {
     expect(formatValue(attack, 0.005)).toBe('5 ms')
     expect(formatValue(attack, 2.5)).toBe('2.50 s')
     expect(formatValue(sustain, 0.7)).toBe('70 %')
+    const gain = knobParams(SYNTH)[4]
+    expect(gain.unit).toBe('gain')
+    expect(formatValue(gain, 1)).toBe('0.0 dB')
+    expect(formatValue(gain, 0.8)).toBe('-1.9 dB')
+    expect(formatValue(gain, 0)).toBe('−∞ dB')
   })
 
   it('places the engine defaults inside the knob ranges', () => {

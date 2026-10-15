@@ -55,7 +55,7 @@ export function valueAt(p: ParamDescriptor, position: number): number {
   return v
 }
 
-/** A value for display, by unit. A plain level (unit none, 0 to 1) is a percentage. */
+/** A value for display, by unit: a linear gain in decibels, a plain level (unit none, 0 to 1) as a percentage. */
 export function formatValue(p: ParamDescriptor, value: number): string {
   // Every unit of the contract (`Unit`), not only those of the devices exported today.
   const unit: string = p.unit
@@ -64,6 +64,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`
     case 'hertz':
       return value < 1000 ? `${Math.round(value)} Hz` : `${(value / 1000).toFixed(2)} kHz`
+    case 'gain':
+      return value > 0 ? `${(20 * Math.log10(value)).toFixed(1)} dB` : '−∞ dB'
     case 'decibels':
       return `${value.toFixed(1)} dB`
     case 'semitones':

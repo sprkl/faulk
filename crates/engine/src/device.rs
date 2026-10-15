@@ -469,8 +469,10 @@ pub type Factory = fn(&DeviceSetup) -> Result<Box<dyn Device>, MsgError>;
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Unit {
-    /// A plain number (a linear gain, a level from 0 to 1, an index).
+    /// A plain number (a level from 0 to 1, an index).
     None,
+    /// A linear gain (an amplitude factor, 1 = unity): shown in decibels, `20 log10(value)`.
+    Gain,
     Seconds,
     Hertz,
     Decibels,

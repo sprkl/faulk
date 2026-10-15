@@ -90,7 +90,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(5),
             key: "gain",
-            unit: Unit::None,
+            unit: Unit::Gain,
             min: 0.0,
             max: 1.0,
             default: 0.8,
