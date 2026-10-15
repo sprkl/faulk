@@ -43,6 +43,16 @@ cargo build -p project-wasm --target wasm32-unknown-unknown --release
 2. Start the dev server (`pnpm dev`, port 5173): the landing page is at `/` (`/en`, `/fr`) and the DAW at `/app`. Check the landing page with Playwright at 1440 and 390 px in both languages (no horizontal scroll, keyboard focus, no request to another host, no JavaScript loaded besides the lazily loaded animation chunk `landing/anim.*.js`, no wasm). The sound objects' animation (`web/src/lib/landing/anim/`): six `.is-live` stages, no console error, a still frame under `prefers-reduced-motion: reduce`, no rendering while off screen or in a hidden tab, axe 0 violation, and frame times measured while hovering the hero and the library (`?fk-anim-t=<s>&fk-anim-p=<x>,<y>` gives a reproducible frame for screenshots). Open the DAW (`/app`) with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
 3. Explore beyond the scripted flow: double clicks, reload during playback, helper connected then disconnected, tab in the background.
 
+### Timing budgets of the e2e specs
+
+`engine-mo2.spec.ts` (the shipped worklet) and `engine-channel.spec.ts` (the CT-3 prototype, kept as the evidence of the chosen way) measure the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit). Both numbers are printed in the test output. A shared CI runner is slower and noisier than a workstation (one preempted quantum is enough to reach 512 µs), so by default the assertions hold a ceiling ten times the budget (20 µs, 5 000 µs): it catches a change of order of magnitude, not a regression of a few percent. The strict budgets are held by `FAULK_E2E_STRICT_TIMING=1`, on a reference machine, never in CI:
+
+```bash
+cd web && FAULK_E2E_STRICT_TIMING=1 pnpm exec playwright test engine-mo2 engine-channel --project=dev
+```
+
+Run it before a release and after any change to `crates/engine`, `crates/engine-wasm` or `web/src/lib/engine/worklet.ts`; report the printed numbers and the machine in the pull request.
+
 ## Helper packaging and updates (changes to `crates/helper/src/updater.rs`, `release-helper.yml`, `web/vercel.json`, `scripts/helper-release/`, the tray's update entries)
 
 - `cargo test -p helper updater` covers channels, feed filtering, URL building, error classification against a loopback server, the update thread on a fake backend, the `get.faulk.app` redirects read from `web/vercel.json` (one public Blob origin, each helper URL to its store path, the download address cited by the page texts), and `cargo test -p helper tray_text` the tray's update entries for every `UpdateStatus`.

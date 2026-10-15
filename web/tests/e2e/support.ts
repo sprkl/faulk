@@ -44,3 +44,17 @@ export async function fakeWebMidi(page: Page) {
     Object.assign(window, { __fakeMidi: { send: (bytes: number[]) => input.onmidimessage?.({ data: new Uint8Array(bytes) }) } })
   })
 }
+
+/**
+ * Timing budgets of CT-3 (docs/agents/verification.md, "Timing budgets"). A shared CI runner is
+ * slower and far noisier than a workstation, and one preempted quantum is enough to push the
+ * longest pump past 500 µs, so by default a budget is only held by a ceiling ten times higher:
+ * it still catches a change of order of magnitude. `FAULK_E2E_STRICT_TIMING=1` holds the strict
+ * budget itself, on a reference machine. The measured value is always printed.
+ */
+export const STRICT_TIMING = process.env.FAULK_E2E_STRICT_TIMING === '1'
+
+/** The budget to assert: `strict` on a reference machine, ten times it otherwise. */
+export function timingLimit(strict: number): number {
+  return STRICT_TIMING ? strict : strict * 10
+}

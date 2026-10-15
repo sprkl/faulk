@@ -1,0 +1,2 @@
+2026-10-15
+* **Update** (#220): the two e2e specs that measure the engine channel (`engine-channel.spec.ts`, the CT-3 prototype, and `engine-mo2.spec.ts`, the shipped worklet) no longer fail on a noisy CI runner: their timing assertions (2 µs per pumped message, 500 µs for the longest pump) hold a ceiling ten times higher by default, and the strict budgets only with `FAULK_E2E_STRICT_TIMING=1` on a reference machine; the numbers are printed in both cases; method in `agents/verification.md` ("Timing budgets").

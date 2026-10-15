@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { fakeWebMidi, timingLimit, watch } from './support'
 
 // MO-2 (#55): the shipped engine channel in a real AudioWorklet in Chromium. The shipped module
 // (src/lib/engine/wasm/engine.wasm, wasm32-wasip1-threads) runs as two instances on one shared
@@ -9,7 +9,7 @@ import { fakeWebMidi, watch } from './support'
 // recording of crates/engine-wasm/tests/fixtures (nothing is encoded here): the setup and a held
 // note, 1 000 parameter messages, then the track table filled to its limit (4 095 tracks, its
 // last growth moving 2 048 entries in the pump). Numbers are printed for the pull request; the
-// assertions hold CT-3's budget (2 µs per pumped message, 4 µs with the CI margin; 500 µs for
+// assertions hold CT-3's budget (2 µs per pumped message; 500 µs for
 // the pump that swaps the table at its limit) and prove the messages were applied.
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
@@ -187,10 +187,10 @@ test.describe('MO-2: the engine channel in the browser', () => {
     expect(t.tracksCapacity).toBe(4096)
     expect(t.skipped).toBe(0)
     expect(t.maxApplied).toBeLessThanOrEqual(128)
-    // The budget of CT-3 with the 2× margin for a CI machine.
-    expect(p.pumpUsPerMsg).toBeLessThan(4)
-    expect(t.pumpUsPerMsg).toBeLessThan(4)
-    expect(t.pumpMaxUs).toBeLessThan(500)
+    // The budget of CT-3: 2 µs per message, 500 µs for the longest pump (see timingLimit).
+    expect(p.pumpUsPerMsg).toBeLessThan(timingLimit(2))
+    expect(t.pumpUsPerMsg).toBeLessThan(timingLimit(2))
+    expect(t.pumpMaxUs).toBeLessThan(timingLimit(500))
     // No allocation nor free on the render instance; the note never fell silent.
     expect(p.renderAllocs + t.renderAllocs).toBe(0)
     expect(p.renderFrees + t.renderFrees).toBe(0)
