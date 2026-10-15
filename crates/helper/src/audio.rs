@@ -16,7 +16,7 @@
 //! encoding to the page side of that link is BO-1's.
 
 use commands::Command;
-use commands::engine_msgs::EngineStream;
+use commands::engine_msgs::Synced;
 use engine::host::{Host, Prepare};
 use engine::msg::MsgError;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -82,19 +82,23 @@ impl Meter {
 /// non-real-time threads only.
 pub struct EventSender {
     prepare: Prepare,
-    stream: EngineStream,
+    /// The one-synth project the commands run on, and the engine's stream (PR-3).
+    stream: Synced,
 }
 
 impl EventSender {
-    /// Sends a command to the engine: mapped and encoded by the command layer, then
-    /// submitted as bytes, the web engine's path. Commands the engine does not take are
-    /// ignored. A stream the engine stops (out of memory, engine busy) is logged.
+    /// Runs a command on the project and sends its engine messages, encoded by the
+    /// command layer, as bytes: the web engine's path. A command the project refuses,
+    /// or a stream the engine stops (out of memory, engine busy), is logged.
     pub fn send(&mut self, command: &Command) {
-        let result = self
-            .stream
-            .command(command)
-            .and_then(|bytes| self.submit(&bytes));
-        if let Err(error) = result {
+        let bytes = match self.stream.run(command) {
+            Ok((_, bytes)) => bytes,
+            Err(error) => {
+                crate::log!("the command was refused: {error:?}");
+                return;
+            }
+        };
+        if let Err(error) = self.submit(&bytes) {
             crate::log!("the engine refused a command: {error:?}");
         }
     }
@@ -123,8 +127,8 @@ pub struct AudioCore {
     meter: Arc<Meter>,
 }
 
-/// Creates the audio core and the sender that feeds it, with the one synth set up
-/// (`commands::engine_msgs::single_synth_setup`).
+/// Creates the audio core and the sender that feeds it, with the one-synth project set up
+/// (`commands::engine_msgs::Synced::setup`: a `Reset` and the project's snapshot).
 pub fn audio_core(
     sample_rate: f32,
     meter: Arc<Meter>,
@@ -132,7 +136,7 @@ pub fn audio_core(
     let (prepare, host) = engine::host::channel(sample_rate)?;
     let mut sender = EventSender {
         prepare,
-        stream: EngineStream::new(EPOCH),
+        stream: Synced::single_synth(EPOCH),
     };
     let setup = sender.stream.setup()?;
     sender.submit(&setup)?;

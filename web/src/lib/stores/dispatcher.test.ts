@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EngineEvents } from '../engine/engine'
 
 const pairHelper = vi.fn()
 type Probe = { status: 'absent' } | { status: 'available' }
@@ -8,10 +9,12 @@ vi.mock('../engine/helper-client', () => ({
   pairHelper: (code: string) => pairHelper(code),
   probeHelper: () => probeHelper(),
 }))
+let webEvents: EngineEvents | null = null
 vi.mock('../engine/web-engine', () => ({
   WebEngine: {
-    create: () =>
+    create: (events: EngineEvents) =>
       Promise.resolve({
+        _: (webEvents = events),
         kind: 'web',
         run: vi.fn(),
         status: () => ({ sampleRate: 48000, bufferFrames: 128, estimatedLatencyMs: null }),
@@ -214,5 +217,15 @@ describe('a pairing link that could not reach the helper behind the prompt', () 
     probeHelper.mockResolvedValueOnce({ status: 'absent' })
     await session.dispatcher.onLocalAccessGranted()
     expect(pairHelper).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a stream the Web engine refuses', () => {
+  it('becomes the engine error state', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.engine.streamError).toBeNull()
+    webEvents?.onStreamRefused?.(-3, 128)
+    expect(session.engine.streamError).toEqual({ code: -3, at: 128 })
   })
 })

@@ -29,6 +29,11 @@ export class EngineStore {
   localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
   notice = $state<MessageKey | null>(null)
+  /**
+   * The Web engine stopped taking the stream (`MsgError` code, byte offset): it is behind the
+   * project until a resync. An error state only: its message and the resync are PR-5's.
+   */
+  streamError = $state<{ code: number; at: number } | null>(null)
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)
   /** Code from a `#pair=` link, used once audio has started (browsers need a click). */
   pendingPairCode = $state<string | null>(null)

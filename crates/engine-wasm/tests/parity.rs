@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use commands::engine_msgs::EngineStream;
+use commands::engine_msgs::{EngineStream, Synced, single_synth};
 use commands::{Command as Cmd, device, live};
 use engine::OSC_SYNTH;
 use engine::msg::{ControlMsg, DeviceSlot, TrackKind, TrackSlot};
@@ -41,17 +41,11 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// The single-synth ids (`protocol::single_synth`).
-mod protocol_ids {
-    pub const TRACK: &str = "00000000000000000000000001";
-    pub const DEVICE: &str = "00000000000000000000000002";
-}
-
 /// The session, as the command layer encodes it today.
 fn record() -> Vec<Step> {
     use Step::*;
-    let track = || project::TrackId::parse(protocol_ids::TRACK).unwrap();
-    let synth = || project::DeviceId::parse(protocol_ids::DEVICE).unwrap();
+    let track = single_synth::track;
+    let synth = single_synth::device;
     let on = |n: u8, v: u8| {
         Cmd::Live(live::Command::NoteOn {
             track: track(),
@@ -72,11 +66,11 @@ fn record() -> Vec<Step> {
             value: v,
         })
     };
-    let mut s = EngineStream::new(1);
+    let mut s = Synced::single_synth(1);
     let mut steps = vec![Push(s.setup().unwrap())];
     macro_rules! c {
         ($cmd:expr) => {
-            Push(s.command(&$cmd).unwrap())
+            Push(s.run(&$cmd).unwrap().1)
         };
     }
     steps.push(c!(set("waveform", 1.0)));

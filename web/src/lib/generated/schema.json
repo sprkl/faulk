@@ -2010,7 +2010,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Start playback from the current position. Played live: not undoable, not saved.",
+            "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
             "properties": {
               "type": {
                 "const": "transport.play",
@@ -4241,7 +4241,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -7460,7 +7460,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -10706,7 +10706,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -13934,7 +13934,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -17150,7 +17150,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -20373,7 +20373,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -23603,7 +23603,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -26830,7 +26830,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -30046,7 +30046,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -33271,7 +33271,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -36500,7 +36500,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -39750,7 +39750,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -42971,7 +42971,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -46198,7 +46198,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -49427,7 +49427,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -52650,7 +52650,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -55877,7 +55877,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -59111,7 +59111,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -62353,7 +62353,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -65581,7 +65581,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -68809,7 +68809,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -70077,7 +70077,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Start playback from the current position. Played live: not undoable, not saved.",
+        "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -72037,7 +72037,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -75243,7 +75243,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -78449,7 +78449,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -81661,7 +81661,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -84884,7 +84884,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -88124,7 +88124,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -91353,7 +91353,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -94566,7 +94566,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -97824,7 +97824,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -101058,7 +101058,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -104285,7 +104285,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -107508,7 +107508,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -110738,7 +110738,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -113961,7 +113961,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -117167,7 +117167,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -120388,7 +120388,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -123614,7 +123614,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -126833,7 +126833,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -130039,7 +130039,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -133264,7 +133264,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -136489,7 +136489,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -139702,7 +139702,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -142915,7 +142915,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the current position. Played live: not undoable, not saved.",
+                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -146138,7 +146138,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Start playback from the current position. Played live: not undoable, not saved.",
+              "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
               "properties": {
                 "type": {
                   "const": "transport.play",

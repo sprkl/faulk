@@ -53,6 +53,9 @@ export class Dispatcher {
         this.state.selectedInput = selected
       },
       onMidiActivity: (note, velocity) => this.markNote(note, velocity),
+      onStreamRefused: (code, at) => {
+        if (current()) this.state.streamError = { code, at }
+      },
       onError: (code) => {
         if (code === 'session.replaced') this.state.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.state.notice = 'midi.connectError'
@@ -78,6 +81,7 @@ export class Dispatcher {
     if (this.state.started || this.state.starting) return
     this.state.starting = true
     try {
+      this.state.streamError = null
       this.web = await WebEngine.create(this.events('web'))
       this.state.started = true
       this.state.notice = null

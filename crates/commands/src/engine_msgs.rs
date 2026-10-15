@@ -31,15 +31,15 @@ use std::collections::BTreeSet;
 
 use engine::devices::REGISTRY;
 use engine::msg::{
-    AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg,
-    Curve, DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
+    AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
+    DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
     Placement as EnginePlacement, PlacementSlot, SceneSlot, Span as EngineSpan, TrackKind,
     TrackSlot, encode_state, limits,
 };
 use project::{
-    AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId,
-    DeviceSource, EngineSlots, IdGenerator, LaneId, MixerParam, OrderKey, Placement,
-    PlacementId, Project, ProjectId, SessionState, Shape, Span, Track, TrackId, TrackSlots,
+    AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId, DeviceSource,
+    EngineSlots, IdGenerator, LaneId, MixerParam, OrderKey, Placement, PlacementId, Project,
+    ProjectId, SessionState, Shape, Span, Track, TrackId, TrackSlots,
 };
 
 use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State};
@@ -129,8 +129,7 @@ fn compile_event(
         }
         ProjectEvent::TrackDeleted { track } => remove_track(track, sync, out),
         ProjectEvent::ClipCreated { track, clip, .. } => {
-            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track))
-            else {
+            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
                 return;
             };
             if let Some(c) = t.clips.get(clip) {
@@ -406,7 +405,10 @@ fn device_insert(device: &Device) -> Option<(DeviceKind, Vec<u8>)> {
     let DeviceSource::Builtin { id, .. } = &device.source else {
         return None;
     };
-    let descriptor = REGISTRY.iter().find(|b| b.descriptor.kind == id)?.descriptor;
+    let descriptor = REGISTRY
+        .iter()
+        .find(|b| b.descriptor.kind == id)?
+        .descriptor;
     let values: Vec<(ParamId, f32)> = device
         .params
         .iter()
@@ -508,9 +510,7 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     let mut placed: Vec<(&PlacementId, &Placement)> = track
         .placements
         .iter()
-        .filter(|(_, p)| {
-            matches!(p.span, Span::Ticks { .. }) && sync.clips.get(&p.clip).is_some()
-        })
+        .filter(|(_, p)| matches!(p.span, Span::Ticks { .. }) && sync.clips.get(&p.clip).is_some())
         .collect();
     placed.sort_by(|a, b| (a.1.start, a.0).cmp(&(b.1.start, b.0)));
     let previous = sync
@@ -526,8 +526,7 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     let mut kept = BTreeSet::new();
     let mut items = Vec::with_capacity(placed.len());
     for (pid, p) in placed {
-        let (Some(clip), Span::Ticks { length, offset }) = (sync.clips.get(&p.clip), p.span)
-        else {
+        let (Some(clip), Span::Ticks { length, offset }) = (sync.clips.get(&p.clip), p.span) else {
             continue;
         };
         let Some(at) = sync.placements.assign(pid, limits::MAX_PLACEMENTS) else {
@@ -617,7 +616,10 @@ fn lane_msgs(
 }
 
 /// The messages of an upload in chunks of [`CHUNK_ITEMS`]; one empty message for none.
-fn chunked<T: Clone>(items: &[T], make: impl Fn(u32, u32, Vec<T>) -> ControlMsg) -> Vec<ControlMsg> {
+fn chunked<T: Clone>(
+    items: &[T],
+    make: impl Fn(u32, u32, Vec<T>) -> ControlMsg,
+) -> Vec<ControlMsg> {
     let total = items.len() as u32;
     if items.is_empty() {
         return vec![make(0, 0, Vec::new())];

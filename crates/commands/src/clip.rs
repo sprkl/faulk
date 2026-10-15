@@ -26,8 +26,8 @@
 use crate::contract::{ClipPart, CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
 use project::limits::{
-    MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_PLACEMENTS, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS_PER_TRACK,
-    MAX_TICK,
+    MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS,
+    MAX_PLACEMENTS_PER_TRACK, MAX_TICK,
 };
 use project::{
     Clip, ClipContent, ClipId, Note, Placement, PlacementId, Project, Quantize, Rgb, SceneId, Span,
@@ -400,7 +400,12 @@ fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(),
         more,
         MAX_PLACEMENTS_PER_TRACK,
     )?;
-    check_total("placements", project.counts().placements, more, MAX_PLACEMENTS)
+    check_total(
+        "placements",
+        project.counts().placements,
+        more,
+        MAX_PLACEMENTS,
+    )
 }
 
 fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {

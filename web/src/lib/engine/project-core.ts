@@ -1,6 +1,7 @@
 // The page's command → engine stream mapping, in Rust (crates/project-wasm over
-// commands::engine_msgs, MO-2): TypeScript never maps a command to the engine. Interim C ABI
-// until PR-4 runs the whole project in this module.
+// commands::engine_msgs, PR-3): the module runs each command on its one-synth project and
+// returns the engine messages of the outcome. TypeScript never maps a command to the engine.
+// Interim C ABI until PR-4.
 import type { Command } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
 
@@ -16,6 +17,8 @@ interface ProjectExports {
 
 /** The command JSON is not a command this build knows (`ERR_BAD_COMMAND`). */
 export const ERR_BAD_COMMAND = -100
+/** The project refused the command (unknown track or device, invalid value): nothing changed. */
+export const ERR_REFUSED = -101
 
 let loading: Promise<WebAssembly.Module> | null = null
 
@@ -44,17 +47,26 @@ export class EngineStream {
     return new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len).slice()
   }
 
-  /** The setup of a fresh engine: a `Reset` to this epoch, the synth's track, the synth. */
+  /** The setup of a fresh engine: a `Reset` to this epoch and the snapshot of the project. */
   setup(): Uint8Array {
     return this.take(this.exports.pw_setup(this.stream))
   }
 
-  /** The bytes of a command; empty when the engine does not take it. */
+  /**
+   * Runs a command on the project and returns its engine messages; empty when it has none, or
+   * when the project refused it (a warning: the dispatcher only sends commands the project
+   * takes, so a refusal is a page bug, not a user error).
+   */
   command(command: Command): Uint8Array {
     const json = this.encoder.encode(JSON.stringify(command))
     const inbox = this.exports.pw_inbox(json.length)
     if (!inbox) throw new Error('engine stream: out of memory')
     new Uint8Array(this.exports.memory.buffer, inbox, json.length).set(json)
-    return this.take(this.exports.pw_command(this.stream, json.length))
+    const len = this.exports.pw_command(this.stream, json.length)
+    if (len === ERR_REFUSED) {
+      console.warn(`the project refused ${command.type}`)
+      return new Uint8Array()
+    }
+    return this.take(len)
   }
 }

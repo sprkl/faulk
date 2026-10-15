@@ -1288,13 +1288,21 @@ fn every_count_limit_has_a_failing_case() {
         ),
         ("notes", Limits { notes: 1, ..s }, "tracks".into()),
         ("points", Limits { points: 1, ..s }, "tracks".into()),
-        ("clips in the project", Limits { clips: 0, ..s }, "tracks".into()),
+        (
+            "clips in the project",
+            Limits { clips: 0, ..s },
+            "tracks".into(),
+        ),
         (
             "placements in the project",
             Limits { placements: 0, ..s },
             "tracks".into(),
         ),
-        ("lanes in the project", Limits { lanes: 1, ..s }, "tracks".into()),
+        (
+            "lanes in the project",
+            Limits { lanes: 1, ..s },
+            "tracks".into(),
+        ),
     ];
     assert_eq!(fx.project.validate_with(&s), Ok(()));
     for (what, limits, path) in cases {

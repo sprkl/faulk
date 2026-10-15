@@ -29,7 +29,9 @@ pub const MAX_METRONOME_DB: f64 = 6.0;
 domain! {
     domain = "transport", schema = ("TransportCommand", "TransportOutput");
 
-    /// Start playback from the current position. Played live: not undoable, not saved.
+    /// Start playback from the position of the last `transport.seek` (the start of the
+    /// project at first), also after a `transport.stop`. Does nothing while already
+    /// playing. Played live: not undoable, not saved.
     "transport.play" (kind = "live", undo = "none", destructive = false)
     Play {} => {};
 

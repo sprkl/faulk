@@ -333,8 +333,13 @@ fn apply_entry(
 ) -> Result<Applied, CommandError> {
     // The engine's slot table too: the messages of the commands already applied are
     // dropped with the error, so the engine never saw them.
-    let saved = (entry.commands.len() > 1)
-        .then(|| (state.project.clone(), state.session.clone(), ctx.engine.clone()));
+    let saved = (entry.commands.len() > 1).then(|| {
+        (
+            state.project.clone(),
+            state.session.clone(),
+            ctx.engine.clone(),
+        )
+    });
     let mut reverse = Vec::with_capacity(entry.commands.len());
     let mut events = Vec::new();
     let mut control = Vec::new();

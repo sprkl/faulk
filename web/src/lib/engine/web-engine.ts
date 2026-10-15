@@ -79,9 +79,11 @@ export class WebEngine implements Engine {
     worker.onmessage = (event: MessageEvent<FromPrepare>) => {
       const data = event.data
       // A stream the engine stopped (`MsgError::code`): out of memory, engine busy, corrupt.
-      // Reported, not shown yet: the resync and its message belong to PR-3 and PR-5.
-      if (data.type === 'pushed') console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
-      else if (data.type === 'error') console.error(`engine worker: ${data.message}`)
+      // Surfaced as the engine store's error state; its message and the resync are PR-5's.
+      if (data.type === 'pushed') {
+        console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
+        events.onStreamRefused?.(data.code, data.at)
+      } else if (data.type === 'error') console.error(`engine worker: ${data.message}`)
     }
 
     const node = new AudioWorkletNode(context, 'faulk-engine', {

@@ -88,6 +88,12 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Message moteur** : ce que le projet envoie au moteur (`ControlMsg`, encodage binaire versionné), ce que `prepare` prépare hors chemin audio pour `apply` (`RtMsg`, jamais sérialisé, déplacé dans un anneau) et ce que le moteur renvoie à la page environ 30 fois par seconde (`Feedback`). Le projet nomme les structures du moteur par des emplacements (`TrackSlot`, `ClipSlot`…), jamais par ses identifiants. Code : `crates/engine/src/msg.rs` (contrat CT-3, codecs des messages) ; `Preparer::prepare` et `Engine::apply` dans `crates/engine/src/engine.rs` (MO-1).
 
+**Compilateur projet → moteur** : ce qui traduit chaque commande appliquée en messages moteur, d'après la commande (notes jouées, lecture, arrêt, déplacement) et ses événements lus sur l'état d'après ; chaque `Outcome` porte ainsi ses `ControlMsg`, une annulation comprise. Code : `commands::engine_msgs::compile`, appelé par `Command::apply` (PR-3).
+
+**Instantané** (du projet, pour le moteur) : les messages qui amènent un moteur vide au projet entier (réglages du transport, pistes, chaînes, clips, emplacements de la grille, arrangement, couloirs), précédés d'un `Reset` ; c'est ce qu'envoient l'ouverture d'un projet, la bascule Web ↔ Boost et la reprise d'un flux refusé. À ne pas confondre avec une version. Code : `commands::engine_msgs::snapshot`, `resync`, `Synced::setup` (PR-3).
+
+**Table des emplacements** : la correspondance, tenue côté projet pour un moteur, entre les identifiants du projet et les emplacements moteur ; chaque entité reçoit le plus petit emplacement libre de son type (les emplacements libérés sont réutilisés), la table grandit sans plafond sous les limites du moteur et est reconstruite par chaque instantané. Elle vit dans le contexte des commandes, pas dans l'état : l'annulation rend l'état exact, pas la table. Code : `project::EngineSlots`, `SlotTable` (`crates/project/src/slots.rs`), `Context::engine` (PR-3).
+
 **Mode Web** : Faulk dans le navigateur seul, le moteur tourne dans un `AudioWorklet`. Code : `crates/engine-wasm`.
 
 **Mode Boost** : Faulk avec l'assistant natif (le helper), pour la latence professionnelle et les plugins tiers ; le moteur y est le même. Code : `crates/helper`.
