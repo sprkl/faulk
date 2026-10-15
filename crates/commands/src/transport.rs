@@ -4,9 +4,9 @@
 //! Contract of the values (TR-3):
 //!
 //! - **`play`, `stop` and `seek` are `live`**: they change neither the project nor the
-//!   session and never enter the history. `apply` only checks `seek`'s position and
-//!   returns no engine message: until PR-3 gives the control messages (as for `live.*`),
-//!   nothing plays, and each host must translate them to the engine itself.
+//!   session and never enter the history. `apply` only checks `seek`'s position; their
+//!   engine messages come from `engine_msgs::compile` (PR-3): `seek` moves the cue,
+//!   `play` starts from the cue (nothing while already playing), `stop` stops.
 //! - **Tempo, time signature, loop and metronome are `edit`s** in the project: undoable
 //!   and saved. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
 //!   clamped. One tempo and one time signature per project in the MVP: the commands set

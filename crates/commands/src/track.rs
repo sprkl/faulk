@@ -29,7 +29,9 @@
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, TrackPart, Undo};
 use crate::macros::domain;
 use engine::devices::{Builtin, REGISTRY};
-use project::limits::{MAX_NAME_CHARS, MAX_NOTES, MAX_POINTS, MAX_TRACKS};
+use project::limits::{
+    MAX_CLIPS, MAX_LANES, MAX_NAME_CHARS, MAX_NOTES, MAX_PLACEMENTS, MAX_POINTS, MAX_TRACKS,
+};
 use project::{
     AutomationLane, AutomationTarget, CLIP_PLAYER, Clip, ClipContent, ClipId, Device, DeviceId,
     DeviceRole, DeviceSource, LaneId, OrderKey, Placement, PlacementId, Rgb, Track, TrackId,
@@ -208,7 +210,7 @@ fn last_key(state: &State) -> Result<OrderKey, CommandError> {
 
 /// The instrument a MIDI track plays, from the registry: refused when the type is
 /// unknown or is not an instrument.
-fn instrument_device(kind_id: &str) -> Result<Device, CommandError> {
+pub(crate) fn instrument_device(kind_id: &str) -> Result<Device, CommandError> {
     instrument_from(REGISTRY, kind_id)
 }
 
@@ -579,6 +581,7 @@ fn duplicate_within(
         track_notes(source),
         track_points(source),
     )?;
+    check_counts_fit(&state.project, source)?;
     let order = state.project.tracks_in_order();
     let at = order
         .iter()
@@ -669,6 +672,42 @@ fn check_copy_fits(
     Ok(())
 }
 
+/// Refuses a copy of `source` that would take the project past its limits of clips,
+/// placements or lanes (project-wide, as the engine's slots are).
+fn check_counts_fit(project: &project::Project, source: &Track) -> Result<(), CommandError> {
+    counts_fit(
+        project.counts(),
+        source,
+        (MAX_CLIPS, MAX_PLACEMENTS, MAX_LANES),
+    )
+}
+
+/// [`check_counts_fit`] with the caps given, so a test reaches them.
+fn counts_fit(
+    counts: project::Counts,
+    source: &Track,
+    (max_clips, max_placements, max_lanes): (usize, usize, usize),
+) -> Result<(), CommandError> {
+    for (entity, count, more, max) in [
+        ("clips", counts.clips, source.clips.len(), max_clips),
+        (
+            "placements",
+            counts.placements,
+            source.placements.len(),
+            max_placements,
+        ),
+        ("lanes", counts.lanes, source.automation.len(), max_lanes),
+    ] {
+        if count.saturating_add(more) > max {
+            return Err(CommandError::Limit {
+                entity: entity.into(),
+                max: max as u64,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn track_notes(track: &Track) -> usize {
     track
         .clips
@@ -696,6 +735,58 @@ mod tests {
     use engine::msg::DeviceKind;
 
     const CAPS: (usize, usize) = (MAX_NOTES, MAX_POINTS);
+
+    #[test]
+    fn a_copy_is_refused_past_the_project_wide_clips_placements_or_lanes() {
+        let f = fixture();
+        let mut source = f.state.project.tracks[&f.track].clone();
+        let clip = ClipId::parse("00000000000000000000000077").unwrap();
+        source.clips.insert(
+            clip.clone(),
+            project::Clip {
+                name: String::new(),
+                color: None,
+                slot: None,
+                launch_quantize: None,
+                content: ClipContent::Midi {
+                    length: project::Tick(960),
+                    looping: None,
+                    notes: Default::default(),
+                },
+            },
+        );
+        let counts = |clips, placements, lanes| project::Counts {
+            clips,
+            placements,
+            lanes,
+        };
+        assert_eq!(counts_fit(counts(9, 0, 0), &source, (10, 10, 10)), Ok(()));
+        assert_eq!(
+            counts_fit(counts(10, 0, 0), &source, (10, 10, 10)),
+            Err(CommandError::Limit {
+                entity: "clips".into(),
+                max: 10
+            })
+        );
+        let empty = Track::new(project::TrackKind::Midi, "", OrderKey::first());
+        assert_eq!(counts_fit(counts(10, 10, 10), &empty, (10, 10, 10)), Ok(()));
+        let mut one_each = empty.clone();
+        one_each.placements.insert(
+            project::PlacementId::parse("00000000000000000000000078").unwrap(),
+            project::Placement {
+                clip,
+                start: project::Tick(0),
+                span: project::Span::Ticks {
+                    length: project::Tick(960),
+                    offset: project::Tick(0),
+                },
+            },
+        );
+        assert!(matches!(
+            counts_fit(counts(0, 10, 0), &one_each, (10, 10, 10)),
+            Err(CommandError::Limit { entity, .. }) if entity == "placements"
+        ));
+    }
 
     #[test]
     fn a_copy_is_refused_exactly_past_the_notes_or_points_limit() {

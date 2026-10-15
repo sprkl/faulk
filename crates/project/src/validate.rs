@@ -233,6 +233,10 @@ impl Project {
         }
         c.count(notes, c.limits.notes, "tracks");
         c.count(points, c.limits.points, "tracks");
+        let counts = self.counts();
+        c.count(counts.clips, c.limits.clips, "tracks");
+        c.count(counts.placements, c.limits.placements, "tracks");
+        c.count(counts.lanes, c.limits.lanes, "tracks");
 
         if c.out.is_empty() { Ok(()) } else { Err(c.out) }
     }

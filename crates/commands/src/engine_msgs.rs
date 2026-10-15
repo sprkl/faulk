@@ -1,76 +1,678 @@
-//! Commands → engine messages, for the one synth the page plays today (MO-2).
+//! The project → engine compiler (PR-3, `docs/specs/02-decoupage-mvp.md` § 2.3): every
+//! command's engine messages, the snapshot of a whole project, and the hosts' bundle of a
+//! project state with its engine stream.
 //!
-//! The single mapping from a [`Command`] to the engine's [`ControlMsg`] stream, shared by
-//! both targets: the page encodes through `crates/project-wasm` and sends the bytes to the
+//! The single mapping from the project to the engine's [`ControlMsg`] stream, shared by
+//! every target: the page encodes through `crates/project-wasm` and sends the bytes to the
 //! web engine's prepare Worker; the helper encodes the commands it receives and submits
 //! the same bytes to its prepare side. Nothing maps commands to the engine in TypeScript.
 //!
-//! Interim until PR-3 gives every [`crate::Outcome`] its engine messages and the project
-//! its id → slot table: the page has one track with one synth (`protocol::single_synth`),
-//! which lives in engine slot [`SYNTH_TRACK`], device slot [`SYNTH_DEVICE`]; every live
-//! note and every synth parameter goes there whatever the ids, as the hosts did before.
+//! - [`compile`]: what one applied command means for the engine, from the command (the
+//!   `live.*` notes and the `transport.*` playback orders, which change no state) and from
+//!   its [`ProjectEvent`]s read against the state after the command. The root
+//!   [`Command::apply`] calls it, so every [`crate::Outcome`] carries its messages, an undo
+//!   included (an inverse is applied through the same path).
+//! - [`snapshot`]: the whole project, for an empty engine (opening a project, switching
+//!   between web and Boost); [`resync`] puts a `Reset` before it and starts a new slot
+//!   table.
+//! - The slots: the engine knows slots, never ids. The project's [`EngineSlots`], kept in
+//!   the [`Context`], gives each entity sent to the engine the lowest free slot of its
+//!   kind (freed slots are reused, the table grows without a cap below the engine's
+//!   limits). An entity without a slot (an engine never told about it) gets no message:
+//!   nothing is sent that the engine would refuse.
+//!
+//! What is not sent yet: audio clips and their placements (AU-3 streams the PCM an
+//! `AudioSourceDeclare` needs); a device whose source is not one of the built-in devices
+//! of the registry (the clip player, modules, plugins) has no `DeviceInsert`, its place in
+//! the chain stays empty; the engine's clip has no loop region (`looped` only) and its
+//! notes no cents, chance nor repeat (CL-2 extends the contract).
 
-use engine::OSC_SYNTH;
-use engine::msg::{ControlMsg, DeviceSlot, MsgError, ParamId, TrackKind, TrackSlot};
+use std::collections::BTreeSet;
 
-use crate::{Command, device, live};
+use engine::devices::REGISTRY;
+use engine::msg::{
+    AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg,
+    Curve, DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
+    Placement as EnginePlacement, PlacementSlot, SceneSlot, Span as EngineSpan, TrackKind,
+    TrackSlot, encode_state, limits,
+};
+use project::{
+    AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId,
+    DeviceSource, EngineSlots, IdGenerator, LaneId, MixerParam, OrderKey, Placement,
+    PlacementId, Project, ProjectId, SessionState, Shape, Span, Track, TrackId, TrackSlots,
+};
 
-/// The engine slot of the one synth's track.
-pub const SYNTH_TRACK: TrackSlot = TrackSlot(0);
-/// The engine slot of the synth in that track's chain.
-pub const SYNTH_DEVICE: DeviceSlot = DeviceSlot(0);
+use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State};
+use crate::{Author, Command, live, transport};
 
-/// What a fresh engine needs before the commands: a `Reset` to `epoch`, the track, the
-/// synth with its default parameters (the page then sends its parameter values as
-/// `device.set_param` commands).
-pub fn single_synth_setup(epoch: u16) -> [ControlMsg; 3] {
-    [
-        ControlMsg::Reset { epoch },
-        ControlMsg::TrackCreate {
-            track: SYNTH_TRACK,
-            kind: TrackKind::Midi,
-        },
-        ControlMsg::DeviceInsert {
-            track: SYNTH_TRACK,
-            device: SYNTH_DEVICE,
-            kind: OSC_SYNTH.kind_id,
-            state: Vec::new(),
-        },
-    ]
-}
+/// Items (notes, placements, points) per upload message: at most 2.2 MB of payload, well
+/// under the 16 MiB a message may carry.
+pub const CHUNK_ITEMS: usize = 65_536;
 
-/// The engine message of a command, `None` for a command the engine does not take: MIDI
-/// device management (the host's), a parameter the synth does not have, and every
-/// project edit until PR-3. Note numbers and velocities above 127 are clamped, as the
-/// engine always did.
-pub fn to_control(command: &Command) -> Option<ControlMsg> {
-    Some(match command {
-        Command::Live(live::Command::NoteOn { note, velocity, .. }) => ControlMsg::NoteOn {
-            track: SYNTH_TRACK,
-            pitch: (*note).min(live::MIDI_MAX),
-            velocity: (*velocity).min(live::MIDI_MAX),
-        },
-        Command::Live(live::Command::NoteOff { note, .. }) => ControlMsg::NoteOff {
-            track: SYNTH_TRACK,
-            pitch: (*note).min(live::MIDI_MAX),
-        },
-        Command::Live(live::Command::AllNotesOff {}) => {
-            ControlMsg::AllNotesOff { track: SYNTH_TRACK }
-        }
-        Command::Device(device::Command::SetParam { param, value, .. }) => {
-            let param = device::SynthParam::from_name(param)?;
-            ControlMsg::ParamSet {
-                track: SYNTH_TRACK,
-                device: SYNTH_DEVICE,
-                param: ParamId(param.to_engine().id()),
-                // The device clamps to the parameter's range; a non-finite value is
-                // refused by the codec (`BadPayload`), never reaches the synth.
-                value: *value as f32,
+// ---------------------------------------------------------------- compile
+
+/// The engine messages of a command that was just applied, with its events, against the
+/// state after it; updates the slot table. `history.*` gives nothing here: undo and redo
+/// apply their commands through [`Command::apply`], which compiled each.
+pub fn compile(
+    command: &Command,
+    events: &[ProjectEvent],
+    state: &State,
+    sync: &mut EngineSlots,
+) -> Vec<ControlMsg> {
+    let mut out = Vec::new();
+    match command {
+        Command::History(_) => return out,
+        Command::Live(live::Command::NoteOn {
+            track,
+            note,
+            velocity,
+        }) => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::NoteOn {
+                    track,
+                    pitch: *note,
+                    velocity: *velocity,
+                });
             }
         }
-        _ => return None,
-    })
+        Command::Live(live::Command::NoteOff { track, note }) => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::NoteOff {
+                    track,
+                    pitch: *note,
+                });
+            }
+        }
+        Command::Live(live::Command::AllNotesOff {}) => {
+            out.extend(sync.tracks.iter().map(|(slot, _)| ControlMsg::AllNotesOff {
+                track: TrackSlot(slot),
+            }));
+        }
+        Command::Transport(transport::Command::Play {}) => {
+            // The engine's play always starts at a position: a second play would jump
+            // back to the cue while playing.
+            if !sync.playing {
+                sync.playing = true;
+                out.push(ControlMsg::Play { from: sync.cue });
+            }
+        }
+        Command::Transport(transport::Command::Stop {}) => {
+            sync.playing = false;
+            out.push(ControlMsg::Stop);
+        }
+        Command::Transport(transport::Command::Seek { tick }) => {
+            sync.cue = *tick;
+            out.push(ControlMsg::Seek { tick: *tick });
+        }
+        _ => {}
+    }
+    for event in events {
+        compile_event(event, state, sync, &mut out);
+    }
+    out
 }
+
+fn compile_event(
+    event: &ProjectEvent,
+    state: &State,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let project = &state.project;
+    match event {
+        ProjectEvent::TrackCreated { track } => {
+            if let Some(t) = project.tracks.get(track) {
+                remove_track(track, sync, out);
+                track_msgs(track, t, &state.session, sync, out);
+            }
+        }
+        ProjectEvent::TrackDeleted { track } => remove_track(track, sync, out),
+        ProjectEvent::ClipCreated { track, clip, .. } => {
+            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track))
+            else {
+                return;
+            };
+            if let Some(c) = t.clips.get(clip) {
+                clip_msgs(track, slot, clip, c, sync, out);
+            }
+            placements_msgs(track, t, sync, out);
+        }
+        ProjectEvent::ClipDeleted { track, clip, .. } => {
+            let Some(slot) = track_slot(sync, track) else {
+                return;
+            };
+            let scene = sync
+                .track
+                .get_mut(track)
+                .and_then(|entry| entry.clips.remove(clip))
+                .flatten()
+                .and_then(|scene| sync.scenes.get(&scene));
+            if let Some(scene) = scene {
+                out.push(ControlMsg::SceneSetSlot {
+                    track: slot,
+                    scene: SceneSlot(scene as u16),
+                    clip: None,
+                });
+            }
+            if let Some(t) = project.tracks.get(track) {
+                placements_msgs(track, t, sync, out);
+            }
+            if let Some(clip) = sync.clips.release(clip) {
+                out.push(ControlMsg::ClipRemove {
+                    clip: ClipSlot(clip),
+                });
+            }
+        }
+        ProjectEvent::ClipChanged { clip, part } => {
+            if *part == ClipPart::Name {
+                return;
+            }
+            let Some(c) = project.tracks.values().find_map(|t| t.clips.get(clip)) else {
+                return;
+            };
+            if let Some(slot) = sync.clips.get(clip) {
+                upload_clip(ClipSlot(slot), &c.content, out);
+            }
+        }
+        ProjectEvent::DeviceParamChanged {
+            device,
+            param,
+            value,
+        } => {
+            let Some((track, d)) = project
+                .tracks
+                .iter()
+                .find_map(|(id, t)| t.devices.get(device).map(|d| (id, d)))
+            else {
+                return;
+            };
+            let (Some(slot), Some(dev), Some(param)) = (
+                track_slot(sync, track),
+                device_slot(sync, track, device),
+                param_id(d, param),
+            ) else {
+                return;
+            };
+            out.push(ControlMsg::ParamSet {
+                track: slot,
+                device: dev,
+                param,
+                value: *value as f32,
+            });
+        }
+        ProjectEvent::MixerChanged { track: None, .. } => out.push(master(project)),
+        ProjectEvent::MixerChanged {
+            track: Some(track), ..
+        } => {
+            if let (Some(slot), Some(t)) = (track_slot(sync, track), project.tracks.get(track)) {
+                out.push(mix(slot, t));
+            }
+        }
+        ProjectEvent::SoloChanged { track, solo } => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::TrackSetSolo { track, solo: *solo });
+            }
+        }
+        ProjectEvent::TrackSelected { track } => out.push(ControlMsg::SelectTrack {
+            track: track.as_ref().and_then(|t| track_slot(sync, t)),
+        }),
+        ProjectEvent::TempoChanged { .. } | ProjectEvent::TimeSignatureChanged { .. } => {
+            out.push(set_transport(project));
+        }
+        ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),
+        ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
+        ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::TrackChanged { .. }
+        | ProjectEvent::MidiInputSelected { .. }
+        | ProjectEvent::HistoryChanged { .. } => {}
+    }
+}
+
+// ---------------------------------------------------------------- snapshot
+
+/// The messages that bring an empty engine to `project` (with the session's solo and
+/// selection), and the slot table they assign: the transport, the metronome and the
+/// master, then each track in display order with its chain, clips, launch-grid slots,
+/// arrangement and lanes, then the selected track. No `Reset`: [`resync`] adds it.
+pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, EngineSlots) {
+    let mut sync = EngineSlots::default();
+    let mut out = vec![set_transport(project)];
+    if project.transport.loop_enabled && project.transport.loop_region.is_some() {
+        out.push(set_loop(project));
+    }
+    out.push(set_metronome(project));
+    out.push(master(project));
+    for (scene, _) in project.scenes_in_order() {
+        if sync.scenes.assign(scene, limits::MAX_SCENES).is_none() {
+            sync.overflow += 1;
+        }
+    }
+    for (id, track) in project.tracks_in_order() {
+        track_msgs(id, track, session, &mut sync, &mut out);
+    }
+    if let Some(track) = session
+        .selected_track
+        .as_ref()
+        .and_then(|t| sync.tracks.get(t))
+    {
+        out.push(ControlMsg::SelectTrack {
+            track: Some(TrackSlot(track)),
+        });
+    }
+    (out, sync)
+}
+
+/// A `Reset` to `epoch` and the [`snapshot`] of the state: what an engine needs before
+/// the commands, at start, after a mode switch or to recover a stream it refused. The
+/// context's slot table becomes the snapshot's (playback stopped, cue at 0).
+pub fn resync(state: &State, ctx: &mut Context, epoch: u16) -> Vec<ControlMsg> {
+    let (msgs, sync) = snapshot(&state.project, &state.session);
+    ctx.engine = sync;
+    let mut out = Vec::with_capacity(msgs.len() + 1);
+    out.push(ControlMsg::Reset { epoch });
+    out.extend(msgs);
+    out
+}
+
+// ---------------------------------------------------------------- tracks
+
+fn track_slot(sync: &EngineSlots, track: &TrackId) -> Option<TrackSlot> {
+    sync.tracks.get(track).map(TrackSlot)
+}
+
+fn device_slot(sync: &EngineSlots, track: &TrackId, device: &DeviceId) -> Option<DeviceSlot> {
+    let slot = sync.track.get(track)?.devices.get(device)?;
+    Some(DeviceSlot(slot as u16))
+}
+
+/// A whole track, given a slot: its mix, solo, chain, clips, arrangement and lanes.
+fn track_msgs(
+    id: &TrackId,
+    track: &Track,
+    session: &SessionState,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let Some(slot) = sync.tracks.assign(id, limits::MAX_TRACKS) else {
+        sync.overflow += 1;
+        return;
+    };
+    let slot = TrackSlot(slot);
+    out.push(ControlMsg::TrackCreate {
+        track: slot,
+        kind: match track.kind {
+            project::TrackKind::Midi => TrackKind::Midi,
+            project::TrackKind::Audio => TrackKind::Audio,
+        },
+    });
+    out.push(mix(slot, track));
+    if session.solo.contains(id) {
+        out.push(ControlMsg::TrackSetSolo {
+            track: slot,
+            solo: true,
+        });
+    }
+    let mut entry = TrackSlots::default();
+    for (index, (device_id, device)) in track.devices_in_order().into_iter().enumerate() {
+        let Some((kind, state)) = device_insert(device) else {
+            continue;
+        };
+        // A device's slot is its place in the chain (the engine runs the chain in slot
+        // order); the project caps the chain below the engine's limit.
+        let Some(at) = u32::try_from(index).ok().and_then(|i| {
+            entry
+                .devices
+                .insert_at(device_id, i, limits::MAX_DEVICES_PER_TRACK)
+        }) else {
+            sync.overflow += 1;
+            continue;
+        };
+        let device_slot = DeviceSlot(at as u16);
+        out.push(ControlMsg::DeviceInsert {
+            track: slot,
+            device: device_slot,
+            kind,
+            state,
+        });
+        if !device.enabled {
+            out.push(ControlMsg::DeviceSetEnabled {
+                track: slot,
+                device: device_slot,
+                enabled: false,
+            });
+        }
+    }
+    sync.track.insert(id.clone(), entry);
+    for (clip_id, clip) in &track.clips {
+        clip_msgs(id, slot, clip_id, clip, sync, out);
+    }
+    if track
+        .placements
+        .values()
+        .any(|p| sync.clips.get(&p.clip).is_some())
+    {
+        placements_msgs(id, track, sync, out);
+    }
+    for (lane_id, lane) in &track.automation {
+        lane_msgs(id, slot, track, lane_id, lane, sync, out);
+    }
+}
+
+/// Removes a track from the engine with everything it holds there, and frees its slots.
+fn remove_track(id: &TrackId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    let Some(slot) = sync.tracks.release(id) else {
+        return;
+    };
+    out.push(ControlMsg::TrackRemove {
+        track: TrackSlot(slot),
+    });
+    let Some(entry) = sync.track.remove(id) else {
+        return;
+    };
+    for clip in entry.clips.keys() {
+        if let Some(clip) = sync.clips.release(clip) {
+            out.push(ControlMsg::ClipRemove {
+                clip: ClipSlot(clip),
+            });
+        }
+    }
+    for lane in &entry.lanes {
+        if let Some(lane) = sync.lanes.release(lane) {
+            out.push(ControlMsg::AutomationLaneRemove {
+                lane: LaneSlot(lane),
+            });
+        }
+    }
+    for placement in &entry.placements {
+        sync.placements.release(placement);
+    }
+}
+
+fn mix(slot: TrackSlot, track: &Track) -> ControlMsg {
+    ControlMsg::TrackSetMix {
+        track: slot,
+        gain: db_to_gain(track.mixer.gain_db),
+        pan: track.mixer.pan as f32,
+        mute: track.mixer.mute,
+    }
+}
+
+// ---------------------------------------------------------------- devices
+
+/// The engine kind and the initial state of a device, when the engine can build it (a
+/// built-in device of the registry).
+fn device_insert(device: &Device) -> Option<(DeviceKind, Vec<u8>)> {
+    let DeviceSource::Builtin { id, .. } = &device.source else {
+        return None;
+    };
+    let descriptor = REGISTRY.iter().find(|b| b.descriptor.kind == id)?.descriptor;
+    let values: Vec<(ParamId, f32)> = device
+        .params
+        .iter()
+        .filter_map(|(key, value)| Some((param_id(device, key)?, *value as f32)))
+        .collect();
+    Some((descriptor.kind_id, encode_state(&values)))
+}
+
+/// The engine id of a device's parameter, from its built-in descriptor.
+fn param_id(device: &Device, key: &str) -> Option<ParamId> {
+    let DeviceSource::Builtin { id, .. } = &device.source else {
+        return None;
+    };
+    REGISTRY
+        .iter()
+        .find(|b| b.descriptor.kind == id)?
+        .descriptor
+        .params
+        .iter()
+        .find(|p| p.key == key)
+        .map(|p| p.id)
+}
+
+// ---------------------------------------------------------------- clips and arrangement
+
+/// A MIDI clip of a track: its slot, its notes, its launch-grid slot.
+fn clip_msgs(
+    track_id: &TrackId,
+    track: TrackSlot,
+    id: &ClipId,
+    clip: &Clip,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    if !clip.content.is_midi() {
+        return;
+    }
+    let Some(slot) = sync.clips.assign(id, limits::MAX_CLIPS) else {
+        sync.overflow += 1;
+        return;
+    };
+    upload_clip(ClipSlot(slot), &clip.content, out);
+    let mut scene = None;
+    if let Some(scene_id) = &clip.slot {
+        match sync.scenes.assign(scene_id, limits::MAX_SCENES) {
+            Some(at) => {
+                out.push(ControlMsg::SceneSetSlot {
+                    track,
+                    scene: SceneSlot(at as u16),
+                    clip: Some(ClipSlot(slot)),
+                });
+                scene = Some(scene_id.clone());
+            }
+            None => sync.overflow += 1,
+        }
+    }
+    if let Some(entry) = sync.track.get_mut(track_id) {
+        entry.clips.insert(id.clone(), scene);
+    }
+}
+
+/// The notes of a MIDI clip, in chunks.
+fn upload_clip(clip: ClipSlot, content: &ClipContent, out: &mut Vec<ControlMsg>) {
+    let ClipContent::Midi {
+        length,
+        looping,
+        notes,
+    } = content
+    else {
+        return;
+    };
+    let notes: Vec<EngineNote> = notes
+        .iter()
+        .map(|n| EngineNote {
+            start: n.start,
+            length: n.length,
+            pitch: n.pitch,
+            velocity: n.velocity,
+        })
+        .collect();
+    out.extend(chunked(&notes, |first, total, notes| {
+        ControlMsg::ClipNotesUpload {
+            clip,
+            length: *length,
+            looped: looping.is_some(),
+            first,
+            total,
+            notes,
+        }
+    }));
+}
+
+/// The arrangement of a track: its MIDI placements whose clip the engine has, ordered by
+/// start, in chunks. Gives slots to new placements and frees those of the gone ones.
+fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    let Some(slot) = track_slot(sync, id) else {
+        return;
+    };
+    let mut placed: Vec<(&PlacementId, &Placement)> = track
+        .placements
+        .iter()
+        .filter(|(_, p)| {
+            matches!(p.span, Span::Ticks { .. }) && sync.clips.get(&p.clip).is_some()
+        })
+        .collect();
+    placed.sort_by(|a, b| (a.1.start, a.0).cmp(&(b.1.start, b.0)));
+    let previous = sync
+        .track
+        .get(id)
+        .map(|e| e.placements.clone())
+        .unwrap_or_default();
+    // Free first, so the new placements may reuse those slots.
+    let current: BTreeSet<&PlacementId> = placed.iter().map(|(p, _)| *p).collect();
+    for gone in previous.iter().filter(|p| !current.contains(p)) {
+        sync.placements.release(gone);
+    }
+    let mut kept = BTreeSet::new();
+    let mut items = Vec::with_capacity(placed.len());
+    for (pid, p) in placed {
+        let (Some(clip), Span::Ticks { length, offset }) = (sync.clips.get(&p.clip), p.span)
+        else {
+            continue;
+        };
+        let Some(at) = sync.placements.assign(pid, limits::MAX_PLACEMENTS) else {
+            sync.overflow += 1;
+            continue;
+        };
+        kept.insert(pid.clone());
+        items.push(EnginePlacement {
+            placement: PlacementSlot(at),
+            clip: ClipSlot(clip),
+            start: p.start,
+            span: EngineSpan::Ticks { offset, length },
+        });
+    }
+    if let Some(entry) = sync.track.get_mut(id) {
+        entry.placements = kept;
+    }
+    out.extend(chunked(&items, |first, total, placements| {
+        ControlMsg::TrackPlacementsUpload {
+            track: slot,
+            first,
+            total,
+            placements,
+        }
+    }));
+}
+
+/// An automation lane of a track, when the engine has its target.
+fn lane_msgs(
+    track_id: &TrackId,
+    track_slot: TrackSlot,
+    track: &Track,
+    id: &LaneId,
+    lane: &AutomationLane,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let target = match &lane.target {
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        } => EngineTarget::MixerGain,
+        AutomationTarget::Mixer {
+            param: MixerParam::Pan,
+        } => EngineTarget::MixerPan,
+        AutomationTarget::Device { device, param } => {
+            let (Some(slot), Some(param)) = (
+                device_slot(sync, track_id, device),
+                track.devices.get(device).and_then(|d| param_id(d, param)),
+            ) else {
+                return;
+            };
+            EngineTarget::DeviceParam {
+                device: slot,
+                param,
+            }
+        }
+    };
+    let Some(at) = sync.lanes.assign(id, limits::MAX_LANES) else {
+        sync.overflow += 1;
+        return;
+    };
+    if let Some(entry) = sync.track.get_mut(track_id) {
+        entry.lanes.insert(id.clone());
+    }
+    let points: Vec<EnginePoint> = lane
+        .points
+        .iter()
+        .map(|(tick, p)| EnginePoint {
+            tick: *tick,
+            value: p.value as f32,
+            curve: match p.shape {
+                Shape::Step => Curve::Step,
+                Shape::Linear => Curve::Linear,
+            },
+        })
+        .collect();
+    out.extend(chunked(&points, |first, total, points| {
+        ControlMsg::AutomationLaneUpload {
+            lane: LaneSlot(at),
+            track: track_slot,
+            target,
+            first,
+            total,
+            points,
+        }
+    }));
+}
+
+/// The messages of an upload in chunks of [`CHUNK_ITEMS`]; one empty message for none.
+fn chunked<T: Clone>(items: &[T], make: impl Fn(u32, u32, Vec<T>) -> ControlMsg) -> Vec<ControlMsg> {
+    let total = items.len() as u32;
+    if items.is_empty() {
+        return vec![make(0, 0, Vec::new())];
+    }
+    items
+        .chunks(CHUNK_ITEMS)
+        .enumerate()
+        .map(|(i, chunk)| make((i * CHUNK_ITEMS) as u32, total, chunk.to_vec()))
+        .collect()
+}
+
+// ---------------------------------------------------------------- project settings
+
+fn set_transport(project: &Project) -> ControlMsg {
+    ControlMsg::SetTransport {
+        tempo: project.tempo(),
+        signature: project.time_signature(),
+        launch_quantize: project.transport.launch_quantize,
+    }
+}
+
+fn set_loop(project: &Project) -> ControlMsg {
+    let t = &project.transport;
+    ControlMsg::SetLoop {
+        region: t.loop_region.filter(|_| t.loop_enabled),
+    }
+}
+
+/// The metronome's level is a linear gain from 0 to 4 in the engine.
+fn set_metronome(project: &Project) -> ControlMsg {
+    let m = &project.transport.metronome;
+    ControlMsg::SetMetronome {
+        enabled: m.enabled,
+        volume: db_to_gain(m.gain_db).clamp(0.0, 4.0),
+        count_in_bars: m.count_in_bars,
+    }
+}
+
+fn master(project: &Project) -> ControlMsg {
+    ControlMsg::SetMaster {
+        gain: db_to_gain(project.master.gain_db),
+        mute: project.master.mute,
+    }
+}
+
+/// A level in dB as a linear gain; `-inf` (silence) is 0.
+pub fn db_to_gain(db: f64) -> f32 {
+    if db == f64::NEG_INFINITY {
+        0.0
+    } else {
+        10f64.powf(db / 20.0) as f32
+    }
+}
+
+// ---------------------------------------------------------------- hosts
 
 /// The encoder of one engine channel's stream: its epoch and the next sequence number
 /// (+1 per message, wrapping), the header fields of `engine::msg`.
@@ -81,12 +683,19 @@ pub struct EngineStream {
 }
 
 impl EngineStream {
-    /// A stream for a fresh engine, in `epoch` (the setup's `Reset` adopts it).
+    /// A stream for a fresh engine, in `epoch` (the first `Reset` adopts it).
     pub fn new(epoch: u16) -> Self {
         EngineStream { epoch, seq: 0 }
     }
 
     pub fn epoch(&self) -> u16 {
+        self.epoch
+    }
+
+    /// Moves to the next epoch, never 0 (a fresh engine is in epoch 0 and takes only a
+    /// newer one).
+    pub fn next_epoch(&mut self) -> u16 {
+        self.epoch = self.epoch.wrapping_add(1).max(1);
         self.epoch
     }
 
@@ -96,172 +705,120 @@ impl EngineStream {
         self.seq = self.seq.wrapping_add(msgs.len() as u32);
         Ok(bytes)
     }
+}
 
-    /// The setup of [`single_synth_setup`], encoded.
-    pub fn setup(&mut self) -> Result<Vec<u8>, MsgError> {
-        self.encode(&single_synth_setup(self.epoch))
+/// Why [`Synced::run`] gave no bytes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SyncError {
+    /// The command was refused: nothing changed.
+    Refused(CommandError),
+    /// The command applied but its messages did not encode: the engine is behind the
+    /// project until a [`Synced::resync`].
+    Stream(MsgError),
+}
+
+/// A project state with its command context and the stream of one engine: what a host
+/// runs commands with (the page through `crates/project-wasm`, the helper, the render
+/// harness). Every command goes through [`crate::run`] (history included) and its
+/// outcome's engine messages are encoded for the engine.
+#[derive(Clone, Debug)]
+pub struct Synced {
+    pub state: State,
+    pub ctx: Context,
+    stream: EngineStream,
+}
+
+impl Synced {
+    /// A host for `state`, whose engine has nothing yet: send [`Synced::setup`] first.
+    pub fn new(state: State, ctx: Context, epoch: u16) -> Self {
+        Synced {
+            state,
+            ctx,
+            stream: EngineStream::new(epoch),
+        }
     }
 
-    /// The bytes of a command (empty when the engine does not take it).
-    pub fn command(&mut self, command: &Command) -> Result<Vec<u8>, MsgError> {
-        match to_control(command) {
-            Some(msg) => self.encode(&[msg]),
-            None => Ok(Vec::new()),
-        }
+    /// The page's project until PR-4 loads real ones: one MIDI track playing the
+    /// built-in synth ([`single_synth`]). The ids of a command that creates something
+    /// come from a fixed seed until PR-4 seeds them with the page's clock.
+    pub fn single_synth(epoch: u16) -> Self {
+        let ids = IdGenerator::new(1_700_000_000_000, 0x5EED);
+        Synced::new(
+            single_synth::state(),
+            Context::new(Author::User, ids),
+            epoch,
+        )
+    }
+
+    pub fn epoch(&self) -> u16 {
+        self.stream.epoch()
+    }
+
+    /// `Reset` and the snapshot of the project, encoded in the current epoch: what a new
+    /// engine receives first.
+    pub fn setup(&mut self) -> Result<Vec<u8>, MsgError> {
+        let msgs = resync(&self.state, &mut self.ctx, self.stream.epoch());
+        self.stream.encode(&msgs)
+    }
+
+    /// [`Synced::setup`] in the next epoch: what an engine that stopped taking the stream
+    /// (or was switched to) receives to catch up with the project.
+    pub fn resync(&mut self) -> Result<Vec<u8>, MsgError> {
+        self.stream.next_epoch();
+        self.setup()
+    }
+
+    /// Runs a command and encodes its engine messages (empty bytes when it has none).
+    pub fn run(&mut self, command: &Command) -> Result<(crate::Outcome, Vec<u8>), SyncError> {
+        let outcome =
+            crate::run(command, &mut self.state, &mut self.ctx).map_err(SyncError::Refused)?;
+        let bytes = if outcome.control.is_empty() {
+            Vec::new()
+        } else {
+            self.stream
+                .encode(&outcome.control)
+                .map_err(SyncError::Stream)?
+        };
+        Ok((outcome, bytes))
+    }
+
+    /// Encodes raw engine messages in this stream (what no command maps, in tests).
+    pub fn encode(&mut self, msgs: &[ControlMsg]) -> Result<Vec<u8>, MsgError> {
+        self.stream.encode(msgs)
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// The page's one-synth project (`protocol::single_synth` exports its ids to the page).
+pub mod single_synth {
     use super::*;
-    use crate::{history, midi};
-    use engine::msg::{HEADER_BYTES, Header};
 
-    fn track() -> project::TrackId {
-        project::TrackId::parse(protocol_ids::TRACK).unwrap()
+    /// The track of the one synth.
+    pub const TRACK: &str = "00000000000000000000000001";
+    /// The one synth, instrument of [`TRACK`].
+    pub const DEVICE: &str = "00000000000000000000000002";
+    /// The project holding them.
+    pub const PROJECT: &str = "00000000000000000000000003";
+
+    pub fn track() -> TrackId {
+        TrackId::parse(TRACK).expect("a valid track id")
     }
 
-    fn synth() -> project::DeviceId {
-        project::DeviceId::parse(protocol_ids::DEVICE).unwrap()
+    pub fn device() -> DeviceId {
+        DeviceId::parse(DEVICE).expect("a valid device id")
     }
 
-    /// The single-synth ids (`protocol::single_synth`, which depends on this crate).
-    mod protocol_ids {
-        pub const TRACK: &str = "00000000000000000000000001";
-        pub const DEVICE: &str = "00000000000000000000000002";
-    }
-
-    #[test]
-    fn every_engine_command_maps_and_the_others_do_not() {
-        let note_on = Command::Live(live::Command::NoteOn {
-            track: track(),
-            note: 200,
-            velocity: 255,
-        });
-        assert_eq!(
-            to_control(&note_on),
-            Some(ControlMsg::NoteOn {
-                track: SYNTH_TRACK,
-                pitch: 127,
-                velocity: 127
-            })
+    /// The project with its one MIDI track and the synth at its default parameters, an
+    /// empty session and history.
+    pub fn state() -> State {
+        let mut project = Project::new(
+            ProjectId::parse(PROJECT).expect("a valid project id"),
+            "Untitled",
         );
-        let note_off = Command::Live(live::Command::NoteOff {
-            track: track(),
-            note: 60,
-        });
-        assert_eq!(
-            to_control(&note_off),
-            Some(ControlMsg::NoteOff {
-                track: SYNTH_TRACK,
-                pitch: 60
-            })
-        );
-        assert_eq!(
-            to_control(&Command::Live(live::Command::AllNotesOff {})),
-            Some(ControlMsg::AllNotesOff { track: SYNTH_TRACK })
-        );
-        for param in device::SynthParam::ALL {
-            let command = Command::Device(device::Command::SetParam {
-                device: synth(),
-                param: param.name().into(),
-                value: 0.25,
-            });
-            assert_eq!(
-                to_control(&command),
-                Some(ControlMsg::ParamSet {
-                    track: SYNTH_TRACK,
-                    device: SYNTH_DEVICE,
-                    param: ParamId(param.to_engine().id()),
-                    value: 0.25
-                }),
-                "{}",
-                param.name()
-            );
-        }
-        let unknown = Command::Device(device::Command::SetParam {
-            device: synth(),
-            param: "cutoff".into(),
-            value: 0.5,
-        });
-        assert_eq!(to_control(&unknown), None);
-        for other in [
-            Command::Midi(midi::Command::ListInputs {}),
-            Command::Midi(midi::Command::SelectInput { id: None }),
-            Command::History(history::Command::Undo {}),
-        ] {
-            assert_eq!(to_control(&other), None, "{other:?}");
-        }
-    }
-
-    #[test]
-    fn the_stream_numbers_its_messages_and_keeps_its_epoch() {
-        let mut stream = EngineStream::new(7);
-        let setup = stream.setup().unwrap();
-        let headers: Vec<Header> = {
-            let mut at = 0;
-            let mut out = Vec::new();
-            let mut epoch = 6;
-            while at < setup.len() {
-                let h = Header::decode(&setup[at..], epoch).unwrap();
-                epoch = h.epoch;
-                at += Header::frame_len(h.len);
-                out.push(h);
-            }
-            out
-        };
-        assert_eq!(headers.len(), 3);
-        assert!(headers.iter().all(|h| h.epoch == 7));
-        assert_eq!(headers.iter().map(|h| h.seq).collect::<Vec<_>>(), [0, 1, 2]);
-        let note = stream
-            .command(&Command::Live(live::Command::AllNotesOff {}))
-            .unwrap();
-        assert_eq!(Header::decode(&note, 7).unwrap().seq, 3);
-        assert!(note.len() >= HEADER_BYTES);
-        let none = stream
-            .command(&Command::Midi(midi::Command::ListInputs {}))
-            .unwrap();
-        assert!(none.is_empty());
-        assert_eq!(
-            Header::decode(
-                &stream
-                    .command(&Command::Live(live::Command::AllNotesOff {}))
-                    .unwrap(),
-                7
-            )
-            .unwrap()
-            .seq,
-            4,
-            "a command the engine does not take uses no number"
-        );
-    }
-
-    #[test]
-    fn the_setup_and_the_commands_play_the_synth_through_the_channel() {
-        let (mut prepare, mut host) = engine::host::channel(48_000.0).unwrap();
-        let mut stream = EngineStream::new(1);
-        prepare.submit(&stream.setup().unwrap()).unwrap();
-        for command in [
-            Command::Device(device::Command::SetParam {
-                device: synth(),
-                param: "gain".into(),
-                value: 0.5,
-            }),
-            Command::Live(live::Command::NoteOn {
-                track: track(),
-                note: 69,
-                velocity: 100,
-            }),
-        ] {
-            prepare.submit(&stream.command(&command).unwrap()).unwrap();
-        }
-        assert_eq!(prepare.preparer().rejected(), 0);
-        let mut peak = 0.0f32;
-        for _ in 0..40 {
-            let n = host.render(128);
-            peak = host.left()[..n].iter().fold(peak, |p, s| p.max(s.abs()));
-        }
-        assert!(peak > 0.05, "the note sounds: {peak}");
-        assert_eq!(host.engine().skipped(), 0);
+        let mut track = Track::new(project::TrackKind::Midi, "Synth", OrderKey::first());
+        let synth = crate::track::instrument_device(engine::OSC_SYNTH.kind)
+            .expect("the synth is a built-in instrument");
+        track.devices.insert(device(), synth);
+        project.tracks.insert(self::track(), track);
+        State::new(project)
     }
 }

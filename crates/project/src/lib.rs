@@ -19,6 +19,7 @@ pub mod model;
 pub mod order;
 pub mod serde_util;
 pub mod session;
+pub mod slots;
 pub mod validate;
 
 /// Musical time: the contract shared by the project and the engine (`engine::time`).
@@ -33,4 +34,5 @@ pub use model::*;
 pub use order::OrderKey;
 pub use serde_util::Rgb;
 pub use session::SessionState;
+pub use slots::{EngineSlots, SlotTable, TrackSlots};
 pub use validate::{Violation, ViolationKind};
