@@ -48,7 +48,7 @@ export async function fakeWebMidi(page: Page) {
 /**
  * Timing budgets of CT-3 (docs/agents/verification.md, "Timing budgets"). A shared CI runner is
  * slower and far noisier than a workstation, and one preempted quantum is enough to push the
- * longest pump past 500 µs (a CI run measured 512 µs), so by default a budget is only held by a
+ * longest pump past 500 µs (the prototype measured 512 µs in CI; the shipped worklet is far below, see verification.md), so by default a budget is only held by a
  * ceiling ten times higher: it catches a change of order of magnitude, not of a few percent.
  * `FAULK_E2E_STRICT_TIMING=1` holds the strict budget itself, on the median of
  * `STRICT_RUNS` measurements, on a reference machine. Any other non-empty value is an error: it
