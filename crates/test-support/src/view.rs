@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use commands::engine_msgs::db_to_gain;
+use commands::engine_msgs::{db_to_gain, finite_f32};
 use engine::devices::REGISTRY;
 use engine::msg::{
     AutomationPoint, AutomationTarget, ControlMsg, Curve, DeviceKind, HEADER_BYTES, Header,
@@ -444,7 +444,7 @@ impl EngineView {
                             params: dev
                                 .params
                                 .iter()
-                                .filter_map(|(k, v)| Some((param(&dev.source, k)?, *v as f32)))
+                                .filter_map(|(k, v)| Some((param(&dev.source, k)?, finite_f32(*v))))
                                 .collect(),
                         },
                     ))
@@ -525,7 +525,7 @@ impl EngineView {
                             .iter()
                             .map(|(tick, p)| AutomationPoint {
                                 tick: *tick,
-                                value: p.value as f32,
+                                value: finite_f32(p.value),
                                 curve: match p.shape {
                                     project::Shape::Step => Curve::Step,
                                     project::Shape::Linear => Curve::Linear,

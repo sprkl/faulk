@@ -4,7 +4,7 @@ import { allNotesOff } from '../synth-commands'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
-import { EngineStream, projectModule } from './project-core'
+import { EngineStream, projectModule, streamErrorCode } from './project-core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -33,7 +33,7 @@ export class WebEngine implements Engine {
     private readonly stream: EngineStream,
     memory: WebAssembly.Memory,
     feedback: { at: number; len: number },
-    events: EngineEvents,
+    private readonly events: EngineEvents,
   ) {
     let last = 0
     this.timer = setInterval(() => {
@@ -128,7 +128,17 @@ export class WebEngine implements Engine {
   }
 
   run(command: Command) {
-    this.push(this.stream.command(command))
+    let bytes: Uint8Array
+    try {
+      bytes = this.stream.command(command)
+    } catch (error) {
+      // The project took the command but its messages did not encode: the engine is behind
+      // the project, as after a refused stream.
+      console.error(error)
+      this.events.onStreamRefused?.(streamErrorCode(error), 0)
+      return
+    }
+    this.push(bytes)
   }
 
   /** Pauses audio without losing the engine (used while the helper plays). */

@@ -197,7 +197,7 @@ fn compile_event(
                 track: slot,
                 device: dev,
                 param,
-                value: *value as f32,
+                value: finite_f32(*value),
             });
         }
         ProjectEvent::MixerChanged { track: None, .. } => out.push(master(project)),
@@ -412,7 +412,7 @@ fn device_insert(device: &Device) -> Option<(DeviceKind, Vec<u8>)> {
     let values: Vec<(ParamId, f32)> = device
         .params
         .iter()
-        .filter_map(|(key, value)| Some((param_id(device, key)?, *value as f32)))
+        .filter_map(|(key, value)| Some((param_id(device, key)?, finite_f32(*value))))
         .collect();
     Some((descriptor.kind_id, encode_state(&values)))
 }
@@ -596,7 +596,7 @@ fn lane_msgs(
         .iter()
         .map(|(tick, p)| EnginePoint {
             tick: *tick,
-            value: p.value as f32,
+            value: finite_f32(p.value),
             curve: match p.shape {
                 Shape::Step => Curve::Step,
                 Shape::Linear => Curve::Linear,
@@ -663,6 +663,12 @@ fn master(project: &Project) -> ControlMsg {
         gain: db_to_gain(project.master.gain_db),
         mute: project.master.mute,
     }
+}
+
+/// A finite project value as an engine `f32`, saturated to the finite `f32` range: a value
+/// beyond it would become infinite, which the codec refuses (the device clamps to its range).
+pub fn finite_f32(value: f64) -> f32 {
+    value.clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32
 }
 
 /// A level in dB as a linear gain; `-inf` (silence) is 0.

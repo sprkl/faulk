@@ -468,3 +468,28 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
         ]
     );
 }
+
+#[test]
+fn a_huge_parameter_value_saturates_and_still_encodes() {
+    let (mut s, synth, _) = synced();
+    let device = s.state.project.tracks[&synth]
+        .devices
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let (_, bytes) = s
+        .run(&cmd(
+            json!({"type": "device.set_param", "device": device, "param": "gain", "value": 1e39}),
+        ))
+        .expect("the command and its message encode");
+    assert!(!bytes.is_empty());
+    let (outcome, _) = s
+        .run(&cmd(json!({"type": "device.set_param", "device": device, "param": "attack", "value": -1e300})))
+        .unwrap();
+    assert!(
+        matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == f32::MIN)
+    );
+    // The project keeps 1e39; its snapshot still encodes.
+    s.resync().expect("the snapshot encodes");
+}

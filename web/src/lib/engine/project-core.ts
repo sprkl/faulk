@@ -20,6 +20,12 @@ export const ERR_BAD_COMMAND = -100
 /** The project refused the command (unknown track or device, invalid value): nothing changed. */
 export const ERR_REFUSED = -101
 
+/** The `MsgError` code in an error thrown by `EngineStream` (0 when it holds none). */
+export function streamErrorCode(error: unknown): number {
+  const match = /error (-?\d+)/.exec(String(error))
+  return match ? Number(match[1]) : 0
+}
+
 let loading: Promise<WebAssembly.Module> | null = null
 
 /** Compiles the module once per page. */
