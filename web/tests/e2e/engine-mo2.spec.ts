@@ -164,45 +164,52 @@ test.describe('MO-2: the engine channel in the browser', () => {
   test('a Worker prepares, the worklet pumps: cost per message within the budget', async ({ page }) => {
     await page.goto('/app')
     test.setTimeout(STRICT_TIMING ? 180_000 : 30_000)
-    const run = await measure(page)
-    // On a reference machine the timing is the median of several runs, each its own measurement.
-    const more = []
-    if (STRICT_TIMING) for (let i = 1; i < STRICT_RUNS; i++) more.push(await measure(page))
-    const all = [run, ...more].map((r) => ({ p: r.params as unknown as Report, t: r.tracks as unknown as Report }))
-    const p = run.params as unknown as Report
-    const t = run.tracks as unknown as Report
+    // On a reference machine the timing is the median of several runs, each its own full
+    // measurement; every run is printed and checked for correctness, not only the first.
+    const runs = [await measure(page)]
+    if (STRICT_TIMING) for (let i = 1; i < STRICT_RUNS; i++) runs.push(await measure(page))
     const us = (n: number) => n.toFixed(2)
-    console.log(
-      [
-        timingMode([2, 500]),
-        `MO-2 at ${run.sampleRate} Hz, clock ${run.ticksPerUs.toFixed(1)} ticks/µs (check ${run.check.toFixed(1)})`,
-        `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
-        `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(p.pumpMaxUs)} µs, ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
-        `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(t.pumpMaxUs)} µs (incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
-        `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
-      ].join('\n'),
-    )
-    expect(run.ticksPerUs).toBeGreaterThan(1)
-    expect(run.role).toBe(2)
-    // Every message was applied: none rejected, none skipped, the table at its limit.
-    expect(run.counters.rejected).toBe(0)
-    expect(run.counters.codes).toEqual([])
-    expect(p.applied).toBe(1000)
-    expect(t.applied).toBe(4095)
-    expect(t.tracksHeld).toBe(4096)
-    expect(t.tracksCapacity).toBe(4096)
-    expect(t.skipped).toBe(0)
-    expect(t.maxApplied).toBeLessThanOrEqual(128)
-    // The budget of CT-3: 2 µs per message, 500 µs for the longest pump (timingLimit: ceiling by default, median of runs when strict).
-    expect(median(all.map((r) => r.p.pumpUsPerMsg))).toBeLessThan(timingLimit(2))
-    expect(median(all.map((r) => r.t.pumpUsPerMsg))).toBeLessThan(timingLimit(2))
-    expect(median(all.map((r) => r.t.pumpMaxUs))).toBeLessThan(timingLimit(500))
-    // No allocation nor free on the render instance; the note never fell silent.
-    expect(p.renderAllocs + t.renderAllocs).toBe(0)
-    expect(p.renderFrees + t.renderFrees).toBe(0)
-    expect(p.silent).toBe(0)
-    expect(t.silent).toBe(0)
-    expect(p.peak).toBeGreaterThan(0.01)
+    console.log(timingMode([2, 500]))
+    for (const [i, run] of runs.entries()) {
+      const p = run.params as unknown as Report
+      const t = run.tracks as unknown as Report
+      console.log(
+        [
+          `MO-2 run ${i + 1}/${runs.length} at ${run.sampleRate} Hz, clock ${run.ticksPerUs.toFixed(1)} ticks/µs (check ${run.check.toFixed(1)})`,
+          `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
+          `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(p.pumpMaxUs)} µs, ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
+          `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(t.pumpMaxUs)} µs (incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
+          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
+        ].join('\n'),
+      )
+      expect(run.ticksPerUs).toBeGreaterThan(1)
+      expect(run.role).toBe(2)
+      // Every message was applied: none rejected, none skipped, the table at its limit.
+      expect(run.counters.rejected).toBe(0)
+      expect(run.counters.codes).toEqual([])
+      expect(p.applied).toBe(1000)
+      expect(t.applied).toBe(4095)
+      expect(t.tracksHeld).toBe(4096)
+      expect(t.tracksCapacity).toBe(4096)
+      expect(t.skipped).toBe(0)
+      expect(t.maxApplied).toBeLessThanOrEqual(128)
+      // No allocation nor free on the render instance; the note never fell silent.
+      expect(p.renderAllocs + t.renderAllocs).toBe(0)
+      expect(p.renderFrees + t.renderFrees).toBe(0)
+      expect(p.silent).toBe(0)
+      expect(t.silent).toBe(0)
+      expect(p.peak).toBeGreaterThan(0.01)
+    }
+    // The budget of CT-3: 2 µs per message, 500 µs for the longest pump. The ceiling by default,
+    // the budget itself on the median of the runs when strict (timingLimit).
+    const reports = runs.map((r) => ({ p: r.params as unknown as Report, t: r.tracks as unknown as Report }))
+    const perParam = median(reports.map((r) => r.p.pumpUsPerMsg))
+    const perTrack = median(reports.map((r) => r.t.pumpUsPerMsg))
+    const longest = median(reports.map((r) => r.t.pumpMaxUs))
+    console.log(`asserted (median of ${runs.length}): ${us(perParam)} / ${us(perTrack)} µs per message, longest pump ${us(longest)} µs`)
+    expect(perParam).toBeLessThan(timingLimit(2))
+    expect(perTrack).toBeLessThan(timingLimit(2))
+    expect(longest).toBeLessThan(timingLimit(500))
   })
 
   test('the DAW plays a note and takes a parameter through the channel', async ({ page }) => {

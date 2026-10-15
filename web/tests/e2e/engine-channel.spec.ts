@@ -312,6 +312,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'a')
+    console.log(`timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`)
     console.log(table(run))
     const { load } = run
     expect(run.ticksPerUs).toBeGreaterThan(1)
@@ -344,6 +345,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'b')
+    console.log(`timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`)
     console.log(table(run))
     const { load } = run
     const c = run.worker!.counters

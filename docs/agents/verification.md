@@ -45,16 +45,16 @@ cargo build -p project-wasm --target wasm32-unknown-unknown --release
 
 ### Timing budgets of the e2e specs
 
-`engine-mo2.spec.ts` (the shipped worklet) measures the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit), budgets of CT-3 and MO-2. `engine-channel.spec.ts` is the CT-3 prototype, kept as the evidence of the chosen way (and of way (a), which was not shipped); it holds the same numbers by the ceiling only. Every number is printed, with the mode (`timing: ceiling…` or `timing: STRICT…`).
+`engine-mo2.spec.ts` (the shipped worklet) measures the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit), budgets of CT-3 and MO-2. `engine-channel.spec.ts` is the CT-3 prototype, kept as the evidence of the chosen way (and of way (a), which was not shipped); it holds ceilings only, in every mode (10 times 2 µs and 500 µs, and 500 µs per message for a burst of way (a), whose own bound is 50 µs). Every number is printed, with the mode (`timing: ceiling…` or `timing: STRICT…`); in strict mode each of the five runs is printed and checked, then the asserted medians.
 
-- **CI and default**: the assertions hold a ceiling ten times the budget (20 µs per message, 5 000 µs for the longest pump). A shared runner is slower and noisier than a workstation (a CI run measured 512 µs for the longest pump, the issue #220 one 1 049 µs, a local run 1 201 µs: one preempted quantum is enough), so the ceiling catches a change of order of magnitude, not of a few percent.
+- **CI and default**: the assertions hold a ceiling ten times the budget (20 µs per message, 5 000 µs for the longest pump). A shared runner is slower and noisier than a workstation (the longest pump measured 512 µs in CI run 38705342790 of `develop`, 1 049 µs in the report of #220, and up to 1 201 µs in 60 measurements on a Windows workstation that was also running other work: one preempted quantum is enough), so the ceiling catches a change of order of magnitude, not of a few percent.
 - **Strict, on a reference machine**: `FAULK_E2E_STRICT_TIMING=1` runs the shipped measurement five times and holds the budgets themselves on the **median**. A reference machine is a workstation with nothing else running (no build, no other browser), named with its CPU and OS in the pull request; the strict run is never done in CI. Any value other than `1` or `0` is an error.
 
   ```bash
   cd web && FAULK_E2E_STRICT_TIMING=1 pnpm exec playwright test engine-mo2 --project=dev
   ```
 
-  PowerShell: `$env:FAULK_E2E_STRICT_TIMING='1'; pnpm exec playwright test engine-mo2 --project=dev`.
+  PowerShell (the variable stays set in the session, remove it afterwards): `cd web; $env:FAULK_E2E_STRICT_TIMING='1'; pnpm exec playwright test engine-mo2 --project=dev; Remove-Item Env:FAULK_E2E_STRICT_TIMING`.
 
 Run it before a release and after any change to `crates/engine`, `crates/engine-wasm` or `web/src/lib/engine/worklet.ts`; report the printed numbers and the machine in the pull request.
 
