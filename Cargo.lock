@@ -469,6 +469,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "test-support",
 ]
 
 [[package]]
@@ -478,6 +479,7 @@ dependencies = [
  "commands",
  "engine",
  "project",
+ "test-support",
  "wasmi",
 ]
 
@@ -1907,6 +1909,16 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "test-support"
+version = "0.1.0"
+dependencies = [
+ "commands",
+ "engine",
+ "project",
+ "wasmi",
 ]
 
 [[package]]

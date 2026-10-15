@@ -27,4 +27,5 @@ engine = { path = "../engine" }
 engine = { path = "../engine", features = ["testing"] }
 wasmi = "2.0.0"
 commands = { path = "../commands" }
+test-support = { path = "../test-support" }
 project = { path = "../project" }
