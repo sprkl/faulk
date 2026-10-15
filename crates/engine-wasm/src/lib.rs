@@ -529,3 +529,38 @@ pub mod transport_exports {
         scenario().len() as u32
     }
 }
+
+/// The timed events' test scenario (`engine::events::testing::scenario`, MO-4), rendered
+/// once and kept: the address of its `f32` output ([`fk_events_len`] values), null when it
+/// could not render. Only in the test build (`--features events-scenario`), for the
+/// native/WASM parity test; never in the worklet's module.
+#[cfg(feature = "events-scenario")]
+pub mod events_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [f32] {
+        static OUT: OnceLock<Box<[f32]>> = OnceLock::new();
+        OUT.get_or_init(|| {
+            engine::events::testing::scenario()
+                .unwrap_or_default()
+                .into_boxed_slice()
+        })
+    }
+
+    /// Address of the scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_events_scenario() -> *const f32 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `f32` values [`fk_events_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_events_len() -> u32 {
+        scenario().len() as u32
+    }
+}

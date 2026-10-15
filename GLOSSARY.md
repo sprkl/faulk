@@ -24,6 +24,8 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Événement** (de device) : ce qu'un device reçoit dans un bloc, daté par un offset en frames : note jouée ou relâchée, valeur de paramètre. Une note porte son identifiant de voix et un accord fin en cents. Code : `Event`, `VoiceId` (`engine::device`).
 
+**Événement daté** : un événement placé à un tick dans une table que le moteur lit pendant la lecture (notes, valeurs de paramètres) ; le moteur le livre au device à l'échantillon qui contient sa position, dans un sous-bloc (un morceau de bloc qui ne traverse jamais un bouclage). Code : `Schedule`, `Timed`, `Sink` (`engine::events`, MO-4).
+
 **Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé par la validation comme instrument d'une piste audio et refusé ailleurs) ; le device lui-même **(prévu)**.
 
 **Scène** : une ligne de la grille de lancement ; lancer une scène lance les clips de ses emplacements. Code : `Scene` ; commandes `scene.*` et `launch.scene` **(prévu)**.
