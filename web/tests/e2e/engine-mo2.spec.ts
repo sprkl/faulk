@@ -9,7 +9,9 @@ import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMod
 // recording of crates/engine-wasm/tests/fixtures (nothing is encoded here): the setup and a held
 // note, 1 000 parameter messages, then the track table filled to its limit (4 095 tracks, its
 // last growth moving 2 048 entries in the pump). Numbers are printed for the pull request; the
-// assertions prove the messages were applied and hold CT-3's budget (2 µs per pumped message;// 500 µs for the pump that swaps the table at its limit) by a ceiling ten times higher in CI, and// by the budget itself on the median of five runs with FAULK_E2E_STRICT_TIMING=1 (support.ts).
+// assertions prove the messages were applied and hold CT-3's budget (2 µs per pumped message;
+// 500 µs for the pump that swaps the table at its limit) by a ceiling ten times higher in CI, and
+// by the budget itself on the median of five runs with FAULK_E2E_STRICT_TIMING=1 (support.ts).
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const fixtures = here('../../../crates/engine-wasm/tests/fixtures/')
