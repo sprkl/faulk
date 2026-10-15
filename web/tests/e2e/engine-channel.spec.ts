@@ -334,7 +334,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     expect(load.viewsRefreshed).toBeGreaterThanOrEqual(1)
     expect(load.notes).toBe(1_000_000)
     expect(load.tracksCapacity).toBe(8192)
-    // The budget, with margin: a message costs under 50 µs of render thread, dispatch included.
+    // A message costs under 500 µs of render thread, dispatch included (ceiling of a 50 µs budget).
     for (const b of load.bursts) expect(b.usPerMsg).toBeLessThan(ceiling(50))
     // Prepare on the render thread is the price of this way: it allocates and frees there.
     expect(load.renderAllocs).toBeGreaterThan(0)
