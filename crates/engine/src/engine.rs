@@ -14,8 +14,8 @@
 //! [`channel`] builds both sides, their rings and the initial [`State`]. The transport of
 //! each target (the helper's thread, the web Worker on shared memory) is MO-2's; rendering
 //! the tracks is the graph's ([`crate::graph`], MO-3: [`Engine::render`]); routing events
-//! with their offsets MO-4's; the transport clock TR-1's; launching LA's. [`State`] holds
-//! what they will read, nothing more.
+//! with their offsets ([`crate::events`], MO-4) is the graph's too; the transport clock
+//! TR-1's; launching LA's. [`State`] holds what they will read, nothing more.
 //!
 //! A track that leaves its slot (removed, replaced, or dropped by a `Reset`) is not garbage
 //! at `apply`: it fades out in the graph, then comes back through the retire ring, which
@@ -37,7 +37,7 @@ use std::sync::Arc;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
-use crate::graph::{Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Feedback,
@@ -46,7 +46,7 @@ use crate::msg::{
     SourceSlot, Spare, Table, TrackKind, TrackSlot, TransportMsg, limits, state_pairs, try_box,
 };
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
-use crate::transport::Transport;
+use crate::transport::{Segment, Transport};
 
 /// Initial capacities of the runtime tables: small, every table grows on demand
 /// (decision 7), each kind up to its safety limit.
@@ -430,9 +430,14 @@ pub fn channel_with(
         collected: 0,
         stopped_at: None,
     };
+    let graph = Graph::try_new(&setup, retired_tx)?;
+    // TR-1 cuts a block of `frames` in at most `frames + 2` segments (at most `frames + 1`
+    // wraps, then the rest of the block).
+    let segments = Table::try_with_capacity(graph.max_frames().saturating_add(2))?;
     let engine = Engine {
         state: try_box(State::try_new()?)?,
-        graph: Graph::try_new(&setup, retired_tx)?,
+        graph,
+        segments,
         transport: Transport::new(rate_of(&setup)),
         clicker: Clicker::new(rate_of(&setup)),
         rt: rt_rx,
@@ -454,15 +459,17 @@ pub fn channel_with(
 /// What the prepare side knows of a track it created.
 #[derive(Debug)]
 struct TrackShadow {
-    /// One flag per slot of the track's device table: whether a device is there.
-    devices: Vec<bool>,
+    /// One entry per slot of the track's device table: `None` when empty, otherwise the
+    /// capacity of the device's MIDI output (0 for a device that writes no notes), from
+    /// which a MIDI effect inserted after it is sized.
+    devices: Vec<Option<usize>>,
     scenes_capacity: usize,
 }
 
 impl TrackShadow {
     fn try_new() -> Result<Self, MsgError> {
         Ok(TrackShadow {
-            devices: try_vec(initial::DEVICES_PER_TRACK, false)?,
+            devices: try_vec(initial::DEVICES_PER_TRACK, None)?,
             scenes_capacity: initial::SCENES_PER_TRACK,
         })
     }
@@ -564,8 +571,8 @@ impl Shadow {
 
     fn has_device(&self, track: TrackSlot, device: DeviceSlot) -> bool {
         self.track(track)
-            .and_then(|t| t.devices.get(device.0 as usize).copied())
-            .unwrap_or(false)
+            .and_then(|t| t.devices.get(device.0 as usize))
+            .is_some_and(Option::is_some)
     }
 }
 
@@ -869,7 +876,7 @@ impl Preparer {
             } => self.prepare_device(track, device, kind, &state)?,
             ControlMsg::DeviceRemove { track, device } => {
                 self.existing_device(track, device)?;
-                self.set_device(track, device, false);
+                self.remove_device(track, device);
                 RtMsg::DeviceRemove { track, device }
             }
             ControlMsg::DeviceSetEnabled {
@@ -1133,11 +1140,11 @@ impl Preparer {
         }
     }
 
-    fn set_device(&mut self, track: TrackSlot, device: DeviceSlot, present: bool) {
+    fn remove_device(&mut self, track: TrackSlot, device: DeviceSlot) {
         if let Some(Some(t)) = self.shadow.tracks.get_mut(track.0 as usize)
             && let Some(flag) = t.devices.get_mut(device.0 as usize)
         {
-            *flag = present;
+            *flag = None;
         }
     }
 
@@ -1185,7 +1192,18 @@ impl Preparer {
         kind: DeviceKind,
         state: &[u8],
     ) -> Result<RtMsg, MsgError> {
-        let capacity = self.existing_track(track)?.devices.len();
+        let shadow = self.existing_track(track)?;
+        let capacity = shadow.devices.len();
+        // A MIDI effect receives at most what the track gives a sub-block, or what the
+        // largest MIDI effect before it writes (MO-4: chained outputs never fill). One
+        // inserted later before it does not resize it: CT-5's safety net covers that.
+        let input_events = shadow
+            .devices
+            .iter()
+            .take(device.0 as usize)
+            .flatten()
+            .copied()
+            .fold(TRACK_INPUT_EVENTS, usize::max);
         let factory = (self.factories)(kind).ok_or(MsgError::UnknownDevice(kind))?;
         let mut built = factory(&self.setup)?;
         for (id, value) in state_pairs(state) {
@@ -1195,10 +1213,11 @@ impl Preparer {
         let descriptor = built.descriptor();
         let events_out = match (descriptor.role, descriptor.midi_output) {
             (DeviceRole::MidiEffect, Some(bounds)) => Some(EventBuffer::try_with_capacity(
-                bounds.capacity(TRACK_INPUT_EVENTS),
+                bounds.capacity(input_events),
             )?),
             _ => None,
         };
+        let midi_out = events_out.as_ref().map_or(0, EventBuffer::capacity);
         let value = try_box(DeviceEntry {
             device: built,
             enabled: true,
@@ -1208,7 +1227,7 @@ impl Preparer {
         let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
         let mut flags = None;
         if let Some(g) = &grown {
-            flags = Some(try_vec(g.capacity(), false)?);
+            flags = Some(try_vec(g.capacity(), None)?);
         }
         // Commit.
         if let Some(Some(t)) = self.shadow.tracks.get_mut(track.0 as usize) {
@@ -1217,7 +1236,7 @@ impl Preparer {
                 t.devices = flags;
             }
             if let Some(flag) = t.devices.get_mut(slot) {
-                *flag = true;
+                *flag = Some(midi_out);
             }
         }
         Ok(RtMsg::DevicePut {
@@ -1353,6 +1372,8 @@ fn stage<T>(
 pub struct Engine {
     state: Box<State>,
     graph: Graph,
+    /// The segments of the block being rendered, taken from the clock once.
+    segments: Table<Segment>,
     transport: Transport,
     clicker: Clicker,
     rt: Consumer<RtMsg>,
@@ -1438,36 +1459,60 @@ impl Engine {
         &self.graph
     }
 
-    /// Renders one block of the graph ([`crate::graph`]) into `left` and `right` (their
-    /// common length), with the live events [`Engine::begin_block`] took: the first render
-    /// of at least one frame delivers them, later ones until the next `begin_block` render
-    /// without them (a note is never played twice). No allocation, no free, no lock, no
-    /// panic.
+    /// Renders the graph ([`crate::graph`]) into `left` and `right` (their common length),
+    /// with the live events [`Engine::begin_block`] took: the first render of at least one
+    /// frame delivers them, later ones until the next `begin_block` render without them (a
+    /// note is never played twice). No allocation, no free, no lock, no panic.
     ///
-    /// Each render of at least one frame is one block of the musical clock (TR-1): the
-    /// orders `begin_block` applied take effect at its start, the graph renders, then the
-    /// metronome (TR-2) is added to the output, after the master.
+    /// The render is cut in blocks of at most the setup's `max_block_frames`; each is one
+    /// block of the musical clock (TR-1): the orders `begin_block` applied take effect at
+    /// the start of the first, the clock cuts the block in segments at its loop wraps, the
+    /// graph renders the tracks over them (the timed events of MO-4, [`crate::events`]),
+    /// then the metronome (TR-2) is added to the output, after the master.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let frames = left.len().min(right.len());
-        if frames > 0 {
+        let total = left.len().min(right.len());
+        let mut start = 0;
+        while start < total {
+            let frames = (total - start).min(self.graph.max_frames().max(1));
+            let end = start + frames;
+            let first = start == 0;
             self.start_clock(frames);
-        }
-        self.graph.render(
-            &mut self.state,
-            self.live_block.as_slice(),
-            self.release_live,
-            left,
-            right,
-        );
-        if frames > 0 {
+            self.segments.clear();
+            while let Some(segment) = self.transport.next_segment() {
+                // Room for every segment of the block (`channel`): never refused.
+                if self.segments.push(segment).is_err() {
+                    break;
+                }
+            }
+            let clock = BlockClock {
+                running: self.transport.is_running(),
+                segments: self.segments.as_slice(),
+                position: self.transport.position(),
+            };
+            let live: &[LiveEvent] = if first {
+                self.live_block.as_slice()
+            } else {
+                &[]
+            };
+            self.graph.block(
+                &mut self.state,
+                &clock,
+                live,
+                first && self.release_live,
+                &mut left[start..end],
+                &mut right[start..end],
+            );
             self.clicker.render(
                 &self.state.metronome,
                 self.state.transport.signature,
-                &mut self.transport,
-                &mut left[..frames],
-                &mut right[..frames],
+                self.segments.as_slice(),
+                &mut left[start..end],
+                &mut right[start..end],
             );
             self.transport.end_block();
+            start = end;
+        }
+        if total > 0 {
             self.live_block.clear();
             self.release_live = false;
         }

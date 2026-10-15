@@ -1,0 +1,2 @@
+2026-10-15
+* **Update** (#57): sample-accurate timed events (MO-4) in `crates/engine/src/events.rs` and `graph.rs`: one clock block per graph block, tracks rendered in sub-blocks that never cross a loop wrap (position in `BlockCtx`), per-device routing of parameter values, a tick-sorted `Schedule` read without a bounded queue (cut sub-blocks, none lost), precise release at jumps and stops, chained MIDI effect sizing; `specs/02-decoupage-mvp.md` § 2.3 (implementation note), the device contract's voice-id rule and `GLOSSARY.md` follow.

@@ -9,6 +9,7 @@ pub mod time;
 
 pub use devices::osc_synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, Waveform};
 pub mod engine;
+pub mod events;
 pub mod graph;
 pub mod host;
 pub mod metronome;
