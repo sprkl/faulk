@@ -13,7 +13,11 @@ fn tr(c: T) -> Command {
     Command::Transport(c)
 }
 
-fn metronome(enabled: Option<bool>, gain_db: Option<f64>, count_in_bars: Option<u8>) -> Command {
+fn metronome(
+    enabled: Option<bool>,
+    gain_db: Option<Option<f64>>,
+    count_in_bars: Option<u8>,
+) -> Command {
     tr(T::SetMetronome {
         enabled,
         gain_db,
@@ -219,10 +223,13 @@ fn metronome_validates_every_field_and_needs_one() {
     let f = fixture();
     let cases = [
         (metronome(None, None, None), "enabled"),
-        (metronome(None, Some(6.1), None), "gain_db"),
-        (metronome(None, Some(-96.1), None), "gain_db"),
-        (metronome(None, Some(f64::NAN), None), "gain_db"),
-        (metronome(None, Some(f64::NEG_INFINITY), None), "gain_db"),
+        (metronome(None, Some(Some(6.1)), None), "gain_db"),
+        (metronome(None, Some(Some(-96.1)), None), "gain_db"),
+        (metronome(None, Some(Some(f64::NAN)), None), "gain_db"),
+        (
+            metronome(None, Some(Some(f64::NEG_INFINITY)), None),
+            "gain_db",
+        ),
         (metronome(None, None, Some(17)), "count_in_bars"),
     ];
     for (c, field) in cases {
@@ -250,7 +257,7 @@ fn metronome_changes_only_what_is_given_and_undoes_only_what_changed() {
         metronome(Some(false), None, Some(before.count_in_bars))
     );
     // Nothing changes: nothing recorded.
-    let same = metronome(Some(true), Some(m.gain_db), Some(4))
+    let same = metronome(Some(true), Some(Some(m.gain_db)), Some(4))
         .apply(&mut s, &mut context())
         .unwrap();
     assert_eq!(same.undo, Undo::None);
@@ -260,11 +267,65 @@ fn metronome_changes_only_what_is_given_and_undoes_only_what_changed() {
 #[test]
 fn metronome_gain_outside_the_range_in_the_document_is_not_edited_by_command() {
     let mut s = fixture().state;
-    s.project.transport.metronome.gain_db = f64::NEG_INFINITY;
-    let e = refused(&metronome(None, Some(-6.0), None), &s);
+    s.project.transport.metronome.gain_db = 20.0;
+    let e = refused(&metronome(None, Some(Some(-6.0)), None), &s);
     assert_eq!(invalid_field(e), "gain_db");
     // The other fields stay editable.
     run(&metronome(Some(true), None, None), &mut s, &mut context()).unwrap();
+}
+
+#[test]
+fn metronome_silence_is_a_value_and_is_restored_by_undo() {
+    let f = fixture();
+    // null silences the click; a missing field leaves the level alone.
+    let silence: Command =
+        serde_json::from_str(r#"{"type":"transport.set_metronome","gain_db":null}"#).unwrap();
+    let untouched: Command =
+        serde_json::from_str(r#"{"type":"transport.set_metronome","enabled":true}"#).unwrap();
+    assert_eq!(silence, metronome(None, Some(None), None));
+    assert_eq!(untouched, metronome(Some(true), None, None));
+    let mut s = f.state.clone();
+    run(&silence, &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.transport.metronome.gain_db, f64::NEG_INFINITY);
+    s.project.validate().unwrap();
+    // From silence, a level can be set again, and undo returns to silence.
+    let after_silence = s.clone();
+    run(
+        &metronome(None, Some(Some(-12.0)), None),
+        &mut s,
+        &mut context(),
+    )
+    .unwrap();
+    assert_eq!(s.project.transport.metronome.gain_db, -12.0);
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project, after_silence.project);
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project, f.state.project);
+}
+
+#[test]
+fn a_time_signature_or_loop_already_in_place_records_nothing() {
+    let mut s = with_region();
+    let sig = s.project.time_signature();
+    for c in [
+        tr(T::SetTimeSignature {
+            numerator: sig.numerator(),
+            denominator: sig.denominator(),
+        }),
+        tr(T::SetLoop {
+            loop_region: Some(region(0, 3840)),
+        }),
+    ] {
+        let out = c.apply(&mut s, &mut context()).unwrap();
+        assert_eq!(out.undo, Undo::None, "{c:?}");
+        assert!(out.events.is_empty(), "{c:?}");
+    }
+    let mut none = fixture().state;
+    let out = tr(T::SetLoop { loop_region: None })
+        .apply(&mut none, &mut context())
+        .unwrap();
+    assert_eq!(out.undo, Undo::None);
+    assert!(out.events.is_empty());
 }
 
 #[test]
@@ -281,7 +342,7 @@ fn edits_are_recorded_and_one_undo_restores_each() {
         tr(T::SetLoop {
             loop_region: Some(region(960, 4800)),
         }),
-        metronome(Some(true), Some(-3.0), Some(3)),
+        metronome(Some(true), Some(Some(-3.0)), Some(3)),
     ];
     for c in &edits {
         let before = s.clone();

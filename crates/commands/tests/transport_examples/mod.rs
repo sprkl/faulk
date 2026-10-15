@@ -23,6 +23,13 @@ pub fn looping() -> State {
     s
 }
 
+/// The fixture with a silent click (`gain_db` null in the document).
+pub fn silent_click() -> State {
+    let mut s = fixture().state;
+    s.project.transport.metronome.gain_db = f64::NEG_INFINITY;
+    s
+}
+
 pub fn region(start: i64, end: i64) -> TickLoop {
     TickLoop {
         start: Tick(start),
@@ -65,10 +72,26 @@ pub fn examples() -> Vec<(Command, State)> {
         (
             tr(T::SetMetronome {
                 enabled: Some(true),
-                gain_db: Some(-9.0),
+                gain_db: Some(Some(-9.0)),
                 count_in_bars: Some(2),
             }),
             base.clone(),
+        ),
+        (
+            tr(T::SetMetronome {
+                enabled: None,
+                gain_db: Some(None),
+                count_in_bars: None,
+            }),
+            base.clone(),
+        ),
+        (
+            tr(T::SetMetronome {
+                enabled: None,
+                gain_db: Some(Some(-3.0)),
+                count_in_bars: None,
+            }),
+            silent_click(),
         ),
         (
             tr(T::SetMetronome {
@@ -81,7 +104,7 @@ pub fn examples() -> Vec<(Command, State)> {
         (
             tr(T::SetMetronome {
                 enabled: Some(false),
-                gain_db: Some(6.0),
+                gain_db: Some(Some(6.0)),
                 count_in_bars: None,
             }),
             base,

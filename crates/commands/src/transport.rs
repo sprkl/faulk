@@ -4,9 +4,9 @@
 //! Contract of the values (TR-3):
 //!
 //! - **`play`, `stop` and `seek` are `live`**: they change neither the project nor the
-//!   session and never enter the history; the hosts translate them to the engine (until
-//!   PR-3 gives the control messages, as for `live.*`). `apply` only checks `seek`'s
-//!   position.
+//!   session and never enter the history. `apply` only checks `seek`'s position and
+//!   returns no engine message: until PR-3 gives the control messages (as for `live.*`),
+//!   nothing plays, and each host must translate them to the engine itself.
 //! - **Tempo, time signature, loop and metronome are `edit`s** in the project: undoable
 //!   and saved. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
 //!   clamped. One tempo and one time signature per project in the MVP: the commands set
@@ -91,8 +91,8 @@ domain! {
         enabled: bool,
     };
 
-    /// Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)
-    /// and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is
+    /// Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,
+    /// `null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is
     /// optional and a missing one is left as it is; at least one is required. A value
     /// outside its range is refused. Undo: set the previous values of the changed fields
     /// back.
@@ -100,9 +100,13 @@ domain! {
     SetMetronome {
         #[serde(default)]
         enabled: Option<bool>,
-        #[serde(default)]
-        #[schemars(range(min = -96.0, max = 6.0))]
-        gain_db: Option<f64>,
+        #[serde(
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[schemars(schema_with = "optional_gain")]
+        gain_db: Option<Option<f64>>,
         #[serde(default)]
         #[schemars(range(min = 0, max = 16))]
         count_in_bars: Option<u8>,
@@ -337,7 +341,7 @@ fn from_db(db: f64) -> Option<f64> {
 fn set_metronome(
     state: &mut State,
     enabled: Option<bool>,
-    gain_db: Option<f64>,
+    gain_db: Option<Option<f64>>,
     count_in_bars: Option<u8>,
 ) -> Result<Out, CommandError> {
     if enabled.is_none() && gain_db.is_none() && count_in_bars.is_none() {
@@ -346,14 +350,20 @@ fn set_metronome(
             "give at least one of enabled, gain_db or count_in_bars".into(),
         ));
     }
-    if let Some(g) = gain_db
-        && !db_in_range(g)
-    {
-        return Err(invalid(
-            "gain_db",
-            format!("a metronome level is {MIN_METRONOME_DB} to {MAX_METRONOME_DB} dB, not {g}"),
-        ));
-    }
+    // The document's level: `null` is silence (-inf).
+    let gain_db = match gain_db {
+        None => None,
+        Some(None) => Some(f64::NEG_INFINITY),
+        Some(Some(g)) if db_in_range(g) => Some(g),
+        Some(Some(g)) => {
+            return Err(invalid(
+                "gain_db",
+                format!(
+                    "a metronome level is {MIN_METRONOME_DB} to {MAX_METRONOME_DB} dB, or null for silence, not {g}"
+                ),
+            ));
+        }
+    };
     if let Some(n) = count_in_bars
         && n > MAX_COUNT_IN_BARS
     {
@@ -364,8 +374,10 @@ fn set_metronome(
     }
     let m = &mut state.project.transport.metronome;
     // An inverse must restore the level exactly, and a command writes only a level in
-    // range: a level outside it (a document edited by hand) is not changed by command.
-    if gain_db.is_some_and(|g| g != m.gain_db) && !db_in_range(m.gain_db) {
+    // range or silence: a finite level outside it (a document edited by hand) is not
+    // changed by command.
+    let restorable = m.gain_db == f64::NEG_INFINITY || db_in_range(m.gain_db);
+    if gain_db.is_some_and(|g| g != m.gain_db) && !restorable {
         return Err(invalid(
             "gain_db",
             format!(
@@ -390,7 +402,7 @@ fn set_metronome(
     if let Some(g) = gain_db
         && g != m.gain_db
     {
-        inv_gain = Some(m.gain_db);
+        inv_gain = Some(from_db(m.gain_db));
         m.gain_db = g;
     }
     if let Some(n) = count_in_bars
@@ -416,6 +428,24 @@ fn set_metronome(
         },
         event,
     ))
+}
+
+/// Distinguishes a missing field (`None`: leave as it is) from an explicit `null`
+/// (`Some(None)`: silence).
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<f64>>, D::Error> {
+    <Option<f64> as serde::Deserialize>::deserialize(d).map(Some)
+}
+
+/// The schema of the level to set: a number from [`MIN_METRONOME_DB`] to
+/// [`MAX_METRONOME_DB`], or `null` for silence; the field itself is optional.
+fn optional_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": ["number", "null"],
+        "format": "double",
+        "minimum": MIN_METRONOME_DB,
+        "maximum": MAX_METRONOME_DB,
+        "description": "The level in dB; `null` is silence; missing leaves it as it is."
+    })
 }
 
 /// The schema of a previous level: a number, or `null` when it was silence.

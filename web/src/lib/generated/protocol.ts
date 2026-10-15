@@ -204,6 +204,9 @@ type: "transport.toggle_loop"
 } | {
 count_in_bars?: (number | null)
 enabled?: (boolean | null)
+/**
+ * The level in dB; `null` is silence; missing leaves it as it is.
+ */
 gain_db?: (number | null)
 type: "transport.set_metronome"
 })

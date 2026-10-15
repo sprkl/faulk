@@ -1296,7 +1296,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+            "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
             "properties": {
               "count_in_bars": {
                 "default": null,
@@ -1316,7 +1316,7 @@
                 ]
               },
               "gain_db": {
-                "default": null,
+                "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                 "format": "double",
                 "maximum": 6,
                 "minimum": -96,
@@ -2659,7 +2659,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -2679,7 +2679,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -4844,7 +4844,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -4864,7 +4864,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -7039,7 +7039,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -7059,7 +7059,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -9255,7 +9255,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -9275,7 +9275,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -11442,7 +11442,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -11462,7 +11462,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -13635,7 +13635,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -13655,7 +13655,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -15830,7 +15830,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -15850,7 +15850,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -18019,7 +18019,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -18039,7 +18039,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -20212,7 +20212,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -20232,7 +20232,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -22412,7 +22412,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -22432,7 +22432,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -24620,7 +24620,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -24640,7 +24640,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -26814,7 +26814,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -26834,7 +26834,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -29008,7 +29008,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -29028,7 +29028,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -31202,7 +31202,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -31222,7 +31222,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -33374,7 +33374,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -33394,7 +33394,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -35546,7 +35546,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -35566,7 +35566,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -37724,7 +37724,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -37744,7 +37744,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -39913,7 +39913,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -39933,7 +39933,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -42119,7 +42119,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -42139,7 +42139,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -44314,7 +44314,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -44334,7 +44334,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -45247,7 +45247,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+        "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -46493,7 +46493,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -46513,7 +46513,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -46585,7 +46585,7 @@
               ]
             },
             "gain_db": {
-              "default": null,
+              "description": "The level in dB; `null` is silence; missing leaves it as it is.",
               "format": "double",
               "maximum": 6,
               "minimum": -96,
@@ -48717,7 +48717,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -48737,7 +48737,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -50917,7 +50917,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -50937,7 +50937,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -53110,7 +53110,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -53130,7 +53130,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -55299,7 +55299,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -55319,7 +55319,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -57495,7 +57495,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -57515,7 +57515,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -59684,7 +59684,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -59704,7 +59704,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -61856,7 +61856,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -61876,7 +61876,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -64043,7 +64043,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -64063,7 +64063,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -66235,7 +66235,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -66255,7 +66255,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -68420,7 +68420,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -68440,7 +68440,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -70592,7 +70592,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -70612,7 +70612,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -72783,7 +72783,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -72803,7 +72803,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -74974,7 +74974,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -74994,7 +74994,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -77153,7 +77153,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -77173,7 +77173,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -79332,7 +79332,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+                  "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
                   "properties": {
                     "count_in_bars": {
                       "default": null,
@@ -79352,7 +79352,7 @@
                       ]
                     },
                     "gain_db": {
-                      "default": null,
+                      "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                       "format": "double",
                       "maximum": 6,
                       "minimum": -96,
@@ -81521,7 +81521,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6)\nand `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
+              "description": "Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,\n`null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is\noptional and a missing one is left as it is; at least one is required. A value\noutside its range is refused. Undo: set the previous values of the changed fields\nback.",
               "properties": {
                 "count_in_bars": {
                   "default": null,
@@ -81541,7 +81541,7 @@
                   ]
                 },
                 "gain_db": {
-                  "default": null,
+                  "description": "The level in dB; `null` is silence; missing leaves it as it is.",
                   "format": "double",
                   "maximum": 6,
                   "minimum": -96,
