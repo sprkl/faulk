@@ -28,7 +28,7 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
         rt.block_on(async move {
             tokio::time::sleep(delay).await;
             let meter = Arc::new(Meter::default());
-            let (_core, sender) = audio_core(48_000.0, meter.clone());
+            let (_core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
             let sender = Arc::new(Mutex::new(sender));
             let (activity_tx, activity_rx) = mpsc::channel();
             let midi = MidiManager::new(sender.clone(), activity_tx);

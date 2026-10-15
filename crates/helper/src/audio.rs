@@ -1,29 +1,37 @@
-//! Real-time side of the helper: the audio callback and what feeds it.
+//! Real-time side of the helper: the audio callback and what feeds it (MO-2).
+//!
+//! The helper runs the same engine channel as the web build (`engine::host`): the commands
+//! it receives (from the page, from the MIDI input) are mapped by the command layer
+//! (`commands::engine_msgs`) and encoded into the same `ControlMsg` byte stream the page
+//! sends to its prepare Worker, then submitted to the prepare side ([`EventSender`], behind
+//! a mutex, non-real-time threads only); a control thread flushes it every few
+//! milliseconds ([`spawn_flusher`]). The rt messages and the live notes reach the audio
+//! callback through the engine's lock-free rings.
 //!
 //! Everything in [`AudioCore::process`] runs on the audio thread: it never allocates,
-//! locks or blocks. Events reach it through one `rtrb` ring; when the ring is full the
-//! sender raises a flag that the callback turns into "all notes off", so a lost
-//! note-off can never leave a note hanging.
+//! locks or blocks. A full live queue releases every note (the engine's live overflow), so
+//! a lost note-off can never leave a note hanging.
+//!
+//! The page still sends commands, not engine bytes, over the local WebSocket: moving the
+//! encoding to the page side of that link is BO-1's.
 
-use engine::{Param, Synth};
-use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use commands::Command;
+use commands::engine_msgs::EngineStream;
+use engine::host::{Host, Prepare};
+use engine::msg::MsgError;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
-/// Events small enough to cross the ring without allocation.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum EngineEvent {
-    NoteOn { note: u8, velocity: u8 },
-    NoteOff { note: u8 },
-    AllNotesOff,
-    SetParam { param: Param, value: f32 },
-}
-
-/// Capacity of the event ring. Far above what a player or a page sends between two
-/// audio callbacks.
-pub const RING_CAPACITY: usize = 1024;
 /// Frames rendered per chunk; a longer callback is rendered in several chunks.
-pub const CHUNK_FRAMES: usize = 1024;
+pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
+
+/// How often the control thread pushes what waited and drops the garbage.
+pub const FLUSH_INTERVAL: Duration = Duration::from_millis(5);
+
+/// The epoch of the helper's engine: newer than a fresh channel's 0, so the setup's
+/// `Reset` is taken.
+const EPOCH: u16 = 1;
 
 /// Values the audio thread publishes for the UI.
 #[derive(Default)]
@@ -39,7 +47,8 @@ pub struct Meter {
 }
 
 impl Meter {
-    /// Returns the peak since the last call and resets it, plus the voice count.
+    /// Returns the peak since the last call and resets it, plus the voice count (the
+    /// synth's voices sounding, releasing ones included, after the last callback).
     pub fn take(&self) -> (f32, u32) {
         let peak = f32::from_bits(self.peak_bits.swap(0, Ordering::Relaxed));
         (peak, self.voices.load(Ordering::Relaxed))
@@ -53,7 +62,7 @@ impl Meter {
     }
 
     /// Records the driver's output delay. Allocation-free: called from the audio callback.
-    pub fn set_output_delay(&self, delay: std::time::Duration) {
+    pub fn set_output_delay(&self, delay: Duration) {
         let us = delay.as_micros().min(u128::from(u32::MAX)) as u32;
         self.output_delay_us.store(us, Ordering::Relaxed);
     }
@@ -69,43 +78,79 @@ impl Meter {
     }
 }
 
-/// The sending side of the ring. Owned behind a mutex by non-real-time threads only.
+/// The prepare side of the helper's engine and its stream encoder. Owned behind a mutex by
+/// non-real-time threads only.
 pub struct EventSender {
-    producer: Producer<EngineEvent>,
-    overflow: Arc<AtomicBool>,
+    prepare: Prepare,
+    stream: EngineStream,
 }
 
 impl EventSender {
-    /// Sends an event; if the ring is full, asks the audio thread to release every note.
-    pub fn send(&mut self, event: EngineEvent) {
-        if self.producer.push(event).is_err() {
-            self.overflow.store(true, Ordering::Release);
+    /// Sends a command to the engine: mapped and encoded by the command layer, then
+    /// submitted as bytes, the web engine's path. Commands the engine does not take are
+    /// ignored. A stream the engine stops (out of memory, engine busy) is logged.
+    pub fn send(&mut self, command: &Command) {
+        let result = self
+            .stream
+            .command(command)
+            .and_then(|bytes| self.submit(&bytes));
+        if let Err(error) = result {
+            crate::log!("the engine refused a command: {error:?}");
         }
+    }
+
+    fn submit(&mut self, bytes: &[u8]) -> Result<(), MsgError> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        self.prepare.submit(bytes)
+    }
+
+    /// Pushes what waited on the rt ring and drops the garbage.
+    pub fn flush(&mut self) {
+        self.prepare.flush();
+    }
+
+    /// Messages the engine rejected so far.
+    pub fn rejected(&self) -> u32 {
+        self.prepare.preparer().rejected()
     }
 }
 
+/// The audio thread's side.
 pub struct AudioCore {
-    synth: Synth,
-    events: Consumer<EngineEvent>,
-    overflow: Arc<AtomicBool>,
+    host: Host,
     meter: Arc<Meter>,
-    left: Box<[f32; CHUNK_FRAMES]>,
-    right: Box<[f32; CHUNK_FRAMES]>,
 }
 
-/// Creates the audio core and the sender that feeds it.
-pub fn audio_core(sample_rate: f32, meter: Arc<Meter>) -> (AudioCore, EventSender) {
-    let (producer, consumer) = RingBuffer::new(RING_CAPACITY);
-    let overflow = Arc::new(AtomicBool::new(false));
-    let core = AudioCore {
-        synth: Synth::new(sample_rate),
-        events: consumer,
-        overflow: overflow.clone(),
-        meter,
-        left: Box::new([0.0; CHUNK_FRAMES]),
-        right: Box::new([0.0; CHUNK_FRAMES]),
+/// Creates the audio core and the sender that feeds it, with the one synth set up
+/// (`commands::engine_msgs::single_synth_setup`).
+pub fn audio_core(
+    sample_rate: f32,
+    meter: Arc<Meter>,
+) -> Result<(AudioCore, EventSender), MsgError> {
+    let (prepare, host) = engine::host::channel(sample_rate)?;
+    let mut sender = EventSender {
+        prepare,
+        stream: EngineStream::new(EPOCH),
     };
-    (core, EventSender { producer, overflow })
+    let setup = sender.stream.setup()?;
+    sender.submit(&setup)?;
+    Ok((AudioCore { host, meter }, sender))
+}
+
+/// The control thread: flushes the sender every [`FLUSH_INTERVAL`] until it is dropped.
+pub fn spawn_flusher(sender: &Arc<Mutex<EventSender>>) -> std::thread::JoinHandle<()> {
+    let sender: Weak<Mutex<EventSender>> = Arc::downgrade(sender);
+    std::thread::spawn(move || {
+        while let Some(sender) = sender.upgrade() {
+            if let Ok(mut sender) = sender.lock() {
+                sender.flush();
+            }
+            drop(sender);
+            std::thread::sleep(FLUSH_INTERVAL);
+        }
+    })
 }
 
 impl AudioCore {
@@ -117,19 +162,6 @@ impl AudioCore {
     /// Fills an interleaved output buffer of `channels` channels.
     /// Channel 0 gets the left signal, channel 1 the right one, others silence.
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
-        while let Ok(event) = self.events.pop() {
-            match event {
-                EngineEvent::NoteOn { note, velocity } => self.synth.note_on(note, velocity),
-                EngineEvent::NoteOff { note } => self.synth.note_off(note),
-                EngineEvent::AllNotesOff => self.synth.all_notes_off(),
-                EngineEvent::SetParam { param, value } => self.synth.set_param(param, value),
-            }
-        }
-        // After draining, so that the note-ons queued before a lost note-off are released too.
-        if self.overflow.swap(false, Ordering::Acquire) {
-            self.synth.all_notes_off();
-        }
-
         let channels = channels.max(1);
         let frames = out.len() / channels;
         self.meter
@@ -138,20 +170,20 @@ impl AudioCore {
         let mut peak = 0.0f32;
         let mut done = 0;
         while done < frames {
-            let n = (frames - done).min(CHUNK_FRAMES);
-            self.synth.render(&mut self.left[..n], &mut self.right[..n]);
+            let n = self.host.render((frames - done).min(CHUNK_FRAMES));
+            let (left, right) = (self.host.left(), self.host.right());
             for i in 0..n {
                 let frame = &mut out[(done + i) * channels..(done + i + 1) * channels];
                 for (c, sample) in frame.iter_mut().enumerate() {
                     *sample = match c {
-                        0 => self.left[i],
-                        1 => self.right[i],
+                        0 => left[i],
+                        1 => right[i],
                         _ => 0.0,
                     };
                 }
-                peak = peak.max(self.left[i].abs());
+                peak = peak.max(left[i].abs());
             }
-            done += n;
+            done += n.max(1);
         }
         // Samples past the last whole frame (malformed buffer) are silenced.
         for sample in &mut out[frames * channels..] {
@@ -162,47 +194,31 @@ impl AudioCore {
             .fetch_max(peak.to_bits(), Ordering::Relaxed);
         self.meter
             .voices
-            .store(self.synth.active_voices() as u32, Ordering::Relaxed);
+            .store(self.host.voices(), Ordering::Relaxed);
     }
-}
-
-/// Converts a command for the engine into a ring event. Every live note and every
-/// synth parameter goes to the one synth, whatever the track and device ids (the page
-/// owns the project and the helper plays what it sends, until PR-3 gives the engine
-/// messages). Other commands give `None`: MIDI device management is the host's, and
-/// the rest changes only the page's project. A parameter the synth does not have gives
-/// `None` too.
-pub fn engine_event(command: &commands::Command) -> Option<EngineEvent> {
-    use commands::{Command, device, live};
-    Some(match command {
-        Command::Live(live::Command::NoteOn { note, velocity, .. }) => EngineEvent::NoteOn {
-            note: (*note).min(127),
-            velocity: (*velocity).min(127),
-        },
-        Command::Live(live::Command::NoteOff { note, .. }) => EngineEvent::NoteOff {
-            note: (*note).min(127),
-        },
-        Command::Live(live::Command::AllNotesOff {}) => EngineEvent::AllNotesOff,
-        Command::Device(device::Command::SetParam { param, value, .. }) => {
-            EngineEvent::SetParam {
-                param: device::SynthParam::from_name(param)?.to_engine(),
-                // The engine clamps to the parameter's range.
-                value: *value as f32,
-            }
-        }
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use assert_no_alloc::assert_no_alloc;
-    use commands::Command;
+    use commands::{device, history, live, midi};
+
+    fn track() -> project::TrackId {
+        project::TrackId::parse(protocol::single_synth::TRACK).unwrap()
+    }
+
+    fn note_on(note: u8, velocity: u8) -> Command {
+        Command::Live(live::Command::NoteOn {
+            track: track(),
+            note,
+            velocity,
+        })
+    }
 
     fn core() -> (AudioCore, EventSender, Arc<Meter>) {
         let meter = Arc::new(Meter::default());
-        let (core, sender) = audio_core(48_000.0, meter.clone());
+        let (core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
         (core, sender, meter)
     }
 
@@ -215,10 +231,7 @@ mod tests {
                 .iter()
                 .map(|&(frames, ch)| (vec![0.0; frames * ch + 1], ch))
                 .collect();
-        sender.send(EngineEvent::NoteOn {
-            note: 60,
-            velocity: 100,
-        });
+        sender.send(&note_on(60, 100));
         assert_no_alloc(|| {
             for _ in 0..20 {
                 for (buf, ch) in buffers.iter_mut() {
@@ -231,10 +244,7 @@ mod tests {
     #[test]
     fn notes_reach_both_channels_and_extra_channels_stay_silent() {
         let (mut core, mut sender, meter) = core();
-        sender.send(EngineEvent::NoteOn {
-            note: 69,
-            velocity: 127,
-        });
+        sender.send(&note_on(69, 127));
         let mut out = vec![0.0; 4_800 * 4];
         core.process(&mut out, 4);
         let frame = |i: usize| &out[i * 4..i * 4 + 4];
@@ -249,6 +259,28 @@ mod tests {
         assert_eq!(voices, 1);
         assert_eq!(meter.callback_frames(), Some(4_800));
         assert_eq!(meter.take().0, 0.0, "the peak resets after a read");
+        assert_eq!(sender.rejected(), 0, "the setup and the note were taken");
+    }
+
+    #[test]
+    fn parameters_reach_the_synth() {
+        let (mut core, mut sender, meter) = core();
+        sender.send(&note_on(69, 127));
+        let mut out = vec![0.0; 9_600 * 2];
+        core.process(&mut out, 2);
+        let loud = meter.take().0;
+        sender.send(&Command::Device(device::Command::SetParam {
+            device: project::DeviceId::parse(protocol::single_synth::DEVICE).unwrap(),
+            param: "gain".into(),
+            value: 0.1,
+        }));
+        for _ in 0..4 {
+            core.process(&mut out, 2);
+        }
+        meter.take();
+        core.process(&mut out, 2);
+        let quiet = meter.take().0;
+        assert!(quiet < loud * 0.5, "gain 0.1: {quiet} against {loud}");
     }
 
     #[test]
@@ -261,28 +293,25 @@ mod tests {
         );
         meter.callback_frames.store(480, Ordering::Relaxed);
         assert_eq!(meter.estimated_latency_ms(48_000.0), Some(10.0));
-        meter.set_output_delay(std::time::Duration::from_micros(12_500));
+        meter.set_output_delay(Duration::from_micros(12_500));
         assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
     }
 
     #[test]
-    fn full_ring_releases_every_note() {
+    fn full_live_queue_releases_every_note() {
         let (mut core, mut sender, _) = core();
-        sender.send(EngineEvent::NoteOn {
-            note: 60,
-            velocity: 100,
-        });
+        sender.send(&note_on(60, 100));
         let mut out = vec![0.0; 256];
         core.process(&mut out, 2);
-        // Fill the ring with note-ons: the note-off that follows is lost.
-        for _ in 0..RING_CAPACITY {
-            sender.send(EngineEvent::NoteOn {
-                note: 72,
-                velocity: 100,
-            });
+        // Fill the live queue with note-ons: the note-off that follows is lost.
+        for _ in 0..engine::msg::limits::LIVE_QUEUE_CAPACITY {
+            sender.send(&note_on(72, 100));
         }
-        sender.send(EngineEvent::NoteOff { note: 60 });
-        // The overflow flag releases everything, so after the release time all is silent.
+        sender.send(&Command::Live(live::Command::NoteOff {
+            track: track(),
+            note: 60,
+        }));
+        // The overflow releases everything, so after the release time all is silent.
         for _ in 0..200 {
             core.process(&mut out, 2);
         }
@@ -290,63 +319,28 @@ mod tests {
     }
 
     #[test]
-    fn commands_map_to_engine_events() {
-        use commands::{device, history, live, midi};
-        let track = || project::TrackId::parse(protocol::single_synth::TRACK).unwrap();
-        let synth = || project::DeviceId::parse(protocol::single_synth::DEVICE).unwrap();
-        assert_eq!(
-            engine_event(&Command::Device(device::Command::SetParam {
-                device: synth(),
-                param: "gain".into(),
-                value: 0.5
-            })),
-            Some(EngineEvent::SetParam {
-                param: Param::Gain,
-                value: 0.5
-            })
-        );
-        assert_eq!(
-            engine_event(&Command::Device(device::Command::SetParam {
-                device: synth(),
-                param: "cutoff".into(),
-                value: 0.5
-            })),
-            None,
-            "a parameter the synth does not have"
-        );
-        assert_eq!(
-            engine_event(&Command::Live(live::Command::NoteOn {
-                track: track(),
-                note: 60,
-                velocity: 100
-            })),
-            Some(EngineEvent::NoteOn {
-                note: 60,
-                velocity: 100
-            })
-        );
-        assert_eq!(
-            engine_event(&Command::Live(live::Command::NoteOff {
-                track: track(),
-                note: 200
-            })),
-            Some(EngineEvent::NoteOff { note: 127 })
-        );
-        assert_eq!(
-            engine_event(&Command::Live(live::Command::AllNotesOff {})),
-            Some(EngineEvent::AllNotesOff)
-        );
-        assert_eq!(
-            engine_event(&Command::Midi(midi::Command::ListInputs {})),
-            None
-        );
-        assert_eq!(
-            engine_event(&Command::Midi(midi::Command::SelectInput { id: None })),
-            None
-        );
-        assert_eq!(
-            engine_event(&Command::History(history::Command::Undo {})),
-            None
-        );
+    fn commands_the_engine_does_not_take_change_nothing() {
+        let (mut core, mut sender, meter) = core();
+        for command in [
+            Command::Midi(midi::Command::ListInputs {}),
+            Command::Midi(midi::Command::SelectInput { id: None }),
+            Command::History(history::Command::Undo {}),
+        ] {
+            sender.send(&command);
+        }
+        let mut out = vec![0.0; 960];
+        core.process(&mut out, 2);
+        assert_eq!(meter.take(), (0.0, 0));
+        assert_eq!(sender.rejected(), 0);
+    }
+
+    #[test]
+    fn the_control_thread_flushes_until_the_sender_is_dropped() {
+        let (_core, sender, _) = core();
+        let sender = Arc::new(Mutex::new(sender));
+        let flusher = spawn_flusher(&sender);
+        std::thread::sleep(FLUSH_INTERVAL * 3);
+        drop(sender);
+        flusher.join().unwrap();
     }
 }
