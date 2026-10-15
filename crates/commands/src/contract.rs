@@ -12,7 +12,9 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
-use project::{ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TrackId};
+use project::{
+    ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TickLoop, TrackId,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -205,6 +207,22 @@ pub enum ProjectEvent {
     },
     /// A track was soloed or unsoloed (session state).
     SoloChanged { track: TrackId, solo: bool },
+    /// The tempo changed (the project's one tempo, in BPM).
+    TempoChanged { bpm: f64 },
+    /// The time signature changed (the project's one signature).
+    TimeSignatureChanged { numerator: u8, denominator: u8 },
+    /// The loop region or whether the transport loops changed; `region` is `null` when
+    /// none is set.
+    LoopChanged {
+        region: Option<TickLoop>,
+        enabled: bool,
+    },
+    /// The metronome settings changed: the whole state; `gain_db` is `null` for silence.
+    MetronomeChanged {
+        enabled: bool,
+        gain_db: Option<f64>,
+        count_in_bars: u8,
+    },
     /// The chosen MIDI input changed; `null` when none is chosen.
     MidiInputSelected { id: Option<String> },
     /// A clip was created or brought back, with the placements it came with. The page
@@ -222,9 +240,26 @@ pub enum ProjectEvent {
     },
     /// Part of a clip changed.
     ClipChanged { clip: ClipId, part: ClipPart },
+    /// A track was created or brought back, with everything it holds. The page reads it
+    /// from its own copy of the project, to which the same command applies.
+    TrackCreated { track: TrackId },
+    /// A track was deleted, with everything it holds.
+    TrackDeleted { track: TrackId },
+    /// Part of a track changed.
+    TrackChanged { track: TrackId, part: TrackPart },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+}
+
+/// Which part of a track a [`ProjectEvent::TrackChanged`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackPart {
+    Name,
+    Color,
+    /// The track's position in the list changed.
+    Order,
 }
 
 /// Which part of a clip a [`ProjectEvent::ClipChanged`] reports.

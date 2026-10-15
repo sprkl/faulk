@@ -24,7 +24,177 @@ type: "project.rename"
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type TrackCommand = never
+export type TrackCommand = ({
+color?: (Rgb | null)
+instrument?: (string | null)
+kind: TrackKind
+name?: (string | null)
+type: "track.create"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.delete"
+} | {
+snapshot: Track
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.restore"
+} | {
+name: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.rename"
+} | {
+/**
+ * Required: `null` clears the colour, a missing field is an error.
+ */
+color: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.set_color"
+} | {
+index: number
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.move"
+} | {
+order: OrderKey
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.restore_order"
+} | {
+name?: (string | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.duplicate"
+})
+/**
+ * A colour, written #rrggbb.
+ */
+export type Rgb = string
+/**
+ * What a track's clips hold.
+ */
+export type TrackKind = ("midi" | "audio")
+/**
+ * The shape of the transition from a point to the next one.
+ */
+export type Shape = ("linear" | "step")
+/**
+ * What a lane automates.
+ */
+export type AutomationTarget = ({
+device: {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+param: string
+}
+} | {
+mixer: {
+param: MixerParam
+}
+})
+/**
+ * An automatable mixer parameter.
+ */
+export type MixerParam = ("gain" | "pan")
+/**
+ * A clip's content.
+ */
+export type ClipContent = ({
+midi: {
+length: Tick
+looping?: (TickLoop | null)
+notes: Note[]
+}
+} | {
+audio: {
+frames: number
+/**
+ * Clip gain in dB; `-inf` is written `null`.
+ */
+gain_db?: (number | null)
+looping?: (FrameLoop | null)
+media: AudioMedia
+start: number
+}
+})
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+export type Tick = number
+/**
+ * The SHA-256 of a blob, 64 lower-case hexadecimal characters.
+ */
+export type Hash = string
+/**
+ * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
+ * one bar by default (founder's decision 8).
+ * 
+ * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
+ * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
+ */
+export type Quantize = ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
+/**
+ * A fractional order key: elements sort by it.
+ */
+export type OrderKey = string
+/**
+ * What a device does in the chain.
+ */
+export type DeviceRole = ("instrument" | "effect")
+/**
+ * Where a device comes from. Third-party plugins come after the MVP.
+ */
+export type DeviceSource = ({
+builtin: {
+id: string
+version: number
+}
+} | {
+module: {
+hash: Hash
+name: string
+}
+})
+/**
+ * Where a track's signal goes. Only the master in the MVP; groups and returns later.
+ */
+export type Output = "master"
+/**
+ * The extent of a placement: in ticks for a MIDI clip, in source frames for an audio
+ * clip.
+ */
+export type Span = ({
+ticks: {
+length: Tick
+offset: Tick
+}
+} | {
+frames: {
+length: number
+offset: number
+}
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -141,25 +311,6 @@ at: "arrangement"
 start: Tick
 })
 /**
- * A musical position or duration, in ticks ([`PPQ`] per quarter note).
- * 
- * Arithmetic saturates instead of overflowing. The inner value is public so that the
- * project and the UI read it as a plain integer.
- */
-export type Tick = number
-/**
- * A colour, written #rrggbb.
- */
-export type Rgb = string
-/**
- * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
- * one bar by default (founder's decision 8).
- * 
- * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
- * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
- */
-export type Quantize = ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
-/**
  * The commands of this domain, tagged by `type`.
  */
 export type NoteCommand = never
@@ -182,7 +333,34 @@ export type AutomationCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type TransportCommand = never
+export type TransportCommand = ({
+type: "transport.play"
+} | {
+type: "transport.stop"
+} | {
+tick: Tick
+type: "transport.seek"
+} | {
+bpm: number
+type: "transport.set_tempo"
+} | {
+denominator: number
+numerator: number
+type: "transport.set_time_signature"
+} | {
+loop_region?: (TickLoop | null)
+type: "transport.set_loop"
+} | {
+type: "transport.toggle_loop"
+} | {
+count_in_bars?: (number | null)
+enabled?: (boolean | null)
+/**
+ * The level in dB; `null` is silence; missing leaves it as it is.
+ */
+gain_db?: (number | null)
+type: "transport.set_metronome"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -297,7 +475,55 @@ type: "project.rename"
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type TrackOutput = never
+export type TrackOutput = ({
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.create"
+} | {
+/**
+ * How many clips were removed with the track.
+ */
+clips: number
+/**
+ * How many devices were removed with the track.
+ */
+devices: number
+type: "track.delete"
+} | {
+type: "track.restore"
+} | {
+/**
+ * The name before the command.
+ */
+previous: string
+type: "track.rename"
+} | {
+/**
+ * The colour before the command.
+ */
+previous?: (Rgb | null)
+type: "track.set_color"
+} | {
+/**
+ * The track's index before the command.
+ */
+previous_index: number
+type: "track.move"
+} | {
+type: "track.restore_order"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.duplicate"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -404,7 +630,55 @@ export type AutomationOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type TransportOutput = never
+export type TransportOutput = ({
+type: "transport.play"
+} | {
+type: "transport.stop"
+} | {
+type: "transport.seek"
+} | {
+/**
+ * The tempo before the command, in BPM.
+ */
+previous: number
+type: "transport.set_tempo"
+} | {
+/**
+ * The denominator before the command.
+ */
+previous_denominator: number
+/**
+ * The numerator before the command.
+ */
+previous_numerator: number
+type: "transport.set_time_signature"
+} | {
+/**
+ * The region before the command.
+ */
+previous?: (TickLoop | null)
+type: "transport.set_loop"
+} | {
+/**
+ * Whether the loop is on after the command.
+ */
+enabled: boolean
+type: "transport.toggle_loop"
+} | {
+/**
+ * The count-in before the command, in bars.
+ */
+previous_count_in_bars: number
+/**
+ * Whether the click was on before the command.
+ */
+previous_enabled: boolean
+/**
+ * The level before the command, in dB; `null` was silence.
+ */
+previous_gain_db: (number | null)
+type: "transport.set_metronome"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -573,57 +847,79 @@ type: "error"
 })
 
 /**
- * A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
- * belongs to the clip restored: a snapshot cannot place another clip.
+ * A track: its chain of devices, its clips, its arrangement and its automation.
  */
-export interface PlacementSnapshot {
-/**
- * Identifier of a placement in a track's arrangement.
- */
-id: string
-/**
- * A musical position or duration, in ticks ([`PPQ`] per quarter note).
- * 
- * Arithmetic saturates instead of overflowing. The inner value is public so that the
- * project and the UI read it as a plain integer.
- */
-length: number
-/**
- * A musical position or duration, in ticks ([`PPQ`] per quarter note).
- * 
- * Arithmetic saturates instead of overflowing. The inner value is public so that the
- * project and the UI read it as a plain integer.
- */
-offset: number
-/**
- * A musical position or duration, in ticks ([`PPQ`] per quarter note).
- * 
- * Arithmetic saturates instead of overflowing. The inner value is public so that the
- * project and the UI read it as a plain integer.
- */
-start: number
+export interface Track {
+automation: {
+[k: string]: AutomationLane | undefined
 }
-/**
- * A MIDI clip as `clip.restore` brings it back (everything but its identifier).
- */
-export interface ClipSnapshot {
+clips: {
+[k: string]: Clip | undefined
+}
 color?: (Rgb | null)
 /**
- * A per-clip launch quantization, when one was set (the MVP never sets one).
+ * The chain: at most one instrument, first, then effects, ordered by
+ * [`Device::order`].
+ */
+devices: {
+[k: string]: Device | undefined
+}
+kind: TrackKind
+mixer: Mixer
+name: string
+order: OrderKey
+output: Output
+/**
+ * This track's arrangement.
+ */
+placements: {
+[k: string]: Placement | undefined
+}
+}
+/**
+ * A parameter's curve over time, in a track's arrangement.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface AutomationLane {
+/**
+ * Points by tick: at most one point per tick.
+ */
+points: {
+[k: string]: AutomationPoint | undefined
+}
+target: AutomationTarget
+}
+/**
+ * A value at a tick and the shape of the transition to the next point.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^-?\d+$".
+ */
+export interface AutomationPoint {
+shape: Shape
+value: number
+}
+/**
+ * A clip: the content. A slot puts it in the launch grid, a [`Placement`] in the
+ * arrangement. Copying a clip makes a new, independent clip (founder's decision 11); two
+ * placements of the same clip are linked clips.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface Clip {
+color?: (Rgb | null)
+content: ClipContent
+/**
+ * Reserved for a per-clip launch quantization after the MVP: absent means the
+ * project setting. The MVP never writes it.
  */
 launch_quantize?: (Quantize | null)
-/**
- * A musical position or duration, in ticks ([`PPQ`] per quarter note).
- * 
- * Arithmetic saturates instead of overflowing. The inner value is public so that the
- * project and the UI read it as a plain integer.
- */
-length: number
-looping?: (TickLoop | null)
 name: string
-notes: Note[]
 /**
- * The scene of its launch-grid slot, when it sits in one.
+ * The scene of the launch-grid slot the clip sits in.
  */
 slot?: (string | null)
 }
@@ -677,6 +973,138 @@ start: number
  * Velocity, 1 to 127.
  */
 velocity: number
+}
+/**
+ * An audio clip's loop `[start, end)` in source frames, relative to the clip's start,
+ * within `[0, frames]`.
+ */
+export interface FrameLoop {
+end: number
+start: number
+}
+/**
+ * An audio file referenced by its blob, with its metadata in clear so the project reads,
+ * validates and merges without decoding the audio (§ 2.2).
+ */
+export interface AudioMedia {
+channels: number
+/**
+ * Length of the whole file in frames.
+ */
+frames: number
+hash: Hash
+/**
+ * The file's original name.
+ */
+name: string
+sample_rate: number
+}
+/**
+ * A link of a track's chain. Its display name is its type's single English name, never
+ * translated nor stored here.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface Device {
+enabled: boolean
+order: OrderKey
+/**
+ * Parameter id → value in the unit the device declares.
+ */
+params: {
+[k: string]: number | undefined
+}
+role: DeviceRole
+source: DeviceSource
+/**
+ * Opaque instrument state, stored as a blob.
+ */
+state?: (Hash | null)
+}
+/**
+ * Gain, pan and mute of a track or of the master. Solo is not here: it is session state
+ * (founder's decision 10). Sends come after the MVP.
+ */
+export interface Mixer {
+/**
+ * Gain in dB; `-inf` (silence) is written `null`.
+ */
+gain_db?: (number | null)
+mute: boolean
+/**
+ * Pan from -1 (left) to 1 (right).
+ */
+pan: number
+}
+/**
+ * A clip set in the arrangement.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface Placement {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+span: Span
+start: Tick
+}
+/**
+ * A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
+ * belongs to the clip restored: a snapshot cannot place another clip.
+ */
+export interface PlacementSnapshot {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+offset: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+}
+/**
+ * A MIDI clip as `clip.restore` brings it back (everything but its identifier).
+ */
+export interface ClipSnapshot {
+color?: (Rgb | null)
+/**
+ * A per-clip launch quantization, when one was set (the MVP never sets one).
+ */
+launch_quantize?: (Quantize | null)
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+looping?: (TickLoop | null)
+name: string
+notes: Note[]
+/**
+ * The scene of its launch-grid slot, when it sits in one.
+ */
+slot?: (string | null)
 }
 /**
  * A note to replace by another: `clip.notes.update` addresses a note by its whole value.

@@ -12,6 +12,8 @@ use commands::{
 };
 
 mod clip_examples;
+mod track_examples;
+mod transport_examples;
 
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -100,6 +102,8 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(transport_examples::examples())
+    .chain(track_examples::examples())
     .collect()
 }
 
@@ -313,8 +317,8 @@ fn malformed_commands_are_refused_with_a_useful_message() {
             "unknown variant `project.renmae`",
         ),
         (
-            r#"{"type":"track.create"}"#,
-            "unknown variant `track.create`",
+            r#"{"type":"track.explode"}"#,
+            "unknown variant `track.explode`",
         ),
         (
             r#"{"type":"project.rename","name":"x","extra":1}"#,
@@ -443,14 +447,16 @@ impl UndoMeta for commands::Outcome {
 
 #[test]
 fn select_track_is_session_only_and_reports_the_previous_selection() {
-    let mut s = state();
+    let mut s = fixture().state;
+    let project = s.project.clone();
+    let track = fixture().track;
     let mut c = context();
     let select = Command::View(view::Command::SelectTrack {
-        track: Some(track()),
+        track: Some(track.clone()),
     });
     let first = select.apply(&mut s, &mut c).unwrap();
-    assert_eq!(s.session.selected_track, Some(track()));
-    assert_eq!(s.project, state().project);
+    assert_eq!(s.session.selected_track, Some(track.clone()));
+    assert_eq!(s.project, project);
     assert_eq!(
         first.output,
         Output::View(view::Output::SelectTrack { previous: None })
@@ -461,7 +467,7 @@ fn select_track_is_session_only_and_reports_the_previous_selection() {
     assert_eq!(
         second.output,
         Output::View(view::Output::SelectTrack {
-            previous: Some(track())
+            previous: Some(track.clone())
         })
     );
     assert_eq!(s.session.selected_track, None);
