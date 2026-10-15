@@ -26,5 +26,6 @@ rtrb = "0.4.0"
 # The crate itself with `serde` on, so that `cargo test -p engine` runs the serde tests.
 engine = { path = ".", features = ["serde", "testing"] }
 assert_no_alloc = "1"
+test-support = { path = "../test-support" }
 proptest = "1"
 serde_json = "1.0.154"
