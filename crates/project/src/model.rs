@@ -131,7 +131,7 @@ pub struct Scene {
 }
 
 /// A track: its chain of devices, its clips, its arrangement and its automation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Track {
     pub name: String,
@@ -154,7 +154,7 @@ pub struct Track {
 }
 
 /// What a track's clips hold.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackKind {
     /// MIDI clips, played by the track's instrument.
@@ -164,7 +164,7 @@ pub enum TrackKind {
 }
 
 /// Where a track's signal goes. Only the master in the MVP; groups and returns later.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Output {
     Master,
@@ -172,13 +172,15 @@ pub enum Output {
 
 /// Gain, pan and mute of a track or of the master. Solo is not here: it is session state
 /// (founder's decision 10). Sends come after the MVP.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Mixer {
     /// Gain in dB; `-inf` (silence) is written `null`.
+    #[schemars(with = "Option<f64>")]
     #[serde(with = "db")]
     pub gain_db: f64,
     /// Pan from -1 (left) to 1 (right).
+    #[schemars(with = "f64")]
     #[serde(with = "finite")]
     pub pan: f64,
     pub mute: bool,
@@ -196,7 +198,7 @@ impl Default for Mixer {
 
 /// A link of a track's chain. Its display name is its type's single English name, never
 /// translated nor stored here.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Device {
     pub order: OrderKey,
@@ -204,6 +206,7 @@ pub struct Device {
     pub enabled: bool,
     pub source: DeviceSource,
     /// Parameter id → value in the unit the device declares.
+    #[schemars(with = "BTreeMap<String, f64>")]
     #[serde(with = "finite_map")]
     pub params: BTreeMap<String, f64>,
     /// Opaque instrument state, stored as a blob.
@@ -211,7 +214,7 @@ pub struct Device {
 }
 
 /// What a device does in the chain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceRole {
     Instrument,
@@ -219,7 +222,7 @@ pub enum DeviceRole {
 }
 
 /// Where a device comes from. Third-party plugins come after the MVP.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum DeviceSource {
     /// A device built into Faulk, by type id (`"faulk.osc_synth"`) and version.
@@ -231,7 +234,7 @@ pub enum DeviceSource {
 /// A clip: the content. A slot puts it in the launch grid, a [`Placement`] in the
 /// arrangement. Copying a clip makes a new, independent clip (founder's decision 11); two
 /// placements of the same clip are linked clips.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Clip {
     pub name: String,
@@ -246,7 +249,7 @@ pub struct Clip {
 }
 
 /// A clip's content.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClipContent {
     /// Musical time: length and loop in ticks.
@@ -260,9 +263,12 @@ pub enum ClipContent {
     /// length in ticks is stored: it is computed at the project's tempo.
     Audio {
         media: AudioMedia,
+        #[schemars(with = "u64")]
         start: Frame,
+        #[schemars(with = "u64")]
         frames: Frame,
         /// Clip gain in dB; `-inf` is written `null`.
+        #[schemars(with = "Option<f64>")]
         #[serde(with = "db")]
         gain_db: f64,
         looping: Option<FrameLoop>,
@@ -271,13 +277,15 @@ pub enum ClipContent {
 
 /// An audio file referenced by its blob, with its metadata in clear so the project reads,
 /// validates and merges without decoding the audio (§ 2.2).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AudioMedia {
     pub hash: Hash,
+    #[schemars(with = "u32")]
     pub sample_rate: SampleRate,
     pub channels: u16,
     /// Length of the whole file in frames.
+    #[schemars(with = "u64")]
     pub frames: Frame,
     /// The file's original name.
     pub name: String,
@@ -293,10 +301,12 @@ pub struct TickLoop {
 
 /// An audio clip's loop `[start, end)` in source frames, relative to the clip's start,
 /// within `[0, frames]`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FrameLoop {
+    #[schemars(with = "u64")]
     pub start: Frame,
+    #[schemars(with = "u64")]
     pub end: Frame,
 }
 
@@ -397,7 +407,7 @@ impl Note {
 }
 
 /// A clip set in the arrangement.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Placement {
     pub clip: ClipId,
@@ -407,15 +417,23 @@ pub struct Placement {
 
 /// The extent of a placement: in ticks for a MIDI clip, in source frames for an audio
 /// clip.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Span {
-    Ticks { length: Tick, offset: Tick },
-    Frames { length: Frame, offset: Frame },
+    Ticks {
+        length: Tick,
+        offset: Tick,
+    },
+    Frames {
+        #[schemars(with = "u64")]
+        length: Frame,
+        #[schemars(with = "u64")]
+        offset: Frame,
+    },
 }
 
 /// A parameter's curve over time, in a track's arrangement.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AutomationLane {
     pub target: AutomationTarget,
@@ -425,7 +443,7 @@ pub struct AutomationLane {
 }
 
 /// What a lane automates.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum AutomationTarget {
     /// A parameter of a device of the same track.
@@ -435,7 +453,7 @@ pub enum AutomationTarget {
 }
 
 /// An automatable mixer parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MixerParam {
     Gain,
@@ -443,16 +461,17 @@ pub enum MixerParam {
 }
 
 /// A value at a tick and the shape of the transition to the next point.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AutomationPoint {
+    #[schemars(with = "f64")]
     #[serde(with = "finite")]
     pub value: f64,
     pub shape: Shape,
 }
 
 /// The shape of the transition from a point to the next one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Shape {
     Linear,
