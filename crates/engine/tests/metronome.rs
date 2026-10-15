@@ -750,3 +750,26 @@ fn no_count_in_when_the_cue_is_past_the_end_of_the_loop() {
     rig.seconds(4.2);
     assert!((0..3840).contains(&rig.e.clock().playhead_tick().0));
 }
+
+#[test]
+fn the_click_has_the_default_peaks_and_decays_below_minus_40_dbfs_quickly() {
+    let mut rig = Rig::new(48_000);
+    rig.setup(120.0, (4, 4), 1.0);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let out = rig.seconds(2.0);
+    let db = |x: f32| 20.0 * f64::from(x.abs()).log10();
+    // Accent at 0 and beat at 24 000: peak at the onset sample, then below -40 dBFS
+    // within 80 ms (accent) and 50 ms (beat), and silent after the click.
+    for (start, peak_db, limit_ms) in [(0usize, -12.0, 80.0), (24_000, -15.0, 50.0)] {
+        let peak = out[start..start + 2000]
+            .iter()
+            .fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!((db(peak) - peak_db).abs() < 0.01, "peak {} dBFS", db(peak));
+        let from = start + (limit_ms * 48.0) as usize;
+        assert!(
+            out[from..start + 12_000]
+                .iter()
+                .all(|s| db(*s) < -40.0 || *s == 0.0)
+        );
+    }
+}

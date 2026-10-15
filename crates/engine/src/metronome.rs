@@ -15,7 +15,7 @@
 //! # The sound
 //!
 //! A cosine burst with an exponential decay, 20 ms: 1.5 kHz on the accent, 1 kHz on the
-//! other beats, peaks 0.5 and 0.35 at `volume` 1.0. The cosine starts at its peak, so the
+//! other beats, peaks -12 and -15 dBFS at `volume` 1.0. The cosine starts at its peak, so the
 //! first sample of a click is not zero and its onset is the exact sample. `volume` is a
 //! linear gain (0 to 4: a non-finite or negative value is silence), read at each onset: a
 //! click keeps its level, so a change never makes a zipper noise. Both the sound and the
@@ -42,8 +42,8 @@ const DECAY_SECONDS: f64 = 0.003;
 const ACCENT_HZ: f64 = 1500.0;
 const BEAT_HZ: f64 = 1000.0;
 /// Peak of the accent and of the other beats at `volume` 1.0.
-pub const ACCENT_PEAK: f64 = 0.5;
-pub const BEAT_PEAK: f64 = 0.35;
+pub const ACCENT_PEAK: f64 = 0.251_188_643_150_958; // -12 dBFS
+pub const BEAT_PEAK: f64 = 0.177_827_941_003_892_3; // -15 dBFS
 /// Highest `volume` taken into account.
 pub const MAX_VOLUME: f32 = 4.0;
 /// Most count-in bars taken into account (`project::limits::MAX_COUNT_IN_BARS`).
