@@ -12,7 +12,9 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
-use project::{ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TrackId};
+use project::{
+    ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TickLoop, TrackId,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -205,6 +207,22 @@ pub enum ProjectEvent {
     },
     /// A track was soloed or unsoloed (session state).
     SoloChanged { track: TrackId, solo: bool },
+    /// The tempo changed (the project's one tempo, in BPM).
+    TempoChanged { bpm: f64 },
+    /// The time signature changed (the project's one signature).
+    TimeSignatureChanged { numerator: u8, denominator: u8 },
+    /// The loop region or whether the transport loops changed; `region` is `null` when
+    /// none is set.
+    LoopChanged {
+        region: Option<TickLoop>,
+        enabled: bool,
+    },
+    /// The metronome settings changed: the whole state; `gain_db` is `null` for silence.
+    MetronomeChanged {
+        enabled: bool,
+        gain_db: Option<f64>,
+        count_in_bars: u8,
+    },
     /// The chosen MIDI input changed; `null` when none is chosen.
     MidiInputSelected { id: Option<String> },
     /// A clip was created or brought back, with the placements it came with. The page
