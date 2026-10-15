@@ -6,7 +6,7 @@
 //! static [`DeviceDescriptor`]. This module declares the contract; it holds no device: the
 //! built-in devices and their registry are in [`crate::devices`] (DV-1: the synth,
 //! [`crate::devices::osc_synth`]). The shared parameter smoother is AM-3's; routing the
-//! events of a track and splitting blocks at loop wraps is MO-4's.
+//! events of a track and splitting blocks at loop wraps is MO-4's ([`crate::events`]).
 //!
 //! # The chain of a track
 //!
@@ -44,8 +44,11 @@
 //! (the Atelier spec's `note_id`, § 1.3, voice (a)): a [`Event::NoteOff`] ends the note that
 //! has the same voice id; its `key` is informational. The voice ids a MIDI effect writes are
 //! its own namespace (unique among the notes it holds, whether it passes an input id on or
-//! makes one up for a note it creates): the host maps each of them to a fresh voice id
-//! before the next device, so two effects, or an effect and the live input, never collide. The pitch of a note is `key +
+//! makes one up for a note it creates). The host never merges that output with another
+//! stream: it replaces the track's stream for the next device, so two effects, or an
+//! effect and the live input, never collide, and the ids reach the next device unchanged
+//! (MO-4). The live input and a schedule share the track's input with separate ranges of
+//! ids (`crate::events::SCHEDULE_FIRST_VOICE`). The pitch of a note is `key +
 //! tune_cents / 100` semitones (fine tuning, issue #170).
 //!
 //! # Parameters and smoothing
@@ -242,8 +245,9 @@ pub fn event_frame(offset: u32, cursor: usize, frames: usize) -> usize {
 ///
 /// The host sizes it in `prepare` so that it never fills: [`MidiOutput::capacity`] from
 /// the descriptor's bounds and the most events the effect can receive in one block (the
-/// host knows its clip and lane tables when it builds them, and builds a larger buffer when
-/// they grow, as for every table, decision 7). Overflow is a safety net for an effect that
+/// host cuts a block into sub-blocks when the events of its tables fill a fixed room, so
+/// the input is bounded whatever their size, MO-4; an effect after another is sized from
+/// the output of the largest before it). Overflow is a safety net for an effect that
 /// breaks its declared bounds: one slot is kept in reserve; when a push is refused, the
 /// buffer counts it and [`EventBuffer::finish`] appends an [`Event::AllNotesOff`] in that
 /// slot, after every event pushed, so that a lost note-off never leaves a note stuck.
