@@ -48,13 +48,35 @@ export async function fakeWebMidi(page: Page) {
 /**
  * Timing budgets of CT-3 (docs/agents/verification.md, "Timing budgets"). A shared CI runner is
  * slower and far noisier than a workstation, and one preempted quantum is enough to push the
- * longest pump past 500 µs, so by default a budget is only held by a ceiling ten times higher:
- * it still catches a change of order of magnitude. `FAULK_E2E_STRICT_TIMING=1` holds the strict
- * budget itself, on a reference machine. The measured value is always printed.
+ * longest pump past 500 µs (a CI run measured 512 µs), so by default a budget is only held by a
+ * ceiling ten times higher: it catches a change of order of magnitude, not of a few percent.
+ * `FAULK_E2E_STRICT_TIMING=1` holds the strict budget itself, on the median of
+ * `STRICT_RUNS` measurements, on a reference machine. Any other non-empty value is an error: it
+ * would silently run the ceiling.
  */
-export const STRICT_TIMING = process.env.FAULK_E2E_STRICT_TIMING === '1'
+const flag = process.env.FAULK_E2E_STRICT_TIMING ?? ''
+if (flag !== '' && flag !== '0' && flag !== '1') throw new Error(`FAULK_E2E_STRICT_TIMING must be 1 or 0, got "${flag}"`)
+export const STRICT_TIMING = flag === '1'
+export const STRICT_RUNS = 5
 
 /** The budget to assert: `strict` on a reference machine, ten times it otherwise. */
 export function timingLimit(strict: number): number {
   return STRICT_TIMING ? strict : strict * 10
+}
+
+/** Ten times a budget, for a measurement held by the ceiling in every mode (single sample). */
+export function ceiling(strict: number): number {
+  return strict * 10
+}
+
+export function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)]
+}
+
+/** One line for the test output: which limits were applied. */
+export function timingMode(strict: number[]): string {
+  return STRICT_TIMING
+    ? `timing: STRICT, median of ${STRICT_RUNS} runs against ${strict.join(' / ')}`
+    : `timing: ceiling (10x) ${strict.map((n) => n * 10).join(' / ')}; strict budgets ${strict.join(' / ')} with FAULK_E2E_STRICT_TIMING=1`
 }

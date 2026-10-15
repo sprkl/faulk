@@ -45,11 +45,16 @@ cargo build -p project-wasm --target wasm32-unknown-unknown --release
 
 ### Timing budgets of the e2e specs
 
-`engine-mo2.spec.ts` (the shipped worklet) and `engine-channel.spec.ts` (the CT-3 prototype, kept as the evidence of the chosen way) measure the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit). Both numbers are printed in the test output. A shared CI runner is slower and noisier than a workstation (one preempted quantum is enough to reach 512 µs), so by default the assertions hold a ceiling ten times the budget (20 µs, 5 000 µs): it catches a change of order of magnitude, not a regression of a few percent. The strict budgets are held by `FAULK_E2E_STRICT_TIMING=1`, on a reference machine, never in CI:
+`engine-mo2.spec.ts` (the shipped worklet) measures the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit), budgets of CT-3 and MO-2. `engine-channel.spec.ts` is the CT-3 prototype, kept as the evidence of the chosen way (and of way (a), which was not shipped); it holds the same numbers by the ceiling only. Every number is printed, with the mode (`timing: ceiling…` or `timing: STRICT…`).
 
-```bash
-cd web && FAULK_E2E_STRICT_TIMING=1 pnpm exec playwright test engine-mo2 engine-channel --project=dev
-```
+- **CI and default**: the assertions hold a ceiling ten times the budget (20 µs per message, 5 000 µs for the longest pump). A shared runner is slower and noisier than a workstation (a CI run measured 512 µs for the longest pump, the issue #220 one 1 049 µs, a local run 1 201 µs: one preempted quantum is enough), so the ceiling catches a change of order of magnitude, not of a few percent.
+- **Strict, on a reference machine**: `FAULK_E2E_STRICT_TIMING=1` runs the shipped measurement five times and holds the budgets themselves on the **median**. A reference machine is a workstation with nothing else running (no build, no other browser), named with its CPU and OS in the pull request; the strict run is never done in CI. Any value other than `1` or `0` is an error.
+
+  ```bash
+  cd web && FAULK_E2E_STRICT_TIMING=1 pnpm exec playwright test engine-mo2 --project=dev
+  ```
+
+  PowerShell: `$env:FAULK_E2E_STRICT_TIMING='1'; pnpm exec playwright test engine-mo2 --project=dev`.
 
 Run it before a release and after any change to `crates/engine`, `crates/engine-wasm` or `web/src/lib/engine/worklet.ts`; report the printed numbers and the machine in the pull request.
 
