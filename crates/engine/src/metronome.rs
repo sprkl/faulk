@@ -3,8 +3,9 @@
 //!
 //! # Where the clicks fall
 //!
-//! [`Clicker::render`] pulls the [`Segment`]s of the clock ([`Transport::next_segment`])
-//! and, for each, places a click on every beat tick `t` with `from <= t < to`. A beat is
+//! [`Clicker::render`] reads the [`Segment`]s of the clock's block (the engine takes them
+//! once from [`crate::transport::Transport::next_segment`], MO-4) and, for each, places a
+//! click on every beat tick `t` with `from <= t < to`. A beat is
 //! `TimeSignature::ticks_per_beat` (in compound meters, the denominator's note value:
 //! 6/8 has six eighth-note beats), the grid is anchored at tick 0 like `bar_position`,
 //! and the accent is the first beat of the bar (`t` a multiple of the bar). The onset is
@@ -32,7 +33,7 @@
 
 use crate::engine::Metronome;
 use crate::time::{SampleRate, Tick, TimeSignature};
-use crate::transport::Transport;
+use crate::transport::Segment;
 
 /// Length of a click, in seconds.
 pub const CLICK_SECONDS: f64 = 0.020;
@@ -135,13 +136,13 @@ impl Clicker {
         }
     }
 
-    /// Adds the metronome to the block: pulls the segments of `clock` (a block must be
-    /// open), places the clicks and renders them over `left` and `right`.
+    /// Adds the metronome to the block: reads the `segments` of the clock's block, places
+    /// the clicks and renders them over `left` and `right`.
     pub fn render(
         &mut self,
         settings: &Metronome,
         signature: TimeSignature,
-        clock: &mut Transport,
+        segments: &[Segment],
         left: &mut [f32],
         right: &mut [f32],
     ) {
@@ -154,7 +155,7 @@ impl Clicker {
         let beat = signature.ticks_per_beat().0.max(1);
         let bar = signature.ticks_per_bar().0.max(1);
         let mut cursor = 0;
-        while let Some(segment) = clock.next_segment() {
+        for segment in segments {
             // The first beat tick at or after `from`.
             let rest = segment.from.0.rem_euclid(beat);
             let mut tick = if rest == 0 {

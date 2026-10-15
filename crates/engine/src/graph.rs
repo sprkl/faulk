@@ -5,12 +5,14 @@
 //! # A block
 //!
 //! [`crate::engine::Engine::render`] renders one block after `begin_block` applied the rt
-//! messages:
+//! messages, with the segments the clock cut it in ([`BlockClock`]):
 //!
 //! 1. every track, in slot order: a track with no enabled device is **empty** and costs a
 //!    slot visit, nothing else (no buffer cleared, no mixing). Otherwise the track's scratch
-//!    is cleared, its live notes are routed to it (offset 0: the sample-accurate routing is
-//!    MO-4's), and its chain runs in slot order: a **MIDI effect** turns the current note
+//!    is cleared, its live notes are routed to it (offset 0 of the block: a live event
+//!    carries no time), its schedule is read ([`crate::events`], MO-4), and its chain runs
+//!    once per **sub-block** (a segment of the clock, cut again when the events of the
+//!    track fill its sink: a sub-block never crosses a loop wrap), in slot order: a **MIDI effect** turns the current note
 //!    stream into its own output, which becomes the stream (only its notes: CT-5); the
 //!    **first** enabled **instrument** receives the stream and writes the sound (a second
 //!    one is ignored: the project allows one); an **audio effect** transforms the sound in
@@ -23,9 +25,9 @@
 //!    instrument is inserted, removed, enabled or disabled, the instrument would never
 //!    receive the note-offs of the notes it holds under the old stream (or while it was
 //!    bypassed), so the next rendered block of the track starts with an `AllNotesOff`
-//!    before its live notes. Remapping those ids to
-//!    fresh ones (two MIDI effects in a row, an effect beside the live input) is left to
-//!    the event routing of MO-4;
+//!    before its live notes. The ids need no other remapping: the output of a MIDI effect
+//!    replaces the stream (two streams are never merged), and the live input and a
+//!    schedule use separate ranges ([`crate::events::SCHEDULE_FIRST_VOICE`]);
 //! 2. every **retiring** track (below), with a target of silence;
 //! 3. the master's gain over the sum.
 //!
@@ -69,7 +71,9 @@ use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
 };
 use crate::engine::{DeviceEntry, State, Track};
-use crate::msg::{LiveEvent, MsgError, TrackSlot, limits};
+use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
+use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackSlot};
+use crate::transport::Segment;
 
 /// Duration of a track's fade in or out, and of every change of a level, in seconds.
 pub const FADE_SECONDS: f64 = 0.005;
@@ -77,11 +81,12 @@ pub const FADE_SECONDS: f64 = 0.005;
 /// Slots of the retire ring: retired tracks waiting for the prepare side.
 pub const RETIRE_RING_CAPACITY: usize = 4096;
 
-/// Most note events a track receives in a block: the whole live block, plus the release
-/// that follows a live overflow, plus the release after a change of its MIDI effects. A MIDI effect's output is sized from it
-/// (`MidiOutput::capacity`); chained MIDI effects that multiply their notes beyond it meet
-/// CT-5's overflow safety net (sizing from the clip tables is MO-4's).
-pub const TRACK_INPUT_EVENTS: usize = limits::LIVE_QUEUE_CAPACITY + 2;
+/// Most note events a track's chain receives in a sub-block ([`crate::events`]): the live
+/// block and its releases, the release of a jump, and the schedule's room. A MIDI effect's
+/// output is sized from it (`MidiOutput::capacity`), whatever the size of the tables the
+/// schedule reads: a sub-block is cut when its room is full (MO-4). Chained MIDI effects
+/// that multiply their notes beyond it meet CT-5's overflow safety net.
+pub const TRACK_INPUT_EVENTS: usize = NOTE_ROOM;
 
 /// Samples below this magnitude leave the graph as 0 (no denormal reaches the output).
 const DENORMAL_FLOOR: f32 = 1e-20;
@@ -170,6 +175,11 @@ pub struct TrackGraph {
     /// enabled or disabled): the next rendered block releases every note of the track
     /// first.
     release: bool,
+    /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
+    /// message fills it yet: the clip player (CL-2), the arrangement (AR-2) and the
+    /// automation (AM-2) compile their tables into it; tests set it off the audio path
+    /// ([`TrackGraph::set_schedule`]).
+    schedule: Option<Box<Schedule>>,
     next: Option<Box<Track>>,
 }
 
@@ -180,8 +190,25 @@ impl TrackGraph {
             left: Ramp::new(0.0),
             right: Ramp::new(0.0),
             release: false,
+            schedule: None,
             next: None,
         }
+    }
+
+    /// Puts `schedule` on the track and returns the one it replaces (to be freed off the
+    /// audio path). When the old one holds notes, the next rendered block releases every
+    /// note of the track first, as for a changed chain: nothing would end them.
+    pub fn set_schedule(&mut self, schedule: Option<Box<Schedule>>) -> Option<Box<Schedule>> {
+        let old = core::mem::replace(&mut self.schedule, schedule);
+        if old.as_deref().is_some_and(|s| s.held() > 0) {
+            self.release = true;
+        }
+        old
+    }
+
+    /// The track's schedule, if any.
+    pub fn schedule(&self) -> Option<&Schedule> {
+        self.schedule.as_deref()
     }
 
     /// Releases every note of the track at the next rendered block: the notes a MIDI
@@ -234,10 +261,25 @@ pub fn mix_levels(gain: f32, pan: f32, audible: bool) -> (f32, f32) {
 struct Scratch {
     left: Box<[f32]>,
     right: Box<[f32]>,
-    /// The live notes of the track being rendered.
-    input: EventBuffer,
+    /// The events of the track's sub-block being rendered.
+    sink: Sink,
+    /// The events of one device: its parameter values merged with the note stream. It
+    /// holds a sub-block's notes and values; for a device that has values and follows a
+    /// chained MIDI effect whose output is larger, the values apply through
+    /// `Device::set_param` at the sub-block's first frame instead (no note is lost).
+    merged: EventBuffer,
     /// The `events_out` given to the devices that write no events.
     unused: EventBuffer,
+}
+
+/// The clock as the graph reads it for one block: the segments TR-1 cut it in (none when
+/// stopped), and the position of its first frame.
+#[derive(Clone, Copy, Debug)]
+pub struct BlockClock<'a> {
+    pub running: bool,
+    pub segments: &'a [Segment],
+    /// The playhead at the block's first frame, in fractional ticks.
+    pub position: f64,
 }
 
 /// The render of the graph (module doc), owned by the audio side.
@@ -297,7 +339,8 @@ impl Graph {
             scratch: Scratch {
                 left: buffer(max_frames)?,
                 right: buffer(max_frames)?,
-                input: EventBuffer::try_with_capacity(TRACK_INPUT_EVENTS + 1)?,
+                sink: Sink::try_new()?,
+                merged: EventBuffer::try_with_capacity(NOTE_ROOM + PARAM_CHUNK + 1)?,
                 unused: EventBuffer::try_with_capacity(1)?,
             },
             master: Ramp::new(1.0),
@@ -305,6 +348,11 @@ impl Graph {
             retiring_len: 0,
             retired,
         })
+    }
+
+    /// The largest block the graph renders at once (the setup's).
+    pub fn max_frames(&self) -> usize {
+        self.max_frames
     }
 
     /// Frames of a fade.
@@ -333,56 +381,31 @@ impl Graph {
         self.retiring_len += 1;
     }
 
-    /// Renders `left.len().min(right.len())` frames (module doc) into `left` and `right`,
-    /// in blocks of at most the setup's largest; `live` and `release` (the live events of
-    /// the block and whether the live notes must be released) go to the first of them.
-    pub(crate) fn render(
+    /// Renders one block of `left.len().min(right.len())` frames, at most
+    /// [`Graph::max_frames`] (module doc), cut by `clock`'s segments; `live` and `release`
+    /// (the live events of the block and whether the live notes must be released) are
+    /// delivered at its first frame.
+    pub(crate) fn block(
         &mut self,
         state: &mut State,
+        clock: &BlockClock<'_>,
         live: &[LiveEvent],
         release: bool,
         left: &mut [f32],
         right: &mut [f32],
     ) {
-        let total = left.len().min(right.len());
-        let mut start = 0;
-        let mut first = true;
-        while start < total {
-            let frames = (total - start).min(self.max_frames);
-            let end = start + frames;
-            let live = if first { live } else { &[] };
-            self.block(
-                state,
-                live,
-                first && release,
-                &mut left[start..end],
-                &mut right[start..end],
-            );
-            start = end;
-            first = false;
-        }
-    }
-
-    fn block(
-        &mut self,
-        state: &mut State,
-        live: &[LiveEvent],
-        release: bool,
-        left: &mut [f32],
-        right: &mut [f32],
-    ) {
-        let frames = left.len();
+        let frames = left.len().min(right.len()).min(self.max_frames);
+        let (left, right) = (&mut left[..frames], &mut right[..frames]);
         left.fill(0.0);
         right.fill(0.0);
         let ctx = BlockCtx {
             sample_rate: self.sample_rate,
             frames: frames as u32,
             transport: Transport {
-                playing: state.playback.playing,
+                playing: clock.running,
                 tempo: state.transport.tempo,
                 signature: state.transport.signature,
-                // TR-1's clock gives the position.
-                position_ticks: 0.0,
+                position_ticks: clock.position,
             },
         };
         let fade = self.fade;
@@ -400,7 +423,15 @@ impl Graph {
                 live,
                 release,
             };
-            render_track(track, Some(input), &ctx, &mut self.scratch, left, right);
+            render_track(
+                track,
+                Some(input),
+                clock,
+                &ctx,
+                &mut self.scratch,
+                left,
+                right,
+            );
         }
 
         // The retiring tracks: rendered toward silence, then handed to the retire ring.
@@ -411,7 +442,15 @@ impl Graph {
             track.graph.left.set(0.0, fade);
             track.graph.right.set(0.0, fade);
             let done = track.graph.is_silent()
-                || !render_track(&mut track, None, &ctx, &mut self.scratch, left, right)
+                || !render_track(
+                    &mut track,
+                    None,
+                    clock,
+                    &ctx,
+                    &mut self.scratch,
+                    left,
+                    right,
+                )
                 || track.graph.is_silent();
             if done {
                 match self.retired.push(track) {
@@ -488,10 +527,13 @@ fn has_enabled_device(track: &Track) -> bool {
 }
 
 /// Renders one track and sums it into `out_left` and `out_right` with its levels; `false`
-/// when the track is empty (nothing rendered, its levels untouched).
+/// when the track is empty (nothing rendered, its levels untouched). The chain runs once
+/// per sub-block ([`crate::events`]): per segment of `clock`, cut again when the sink is
+/// full; a retiring track (`input` is `None`) reads no events.
 fn render_track(
     track: &mut Track,
     input: Option<Input<'_>>,
+    clock: &BlockClock<'_>,
     ctx: &BlockCtx,
     scratch: &mut Scratch,
     out_left: &mut [f32],
@@ -504,29 +546,84 @@ fn render_track(
     let Scratch {
         left,
         right,
-        input: notes,
+        sink,
+        merged,
         unused,
     } = scratch;
     let (left, right) = (&mut left[..frames], &mut right[..frames]);
     left.fill(0.0);
     right.fill(0.0);
-    notes.clear();
+    sink.clear();
     if core::mem::take(&mut track.graph.release) {
         // Before the live notes: they reach the chain as it is now and play.
-        notes.push(Event::AllNotesOff { offset: 0 });
+        sink.push_note(Event::AllNotesOff { offset: 0 });
     }
+    let reads = input.is_some();
     if let Some(input) = input {
-        route_live(&input, notes);
+        route_live(&input, sink);
     }
-    notes.finish();
-    run_chain(
-        track.devices.as_mut_slice(),
-        notes,
-        unused,
-        ctx,
-        left,
-        right,
-    );
+    let mut schedule = if reads {
+        track.graph.schedule.as_deref_mut()
+    } else {
+        None
+    };
+    let devices = track.devices.as_mut_slice();
+    let mut chain = |sink: &Sink, from: usize, to: usize, position: f64| {
+        let sub = BlockCtx {
+            frames: (to - from) as u32,
+            transport: Transport {
+                position_ticks: position,
+                ..ctx.transport
+            },
+            ..*ctx
+        };
+        run_chain(
+            devices,
+            sink,
+            merged,
+            unused,
+            &sub,
+            &mut left[from..to],
+            &mut right[from..to],
+        );
+    };
+    if !clock.running || clock.segments.is_empty() {
+        if let Some(s) = schedule.as_deref_mut() {
+            s.stop(sink);
+        }
+        chain(sink, 0, frames, clock.position);
+    } else {
+        let mut start = 0;
+        let mut i = 0;
+        let mut position = clock.position;
+        while i < clock.segments.len() && start < frames {
+            let segment = clock.segments[i];
+            position = segment.position_at(start);
+            let read = match schedule.as_deref_mut() {
+                Some(s) => s.read(&segment, start, sink),
+                None => Read::Done,
+            };
+            let end = match read {
+                Read::Done => {
+                    i += 1;
+                    segment.offset + segment.frames
+                }
+                Read::Full(at) => start + at.max(1),
+            }
+            .min(frames);
+            // A segment of no frame (an `f64` edge of the clock) leaves its events to the
+            // next sub-block.
+            if end > start {
+                chain(sink, start, end, position);
+                sink.clear();
+                start = end;
+            }
+        }
+        if start < frames {
+            // Unreachable: the segments of a running block cover it.
+            chain(sink, start, frames, position);
+        }
+    }
 
     // The mix.
     let (gl, gr) = (&mut track.graph.left, &mut track.graph.right);
@@ -554,7 +651,8 @@ fn render_track(
 }
 
 /// The live notes of the track at offset 0, then a release when live events were lost.
-fn route_live(input: &Input<'_>, notes: &mut EventBuffer) {
+/// The sink has room for the whole live block ([`crate::events::LIVE_EVENTS`]).
+fn route_live(input: &Input<'_>, sink: &mut Sink) {
     for event in input.live {
         let event = match *event {
             LiveEvent::NoteOn {
@@ -581,11 +679,11 @@ fn route_live(input: &Input<'_>, notes: &mut EventBuffer) {
             _ => None,
         };
         if let Some(event) = event {
-            notes.push(event);
+            sink.push_note(event);
         }
     }
     if input.release {
-        notes.push(Event::AllNotesOff { offset: 0 });
+        sink.push_note(Event::AllNotesOff { offset: 0 });
     }
 }
 
@@ -598,10 +696,13 @@ enum Stream {
     Device(usize),
 }
 
-/// Runs a chain in slot order (module doc) over `left` and `right`.
+/// Runs a chain in slot order (module doc) over `left` and `right`, one sub-block: each
+/// device receives its own parameter values of `sink`, merged with the note stream when it
+/// takes notes ([`Sink::merge_for`]).
 fn run_chain(
     devices: &mut [Option<Box<DeviceEntry>>],
-    input: &EventBuffer,
+    sink: &Sink,
+    merged: &mut EventBuffer,
     unused: &mut EventBuffer,
     ctx: &BlockCtx,
     left: &mut [f32],
@@ -617,18 +718,45 @@ fn run_chain(
         if !entry.enabled {
             continue;
         }
-        let notes: &[Event] = match stream {
-            Stream::Input => input.events(),
-            Stream::Device(j) => before
+        let role = entry.device.descriptor().role;
+        match role {
+            DeviceRole::MidiEffect if entry.events_out.is_none() => continue,
+            DeviceRole::Instrument if instrument => continue,
+            _ => {}
+        }
+        let notes: &[Event] = match (role, stream) {
+            (DeviceRole::Effect, _) => &[],
+            (_, Stream::Input) => sink.notes(),
+            (_, Stream::Device(j)) => before
                 .get(j)
                 .and_then(|e| e.as_deref())
                 .and_then(|e| e.events_out.as_ref())
                 .map_or(&[], EventBuffer::events),
         };
+        // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
+        let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
+        let values = sink.params_for(slot);
+        let events: &[Event] = if values == 0 {
+            notes
+        } else if notes.len() + values < merged.capacity() {
+            sink.merge_for(slot, notes, merged);
+            merged.events()
+        } else {
+            // More than the merge holds (after a chained MIDI effect with a large output):
+            // the values apply at the sub-block's first frame, and no note is lost.
+            for (d, e) in sink.params() {
+                if *d == slot
+                    && let Event::ParamValue { id, value, .. } = *e
+                {
+                    entry.device.set_param(id, value);
+                }
+            }
+            notes
+        };
         let DeviceEntry {
             device, events_out, ..
         } = &mut **entry;
-        match device.descriptor().role {
+        match role {
             DeviceRole::MidiEffect => {
                 let Some(out) = events_out.as_mut() else {
                     continue;
@@ -639,15 +767,12 @@ fn run_chain(
                     right,
                     events_out: out,
                 };
-                device.process(ctx, notes, &mut io);
+                device.process(ctx, events, &mut io);
                 out.finish();
                 out.retain_notes();
                 stream = Stream::Device(i);
             }
             DeviceRole::Instrument => {
-                if instrument {
-                    continue;
-                }
                 instrument = true;
                 unused.clear();
                 let mut io = AudioIo {
@@ -655,7 +780,7 @@ fn run_chain(
                     right,
                     events_out: unused,
                 };
-                device.process(ctx, notes, &mut io);
+                device.process(ctx, events, &mut io);
             }
             DeviceRole::Effect => {
                 unused.clear();
@@ -664,7 +789,7 @@ fn run_chain(
                     right,
                     events_out: unused,
                 };
-                device.process(ctx, &[], &mut io);
+                device.process(ctx, events, &mut io);
             }
         }
     }

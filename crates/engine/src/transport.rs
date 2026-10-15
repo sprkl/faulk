@@ -58,7 +58,7 @@ use crate::msg::TransportState;
 use crate::time::{Frame, LoopRegion, SampleRate, Tempo, Tick, TimeSignature};
 
 /// A run of frames of the block that plays a contiguous range of ticks.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Segment {
     /// First frame of the segment inside the block.
     pub offset: usize,
