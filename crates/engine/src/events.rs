@@ -42,13 +42,14 @@
 //! # Jumps and stops
 //!
 //! A segment whose `from` is not the tick the cursor expects (the first read, a play, a
-//! seek, a loop wrap) is a **jump**: the notes the schedule holds are released (one
-//! `AllNotesOff` at the segment's first frame, only when it holds some), then the cursor
-//! moves by binary search to the first event at or after `from`. A note-off whose note-on
-//! was not delivered since the jump (its note started before `from`) is dropped. A block
-//! with the clock stopped releases the held notes the same way and forgets the cursor.
-//! That `AllNotesOff` also ends the live notes of the track held at that moment: releasing
-//! each scheduled note on its own (a note that crosses the loop end cut cleanly) is CL-2's.
+//! seek, a loop wrap) is a **jump**: every note the schedule holds is released by its own
+//! note-off at the segment's first frame (one bit per note says which are held; the live
+//! notes of the track are not touched), then the cursor moves by binary search to the
+//! first event at or after `from`. A note-off of a note that is not held (its note-on was
+//! not delivered since the jump) is dropped. A block with the clock stopped releases the
+//! held notes the same way and forgets the cursor. A segment that starts where an
+//! unfinished one would have gone on (the sink filled on the last frame of a block) is no
+//! jump: the entries not yet delivered land on its first frame.
 //!
 //! # Voices
 //!
@@ -366,10 +367,14 @@ impl Schedule {
     pub fn read(&mut self, segment: &Segment, start: usize, sink: &mut Sink) -> Read {
         let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
         // The rest of a group delivered in part, at the first frame.
+        let continues = self.expect == Some(segment.from) || self.resume == Some(segment.from);
         if !self.deliver_pending(sink) {
-            return self.full(segment, 1);
+            // A jump is handled once the rest is delivered: only a continuation may be
+            // resumed at the next block.
+            self.resume = continues.then_some(segment.to);
+            return Read::Full(1);
         }
-        if self.resume == Some(segment.from) {
+        if continues {
             self.expect = Some(segment.from);
         }
         self.resume = None;
@@ -628,6 +633,11 @@ impl Sink {
     /// Whether `device` has a parameter value in the sub-block.
     pub fn has_params_for(&self, device: DeviceSlot) -> bool {
         self.params().iter().any(|(d, _)| *d == device)
+    }
+
+    /// Parameter values of `device` in the sub-block.
+    pub fn params_for(&self, device: DeviceSlot) -> usize {
+        self.params().iter().filter(|(d, _)| *d == device).count()
     }
 
     /// Writes into `out` the events of `device`: its parameter values merged with

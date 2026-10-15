@@ -12,7 +12,7 @@ use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use engine::device::testing::TRANSPOSE;
 use engine::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, Factory,
-    ParamDescriptor, Scale, Unit, VoiceId,
+    MidiOutput, ParamDescriptor, Scale, Unit, VoiceId,
 };
 use engine::engine::{Engine, Preparer, channel};
 use engine::events::{
@@ -142,9 +142,84 @@ impl Device for Probe {
         self.done += frames as u64;
     }
 
+    /// Logged as a value at the first frame of the next sub-block.
+    fn set_param(&mut self, id: ParamId, value: f32) {
+        LOG.with_borrow_mut(|log| {
+            if log.len() < log.capacity() {
+                log.push(Rec::Ev {
+                    who: self.who,
+                    at: self.done,
+                    event: Event::ParamValue {
+                        offset: 0,
+                        id,
+                        value,
+                    },
+                });
+            }
+        });
+    }
+
+    fn reset(&mut self) {}
+}
+
+/// A MIDI effect that plays every note twice (its copies under voice ids of its own).
+struct Doubler;
+
+static DOUBLER: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.test_doubler",
+    kind_id: DeviceKind(0xFFFF_00B3),
+    name: "Doubler",
+    role: DeviceRole::MidiEffect,
+    midi_output: Some(MidiOutput {
+        per_input: 2,
+        per_block: 0,
+    }),
+    ..PROBE
+};
+
+const COPY: u32 = 0x80_0000;
+
+impl Device for Doubler {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &DOUBLER
+    }
+
+    fn process(&mut self, _ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        for e in events {
+            let copy = match *e {
+                Event::NoteOn {
+                    offset,
+                    voice,
+                    key,
+                    velocity,
+                    tune_cents,
+                } => VoiceId::new(voice.get() | COPY).map(|voice| Event::NoteOn {
+                    offset,
+                    voice,
+                    key,
+                    velocity,
+                    tune_cents,
+                }),
+                Event::NoteOff { offset, voice, key } => VoiceId::new(voice.get() | COPY)
+                    .map(|voice| Event::NoteOff { offset, voice, key }),
+                _ => None,
+            };
+            if e.is_note() {
+                io.events_out.push(*e);
+            }
+            if let Some(c) = copy {
+                io.events_out.push(c);
+            }
+        }
+    }
+
     fn set_param(&mut self, _id: ParamId, _value: f32) {}
 
     fn reset(&mut self) {}
+}
+
+fn build_doubler(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+    Ok(try_box(Doubler)?)
 }
 
 fn build_probe(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
@@ -166,6 +241,8 @@ fn resolver(kind: DeviceKind) -> Option<Factory> {
         Some(build_probe)
     } else if kind == PROBE_FX.kind_id {
         Some(build_probe_fx)
+    } else if kind == DOUBLER.kind_id {
+        Some(build_doubler)
     } else {
         engine::device::testing::factory(kind)
     }
@@ -356,7 +433,8 @@ fn note_ons(events: &[(u64, Event)]) -> Vec<(u64, u32)> {
 #[test]
 fn a_note_scheduled_at_sample_k_starts_at_k() {
     for rate in [48_000u32, 44_100] {
-        for size in [64usize, 128, 512, 2048, 1, 7, 333] {
+        // 4096 and 5000: one render cut in several clock blocks of at most 2048 frames.
+        for size in [64usize, 128, 512, 2048, 1, 7, 333, 4096, 5000] {
             let mut rig = Rig::new(rate, size);
             let s0 = rig.frames;
             // Notes on many offsets, block boundaries included (7 ticks apart).
@@ -910,4 +988,82 @@ fn replacing_a_schedule_that_holds_notes_releases_the_track() {
             .any(|(a, e)| *a == at && matches!(e, Event::AllNotesOff { .. })),
         "the held note of the old schedule is released"
     );
+}
+
+#[test]
+fn values_after_a_large_midi_output_lose_no_note() {
+    let rate = 48_000;
+    let size = 128;
+    let mut rig = Rig::new(rate, size);
+    // The chain becomes the doubler (slot 0), then the probe (slot 1).
+    rig.send(&[
+        M::DeviceRemove {
+            track: TRACK,
+            device: DeviceSlot(0),
+        },
+        M::DeviceInsert {
+            track: TRACK,
+            device: DeviceSlot(0),
+            kind: DOUBLER.kind_id,
+            state: Vec::new(),
+        },
+        M::DeviceInsert {
+            track: TRACK,
+            device: DeviceSlot(1),
+            kind: PROBE.kind_id,
+            state: Vec::new(),
+        },
+    ]);
+    rig.run(size, size);
+    LOG.with_borrow_mut(|log| log.clear());
+    // 5 000 notes on one sample, doubled: more than the merge holds, with a value.
+    let notes: Vec<ScheduledNote> = (0..5_000).map(|_| note(100, 10)).collect();
+    let params = [ScheduledParam {
+        tick: Tick(100),
+        device: DeviceSlot(1),
+        id: LEVEL,
+        value: 0.5,
+    }];
+    rig.schedule(&notes, &params);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    rig.run(25 * 200, size);
+    let ev = events(INSTRUMENT);
+    assert!(
+        !ev.iter()
+            .any(|(_, e)| matches!(e, Event::AllNotesOff { .. }))
+    );
+    assert_eq!(note_ons(&ev).len(), 10_000, "no note lost");
+    assert!(
+        ev.iter()
+            .any(|(_, e)| matches!(e, Event::ParamValue { value, .. } if *value == 0.5)),
+        "the value reached the instrument"
+    );
+    assert!(check_voices(&ev).is_empty());
+}
+
+#[test]
+fn a_jump_while_a_large_group_is_still_pending_is_handled() {
+    let rate = 48_000;
+    let size = 1;
+    let mut rig = Rig::new(rate, size);
+    let s0 = rig.frames;
+    // More than two sinks of note-ons on one sample, in blocks of one frame.
+    let n = 2 * NOTE_ROOM + 500;
+    let notes: Vec<ScheduledNote> = (0..n).map(|_| note(100, 50)).collect();
+    rig.schedule(&notes, &[]);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let k = rig.frame(s0, 0, 100);
+    rig.run((k + 1 - s0) as usize, size);
+    // A seek back while the rest of the group waits.
+    rig.send(&[M::Seek { tick: Tick(90) }]);
+    rig.run(25 * 30, size);
+    let ev = events(INSTRUMENT);
+    let ons = note_ons(&ev);
+    // Every note-on of the first pass, then the seek released them all, then the notes
+    // played again from tick 90.
+    assert_eq!(ons.len(), 2 * n, "each note played twice, none skipped");
+    assert!(check_voices(&ev).len() == n, "only the second pass is held");
+    rig.send(&[M::Stop]);
+    rig.run(25 * 400, 512);
+    assert!(check_voices(&events(INSTRUMENT)).is_empty());
 }

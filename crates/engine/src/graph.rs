@@ -264,9 +264,9 @@ struct Scratch {
     /// The events of the track's sub-block being rendered.
     sink: Sink,
     /// The events of one device: its parameter values merged with the note stream. It
-    /// holds a sub-block's notes and values; a device that has values and follows a chained
-    /// MIDI effect whose output is larger meets CT-5's overflow safety net (an
-    /// `AllNotesOff` after what fits).
+    /// holds a sub-block's notes and values; for a device that has values and follows a
+    /// chained MIDI effect whose output is larger, the values apply through
+    /// `Device::set_param` at the sub-block's first frame instead (no note is lost).
     merged: EventBuffer,
     /// The `events_out` given to the devices that write no events.
     unused: EventBuffer,
@@ -735,10 +735,22 @@ fn run_chain(
         };
         // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
         let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
-        let events: &[Event] = if sink.has_params_for(slot) {
+        let values = sink.params_for(slot);
+        let events: &[Event] = if values == 0 {
+            notes
+        } else if notes.len() + values < merged.capacity() {
             sink.merge_for(slot, notes, merged);
             merged.events()
         } else {
+            // More than the merge holds (after a chained MIDI effect with a large output):
+            // the values apply at the sub-block's first frame, and no note is lost.
+            for (d, e) in sink.params() {
+                if *d == slot
+                    && let Event::ParamValue { id, value, .. } = *e
+                {
+                    entry.device.set_param(id, value);
+                }
+            }
             notes
         };
         let DeviceEntry {
