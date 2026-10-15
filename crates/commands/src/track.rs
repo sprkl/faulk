@@ -1,21 +1,799 @@
-//! `track.*`: tracks: create, delete, rename, reorder, colour, arm (epics 1 and 9, PR and RE).
+//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8;
+//! arming comes with RE). Selecting a track is `view.select_track`.
 //!
-//! Empty skeleton (CT-4): the tasks named above add their commands here, one
-//! `domain!` block each, and implement them in [`apply`]. A command is declared only
-//! once it is implemented: the test rule refuses a declared command without an example.
+//! The contract of the track commands, written once here and repeated in their
+//! descriptions for agents:
+//!
+//! - A track is addressed by its `TrackId`. The tracks are ordered; `index` is a
+//!   position in that order, 0 first.
+//! - **No cap below the safety limit.** Creating or duplicating a track is refused with
+//!   `limit` only at `project::limits::MAX_TRACKS`; below it nothing stops a project from
+//!   growing.
+//! - `track.create` makes a MIDI track play one instrument of the device registry (the
+//!   oscillator by default), or an audio track, which holds the clip player. The new
+//!   track goes last, with the default mixer and no name unless one is given: the
+//!   interface shows a default name in the user's language for an empty one.
+//! - `track.delete` takes the whole track with it: its devices, clips, placements and
+//!   automation. Its inverse, `track.restore`, brings all of it back under the same
+//!   identifiers and order key, so deleting then undoing leaves the project as it was.
+//!   It is undoable, hence not flagged destructive. The track's selection and solo are
+//!   session state: deleting clears them, undoing does not bring them back.
+//! - `track.duplicate` copies the track next to the source with new identifiers
+//!   everywhere. Its clips are new, independent clips (founder's decision 11).
+//! - A command that changes nothing returns no inverse and no event.
+//!
+//! The order of tracks is a fractional key in the document. `track.move` takes the index
+//! the user sees and turns it into a key; its inverse, `track.restore_order`, puts the
+//! exact previous key back so that undo is exact.
 
-use crate::contract::{CommandError, Context, Outcome, State};
+use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, TrackPart, Undo};
 use crate::macros::domain;
+use engine::devices::{Builtin, REGISTRY};
+use project::limits::{MAX_NAME_CHARS, MAX_NOTES, MAX_POINTS, MAX_TRACKS};
+use project::{
+    AutomationLane, AutomationTarget, CLIP_PLAYER, Clip, ClipContent, ClipId, Device, DeviceId,
+    DeviceRole, DeviceSource, LaneId, OrderKey, Placement, PlacementId, Rgb, Track, TrackId,
+    TrackKind,
+};
+use std::collections::BTreeMap;
+
+/// The instrument a MIDI track plays when `track.create` names none.
+pub const DEFAULT_INSTRUMENT: &str = crate::device::SYNTH_KIND;
 
 domain! {
     domain = "track", schema = ("TrackCommand", "TrackOutput");
+
+    /// Create a track at the end of the list: `kind` is `midi` or `audio`. A MIDI track
+    /// plays `instrument`, the type id of a built-in instrument (`faulk.osc_synth`, the
+    /// default); an audio track plays the clip player and takes no `instrument`. `name`
+    /// is optional (trimmed, at most 200 characters; empty by default) and so is `color`
+    /// (`#rrggbb`). Refused with `limit` only at the project's safety limit of tracks.
+    /// Undo: `track.delete`.
+    "track.create" (kind = "edit", undo = "inverse", destructive = false)
+    Create {
+        kind: TrackKind,
+        instrument: Option<String>,
+        name: Option<String>,
+        color: Option<Rgb>,
+    } => {
+        /// The track created.
+        track: TrackId,
+        /// Its instrument: the chosen one, or the clip player of an audio track.
+        device: DeviceId,
+    };
+
+    /// Delete a track with its devices, clips, placements and automation. The selection
+    /// and the solo of the track are cleared (session state, not restored by undo). Undo:
+    /// `track.restore` brings the whole track back with its identifiers and position.
+    "track.delete" (kind = "edit", undo = "inverse", destructive = false)
+    Delete { track: TrackId } => {
+        /// How many devices were removed with the track.
+        devices: u32,
+        /// How many clips were removed with the track.
+        clips: u32,
+    };
+
+    /// Bring a deleted track back with its identifier, as `track.delete` removed it: the
+    /// inverse of a delete. `snapshot` is the whole track: its order key, mixer,
+    /// devices, clips, placements and automation. Refused when the track's identifier or
+    /// any identifier inside it is already in use, at the safety limit of tracks, or when
+    /// the snapshot is not a valid track of the project. Undo: `track.delete`.
+    "track.restore" (kind = "edit", undo = "inverse", destructive = false)
+    Restore {
+        track: TrackId,
+        snapshot: Track,
+    } => {};
+
+    /// Rename a track. The name is trimmed, at most 200 characters; an empty name clears
+    /// it. Undo: rename it back.
+    "track.rename" (kind = "edit", undo = "inverse", destructive = false)
+    Rename { track: TrackId, name: String } => {
+        /// The name before the command.
+        previous: String,
+    };
+
+    /// Set the colour of a track, `#rrggbb`, or `null` for none. Undo: set the previous
+    /// colour back.
+    "track.set_color" (kind = "edit", undo = "inverse", destructive = false)
+    SetColor {
+        track: TrackId,
+        /// Required: `null` clears the colour, a missing field is an error.
+        #[serde(deserialize_with = "Option::deserialize")]
+        #[schemars(required)]
+        color: Option<Rgb>,
+    } => {
+        /// The colour before the command.
+        previous: Option<Rgb>,
+    };
+
+    /// Move a track to `index` in the list of tracks, 0 first; an index past the end
+    /// means last. Refused with `invalid` when the tracks around that position share an
+    /// order key (a merge made them equal), since none fits between them. Undo: `track.restore_order` puts the exact previous order key back.
+    "track.move" (kind = "edit", undo = "inverse", destructive = false)
+    Move { track: TrackId, index: u32 } => {
+        /// The track's index before the command.
+        previous_index: u32,
+    };
+
+    /// Put a track back under an exact order key: the inverse of `track.move`, which
+    /// takes an index. Refused when the key is not a valid order key (checked on read).
+    /// Undo: set the key before this command back.
+    "track.restore_order" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreOrder { track: TrackId, order: OrderKey } => {};
+
+    /// Duplicate a track right after the source (after any track that shares its order
+    /// key), with new identifiers for the track, its
+    /// devices, clips, placements and automation lanes. The clips are new, independent
+    /// clips with the same content. `name` is optional (trimmed, at most 200
+    /// characters): the copy has the source's name by default. Refused with `limit` at
+    /// the safety limit of tracks, notes or automation points. Undo: `track.delete` of
+    /// the copy.
+    "track.duplicate" (kind = "edit", undo = "inverse", destructive = false)
+    Duplicate { track: TrackId, name: Option<String> } => {
+        /// The new track.
+        track: TrackId,
+    };
 }
 
-/// Applies a command of this domain. No command yet.
-pub fn apply(
-    command: &Command,
-    _state: &mut State,
-    _ctx: &mut Context,
-) -> Result<Outcome<Command, Output>, CommandError> {
-    match *command {}
+type Out = Outcome<Command, Output>;
+
+/// Applies a command of this domain.
+pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
+    match command {
+        Command::Create {
+            kind,
+            instrument,
+            name,
+            color,
+        } => create(
+            state,
+            ctx,
+            *kind,
+            instrument.as_deref(),
+            name.as_deref(),
+            *color,
+        ),
+        Command::Delete { track } => delete(state, track),
+        Command::Restore { track, snapshot } => restore(state, track, snapshot),
+        Command::Rename { track, name } => rename(state, track, name),
+        Command::SetColor { track, color } => set_color(state, track, *color),
+        Command::Move { track, index } => move_track(state, track, *index),
+        Command::RestoreOrder { track, order } => restore_order(state, track, order),
+        Command::Duplicate { track, name } => duplicate(state, ctx, track, name.as_deref()),
+    }
+}
+
+fn not_found(track: &TrackId) -> CommandError {
+    CommandError::NotFound {
+        entity: "track".into(),
+        id: track.to_string(),
+    }
+}
+
+fn invalid(field: &str, message: impl Into<String>) -> CommandError {
+    CommandError::Invalid {
+        field: field.into(),
+        message: message.into(),
+    }
+}
+
+fn check_room(state: &State) -> Result<(), CommandError> {
+    if state.project.tracks.len() >= MAX_TRACKS {
+        return Err(CommandError::Limit {
+            entity: "tracks".into(),
+            max: MAX_TRACKS as u64,
+        });
+    }
+    Ok(())
+}
+
+/// A name, trimmed, at most [`MAX_NAME_CHARS`] characters.
+fn clean_name<'a>(name: &'a str, field: &str) -> Result<&'a str, CommandError> {
+    let name = name.trim();
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(invalid(
+            field,
+            format!("a name has at most {MAX_NAME_CHARS} characters"),
+        ));
+    }
+    Ok(name)
+}
+
+/// The key that puts a track at the end of the list.
+fn last_key(state: &State) -> Result<OrderKey, CommandError> {
+    let order = state.project.tracks_in_order();
+    OrderKey::between(order.last().map(|(_, t)| &t.order), None)
+        .map_err(|e| invalid("index", e.to_string()))
+}
+
+/// The instrument a MIDI track plays, from the registry: refused when the type is
+/// unknown or is not an instrument.
+fn instrument_device(kind_id: &str) -> Result<Device, CommandError> {
+    instrument_from(REGISTRY, kind_id)
+}
+
+fn instrument_from(registry: &[Builtin], kind_id: &str) -> Result<Device, CommandError> {
+    let builtin = registry
+        .iter()
+        .find(|b| b.descriptor.kind == kind_id)
+        .ok_or_else(|| CommandError::NotFound {
+            entity: "instrument".into(),
+            id: kind_id.into(),
+        })?;
+    let descriptor = builtin.descriptor;
+    if descriptor.role != engine::device::DeviceRole::Instrument {
+        return Err(invalid(
+            "instrument",
+            format!("{kind_id} is not an instrument"),
+        ));
+    }
+    Ok(Device {
+        order: OrderKey::first(),
+        role: DeviceRole::Instrument,
+        enabled: true,
+        source: DeviceSource::Builtin {
+            id: descriptor.kind.into(),
+            version: descriptor.version,
+        },
+        params: descriptor
+            .params
+            .iter()
+            .map(|p| (p.key.to_owned(), p.default))
+            .collect(),
+        state: None,
+    })
+}
+
+fn clip_player() -> Device {
+    Device {
+        order: OrderKey::first(),
+        role: DeviceRole::Instrument,
+        enabled: true,
+        source: DeviceSource::Builtin {
+            id: CLIP_PLAYER.into(),
+            version: 1,
+        },
+        params: BTreeMap::new(),
+        state: None,
+    }
+}
+
+fn created(track: &TrackId) -> ProjectEvent {
+    ProjectEvent::TrackCreated {
+        track: track.clone(),
+    }
+}
+
+fn create(
+    state: &mut State,
+    ctx: &mut Context,
+    kind: TrackKind,
+    instrument: Option<&str>,
+    name: Option<&str>,
+    color: Option<Rgb>,
+) -> Result<Out, CommandError> {
+    check_room(state)?;
+    let name = clean_name(name.unwrap_or_default(), "name")?;
+    let order = last_key(state)?;
+    let device = match (kind, instrument) {
+        (TrackKind::Midi, instrument) => {
+            instrument_device(instrument.unwrap_or(DEFAULT_INSTRUMENT))?
+        }
+        (TrackKind::Audio, None) => clip_player(),
+        (TrackKind::Audio, Some(_)) => {
+            return Err(invalid(
+                "instrument",
+                "an audio track plays the clip player and takes no instrument",
+            ));
+        }
+    };
+    let track_id = TrackId::generate(&mut ctx.ids);
+    let device_id = DeviceId::generate(&mut ctx.ids);
+    let mut track = Track::new(kind, name, order);
+    track.color = color;
+    track.devices.insert(device_id.clone(), device);
+    state.project.tracks.insert(track_id.clone(), track);
+    Ok(Outcome {
+        output: Output::Create {
+            track: track_id.clone(),
+            device: device_id,
+        },
+        undo: Undo::Inverse(Box::new(Command::Delete {
+            track: track_id.clone(),
+        })),
+        events: vec![created(&track_id)],
+        control: vec![],
+    })
+}
+
+fn delete(state: &mut State, track_id: &TrackId) -> Result<Out, CommandError> {
+    let track = state
+        .project
+        .tracks
+        .remove(track_id)
+        .ok_or_else(|| not_found(track_id))?;
+    let mut events = vec![ProjectEvent::TrackDeleted {
+        track: track_id.clone(),
+    }];
+    // Session state follows the track out: a selection or a solo on a track that is gone
+    // would send live MIDI nowhere. Undo does not bring it back (session, not project).
+    if state.session.selected_track.as_ref() == Some(track_id) {
+        state.session.selected_track = None;
+        events.push(ProjectEvent::TrackSelected { track: None });
+    }
+    if state.session.solo.remove(track_id) {
+        events.push(ProjectEvent::SoloChanged {
+            track: track_id.clone(),
+            solo: false,
+        });
+    }
+    Ok(Outcome {
+        output: Output::Delete {
+            devices: u32::try_from(track.devices.len()).unwrap_or(u32::MAX),
+            clips: u32::try_from(track.clips.len()).unwrap_or(u32::MAX),
+        },
+        undo: Undo::Inverse(Box::new(Command::Restore {
+            track: track_id.clone(),
+            snapshot: track,
+        })),
+        events,
+        control: vec![],
+    })
+}
+
+fn restore(state: &mut State, track_id: &TrackId, snap: &Track) -> Result<Out, CommandError> {
+    if state.project.contains_id(&track_id.0) {
+        return Err(invalid(
+            "track",
+            format!("the identifier {track_id} is already in use"),
+        ));
+    }
+    check_room(state)?;
+    check_devices(snap)?;
+    state.project.tracks.insert(track_id.clone(), snap.clone());
+    // The snapshot is data from outside: the whole project must stay valid with it
+    // (identifiers unique across the project, limits, device chain, clip kinds). A
+    // refusal takes the track back out, so the state is untouched.
+    if let Err(violations) = state.project.validate() {
+        state.project.tracks.remove(track_id);
+        let first = violations
+            .first()
+            .map_or_else(String::new, ToString::to_string);
+        return Err(invalid("snapshot", first));
+    }
+    Ok(Outcome {
+        output: Output::Restore {},
+        undo: Undo::Inverse(Box::new(Command::Delete {
+            track: track_id.clone(),
+        })),
+        events: vec![created(track_id)],
+        control: vec![],
+    })
+}
+
+/// The devices of a snapshot are devices Faulk has: a built-in id of the registry (or the
+/// clip player), with only parameters its descriptor declares. `track.create` builds its
+/// devices from the registry; a restore from outside must not bring in what it cannot.
+fn check_devices(snap: &Track) -> Result<(), CommandError> {
+    for (id, device) in &snap.devices {
+        let DeviceSource::Builtin { id: kind, .. } = &device.source else {
+            continue;
+        };
+        if kind == CLIP_PLAYER {
+            if !device.params.is_empty() {
+                return Err(invalid(
+                    "snapshot",
+                    format!("device {id}: the clip player has no parameters"),
+                ));
+            }
+            continue;
+        }
+        let builtin = REGISTRY
+            .iter()
+            .find(|b| b.descriptor.kind == kind)
+            .ok_or_else(|| invalid("snapshot", format!("device {id}: unknown device {kind}")))?;
+        if let Some(param) = device.params.keys().find(|k| {
+            !builtin
+                .descriptor
+                .params
+                .iter()
+                .any(|p| p.key == k.as_str())
+        }) {
+            return Err(invalid(
+                "snapshot",
+                format!("device {id}: {kind} has no parameter {param}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn track_mut<'a>(state: &'a mut State, track: &TrackId) -> Result<&'a mut Track, CommandError> {
+    state
+        .project
+        .tracks
+        .get_mut(track)
+        .ok_or_else(|| not_found(track))
+}
+
+fn changed(track: &TrackId, part: TrackPart) -> Vec<ProjectEvent> {
+    vec![ProjectEvent::TrackChanged {
+        track: track.clone(),
+        part,
+    }]
+}
+
+fn unchanged(output: Output) -> Out {
+    Outcome {
+        output,
+        undo: Undo::None,
+        events: vec![],
+        control: vec![],
+    }
+}
+
+fn rename(state: &mut State, track_id: &TrackId, name: &str) -> Result<Out, CommandError> {
+    let name = clean_name(name, "name")?;
+    let track = track_mut(state, track_id)?;
+    let previous = track.name.clone();
+    let output = Output::Rename {
+        previous: previous.clone(),
+    };
+    if previous == name {
+        return Ok(unchanged(output));
+    }
+    track.name = name.to_owned();
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::Rename {
+            track: track_id.clone(),
+            name: previous,
+        })),
+        events: changed(track_id, TrackPart::Name),
+        control: vec![],
+    })
+}
+
+fn set_color(
+    state: &mut State,
+    track_id: &TrackId,
+    color: Option<Rgb>,
+) -> Result<Out, CommandError> {
+    let track = track_mut(state, track_id)?;
+    let previous = track.color;
+    let output = Output::SetColor { previous };
+    if previous == color {
+        return Ok(unchanged(output));
+    }
+    track.color = color;
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::SetColor {
+            track: track_id.clone(),
+            color: previous,
+        })),
+        events: changed(track_id, TrackPart::Color),
+        control: vec![],
+    })
+}
+
+fn move_track(state: &mut State, track_id: &TrackId, index: u32) -> Result<Out, CommandError> {
+    let order = state.project.tracks_in_order();
+    let previous_index = order
+        .iter()
+        .position(|(id, _)| *id == track_id)
+        .ok_or_else(|| not_found(track_id))?;
+    let output = Output::Move {
+        previous_index: u32::try_from(previous_index).unwrap_or(u32::MAX),
+    };
+    let rest: Vec<(&TrackId, &OrderKey)> = order
+        .iter()
+        .filter(|(id, _)| *id != track_id)
+        .map(|(id, t)| (*id, &t.order))
+        .collect();
+    let others: Vec<&OrderKey> = rest.iter().map(|(_, k)| *k).collect();
+    let index = usize::try_from(index)
+        .unwrap_or(usize::MAX)
+        .min(others.len());
+    if index == previous_index {
+        return Ok(unchanged(output));
+    }
+    let key = OrderKey::for_index(&others, index).map_err(|e| invalid("index", e.to_string()))?;
+    // Tracks that share a key (two branches made the same one) leave no key between them:
+    // refuse rather than report a move that does not happen.
+    let lands = rest
+        .iter()
+        .filter(|(id, k)| (*k, *id) < (&key, track_id))
+        .count();
+    if lands != index {
+        return Err(invalid(
+            "index",
+            "the tracks around that position share an order key, so none fits between them",
+        ));
+    }
+    let track = track_mut(state, track_id)?;
+    let before = std::mem::replace(&mut track.order, key);
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::RestoreOrder {
+            track: track_id.clone(),
+            order: before,
+        })),
+        events: changed(track_id, TrackPart::Order),
+        control: vec![],
+    })
+}
+
+fn restore_order(
+    state: &mut State,
+    track_id: &TrackId,
+    order: &OrderKey,
+) -> Result<Out, CommandError> {
+    let track = track_mut(state, track_id)?;
+    let output = Output::RestoreOrder {};
+    if track.order == *order {
+        return Ok(unchanged(output));
+    }
+    let before = std::mem::replace(&mut track.order, order.clone());
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::RestoreOrder {
+            track: track_id.clone(),
+            order: before,
+        })),
+        events: changed(track_id, TrackPart::Order),
+        control: vec![],
+    })
+}
+
+fn duplicate(
+    state: &mut State,
+    ctx: &mut Context,
+    track_id: &TrackId,
+    name: Option<&str>,
+) -> Result<Out, CommandError> {
+    duplicate_within(state, ctx, track_id, name, (MAX_NOTES, MAX_POINTS))
+}
+
+/// [`duplicate`] with the project's caps of notes and automation points given, so that a
+/// test reaches them without building millions of notes.
+fn duplicate_within(
+    state: &mut State,
+    ctx: &mut Context,
+    track_id: &TrackId,
+    name: Option<&str>,
+    (max_notes, max_points): (usize, usize),
+) -> Result<Out, CommandError> {
+    check_room(state)?;
+    let source = state
+        .project
+        .tracks
+        .get(track_id)
+        .ok_or_else(|| not_found(track_id))?;
+    let name = name.map(|n| clean_name(n, "name")).transpose()?;
+    // The copy adds its notes and points to the project's.
+    check_copy_fits(
+        (max_notes, max_points),
+        state.project.tracks.values().map(track_notes).sum(),
+        state.project.tracks.values().map(track_points).sum(),
+        track_notes(source),
+        track_points(source),
+    )?;
+    let order = state.project.tracks_in_order();
+    let at = order
+        .iter()
+        .position(|(id, _)| *id == track_id)
+        .ok_or_else(|| not_found(track_id))?;
+    let keys: Vec<&OrderKey> = order.iter().map(|(_, t)| &t.order).collect();
+    let key = OrderKey::for_index(&keys, at + 1).map_err(|e| invalid("index", e.to_string()))?;
+    let mut copy = source.clone();
+    copy.order = key;
+    if let Some(name) = name {
+        copy.name = name.to_owned();
+    }
+    // New identifiers everywhere: devices (lanes name their device), clips (placements
+    // name their clip), placements and lanes.
+    let devices: BTreeMap<DeviceId, DeviceId> = source
+        .devices
+        .keys()
+        .map(|d| (d.clone(), DeviceId::generate(&mut ctx.ids)))
+        .collect();
+    copy.devices = std::mem::take(&mut copy.devices)
+        .into_iter()
+        .map(|(id, d): (DeviceId, Device)| (devices[&id].clone(), d))
+        .collect();
+    let clips: BTreeMap<ClipId, ClipId> = source
+        .clips
+        .keys()
+        .map(|c| (c.clone(), ClipId::generate(&mut ctx.ids)))
+        .collect();
+    copy.clips = std::mem::take(&mut copy.clips)
+        .into_iter()
+        .map(|(id, c): (ClipId, Clip)| (clips[&id].clone(), c))
+        .collect();
+    copy.placements = std::mem::take(&mut copy.placements)
+        .into_values()
+        .map(|mut p: Placement| {
+            if let Some(clip) = clips.get(&p.clip) {
+                p.clip = clip.clone();
+            }
+            (PlacementId::generate(&mut ctx.ids), p)
+        })
+        .collect();
+    copy.automation = std::mem::take(&mut copy.automation)
+        .into_values()
+        .map(|mut lane: AutomationLane| {
+            if let AutomationTarget::Device { device, .. } = &mut lane.target
+                && let Some(new) = devices.get(device)
+            {
+                *device = new.clone();
+            }
+            (LaneId::generate(&mut ctx.ids), lane)
+        })
+        .collect();
+    let new_id = TrackId::generate(&mut ctx.ids);
+    state.project.tracks.insert(new_id.clone(), copy);
+    Ok(Outcome {
+        output: Output::Duplicate {
+            track: new_id.clone(),
+        },
+        undo: Undo::Inverse(Box::new(Command::Delete {
+            track: new_id.clone(),
+        })),
+        events: vec![created(&new_id)],
+        control: vec![],
+    })
+}
+
+/// Refuses a copy that would take the project past the safety limits of notes or
+/// automation points.
+fn check_copy_fits(
+    (max_notes, max_points): (usize, usize),
+    notes: usize,
+    points: usize,
+    copy_notes: usize,
+    copy_points: usize,
+) -> Result<(), CommandError> {
+    if notes.saturating_add(copy_notes) > max_notes {
+        return Err(CommandError::Limit {
+            entity: "notes".into(),
+            max: max_notes as u64,
+        });
+    }
+    if points.saturating_add(copy_points) > max_points {
+        return Err(CommandError::Limit {
+            entity: "automation points".into(),
+            max: max_points as u64,
+        });
+    }
+    Ok(())
+}
+
+fn track_notes(track: &Track) -> usize {
+    track
+        .clips
+        .values()
+        .map(|c| match &c.content {
+            ClipContent::Midi { notes, .. } => notes.len(),
+            ClipContent::Audio { .. } => 0,
+        })
+        .fold(0, usize::saturating_add)
+}
+
+fn track_points(track: &Track) -> usize {
+    track
+        .automation
+        .values()
+        .map(|l| l.points.len())
+        .fold(0, usize::saturating_add)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{check, context, fixture};
+    use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
+    use engine::msg::DeviceKind;
+
+    const CAPS: (usize, usize) = (MAX_NOTES, MAX_POINTS);
+
+    #[test]
+    fn a_copy_is_refused_exactly_past_the_notes_or_points_limit() {
+        assert!(check_copy_fits(CAPS, MAX_NOTES - 5, 0, 5, 0).is_ok());
+        assert_eq!(
+            check_copy_fits(CAPS, MAX_NOTES - 5, 0, 6, 0),
+            Err(CommandError::Limit {
+                entity: "notes".into(),
+                max: MAX_NOTES as u64
+            })
+        );
+        assert!(check_copy_fits(CAPS, 0, MAX_POINTS - 5, 0, 5).is_ok());
+        assert_eq!(
+            check_copy_fits(CAPS, 0, MAX_POINTS - 5, 0, 6),
+            Err(CommandError::Limit {
+                entity: "automation points".into(),
+                max: MAX_POINTS as u64
+            })
+        );
+        // Sums never overflow.
+        let all = usize::MAX;
+        assert!(check_copy_fits(CAPS, all, all, all, all).is_err());
+    }
+
+    /// A project with two notes: the copy fits under a cap of four, is refused under a
+    /// cap of three, and the refusal leaves the state untouched.
+    #[test]
+    fn duplicate_refuses_past_the_caps_and_changes_nothing() {
+        let f = fixture();
+        let mut state = f.state.clone();
+        let track = state.project.tracks.get_mut(&f.track).unwrap();
+        let mut ids = project::IdGenerator::new(1_760_000_000_000, 6);
+        track.clips.insert(
+            ClipId::generate(&mut ids),
+            Clip {
+                name: String::new(),
+                color: None,
+                slot: None,
+                launch_quantize: None,
+                content: ClipContent::Midi {
+                    length: project::Tick(960),
+                    looping: None,
+                    notes: [
+                        project::Note::new(project::Tick(0), 60, project::Tick(10), 100),
+                        project::Note::new(project::Tick(10), 62, project::Tick(10), 100),
+                    ]
+                    .into(),
+                },
+            },
+        );
+        let mut ctx = context();
+        let mut fits = state.clone();
+        assert!(duplicate_within(&mut fits, &mut ctx, &f.track, None, (4, 10)).is_ok());
+        let mut full = state.clone();
+        let before = full.clone();
+        let err = duplicate_within(&mut full, &mut ctx, &f.track, None, (3, 10)).unwrap_err();
+        assert_eq!(
+            err,
+            CommandError::Limit {
+                entity: "notes".into(),
+                max: 3
+            }
+        );
+        assert_eq!(full, before);
+        // The command at the real caps copies it.
+        let command = crate::Command::Track(Command::Duplicate {
+            track: f.track.clone(),
+            name: None,
+        });
+        check(&command, &state, &context()).unwrap();
+    }
+
+    #[test]
+    fn a_device_that_is_not_an_instrument_cannot_be_a_tracks_instrument() {
+        static EFFECT: DeviceDescriptor = DeviceDescriptor {
+            kind: "faulk.test_effect",
+            kind_id: DeviceKind(900),
+            version: 1,
+            name: "Test effect",
+            role: EngineRole::Effect,
+            memory_bytes: 0,
+            midi_output: None,
+            params: &[],
+        };
+        let registry = [Builtin {
+            descriptor: &EFFECT,
+            factory: engine::devices::osc_synth::factory,
+        }];
+        let err = instrument_from(&registry, "faulk.test_effect").unwrap_err();
+        assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "instrument"));
+        // An instrument of the registry is accepted, one outside the given registry is
+        // not found.
+        assert!(instrument_from(REGISTRY, DEFAULT_INSTRUMENT).is_ok());
+        assert_eq!(
+            instrument_from(&registry, "faulk.osc_synth")
+                .unwrap_err()
+                .code(),
+            "not_found"
+        );
+    }
 }

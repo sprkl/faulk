@@ -240,9 +240,26 @@ pub enum ProjectEvent {
     },
     /// Part of a clip changed.
     ClipChanged { clip: ClipId, part: ClipPart },
+    /// A track was created or brought back, with everything it holds. The page reads it
+    /// from its own copy of the project, to which the same command applies.
+    TrackCreated { track: TrackId },
+    /// A track was deleted, with everything it holds.
+    TrackDeleted { track: TrackId },
+    /// Part of a track changed.
+    TrackChanged { track: TrackId, part: TrackPart },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+}
+
+/// Which part of a track a [`ProjectEvent::TrackChanged`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackPart {
+    Name,
+    Color,
+    /// The track's position in the list changed.
+    Order,
 }
 
 /// Which part of a clip a [`ProjectEvent::ClipChanged`] reports.

@@ -332,6 +332,19 @@ pub fn by_order<'a, K: Ord + 'a, V: 'a>(
     v
 }
 
+impl schemars::JsonSchema for OrderKey {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "OrderKey".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "A fractional order key: elements sort by it."
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
