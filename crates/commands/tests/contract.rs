@@ -13,6 +13,7 @@ use commands::{
 
 mod clip_examples;
 mod track_examples;
+mod transport_examples;
 
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -101,6 +102,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(transport_examples::examples())
     .chain(track_examples::examples())
     .collect()
 }

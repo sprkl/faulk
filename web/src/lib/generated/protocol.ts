@@ -333,7 +333,34 @@ export type AutomationCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type TransportCommand = never
+export type TransportCommand = ({
+type: "transport.play"
+} | {
+type: "transport.stop"
+} | {
+tick: Tick
+type: "transport.seek"
+} | {
+bpm: number
+type: "transport.set_tempo"
+} | {
+denominator: number
+numerator: number
+type: "transport.set_time_signature"
+} | {
+loop_region?: (TickLoop | null)
+type: "transport.set_loop"
+} | {
+type: "transport.toggle_loop"
+} | {
+count_in_bars?: (number | null)
+enabled?: (boolean | null)
+/**
+ * The level in dB; `null` is silence; missing leaves it as it is.
+ */
+gain_db?: (number | null)
+type: "transport.set_metronome"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -603,7 +630,55 @@ export type AutomationOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type TransportOutput = never
+export type TransportOutput = ({
+type: "transport.play"
+} | {
+type: "transport.stop"
+} | {
+type: "transport.seek"
+} | {
+/**
+ * The tempo before the command, in BPM.
+ */
+previous: number
+type: "transport.set_tempo"
+} | {
+/**
+ * The denominator before the command.
+ */
+previous_denominator: number
+/**
+ * The numerator before the command.
+ */
+previous_numerator: number
+type: "transport.set_time_signature"
+} | {
+/**
+ * The region before the command.
+ */
+previous?: (TickLoop | null)
+type: "transport.set_loop"
+} | {
+/**
+ * Whether the loop is on after the command.
+ */
+enabled: boolean
+type: "transport.toggle_loop"
+} | {
+/**
+ * The count-in before the command, in bars.
+ */
+previous_count_in_bars: number
+/**
+ * Whether the click was on before the command.
+ */
+previous_enabled: boolean
+/**
+ * The level before the command, in dB; `null` was silence.
+ */
+previous_gain_db: (number | null)
+type: "transport.set_metronome"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
