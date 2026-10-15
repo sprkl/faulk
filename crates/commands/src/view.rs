@@ -13,9 +13,8 @@ domain! {
     domain = "view", schema = ("ViewCommand", "ViewOutput");
 
     /// Select a track, where live MIDI and the keyboard go; `null` deselects. Session
-    /// state: not undoable, not saved with the project.
-    // Until PR-1 gives the project its tracks, the identifier is only checked for
-    // its form; PR-8 refuses an unknown track with `not_found`.
+    /// state: not undoable, not saved with the project. Refused with `not_found` when the
+    /// track does not exist.
     "view.select_track" (kind = "live", undo = "none", destructive = false)
     SelectTrack {
         /// Required: `null` deselects, a missing field is an error.
@@ -36,6 +35,14 @@ pub fn apply(
 ) -> Result<Outcome<Command, Output>, CommandError> {
     match command {
         Command::SelectTrack { track } => {
+            if let Some(id) = track
+                && !state.project.tracks.contains_key(id)
+            {
+                return Err(CommandError::NotFound {
+                    entity: "track".into(),
+                    id: id.to_string(),
+                });
+            }
             let previous = std::mem::replace(&mut state.session.selected_track, track.clone());
             Ok(Outcome {
                 output: Output::SelectTrack { previous },
