@@ -53,8 +53,10 @@ const parts = [
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
-  '/** The ids of the one synth until the project runs in the page (PR-4, PR-5). */',
+  '/** The ids of the one synth until the project runs in the page (PR-4, PR-5), and its device kind. */',
   `export const SINGLE_SYNTH = ${JSON.stringify(bundle.single_synth)} as const`,
+  '/** The descriptor of every built-in device (CT-5, DV-1): the UI builds the device panels from them. */',
+  `export const DEVICES = ${JSON.stringify(bundle.devices)} as const`,
   // The wrapper only exists to declare the roots together.
   types.replace(/^export interface Bundle \{[^}]*\}\n/m, ''),
 ]

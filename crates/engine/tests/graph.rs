@@ -14,7 +14,7 @@ use engine::msg::{
     ControlMsg as M, DeviceKind, DeviceSlot, MsgError, ParamId, Put, RtMsg, Table, TrackKind,
     TrackSlot, encode_state, try_box,
 };
-use engine::{OSC_SYNTH, Param, Synth};
+use engine::{OSC_SYNTH, Param};
 
 #[global_allocator]
 static ALLOCATOR: AllocDisabler = AllocDisabler;
@@ -23,47 +23,6 @@ const RATE: f32 = 48_000.0;
 const BLOCK: usize = 128;
 /// Level of a test tone at velocity 127: its gain (default 0.5) × 0.25.
 const TONE_LEVEL: f32 = 0.125;
-
-// ---------------------------------------------------------------- the synth as a device
-
-/// A test-only adapter of the current synth to the device contract (DV-1 writes the real
-/// one): notes at the start of the block, then the whole block.
-struct SynthDevice(Synth);
-
-static SYNTH: DeviceDescriptor = OSC_SYNTH;
-
-impl Device for SynthDevice {
-    fn descriptor(&self) -> &'static DeviceDescriptor {
-        &SYNTH
-    }
-
-    fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
-        for event in events {
-            match *event {
-                Event::NoteOn { key, velocity, .. } => {
-                    self.0.note_on(key, (velocity * 127.0) as u8)
-                }
-                Event::NoteOff { key, .. } => self.0.note_off(key),
-                Event::AllNotesOff { .. } => self.0.all_notes_off(),
-                Event::ParamValue { id, value, .. } => self.set_param(id, value),
-            }
-        }
-        let n = (ctx.frames as usize).min(io.left.len()).min(io.right.len());
-        self.0.render(&mut io.left[..n], &mut io.right[..n]);
-    }
-
-    fn set_param(&mut self, id: ParamId, value: f32) {
-        if let Some(p) = Param::from_id(id.0) {
-            self.0.set_param(p, value);
-        }
-    }
-
-    fn reset(&mut self) {}
-}
-
-fn build_synth(setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
-    Ok(try_box(SynthDevice(Synth::new(setup.sample_rate)))?)
-}
 
 /// An effect that breaks the contract: it writes NaN and infinities.
 struct Broken;
@@ -99,9 +58,8 @@ fn build_broken(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
 fn resolver(kind: DeviceKind) -> Option<Factory> {
     if kind == BROKEN.kind_id {
         Some(build_broken)
-    } else if kind == OSC_SYNTH.kind_id {
-        Some(build_synth)
     } else {
+        // The test devices, then the registry: the synth is the shipped one (DV-1).
         engine::device::testing::factory(kind)
     }
 }

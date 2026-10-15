@@ -62,9 +62,9 @@ pub mod initial {
 /// Resolves a device kind to the factory that builds it (the registry the host gives).
 pub type Resolver = fn(DeviceKind) -> Option<Factory>;
 
-/// The resolver of the built-in devices: none builds yet (DV-1 adds the synth).
-pub fn builtin_factory(_kind: DeviceKind) -> Option<Factory> {
-    None
+/// The resolver of the built-in devices: the registry of [`crate::devices`] (DV-1).
+pub fn builtin_factory(kind: DeviceKind) -> Option<Factory> {
+    crate::devices::factory(kind)
 }
 
 // ---------------------------------------------------------------- the engine state

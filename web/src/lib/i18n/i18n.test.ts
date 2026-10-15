@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICE_NAME_KEYS, features } from './app'
 import { defaultLang, landingMessages, messages, translate } from './index'
+import { DEVICES } from '../generated/protocol'
 import { LANDING_DEVICE_NAME_KEYS } from './landing'
 
 /** Every catalogue of the app: the DAW and the landing page. */
@@ -42,13 +43,24 @@ describe('i18n', () => {
     })
   })
 
+  it('keeps the names of the built-in devices out of the DAW catalogue (they come from the descriptors)', () => {
+    for (const { name } of DEVICES) {
+      for (const lang of ['en', 'fr'] as const) {
+        const keys = Object.entries(messages[lang]).filter(([, text]) => text === name)
+        expect(keys.map(([key]) => key).filter((key) => !DEVICE_NAME_KEYS.includes(key as never)), `${lang} ${name}`).toEqual([])
+      }
+    }
+  })
+
   it('shows each device name as one name, the same in every language', () => {
     const lists = [
       [messages, DEVICE_NAME_KEYS],
       [landingMessages, LANDING_DEVICE_NAME_KEYS],
     ] as const
+    // The landing page names its sound objects; the DAW names none since DV-1 (the panels take
+    // the name from the device's descriptor).
+    expect(LANDING_DEVICE_NAME_KEYS.length).toBeGreaterThan(0)
     for (const [catalogue, keys] of lists) {
-      expect(keys.length).toBeGreaterThan(0)
       const en = catalogue.en as Record<string, string>
       const fr = catalogue.fr as Record<string, string>
       for (const key of keys) {

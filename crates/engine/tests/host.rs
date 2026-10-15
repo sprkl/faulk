@@ -1,8 +1,9 @@
-//! The shipping host (MO-2, `engine::host`): the synth adapter renders as the synth does,
+//! The shipping host (MO-2, `engine::host`): the registered synth (DV-1) renders as its own
+//! calls do,
 //! the render never allocates, the report region decodes, the live overflow releases.
 
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
-use engine::host::{Host, Prepare, SynthDevice, channel, feedback_voices, read_feedback};
+use engine::host::{Host, Prepare, channel, feedback_voices, read_feedback};
 use engine::msg::{
     ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, encode_stream, limits,
 };
@@ -68,8 +69,11 @@ fn param(param: Param, value: f32) -> M {
     }
 }
 
+/// The host's routing (live notes at offset 0, parameter sets, the track's fade-in, the
+/// master): the registered synth in the host renders as a lone synth driven by its own calls.
+/// The synth itself is checked against the pre-DV-1 synth in `tests/osc_synth.rs`.
 #[test]
-fn the_adapter_renders_the_synth_sample_for_sample() {
+fn the_host_renders_the_registered_synth_as_its_own_calls_do() {
     let mut session = Session::new();
     // The new track fades in over 5 ms (MO-3's graph): let it reach unity first.
     for _ in 0..4 {
@@ -132,11 +136,12 @@ fn the_adapter_renders_the_synth_sample_for_sample() {
 #[test]
 fn reset_keeps_the_parameters_and_silences() {
     use engine::device::Device;
-    let mut device = SynthDevice::new(RATE);
-    device.set_param(ParamId(Param::Gain.id()), 0.25);
+    let mut device = Synth::new(RATE);
+    device.note_on(60, 100);
+    Device::set_param(&mut device, ParamId(Param::Gain.id()), 0.25);
     device.reset();
-    assert_eq!(device.synth().param(Param::Gain), 0.25);
-    assert_eq!(device.synth().active_voices(), 0);
+    assert_eq!(device.param(Param::Gain), 0.25);
+    assert_eq!(device.active_voices(), 0);
 }
 
 #[test]

@@ -1048,8 +1048,9 @@ pub fn conformance(
 
 // ---------------------------------------------------------------- factories
 
-/// The factory of each test device: the resolver the cycle tests give
-/// [`crate::engine::channel`] (MO-1).
+/// The factory of each test device, then of each built-in device ([`crate::devices`]): the
+/// resolver the cycle tests give [`crate::engine::channel`] (MO-1), so that the test host
+/// renders the shipped devices too (DV-1's native/WASM parity).
 pub fn factory(kind: DeviceKind) -> Option<super::Factory> {
     if kind == TONE.kind_id {
         Some(TestTone::build)
@@ -1058,6 +1059,6 @@ pub fn factory(kind: DeviceKind) -> Option<super::Factory> {
     } else if kind == TRANSPOSE.kind_id {
         Some(TestTranspose::build)
     } else {
-        None
+        crate::devices::factory(kind)
     }
 }

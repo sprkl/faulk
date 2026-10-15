@@ -54410,7 +54410,12 @@
           },
           {
             "const": "none",
-            "description": "A plain number (a linear gain, a level from 0 to 1, an index).",
+            "description": "A plain number (a level from 0 to 1, an index).",
+            "type": "string"
+          },
+          {
+            "const": "gain",
+            "description": "A linear gain (an amplitude factor, 1 = unity): shown in decibels, `20 log10(value)`.",
             "type": "string"
           }
         ]
@@ -54482,7 +54487,7 @@
     {
       "kind": "faulk.osc_synth",
       "kind_id": 1,
-      "memory_bytes": 816,
+      "memory_bytes": 968,
       "midi_output": null,
       "name": "Oscillator",
       "params": [
@@ -54560,7 +54565,7 @@
           "scale": "linear",
           "smoothing_seconds": 0.01,
           "step": 0,
-          "unit": "none",
+          "unit": "gain",
           "values": []
         }
       ],
@@ -54819,6 +54824,7 @@
   },
   "single_synth": {
     "device": "00000000000000000000000002",
+    "kind": "faulk.osc_synth",
     "track": "00000000000000000000000001"
   }
 }

@@ -120,6 +120,8 @@ pub fn schema_bundle() -> serde_json::Value {
         "single_synth": {
             "track": single_synth::TRACK,
             "device": single_synth::DEVICE,
+            // The kind of the one synth: the page reads its panel from that descriptor.
+            "kind": engine::OSC_SYNTH.kind,
         },
         // The command contract: input and output schemas and the MCP tool catalog.
         "command": {
@@ -131,7 +133,7 @@ pub fn schema_bundle() -> serde_json::Value {
         "server_message": schemars::schema_for!(ServerMessage),
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.
-        "devices": engine::device::builtin_descriptors(),
+        "devices": engine::device::builtin_descriptors().collect::<Vec<_>>(),
         "device_descriptor": schemars::schema_for!(engine::device::DeviceDescriptor),
     })
 }

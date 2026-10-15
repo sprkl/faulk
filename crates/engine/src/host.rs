@@ -17,10 +17,11 @@
 //!
 //! - **The report's meters**: the graph has no per-track meters yet (MO-5), so the report
 //!   carries one meter, the output's (after the master), as its only "track" meter, and
-//!   the synth's voice count in the word at offset 52.
-//! - **[`SynthDevice`]** wraps the existing [`Synth`] behind the device contract (CT-5) so
-//!   that the page's synth plays through the channel; DV-1 registers the synth as a device
-//!   of its own and retires the adapter. [`factory`] resolves its kind (`faulk.osc_synth`).
+//!   the synth's voice count in the word at offset 52, which the synth adds to after each
+//!   block (`add_block_voices`).
+//!
+//! [`factory`] resolves a device kind through the registry of the built-in devices
+//! ([`crate::devices`], DV-1).
 //!
 //! [`Feedback`]: crate::msg::Feedback
 
@@ -28,110 +29,33 @@ use core::cell::Cell;
 use core::sync::atomic::{AtomicU32, Ordering, fence};
 use std::sync::Arc;
 
-use crate::device::{
-    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceSetup, Event, Factory, event_frame,
-};
+use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
-    DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, MsgError, ParamId,
-    TRACK_METER_BYTES, TransportState, limits, try_box,
+    DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, MsgError, TRACK_METER_BYTES,
+    TransportState, limits,
 };
-use crate::{OSC_SYNTH, Param, Synth};
 
-// ---------------------------------------------------------------- the synth as a device
+// ---------------------------------------------------------------- the voice count
 
 thread_local! {
     /// Voices sounding in the synths rendered by this thread's host during the current
-    /// block: each [`SynthDevice`] adds its own after rendering (interim, module doc). A
-    /// thread-local, so that two hosts on two threads (tests, two instances) never mix.
+    /// block: the synth (`crate::devices::osc_synth`) adds its own after each `process`
+    /// (interim, module doc). A thread-local, so that two hosts on two threads (tests, two
+    /// instances) never mix.
     static BLOCK_VOICES: Cell<u32> = const { Cell::new(0) };
 }
 
-/// The existing [`Synth`] behind the device contract (interim, module doc). Notes are keyed
-/// by MIDI note, as the synth has always been: a `NoteOff` releases its `key`.
-#[derive(Clone, Debug)]
-pub struct SynthDevice {
-    synth: Synth,
+/// Adds `voices` to the voice count of the block being rendered on this thread (interim,
+/// module doc). No allocation, no lock: a thread-local cell.
+pub(crate) fn add_block_voices(voices: u32) {
+    let _ = BLOCK_VOICES.try_with(|v| v.set(v.get().saturating_add(voices)));
 }
 
-impl SynthDevice {
-    pub fn new(sample_rate: f32) -> Self {
-        SynthDevice {
-            synth: Synth::new(sample_rate),
-        }
-    }
-
-    /// The wrapped synth (tests compare its output with the device's).
-    pub fn synth(&self) -> &Synth {
-        &self.synth
-    }
-
-    fn apply(&mut self, event: &Event) {
-        match *event {
-            Event::NoteOn { key, velocity, .. } => {
-                let velocity = if velocity.is_finite() {
-                    (velocity.clamp(0.0, 1.0) * 127.0).round() as u8
-                } else {
-                    0
-                };
-                self.synth.note_on(key, velocity);
-            }
-            Event::NoteOff { key, .. } => self.synth.note_off(key),
-            Event::AllNotesOff { .. } => self.synth.all_notes_off(),
-            Event::ParamValue { id, value, .. } => self.set_param(id, value),
-        }
-    }
-}
-
-impl Device for SynthDevice {
-    fn descriptor(&self) -> &'static DeviceDescriptor {
-        &OSC_SYNTH
-    }
-
-    fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
-        let frames = (ctx.frames as usize).min(io.left.len()).min(io.right.len());
-        let mut cursor = 0;
-        for event in events {
-            let at = event_frame(event.offset(), cursor, frames);
-            if at > cursor {
-                self.synth
-                    .render(&mut io.left[cursor..at], &mut io.right[cursor..at]);
-                cursor = at;
-            }
-            self.apply(event);
-        }
-        if frames > cursor {
-            self.synth
-                .render(&mut io.left[cursor..frames], &mut io.right[cursor..frames]);
-        }
-        let voices = self.synth.active_voices() as u32;
-        let _ = BLOCK_VOICES.try_with(|v| v.set(v.get().saturating_add(voices)));
-    }
-
-    fn set_param(&mut self, id: ParamId, value: f32) {
-        if let Some(param) = Param::from_id(id.0) {
-            self.synth.set_param(param, value);
-        }
-    }
-
-    fn reset(&mut self) {
-        let params = [0, 1, 2, 3, 4, 5]
-            .map(Param::from_id)
-            .map(|p| p.map(|p| (p, self.synth.param(p))));
-        self.synth = Synth::new(self.synth.sample_rate());
-        for (param, value) in params.into_iter().flatten() {
-            self.synth.set_param(param, value);
-        }
-    }
-}
-
-fn synth_factory(setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
-    Ok(try_box(SynthDevice::new(setup.sample_rate))?)
-}
-
-/// The device kinds the shipping hosts build: the synth (through [`SynthDevice`]).
+/// The device kinds the shipping hosts build: the registry of the built-in devices
+/// ([`crate::devices`], DV-1).
 pub fn factory(kind: DeviceKind) -> Option<Factory> {
-    (kind == OSC_SYNTH.kind_id).then_some(synth_factory as Factory)
+    crate::devices::factory(kind)
 }
 
 // ---------------------------------------------------------------- the two sides
@@ -358,7 +282,7 @@ impl Host {
     /// written: a reader takes an even `seq`, the body, then the same `seq` again.
     ///
     /// Written: version, epoch and the counters the prepare side published, the most voices
-    /// sounding during the period (offset 52, interim until DV-1, `crate::msg`), and one
+    /// sounding during the period (offset 52, interim until MO-5's meters: the synth adds its voices, `crate::msg`), and one
     /// meter: the output's, after the master (interim until MO-5's track meters).
     /// Not produced yet, written as zero: the transport state and playhead (TR-1), the CPU
     /// load, the disk underruns (AU-3), the active clips (LA), the recorded notes (RE-2).

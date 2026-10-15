@@ -3,10 +3,10 @@
 //! A **device** is a link of a track's chain: an instrument, an audio effect or a MIDI
 //! effect. Every built-in device, every Workshop module (through its `ModuleInstance`
 //! adapter) and every hosted plugin wrapper implements the [`Device`] trait and has a
-//! static [`DeviceDescriptor`]. This module declares the contract; it holds no device. The
-//! current synth gets its descriptor here ([`crate::synth::DESCRIPTOR`]) and becomes a
-//! [`Device`] with DV-1; the shared parameter smoother is AM-3's; routing the events of a
-//! track and splitting blocks at loop wraps is MO-4's.
+//! static [`DeviceDescriptor`]. This module declares the contract; it holds no device: the
+//! built-in devices and their registry are in [`crate::devices`] (DV-1: the synth,
+//! [`crate::devices::osc_synth`]). The shared parameter smoother is AM-3's; routing the
+//! events of a track and splitting blocks at loop wraps is MO-4's.
 //!
 //! # The chain of a track
 //!
@@ -469,8 +469,10 @@ pub type Factory = fn(&DeviceSetup) -> Result<Box<dyn Device>, MsgError>;
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Unit {
-    /// A plain number (a linear gain, a level from 0 to 1, an index).
+    /// A plain number (a level from 0 to 1, an index).
     None,
+    /// A linear gain (an amplitude factor, 1 = unity): shown in decibels, `20 log10(value)`.
+    Gain,
     Seconds,
     Hertz,
     Decibels,
@@ -685,18 +687,15 @@ impl DeviceDescriptor {
     }
 }
 
-/// The descriptors of Faulk's built-in devices, one line per device (DV-1 and the next DV
-/// tasks add theirs). Exported in the schema bundle (`crates/protocol`).
-pub fn builtin_descriptors() -> &'static [&'static DeviceDescriptor] {
-    &[&crate::synth::DESCRIPTOR]
+/// The descriptors of Faulk's built-in devices, in the order of the registry
+/// ([`crate::devices::REGISTRY`]). Exported in the schema bundle (`crates/protocol`).
+pub fn builtin_descriptors() -> impl Iterator<Item = &'static DeviceDescriptor> + Clone {
+    crate::devices::REGISTRY.iter().map(|b| b.descriptor)
 }
 
 /// The built-in descriptor of `kind_id`.
 pub fn builtin(kind_id: DeviceKind) -> Option<&'static DeviceDescriptor> {
-    builtin_descriptors()
-        .iter()
-        .copied()
-        .find(|d| d.kind_id == kind_id)
+    crate::devices::builtin(kind_id).map(|b| b.descriptor)
 }
 
 #[cfg(feature = "testing")]

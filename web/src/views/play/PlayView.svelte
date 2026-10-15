@@ -7,7 +7,7 @@
   import { absentHelperMessages } from '../../lib/engine/local-access'
   import type { MessageKey } from '../../lib/i18n/index'
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
-  import { formatValue, KNOB_PARAMS, positionOf, valueAt } from '../../lib/params'
+  import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from '../../lib/devices'
   import { useStores } from '../../lib/stores'
   import { allNotesOff, noteOff, noteOn, setParam } from '../../lib/synth-commands'
 
@@ -21,12 +21,14 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const held = new Map<string, number>()
 
-  const WAVEFORMS: { value: number; key: MessageKey; path: string }[] = [
-    { value: 0, key: 'synth.sine', path: 'M2 10 C 6 0, 10 0, 12 10 S 18 20, 22 10' },
-    { value: 1, key: 'synth.saw', path: 'M2 16 L 12 4 L 12 16 L 22 4' },
-    { value: 2, key: 'synth.square', path: 'M2 16 L 2 4 L 12 4 L 12 16 L 22 16 L 22 4' },
-    { value: 3, key: 'synth.triangle', path: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16' },
-  ]
+  /** Icons of the waveform values, by the value's key in the synth's descriptor (none for a key without one). */
+  const ICONS: Record<string, string> = {
+    sine: 'M2 10 C 6 0, 10 0, 12 10 S 18 20, 22 10',
+    saw: 'M2 16 L 12 4 L 12 16 L 22 4',
+    square: 'M2 16 L 2 4 L 12 4 L 12 16 L 22 16 L 22 4',
+    triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
+  }
+  const label = (key: string) => t(labelKey(SYNTH, key) as MessageKey)
 
   function releaseAllKeys() {
     for (const note of held.values()) dispatcher.run(noteOff(note))
@@ -147,30 +149,36 @@
     </section>
 
     <section class="panel synth">
-      <h2 class="label">{t('synth.title')}</h2>
-      <div class="row">
-        <div role="radiogroup" aria-label={t('synth.waveform')} class="segmented">
-          {#each WAVEFORMS as w (w.value)}
-            <button
-              role="radio"
-              aria-checked={project.params.waveform === w.value}
-              aria-label={t(w.key)}
-              title={t(w.key)}
-              onclick={() => dispatcher.run(setParam('waveform', w.value))}
-            >
-              <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={w.path} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
-            </button>
-          {/each}
+      <h2 class="label">{SYNTH.name}</h2>
+      {#each choiceParams(SYNTH) as param (param.key)}
+        <div class="row">
+          <div role="radiogroup" aria-label={label(param.key)} class="segmented">
+            {#each choices(param) as choice (choice.value)}
+              <button
+                role="radio"
+                aria-checked={project.params[param.key] === choice.value}
+                aria-label={label(choice.key)}
+                title={label(choice.key)}
+                onclick={() => dispatcher.run(setParam(param.key, choice.value))}
+              >
+                {#if ICONS[choice.key]}
+                  <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
+                {:else}
+                  {label(choice.key)}
+                {/if}
+              </button>
+            {/each}
+          </div>
         </div>
-      </div>
+      {/each}
       <div class="synth-body">
       <div class="knobs">
-        {#each KNOB_PARAMS as param (param)}
+        {#each knobParams(SYNTH) as param (param.key)}
           <Knob
-            label={t(`synth.${param}` as MessageKey)}
-            position={positionOf(param, project.params[param])}
-            display={formatValue(param, project.params[param])}
-            onchange={(p) => dispatcher.run(setParam(param, valueAt(param, p)))}
+            label={label(param.key)}
+            position={positionOf(param, project.params[param.key])}
+            display={formatValue(param, project.params[param.key])}
+            onchange={(p) => dispatcher.run(setParam(param.key, valueAt(param, p)))}
           />
         {/each}
       </div>
