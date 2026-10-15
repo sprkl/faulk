@@ -11,5 +11,6 @@ pub use devices::osc_synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, 
 pub mod engine;
 pub mod graph;
 pub mod host;
+pub mod metronome;
 pub mod msg;
 pub mod transport;

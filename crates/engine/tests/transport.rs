@@ -600,3 +600,54 @@ fn tempo_changes_near_loop_seams_deliver_every_tick_exactly_once_in_order() {
         }
     }
 }
+
+#[test]
+fn a_sample_rate_change_keeps_the_playhead_and_delivers_every_tick_once() {
+    for (a, b) in [(48_000, 44_100), (44_100, 96_000), (96_000, 48_000)] {
+        for looped in [false, true] {
+            let mut rig = Rig::new(a);
+            rig.tempo(97.3);
+            if looped {
+                rig.set_loop(100, 9000);
+            }
+            rig.play(0);
+            let mut ticks_seen = 0;
+            for round in 0..6 {
+                rig.run(7919);
+                let before = rig.t.position();
+                let rate = SampleRate::new(if round % 2 == 0 { b } else { a }).unwrap();
+                rig.t.set_sample_rate(rate);
+                assert_eq!(rig.t.position(), before, "the playhead stays");
+                assert_eq!(rig.t.sample_rate(), rate);
+                ticks_seen = rig.events.len();
+            }
+            assert!(ticks_seen > 0);
+            if !looped {
+                // Every tick once, in order, across the changes.
+                for (i, (tick, _)) in rig.events.iter().enumerate() {
+                    assert_eq!(*tick, i as i64);
+                }
+            } else {
+                // Inside the loop, in order except at the seams, and never outside it.
+                let mut prev = -1;
+                for (tick, _) in &rig.events {
+                    assert!(
+                        *tick == prev + 1 || *tick == 100,
+                        "tick {tick} after {prev}"
+                    );
+                    assert!((0..9000).contains(tick));
+                    prev = *tick;
+                }
+            }
+        }
+    }
+    // Stopped: the frozen position stays.
+    let mut rig = Rig::new(48_000);
+    rig.play(300);
+    rig.run(1000);
+    rig.stop();
+    rig.run(10);
+    let frozen = rig.t.position();
+    rig.t.set_sample_rate(SampleRate::HZ_96000);
+    assert_eq!(rig.t.position(), frozen);
+}

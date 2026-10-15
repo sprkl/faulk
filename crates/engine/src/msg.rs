@@ -395,7 +395,9 @@ pub enum ControlMsg {
         signature: TimeSignature,
         launch_quantize: Quantize,
     },
-    /// Metronome (TR-2): on or off, its level, bars of count-in before a recording.
+    /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
+    /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
+    /// before a recording.
     SetMetronome {
         enabled: bool,
         volume: f32,

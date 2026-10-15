@@ -317,6 +317,14 @@ impl Graph {
         self.retiring_len
     }
 
+    /// Changes the sample rate the fades and the devices' contexts use.
+    pub(crate) fn set_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite() && sample_rate > 0.0 {
+            self.sample_rate = sample_rate;
+            self.fade = fade_frames(sample_rate);
+        }
+    }
+
     /// Takes a track that left its slot: it fades out from its current levels. No
     /// allocation: the box is linked at the head of the list.
     pub(crate) fn retire(&mut self, mut track: Box<Track>) {
