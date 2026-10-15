@@ -188,6 +188,10 @@ pub struct Schedule {
     group_end: usize,
     /// The tick the next segment starts at when the playhead moves on without a jump.
     expect: Option<Tick>,
+    /// The `to` of a segment left unfinished (the sub-block that filled the sink was the
+    /// last of its block): the next segment starts there without a jump, and the entries
+    /// not yet delivered land on its first frame.
+    resume: Option<Tick>,
     first_voice: u32,
     /// The key of each note, by index (a note-off of a release names it).
     keys: Box<[u8]>,
@@ -310,6 +314,7 @@ impl Schedule {
             next: 0,
             group_end: 0,
             expect: None,
+            resume: None,
             first_voice,
             keys,
             held_bits,
@@ -362,8 +367,12 @@ impl Schedule {
         let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
         // The rest of a group delivered in part, at the first frame.
         if !self.deliver_pending(sink) {
-            return Read::Full(1);
+            return self.full(segment, 1);
         }
+        if self.resume == Some(segment.from) {
+            self.expect = Some(segment.from);
+        }
+        self.resume = None;
         if self.expect != Some(segment.from) {
             let from = segment.from;
             self.releasing = self.held > 0;
@@ -375,7 +384,7 @@ impl Schedule {
         if self.releasing {
             let at = (segment.offset.max(start) - start) as u32;
             if !self.release(at, sink) {
-                return Read::Full((at as usize).max(1));
+                return self.full(segment, (at as usize).max(1));
             }
         }
         while self.next < self.table.len() && self.table.as_slice()[self.next].tick < segment.to {
@@ -387,7 +396,8 @@ impl Schedule {
             while end < table.len() && table[end].tick < segment.to && rel(table[end].tick) == at {
                 match table[end].kind {
                     TimedKind::Param { .. } => params += 1,
-                    TimedKind::NoteOff { voice, .. } if !self.is_held(voice) => {}
+                    // A note-off counts even when its voice is not held yet: its note-on
+                    // may be earlier in the same group.
                     _ => notes += 1,
                 }
                 end += 1;
@@ -395,22 +405,33 @@ impl Schedule {
             if notes <= sink.note_room() && params <= sink.param_room() {
                 while self.next < end {
                     let timed = self.table.as_slice()[self.next];
-                    self.deliver(&timed, at, sink);
+                    if !self.deliver(&timed, at, sink) {
+                        // Room was checked for the whole group: not reached.
+                        self.group_end = end;
+                        return self.full(segment, (at as usize).max(1));
+                    }
                     self.next += 1;
                 }
                 continue;
             }
             if at > 0 {
-                return Read::Full(at as usize);
+                return self.full(segment, at as usize);
             }
             // Larger than the room at the first frame: as much as fits now, the rest at
             // the first frame of the next sub-block, even past a jump.
             self.group_end = end;
             self.deliver_pending(sink);
-            return Read::Full(1);
+            return self.full(segment, 1);
         }
         self.expect = Some(segment.to);
         Read::Done
+    }
+
+    /// A read that stops `at` frames into the sub-block: if the block ends there, the next
+    /// block's first segment continues this one (no jump).
+    fn full(&mut self, segment: &Segment, at: usize) -> Read {
+        self.resume = Some(segment.to);
+        Read::Full(at)
     }
 
     /// Delivers the rest of a group delivered in part, at offset 0; `false` when some is
@@ -488,6 +509,7 @@ impl Schedule {
         if !self.deliver_pending(sink) {
             return;
         }
+        self.resume = None;
         if self.expect.is_some() {
             self.expect = None;
             self.releasing = self.held > 0;

@@ -196,9 +196,14 @@ impl TrackGraph {
     }
 
     /// Puts `schedule` on the track and returns the one it replaces (to be freed off the
-    /// audio path).
+    /// audio path). When the old one holds notes, the next rendered block releases every
+    /// note of the track first, as for a changed chain: nothing would end them.
     pub fn set_schedule(&mut self, schedule: Option<Box<Schedule>>) -> Option<Box<Schedule>> {
-        core::mem::replace(&mut self.schedule, schedule)
+        let old = core::mem::replace(&mut self.schedule, schedule);
+        if old.as_deref().is_some_and(|s| s.held() > 0) {
+            self.release = true;
+        }
+        old
     }
 
     /// The track's schedule, if any.
@@ -258,7 +263,10 @@ struct Scratch {
     right: Box<[f32]>,
     /// The events of the track's sub-block being rendered.
     sink: Sink,
-    /// The events of one device: its parameter values merged with the note stream.
+    /// The events of one device: its parameter values merged with the note stream. It
+    /// holds a sub-block's notes and values; a device that has values and follows a chained
+    /// MIDI effect whose output is larger meets CT-5's overflow safety net (an
+    /// `AllNotesOff` after what fits).
     merged: EventBuffer,
     /// The `events_out` given to the devices that write no events.
     unused: EventBuffer,

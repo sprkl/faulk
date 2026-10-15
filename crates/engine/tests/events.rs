@@ -863,3 +863,51 @@ fn a_midi_effect_after_another_is_sized_from_its_output() {
     assert_eq!(cap(0), bounds.capacity(NOTE_ROOM));
     assert_eq!(cap(1), bounds.capacity(cap(0)));
 }
+
+#[test]
+fn a_group_cut_on_the_last_frame_of_a_block_is_no_jump() {
+    let rate = 48_000;
+    let size = 128;
+    let mut rig = Rig::new(rate, size);
+    let s0 = rig.frames;
+    // A long note held through, then 6 000 note-ons on the last frame of a block (tick 87,
+    // frame 2303), and the playhead moves on without a seek.
+    let mut notes = vec![note(10, 300)];
+    notes.extend((0..6_000).map(|_| note(87, 5)));
+    rig.schedule(&notes, &[]);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let k = rig.frame(s0, 0, 87);
+    assert_eq!(k % size as u64, size as u64 - 1);
+    rig.run(25 * 400, size);
+    let ev = events(INSTRUMENT);
+    // The long note ends at its own end only: the cut block was no jump.
+    let offs: Vec<u64> = ev
+        .iter()
+        .filter(|(_, e)| matches!(e, Event::NoteOff { voice: v, .. } if *v == voice(0)))
+        .map(|(a, _)| *a)
+        .collect();
+    assert_eq!(offs, vec![rig.frame(s0, 0, 310)]);
+    let ons = note_ons(&ev);
+    assert_eq!(ons.len(), 6_001, "no note-on lost");
+    assert!(ons[1..].iter().all(|(a, _)| *a == k || *a == k + 1));
+    assert!(check_voices(&ev).is_empty());
+}
+
+#[test]
+fn replacing_a_schedule_that_holds_notes_releases_the_track() {
+    let rate = 48_000;
+    let size = 128;
+    let mut rig = Rig::new(rate, size);
+    rig.schedule(&[note(10, 10_000)], &[]);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    rig.run(size * 8, size);
+    let at = rig.frames;
+    rig.schedule(&[], &[]);
+    rig.run(size, size);
+    let ev = events(INSTRUMENT);
+    assert!(
+        ev.iter()
+            .any(|(a, e)| *a == at && matches!(e, Event::AllNotesOff { .. })),
+        "the held note of the old schedule is released"
+    );
+}
