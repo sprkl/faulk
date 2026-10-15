@@ -318,7 +318,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - **Hôtes** : `Synced` (état, contexte, flux) remplace le mappage sans état de MO-2 dans `project-wasm` (nouveau code `ERR_REFUSED = -101`), le helper et le harnais QA-1 ; la page et le helper tiennent chacun une copie du projet à un synthé jusqu'à PR-4, PR-5 et BO-1. Les commandes `transport.play`, `stop` et `seek` produisent leurs messages : `play` part de la dernière position donnée par `seek` (0 au début), aussi après un arrêt, et n'envoie rien pendant la lecture (le `Play` du moteur positionne toujours, et la tête de lecture n'est pas encore remontée) ; choix à valider par le fondateur.
 - **Flux refusé** : la page le range dans `EngineStore.streamError` ; le message affiché et la reprise par `Synced::resync` sont de PR-5.
 - **Pas encore envoyé** : les clips audio et leurs placements (AU-3), les devices qui ne sont pas des devices intégrés du registre (lecteur de clips, modules) ; le clip du moteur n'a pas de région de boucle (`looped` seulement) et ses notes n'ont ni accord fin, ni chance, ni répétition (CL-2).
-- **Un instantané envoyé d'un bloc** au-delà d'environ 8 192 messages préparés (anneau et file d'attente) est arrêté par `EngineBusy` : l'envoi rythmé d'un gros projet revient à l'hôte (issue de suivi).
+- **Un instantané envoyé d'un bloc** au-delà d'environ 8 192 messages préparés (anneau et file d'attente) est arrêté par `EngineBusy` : l'envoi rythmé d'un gros projet revient à l'hôte (#245).
 
 **PR-4 — `project-wasm` : le cœur projet dans la page**
 - But : compiler `project` + `commands` en WASM pour le thread principal ; API `run(json) -> json` (sortie, événements, octets moteur), `snapshot()`, `load(files)`, `save() -> fichiers sales`.
