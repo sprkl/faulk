@@ -79,6 +79,20 @@ impl From<Hash> for String {
     }
 }
 
+impl schemars::JsonSchema for Hash {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Hash".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters."
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
