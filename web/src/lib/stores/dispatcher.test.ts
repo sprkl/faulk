@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvents } from '../engine/engine'
 import type { Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
+import { CoreError, ProjectCore } from '../project/core'
 import { TOKEN_KEY } from './storage'
 
 const pairHelper = vi.fn()
@@ -359,10 +360,71 @@ describe('running commands through the project core', () => {
     expect(session.project.params[firstParam]).toBe(0.5)
   })
 
+  it('stops the engine when the core cannot encode the command it applied', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const run = vi.spyOn(ProjectCore.prototype, 'run').mockImplementation(() => ({
+      report: { status: 'applied', output: { type: 'live.note_on' }, events: [], stream_error: -4 } as never,
+      engine: new Uint8Array(),
+    }))
+    session.dispatcher.run(noteOn(60))
+    run.mockRestore()
+    expect(session.engine.streamError).toEqual({ code: -4, at: 0 })
+    expect(session.engine.started).toBe(false)
+    expect(webs[0].close).toHaveBeenCalledTimes(1)
+  })
+
+  it('still sends the helper the command the core could not encode, in Boost mode', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    const run = vi.spyOn(ProjectCore.prototype, 'run').mockImplementation(() => ({
+      report: { status: 'applied', output: { type: 'live.note_on' }, events: [], stream_error: -4 } as never,
+      engine: new Uint8Array(),
+    }))
+    const command = noteOn(61)
+    session.dispatcher.run(command)
+    run.mockRestore()
+    expect(nativeEngine.send).toHaveBeenLastCalledWith(command)
+    expect(session.engine.streamError).toBeNull()
+    expect(webs[0].close).not.toHaveBeenCalled()
+  })
+
+  it('reads the project again when the report of an applied command was lost', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const spy = vi.spyOn(ProjectCore.prototype, 'run').mockImplementation(() => {
+      throw new CoreError('run', -3)
+    })
+    const project = vi.spyOn(ProjectCore.prototype, 'project')
+    session.dispatcher.run(setParamCommand(firstParam, 0.2))
+    spy.mockRestore()
+    expect(project).toHaveBeenCalled()
+    expect(session.engine.streamError).toEqual({ code: -3, at: 0 })
+  })
+
+  it('stops the engine when the core cannot give a snapshot', async () => {
+    const session = newSession()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const setup = vi.spyOn(ProjectCore.prototype, 'setup').mockImplementation(() => {
+      throw new CoreError('setup', -3)
+    })
+    await session.dispatcher.start()
+    setup.mockRestore()
+    expect(session.engine.streamError).toEqual({ code: -3, at: 0 })
+    expect(session.engine.started).toBe(false)
+    expect(webs[0].close).toHaveBeenCalledTimes(1)
+    expect(session.engine.notice).toBeNull()
+  })
+
   it('names no command in the dispatcher', async () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(`${process.cwd()}/src/lib/stores/dispatcher.ts`, 'utf8')
-    expect(source).not.toMatch(/command\.type|type: '|'(live|device|track|clip|transport)\.|'midi\.(list_inputs|select_input)'/)
+    expect(source).not.toMatch(/command\.type|type: '|'(project|track|device|clip|note|scene|launch|arrangement|automation|transport|mixer|record|midi(?!.connect)|live|history|view)\.[a-z_.]+'/)
     expect(source).not.toMatch(/from '\.\.\/synth-commands'/)
   })
 })

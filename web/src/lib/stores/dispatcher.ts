@@ -5,7 +5,7 @@ import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { coreModule, engineStep, ProjectCore } from '../project/core'
+import { CoreError, coreModule, engineStep, ProjectCore } from '../project/core'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { applyEffects } from './effects'
@@ -130,13 +130,19 @@ export class Dispatcher {
    */
   private syncWeb(web: WebEngine): boolean {
     const core = this.core!
-    const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
-    if (report.status === 'failed') {
+    try {
+      const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
+      if (report.status === 'encoded') {
+        web.push(engine)
+        return true
+      }
       void this.stopWeb(report.stream_error, 0)
-      return false
+    } catch (error) {
+      // The core could not produce the snapshot at all: the engine has no project to play.
+      console.error(error)
+      void this.stopWeb(error instanceof CoreError ? error.code : 0, 0)
     }
-    web.push(engine)
-    return true
+    return false
   }
 
   /**
@@ -312,7 +318,7 @@ export class Dispatcher {
     }
   }
 
-  /** Moves playback to the helper: silence and release the Web side, then replay the settings. */
+  /** Moves playback to the helper: silence and release the Web side, then bring the helper's copy to the page's settings. */
   async enterBoost() {
     const token = storage()?.getItem(TOKEN_KEY)
     if (!token || this.native) return
@@ -344,7 +350,7 @@ export class Dispatcher {
     }
   }
 
-  /** Back to the Web engine: release the helper's notes, then replay the settings. */
+  /** Back to the Web engine: release the helper's notes, then catch the Web engine up by snapshot. */
   async enterWeb() {
     if (this.native) {
       const native = this.native

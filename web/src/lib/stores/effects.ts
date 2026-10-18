@@ -5,7 +5,7 @@ import type { Command } from '../generated/protocol'
  * engine: the Web MIDI input it opens and the notes the piano strip shows as sounding. Neither
  * is in the project or in a `ProjectEvent` (a played note changes nothing in the project; the
  * Web MIDI input is the page's own device, the helper's input is the helper's), so this
- * table is the one place on the page that names commands for them. The dispatcher knows none.
+ * table names the commands for them. The dispatcher knows none.
  */
 export interface EffectPorts {
   /** Which engine plays: the page's input device is only the page's in Web mode. */
