@@ -151103,7 +151103,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 2,
+  "protocol_version": 3,
   "server_message": {
     "$defs": {
       "MidiInput": {
@@ -151283,31 +151283,6 @@
           "type",
           "note",
           "velocity"
-        ],
-        "type": "object"
-      },
-      {
-        "additionalProperties": false,
-        "description": "Output level and voice count, about 30 times per second.",
-        "properties": {
-          "peak": {
-            "format": "float",
-            "type": "number"
-          },
-          "type": {
-            "const": "meter",
-            "type": "string"
-          },
-          "voices": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "type",
-          "peak",
-          "voices"
         ],
         "type": "object"
       },

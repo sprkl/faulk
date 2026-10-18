@@ -44,6 +44,8 @@ pub struct Meter {
     /// Delay between the callback and the moment its first sample is played, as the
     /// driver reports it, in microseconds (0 when the backend reports nothing).
     output_delay_us: AtomicU32,
+    /// The engine's report region (MO-5), set by [`audio_core`]; a rebuilt core replaces it.
+    report: Mutex<Option<Arc<[AtomicU32]>>>,
 }
 
 impl Meter {
@@ -52,6 +54,13 @@ impl Meter {
     pub fn take(&self) -> (f32, u32) {
         let peak = f32::from_bits(self.peak_bits.swap(0, Ordering::Relaxed));
         (peak, self.voices.load(Ordering::Relaxed))
+    }
+
+    /// Copies the engine's latest whole report into `out` (the bytes of `engine::msg::Feedback`).
+    /// `false` before the first report or while one is being written. Not for the audio thread.
+    pub fn copy_report(&self, out: &mut Vec<u8>) -> bool {
+        let region = self.report.lock().ok().and_then(|r| r.clone());
+        region.is_some_and(|r| engine::host::copy_feedback(&r, out))
     }
 
     pub fn callback_frames(&self) -> Option<u32> {
@@ -138,6 +147,9 @@ pub fn audio_core(
         prepare,
         stream: Synced::single_synth(EPOCH),
     };
+    if let Ok(mut report) = meter.report.lock() {
+        *report = Some(host.feedback_shared());
+    }
     let setup = sender.stream.setup()?;
     sender.submit(&setup)?;
     Ok((AudioCore { host, meter }, sender))

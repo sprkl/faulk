@@ -1,5 +1,6 @@
 import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
+import { peakOf } from '../engine/feedback'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import type { Command, SynthParam } from '../generated/protocol'
@@ -42,10 +43,11 @@ export class Dispatcher {
       onStatus: (status) => {
         if (current()) this.state.status = status
       },
-      onMeter: (peak, voices) => {
+      onFeedback: (report) => {
         if (!current()) return
-        this.state.peak = peak
-        this.state.voices = voices
+        this.state.feedback = report
+        this.state.peak = peakOf(report.master)
+        this.state.voices = report.voices
       },
       onMidiInputs: (inputs, selected) => {
         if (kind !== 'native' || !current()) return
@@ -163,6 +165,11 @@ export class Dispatcher {
       case 'live.all_notes_off':
         this.engine?.run(command)
         this.state.activeNotes = []
+        break
+      case 'transport.play':
+      case 'transport.stop':
+      case 'transport.seek':
+        this.engine?.run(command)
         break
     }
   }
