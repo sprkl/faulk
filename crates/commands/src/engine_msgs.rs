@@ -24,8 +24,8 @@
 //! What is not sent yet: audio clips and their placements (AU-3 streams the PCM an
 //! `AudioSourceDeclare` needs); a device whose source is not one of the built-in devices
 //! of the registry (the clip player, modules, plugins) has no `DeviceInsert`, its place in
-//! the chain stays empty; the engine's clip has no loop region (`looped` only) and its
-//! notes no cents, chance nor repeat (CL-2 extends the contract).
+//! the chain stays empty. A clip's loop region and its notes' cents, chance and repeat
+//! are sent (CL-2, #225); the engine plays the cents, #192 the chance and the repeat.
 
 use std::collections::BTreeSet;
 
@@ -36,6 +36,7 @@ use engine::msg::{
     Placement as EnginePlacement, PlacementSlot, SceneSlot, Span as EngineSpan, TrackKind,
     TrackSlot, encode_state, limits,
 };
+use engine::time::LoopRegion;
 use project::{
     AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId, DeviceSource,
     EngineSlots, IdGenerator, LaneId, MixerParam, OrderKey, Placement, PlacementId, Project,
@@ -487,13 +488,16 @@ fn upload_clip(clip: ClipSlot, content: &ClipContent, out: &mut Vec<ControlMsg>)
             length: n.length,
             pitch: n.pitch,
             velocity: n.velocity,
+            cents: n.cents,
+            chance: n.chance,
+            repeat: n.repeat,
         })
         .collect();
     out.extend(chunked(&notes, |first, total, notes| {
         ControlMsg::ClipNotesUpload {
             clip,
             length: *length,
-            looped: looping.is_some(),
+            looping: looping.and_then(|l| LoopRegion::new(l.start, l.end)),
             first,
             total,
             notes,

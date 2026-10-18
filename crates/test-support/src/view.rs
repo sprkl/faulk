@@ -53,7 +53,7 @@ pub struct TrackView {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClipView {
     pub length: Tick,
-    pub looped: bool,
+    pub looping: Option<LoopRegion>,
     pub notes: Vec<EngineNote>,
 }
 
@@ -208,7 +208,7 @@ impl Model {
             ControlMsg::ClipNotesUpload {
                 clip,
                 length,
-                looped,
+                looping,
                 first,
                 total,
                 notes,
@@ -222,7 +222,7 @@ impl Model {
                         clip.0,
                         ClipView {
                             length,
-                            looped,
+                            looping,
                             notes,
                         },
                     );
@@ -479,7 +479,7 @@ impl EngineView {
                     cid.clone(),
                     ClipView {
                         length: *length,
-                        looped: looping.is_some(),
+                        looping: looping.and_then(|l| LoopRegion::new(l.start, l.end)),
                         notes: notes
                             .iter()
                             .map(|n| EngineNote {
@@ -487,6 +487,9 @@ impl EngineView {
                                 length: n.length,
                                 pitch: n.pitch,
                                 velocity: n.velocity,
+                                cents: n.cents,
+                                chance: n.chance,
+                                repeat: n.repeat,
                             })
                             .collect(),
                     },

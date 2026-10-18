@@ -103,7 +103,7 @@ fn per_message_and_per_growth_cost() {
     let upload = |clip: u32| M::ClipNotesUpload {
         clip: ClipSlot(clip),
         length: Tick(960),
-        looped: false,
+        looping: None,
         first: 0,
         total: 1,
         notes: vec![Note::default()],

@@ -14,6 +14,7 @@ mod wasm;
 
 pub mod view;
 
+pub mod clips;
 pub mod reference;
 
 pub use render::{PARITY_TOLERANCE, QUANTUM, SAMPLE_RATE, parity, render_native};

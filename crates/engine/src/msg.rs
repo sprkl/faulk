@@ -317,13 +317,44 @@ pub enum TrackKind {
 pub struct DeviceKind(pub u32);
 
 /// A note of a MIDI clip, as the project stores it (no identifier, CT-4 decides one).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// `cents` (fine tuning, -50 to 50), `chance` (percent, 0 to 100) and `repeat` (1 to 16)
+/// are the project's optional fields (CL-1, #225): the clip player (CL-2) plays `cents`;
+/// `chance` and `repeat` are carried for #192.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct Note {
     pub start: Tick,
     pub length: Tick,
     pub pitch: u8,
     pub velocity: u8,
+    pub cents: i8,
+    pub chance: u8,
+    pub repeat: u8,
+}
+
+impl Note {
+    /// Largest `cents` magnitude.
+    pub const MAX_CENTS: i8 = 50;
+    /// Largest `chance` (always plays).
+    pub const MAX_CHANCE: u8 = 100;
+    /// Largest `repeat`.
+    pub const MAX_REPEAT: u8 = 16;
+}
+
+impl Default for Note {
+    /// A note at tick 0, no length, key 0, velocity 0, no fine tuning, always played,
+    /// once: the defaults of the optional fields are the project's.
+    fn default() -> Self {
+        Note {
+            start: Tick::ZERO,
+            length: Tick::ZERO,
+            pitch: 0,
+            velocity: 0,
+            cents: 0,
+            chance: Self::MAX_CHANCE,
+            repeat: 1,
+        }
+    }
 }
 
 /// Shape of the transition after an automation point.
@@ -469,10 +500,12 @@ pub enum ControlMsg {
     // MIDI clips
     /// The notes of a clip, in chunks: `first` is the index of `notes[0]` among `total`.
     /// The table is swapped in once the last chunk arrived (module doc, chunked uploads).
+    /// `looping` is the clip's loop `[start, end)` within `[0, length]` (CL-2), `None`
+    /// for a clip that plays once.
     ClipNotesUpload {
         clip: ClipSlot,
         length: Tick,
-        looped: bool,
+        looping: Option<LoopRegion>,
         first: u32,
         total: u32,
         notes: Vec<Note>,

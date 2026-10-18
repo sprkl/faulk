@@ -23,10 +23,12 @@
 //!
 //! A [`Schedule`] is a content table of tick-dated events ([`Timed`]), sorted by tick,
 //! built off the audio path ([`Schedule::try_new`], fallible allocations only) and read by
-//! the audio side with a cursor. It is what a clip player (CL-2), the arrangement (AR-2)
-//! and the automation (AM-2) compile their tables into; until they land, nothing in the
-//! production path fills it (no message carries one), and the tests set it through
-//! `Engine::state_mut`.
+//! the audio side with a [`Cursor`]. The cursor reads any tick-sorted run of [`Events`]:
+//! a schedule's table, or the notes of a clip, which the clip player (CL-2,
+//! [`crate::clip_player`]) keeps in a more compact table of their own. The arrangement
+//! (AR-2) and the automation (AM-2) will fill the track's schedule; until they land,
+//! nothing in the production path does (no message carries one), and the tests set it
+//! through `Engine::state_mut`.
 //!
 //! [`Schedule::read`] delivers the events of a segment's ticks `[from, to)`: each at
 //! [`Segment::offset_of`] its tick (the floor of its fractional sample, TR-1's rule),
@@ -178,10 +180,51 @@ pub enum Read {
     Full(usize),
 }
 
-/// A tick-sorted table of timed events and its read cursor (module doc).
-#[derive(Debug)]
-pub struct Schedule {
-    table: Table<Timed>,
+// ---------------------------------------------------------------- what a cursor reads
+
+/// A tick-sorted run of timed events that a [`Cursor`] reads (module doc): the table of a
+/// [`Schedule`], or the notes of a clip ([`crate::clip_player::ClipNotes`]). Note `i` of
+/// the run has the voice id `first_voice() + i` and one bit in `held_bits`.
+pub trait Events {
+    /// Entries in the run.
+    fn len(&self) -> usize;
+    /// Whether the run has no entry.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// The tick of entry `i` (beyond the run: `i64::MAX`, never a panic).
+    fn tick(&self, i: usize) -> Tick;
+    /// Entry `i` (`None` beyond the run, never a panic).
+    fn timed(&self, i: usize) -> Option<Timed>;
+    /// The key of note `index` (0 beyond the run).
+    fn key(&self, index: usize) -> u8;
+    /// The voice id of note 0 (at least 1).
+    fn first_voice(&self) -> u32;
+    /// One bit per note: delivered and not ended yet.
+    fn held_bits(&self) -> &[u32];
+    /// The same bits, to change.
+    fn held_bits_mut(&mut self) -> &mut [u32];
+}
+
+/// The index of the first entry at or after `from` (binary search: the run is sorted).
+fn first_at_or_after<E: Events + ?Sized>(events: &E, from: Tick) -> usize {
+    let (mut lo, mut hi) = (0, events.len());
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if events.tick(mid) < from {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// The read state of a run of [`Events`] (module doc): the next entry, the group delivered
+/// in part, the jump detection and the release in progress. The held bits live with the
+/// run, the count of held notes here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cursor {
     /// Index of the next entry to deliver.
     next: usize,
     /// End of the group of equal offset delivered in part: entries `next..group_end` are
@@ -193,19 +236,298 @@ pub struct Schedule {
     /// last of its block): the next segment starts there without a jump, and the entries
     /// not yet delivered land on its first frame.
     resume: Option<Tick>,
+    /// Notes delivered and not ended yet.
+    held: u32,
+    /// A release of the held notes is in progress (a jump or a stop).
+    releasing: bool,
+    /// Word of the held bits the release goes on from.
+    release_word: usize,
+}
+
+impl Cursor {
+    /// Notes delivered and not ended yet.
+    pub fn held(&self) -> u32 {
+        self.held
+    }
+
+    fn index<E: Events + ?Sized>(events: &E, voice: VoiceId) -> usize {
+        voice.get().wrapping_sub(events.first_voice()) as usize
+    }
+
+    fn is_held<E: Events + ?Sized>(events: &E, voice: VoiceId) -> bool {
+        let i = Self::index(events, voice);
+        events
+            .held_bits()
+            .get(i / 32)
+            .is_some_and(|w| w & (1 << (i % 32)) != 0)
+    }
+
+    fn set_held<E: Events + ?Sized>(&mut self, events: &mut E, voice: VoiceId, held: bool) {
+        let i = Self::index(events, voice);
+        if let Some(w) = events.held_bits_mut().get_mut(i / 32) {
+            let bit = 1u32 << (i % 32);
+            let was = *w & bit != 0;
+            if held && !was {
+                *w |= bit;
+                self.held = self.held.saturating_add(1);
+            } else if !held && was {
+                *w &= !bit;
+                self.held = self.held.saturating_sub(1);
+            }
+        }
+    }
+
+    /// Reads the events of `segment` from `events` into `sink` for the sub-block that
+    /// starts at frame `start` of the block (module doc). No allocation, no panic.
+    pub fn read<E: Events + ?Sized>(
+        &mut self,
+        events: &mut E,
+        segment: &Segment,
+        start: usize,
+        sink: &mut Sink,
+    ) -> Read {
+        let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
+        // The rest of a group delivered in part, at the first frame.
+        let continues = self.expect == Some(segment.from) || self.resume == Some(segment.from);
+        if !self.deliver_pending(events, sink) {
+            // A jump is handled once the rest is delivered: only a continuation may be
+            // resumed at the next block.
+            self.resume = continues.then_some(segment.to);
+            return Read::Full(1);
+        }
+        if continues {
+            self.expect = Some(segment.from);
+        }
+        self.resume = None;
+        if self.expect != Some(segment.from) {
+            let from = segment.from;
+            self.releasing = self.held > 0;
+            self.release_word = 0;
+            self.next = first_at_or_after(events, from);
+            self.group_end = 0;
+            self.expect = Some(from);
+        }
+        if self.releasing {
+            let at = (segment.offset.max(start) - start) as u32;
+            if !self.release(events, at, sink) {
+                return self.full(segment, (at as usize).max(1));
+            }
+        }
+        let len = events.len();
+        while self.next < len && events.tick(self.next) < segment.to {
+            let at = rel(events.tick(self.next));
+            // The group of entries at this offset, and the room it needs.
+            let mut end = self.next;
+            let (mut notes, mut params) = (0usize, 0usize);
+            while end < len && events.tick(end) < segment.to && rel(events.tick(end)) == at {
+                match events.timed(end).map(|t| t.kind) {
+                    Some(TimedKind::Param { .. }) => params += 1,
+                    // A note-off counts even when its voice is not held yet: its note-on
+                    // may be earlier in the same group.
+                    _ => notes += 1,
+                }
+                end += 1;
+            }
+            if notes <= sink.note_room() && params <= sink.param_room() {
+                while self.next < end {
+                    if !self.deliver(events, self.next, at, sink) {
+                        // Room was checked for the whole group: not reached.
+                        self.group_end = end;
+                        return self.full(segment, (at as usize).max(1));
+                    }
+                    self.next += 1;
+                }
+                continue;
+            }
+            if at > 0 {
+                return self.full(segment, at as usize);
+            }
+            // Larger than the room at the first frame: as much as fits now, the rest at
+            // the first frame of the next sub-block, even past a jump.
+            self.group_end = end;
+            self.deliver_pending(events, sink);
+            return self.full(segment, 1);
+        }
+        self.expect = Some(segment.to);
+        Read::Done
+    }
+
+    /// A read that stops `at` frames into the sub-block: if the block ends there, the next
+    /// block's first segment continues this one (no jump).
+    fn full(&mut self, segment: &Segment, at: usize) -> Read {
+        self.resume = Some(segment.to);
+        Read::Full(at)
+    }
+
+    /// Delivers the rest of a group delivered in part, at offset 0; `false` when some is
+    /// still left.
+    fn deliver_pending<E: Events + ?Sized>(&mut self, events: &mut E, sink: &mut Sink) -> bool {
+        while self.next < self.group_end {
+            if !self.deliver(events, self.next, 0, sink) {
+                return false;
+            }
+            self.next += 1;
+        }
+        self.group_end = 0;
+        true
+    }
+
+    /// Ends every held note with its own note-off at `at` (the live notes of the track are
+    /// not touched); `false` when the sink is full before the end.
+    fn release<E: Events + ?Sized>(&mut self, events: &mut E, at: u32, sink: &mut Sink) -> bool {
+        let first_voice = events.first_voice();
+        while self.release_word < events.held_bits().len() {
+            let w = self.release_word;
+            loop {
+                let word = events.held_bits().get(w).copied().unwrap_or(0);
+                if word == 0 {
+                    break;
+                }
+                let bit = word.trailing_zeros() as usize;
+                let i = w * 32 + bit;
+                let Some(voice) = VoiceId::new(first_voice.wrapping_add(i as u32)) else {
+                    if let Some(word) = events.held_bits_mut().get_mut(w) {
+                        *word &= !(1 << bit);
+                    }
+                    continue;
+                };
+                if !sink.push_note(Event::NoteOff {
+                    offset: at,
+                    voice,
+                    key: events.key(i),
+                }) {
+                    return false;
+                }
+                self.set_held(events, voice, false);
+            }
+            self.release_word += 1;
+        }
+        self.releasing = false;
+        true
+    }
+
+    /// Pushes entry `i` at `at`; `false` (nothing pushed) when the sink has no room for
+    /// it. A note-off of a note that is not held (released at a jump, or started before
+    /// it) is dropped (`true`), as is an entry beyond the run.
+    fn deliver<E: Events + ?Sized>(
+        &mut self,
+        events: &mut E,
+        i: usize,
+        at: u32,
+        sink: &mut Sink,
+    ) -> bool {
+        let Some(timed) = events.timed(i) else {
+            return true;
+        };
+        match timed.kind {
+            TimedKind::Param { device, .. } => sink.push_param(device, timed.event(at)),
+            TimedKind::NoteOff { voice, .. } => {
+                if !Self::is_held(events, voice) {
+                    return true;
+                }
+                let pushed = sink.push_note(timed.event(at));
+                if pushed {
+                    self.set_held(events, voice, false);
+                }
+                pushed
+            }
+            TimedKind::NoteOn { voice, .. } => {
+                let pushed = sink.push_note(timed.event(at));
+                if pushed {
+                    self.set_held(events, voice, true);
+                }
+                pushed
+            }
+        }
+    }
+
+    /// The clock is stopped for this block: [`Cursor::stop_at`] its first frame. What
+    /// does not fit goes on at the next block.
+    pub fn stop<E: Events + ?Sized>(&mut self, events: &mut E, sink: &mut Sink) {
+        self.stop_at(events, 0, sink);
+    }
+
+    /// The reading stops at offset `at` of the sub-block: delivers the rest of a group
+    /// delivered in part (at offset 0), then releases the held notes at `at`, each with
+    /// its note-off, and forgets the cursor (the next read is a jump). `false` when the
+    /// sink filled first: calling it again goes on where it stopped.
+    pub fn stop_at<E: Events + ?Sized>(
+        &mut self,
+        events: &mut E,
+        at: u32,
+        sink: &mut Sink,
+    ) -> bool {
+        if !self.deliver_pending(events, sink) {
+            return false;
+        }
+        self.resume = None;
+        if self.expect.is_some() {
+            self.expect = None;
+            self.releasing = self.held > 0;
+            self.release_word = 0;
+        }
+        if self.releasing {
+            return self.release(events, at, sink);
+        }
+        true
+    }
+}
+
+// ---------------------------------------------------------------- the schedule
+
+/// The table of a [`Schedule`]: its entries, the key of each note and the held bits.
+#[derive(Debug)]
+struct TimedEvents {
+    table: Table<Timed>,
     first_voice: u32,
     /// The key of each note, by index (a note-off of a release names it).
     keys: Box<[u8]>,
     /// One bit per note: delivered and not ended yet.
-    held_bits: Box<[u64]>,
-    held: u32,
-    /// A release of the held notes is in progress (a jump or a stop).
-    releasing: bool,
-    /// Word of `held_bits` the release goes on from.
-    release_word: usize,
+    held_bits: Box<[u32]>,
 }
 
-fn try_boxed<T: Copy>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
+impl Events for TimedEvents {
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn tick(&self, i: usize) -> Tick {
+        self.table
+            .as_slice()
+            .get(i)
+            .map_or(Tick(i64::MAX), |t| t.tick)
+    }
+
+    fn timed(&self, i: usize) -> Option<Timed> {
+        self.table.as_slice().get(i).copied()
+    }
+
+    fn key(&self, index: usize) -> u8 {
+        self.keys.get(index).copied().unwrap_or(0)
+    }
+
+    fn first_voice(&self) -> u32 {
+        self.first_voice
+    }
+
+    fn held_bits(&self) -> &[u32] {
+        &self.held_bits
+    }
+
+    fn held_bits_mut(&mut self) -> &mut [u32] {
+        &mut self.held_bits
+    }
+}
+
+/// A tick-sorted table of timed events and its read cursor (module doc).
+#[derive(Debug)]
+pub struct Schedule {
+    events: TimedEvents,
+    cursor: Cursor,
+}
+
+/// A boxed slice of `n` copies of `value`, allocated fallibly (off the audio path).
+pub(crate) fn try_boxed<T: Copy>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
     let mut v = Vec::new();
     v.try_reserve_exact(n).map_err(|_| MsgError::OutOfMemory {
         bytes: n.saturating_mul(size_of::<T>()),
@@ -230,14 +552,7 @@ impl Schedule {
             .checked_mul(2)
             .and_then(|n| n.checked_add(params.len()))
             .ok_or(MsgError::OutOfMemory { bytes: usize::MAX })?;
-        let last_voice = u64::from(first_voice).saturating_add(notes.len() as u64);
-        if first_voice == 0 || last_voice > u64::from(VoiceId::MAX) + 1 {
-            return Err(MsgError::LimitExceeded {
-                what: "schedule voice ids",
-                limit: u64::from(VoiceId::MAX),
-                requested: last_voice.saturating_sub(1),
-            });
-        }
+        check_voices(first_voice, notes.len())?;
         let mut entries: Vec<(u32, Timed)> = Vec::new();
         entries
             .try_reserve_exact(count)
@@ -245,7 +560,7 @@ impl Schedule {
                 bytes: count.saturating_mul(size_of::<(u32, Timed)>()),
             })?;
         let mut keys = try_boxed(notes.len(), 0u8)?;
-        let held_bits = try_boxed(notes.len().div_ceil(64), 0u64)?;
+        let held_bits = try_boxed(notes.len().div_ceil(32), 0u32)?;
         let mut seq = 0u32;
         for p in params {
             entries.push((
@@ -309,221 +624,53 @@ impl Schedule {
                 bytes: count.saturating_mul(size_of::<Timed>()),
             })?;
         sorted.extend(entries.into_iter().map(|(_, timed)| timed));
-        let table = Table::from_vec(sorted);
         Ok(Schedule {
-            table,
-            next: 0,
-            group_end: 0,
-            expect: None,
-            resume: None,
-            first_voice,
-            keys,
-            held_bits,
-            held: 0,
-            releasing: false,
-            release_word: 0,
+            events: TimedEvents {
+                table: Table::from_vec(sorted),
+                first_voice,
+                keys,
+                held_bits,
+            },
+            cursor: Cursor::default(),
         })
     }
 
     /// The entries, in delivery order.
     pub fn entries(&self) -> &[Timed] {
-        self.table.as_slice()
+        self.events.table.as_slice()
     }
 
     /// Notes delivered and not ended yet.
     pub fn held(&self) -> u32 {
-        self.held
-    }
-
-    /// The index of a voice of this schedule.
-    fn index(&self, voice: VoiceId) -> usize {
-        voice.get().wrapping_sub(self.first_voice) as usize
-    }
-
-    fn is_held(&self, voice: VoiceId) -> bool {
-        let i = self.index(voice);
-        self.held_bits
-            .get(i / 64)
-            .is_some_and(|w| w & (1 << (i % 64)) != 0)
-    }
-
-    fn set_held(&mut self, voice: VoiceId, held: bool) {
-        let i = self.index(voice);
-        if let Some(w) = self.held_bits.get_mut(i / 64) {
-            let bit = 1u64 << (i % 64);
-            let was = *w & bit != 0;
-            if held && !was {
-                *w |= bit;
-                self.held = self.held.saturating_add(1);
-            } else if !held && was {
-                *w &= !bit;
-                self.held = self.held.saturating_sub(1);
-            }
-        }
+        self.cursor.held()
     }
 
     /// Reads the events of `segment` into `sink` for the sub-block that starts at frame
-    /// `start` of the block (module doc). No allocation, no panic.
+    /// `start` of the block ([`Cursor::read`]). No allocation, no panic.
     pub fn read(&mut self, segment: &Segment, start: usize, sink: &mut Sink) -> Read {
-        let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
-        // The rest of a group delivered in part, at the first frame.
-        let continues = self.expect == Some(segment.from) || self.resume == Some(segment.from);
-        if !self.deliver_pending(sink) {
-            // A jump is handled once the rest is delivered: only a continuation may be
-            // resumed at the next block.
-            self.resume = continues.then_some(segment.to);
-            return Read::Full(1);
-        }
-        if continues {
-            self.expect = Some(segment.from);
-        }
-        self.resume = None;
-        if self.expect != Some(segment.from) {
-            let from = segment.from;
-            self.releasing = self.held > 0;
-            self.release_word = 0;
-            self.next = self.table.as_slice().partition_point(|e| e.tick < from);
-            self.group_end = 0;
-            self.expect = Some(from);
-        }
-        if self.releasing {
-            let at = (segment.offset.max(start) - start) as u32;
-            if !self.release(at, sink) {
-                return self.full(segment, (at as usize).max(1));
-            }
-        }
-        while self.next < self.table.len() && self.table.as_slice()[self.next].tick < segment.to {
-            let table = self.table.as_slice();
-            let at = rel(table[self.next].tick);
-            // The group of entries at this offset, and the room it needs.
-            let mut end = self.next;
-            let (mut notes, mut params) = (0usize, 0usize);
-            while end < table.len() && table[end].tick < segment.to && rel(table[end].tick) == at {
-                match table[end].kind {
-                    TimedKind::Param { .. } => params += 1,
-                    // A note-off counts even when its voice is not held yet: its note-on
-                    // may be earlier in the same group.
-                    _ => notes += 1,
-                }
-                end += 1;
-            }
-            if notes <= sink.note_room() && params <= sink.param_room() {
-                while self.next < end {
-                    let timed = self.table.as_slice()[self.next];
-                    if !self.deliver(&timed, at, sink) {
-                        // Room was checked for the whole group: not reached.
-                        self.group_end = end;
-                        return self.full(segment, (at as usize).max(1));
-                    }
-                    self.next += 1;
-                }
-                continue;
-            }
-            if at > 0 {
-                return self.full(segment, at as usize);
-            }
-            // Larger than the room at the first frame: as much as fits now, the rest at
-            // the first frame of the next sub-block, even past a jump.
-            self.group_end = end;
-            self.deliver_pending(sink);
-            return self.full(segment, 1);
-        }
-        self.expect = Some(segment.to);
-        Read::Done
-    }
-
-    /// A read that stops `at` frames into the sub-block: if the block ends there, the next
-    /// block's first segment continues this one (no jump).
-    fn full(&mut self, segment: &Segment, at: usize) -> Read {
-        self.resume = Some(segment.to);
-        Read::Full(at)
-    }
-
-    /// Delivers the rest of a group delivered in part, at offset 0; `false` when some is
-    /// still left.
-    fn deliver_pending(&mut self, sink: &mut Sink) -> bool {
-        while self.next < self.group_end {
-            let timed = self.table.as_slice()[self.next];
-            if !self.deliver(&timed, 0, sink) {
-                return false;
-            }
-            self.next += 1;
-        }
-        self.group_end = 0;
-        true
-    }
-
-    /// Ends every held note with its own note-off at `at` (the live notes of the track are
-    /// not touched); `false` when the sink is full before the end.
-    fn release(&mut self, at: u32, sink: &mut Sink) -> bool {
-        while self.release_word < self.held_bits.len() {
-            let w = self.release_word;
-            while self.held_bits[w] != 0 {
-                let bit = self.held_bits[w].trailing_zeros() as usize;
-                let i = w * 64 + bit;
-                let Some(voice) = VoiceId::new(self.first_voice.wrapping_add(i as u32)) else {
-                    self.held_bits[w] &= !(1 << bit);
-                    continue;
-                };
-                let key = self.keys.get(i).copied().unwrap_or(0);
-                if !sink.push_note(Event::NoteOff {
-                    offset: at,
-                    voice,
-                    key,
-                }) {
-                    return false;
-                }
-                self.set_held(voice, false);
-            }
-            self.release_word += 1;
-        }
-        self.releasing = false;
-        true
-    }
-
-    /// Pushes one entry at `at`; `false` (nothing pushed) when the sink has no room for
-    /// it. A note-off of a note that is not held (released at a jump, or started before
-    /// it) is dropped (`true`).
-    fn deliver(&mut self, timed: &Timed, at: u32, sink: &mut Sink) -> bool {
-        match timed.kind {
-            TimedKind::Param { device, .. } => sink.push_param(device, timed.event(at)),
-            TimedKind::NoteOff { voice, .. } => {
-                if !self.is_held(voice) {
-                    return true;
-                }
-                let pushed = sink.push_note(timed.event(at));
-                if pushed {
-                    self.set_held(voice, false);
-                }
-                pushed
-            }
-            TimedKind::NoteOn { voice, .. } => {
-                let pushed = sink.push_note(timed.event(at));
-                if pushed {
-                    self.set_held(voice, true);
-                }
-                pushed
-            }
-        }
+        self.cursor.read(&mut self.events, segment, start, sink)
     }
 
     /// The clock is stopped for this block: delivers the rest of a group delivered in
     /// part, then releases the held notes at offset 0, each with its note-off, and forgets
     /// the cursor (the next read is a jump). What does not fit goes on at the next block.
     pub fn stop(&mut self, sink: &mut Sink) {
-        if !self.deliver_pending(sink) {
-            return;
-        }
-        self.resume = None;
-        if self.expect.is_some() {
-            self.expect = None;
-            self.releasing = self.held > 0;
-            self.release_word = 0;
-        }
-        if self.releasing {
-            self.release(0, sink);
-        }
+        self.cursor.stop(&mut self.events, sink);
     }
+}
+
+/// Refuses voice ids `first_voice ..= first_voice + notes - 1` when one is 0 or beyond
+/// [`VoiceId::MAX`] ([`MsgError::LimitExceeded`]).
+pub(crate) fn check_voices(first_voice: u32, notes: usize) -> Result<(), MsgError> {
+    let last_voice = u64::from(first_voice).saturating_add(notes as u64);
+    if first_voice == 0 || last_voice > u64::from(VoiceId::MAX) + 1 {
+        return Err(MsgError::LimitExceeded {
+            what: "schedule voice ids",
+            limit: u64::from(VoiceId::MAX),
+            requested: last_voice.saturating_sub(1),
+        });
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- the sink

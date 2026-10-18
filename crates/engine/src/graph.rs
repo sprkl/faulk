@@ -10,7 +10,8 @@
 //! 1. every track, in slot order: a track with no enabled device is **empty** and costs a
 //!    slot visit, nothing else (no buffer cleared, no mixing). Otherwise the track's scratch
 //!    is cleared, its live notes are routed to it (offset 0 of the block: a live event
-//!    carries no time), its schedule is read ([`crate::events`], MO-4), and its chain runs
+//!    carries no time), its schedule, or its launched clip ([`crate::clip_player`], CL-2), is
+//!    read ([`crate::events`], MO-4), and its chain runs
 //!    once per **sub-block** (a segment of the clock, cut again when the events of the
 //!    track fill its sink: a sub-block never crosses a loop wrap), in slot order: a **MIDI effect** turns the current note
 //!    stream into its own output, which becomes the stream (only its notes: CT-5); the
@@ -67,12 +68,14 @@
 
 use rtrb::{Producer, PushError};
 
+use crate::clip_player::Env;
 use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
 };
-use crate::engine::{DeviceEntry, State, Track};
+use crate::engine::{Clip, DeviceEntry, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
 use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackSlot};
+use crate::time::{Quantize, TimeSignature};
 use crate::transport::Segment;
 
 /// Duration of a track's fade in or out, and of every change of a level, in seconds.
@@ -176,9 +179,9 @@ pub struct TrackGraph {
     /// first.
     release: bool,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
-    /// message fills it yet: the clip player (CL-2), the arrangement (AR-2) and the
-    /// automation (AM-2) compile their tables into it; tests set it off the audio path
-    /// ([`TrackGraph::set_schedule`]).
+    /// message fills it yet: the arrangement (AR-2) and the automation (AM-2) will; tests
+    /// set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the
+    /// track's clip player plays or waits to launch ([`crate::clip_player`], CL-2).
     schedule: Option<Box<Schedule>>,
     next: Option<Box<Track>>,
 }
@@ -410,6 +413,8 @@ impl Graph {
         };
         let fade = self.fade;
         let any_solo = state.tracks.as_slice().iter().flatten().any(|t| t.solo);
+        let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
+        let clips = &mut state.clips;
         for (slot, entry) in state.tracks.as_mut_slice().iter_mut().enumerate() {
             let Some(track) = entry.as_deref_mut() else {
                 continue;
@@ -422,6 +427,11 @@ impl Graph {
                 slot: TrackSlot(slot as u32),
                 live,
                 release,
+                clips: Some(ClipsIn {
+                    clips: &mut *clips,
+                    quantize,
+                    signature,
+                }),
             };
             render_track(
                 track,
@@ -514,11 +524,19 @@ fn flush(x: f32) -> f32 {
     }
 }
 
-/// The live input of a track in its slot.
+/// The live input of a track in its slot, and the clips its player reads.
 struct Input<'a> {
     slot: TrackSlot,
     live: &'a [LiveEvent],
     release: bool,
+    clips: Option<ClipsIn<'a>>,
+}
+
+/// What a track's clip player reads besides the track (CL-2).
+struct ClipsIn<'a> {
+    clips: &'a mut Paged<Box<Clip>>,
+    quantize: Quantize,
+    signature: TimeSignature,
 }
 
 /// Whether the track has a device to render.
@@ -559,15 +577,46 @@ fn render_track(
         sink.push_note(Event::AllNotesOff { offset: 0 });
     }
     let reads = input.is_some();
+    let mut clips = None;
+    let mut slot = TrackSlot(0);
     if let Some(input) = input {
         route_live(&input, sink);
+        slot = input.slot;
+        clips = input.clips;
     }
+    let Track {
+        devices,
+        scenes,
+        launch,
+        graph,
+        player,
+        ..
+    } = track;
+    // A launched clip takes the track: its schedule is silent meanwhile (module doc of
+    // `crate::clip_player`).
+    let mut env = clips.map(|c| Env {
+        track: slot,
+        clips: c.clips,
+        scenes,
+        launch,
+        quantize: c.quantize,
+        signature: c.signature,
+    });
+    let engaged = env.is_some() && (player.engaged() || launch_pending(&env));
     let mut schedule = if reads {
-        track.graph.schedule.as_deref_mut()
+        graph.schedule.as_deref_mut()
     } else {
         None
     };
-    let devices = track.devices.as_mut_slice();
+    if engaged && let Some(s) = schedule.take() {
+        s.stop(sink);
+    }
+    let mut player = if engaged {
+        env.as_mut().map(|e| (&mut *player, e))
+    } else {
+        None
+    };
+    let devices = devices.as_mut_slice();
     let mut chain = |sink: &Sink, from: usize, to: usize, position: f64| {
         let sub = BlockCtx {
             frames: (to - from) as u32,
@@ -591,6 +640,9 @@ fn render_track(
         if let Some(s) = schedule.as_deref_mut() {
             s.stop(sink);
         }
+        if let Some((p, env)) = player.as_mut() {
+            p.stop(env, sink);
+        }
         chain(sink, 0, frames, clock.position);
     } else {
         let mut start = 0;
@@ -599,9 +651,10 @@ fn render_track(
         while i < clock.segments.len() && start < frames {
             let segment = clock.segments[i];
             position = segment.position_at(start);
-            let read = match schedule.as_deref_mut() {
-                Some(s) => s.read(&segment, start, sink),
-                None => Read::Done,
+            let read = match (schedule.as_deref_mut(), player.as_mut()) {
+                (_, Some((p, env))) => p.read(env, &segment, start, sink),
+                (Some(s), None) => s.read(&segment, start, sink),
+                (None, None) => Read::Done,
             };
             let end = match read {
                 Read::Done => {
@@ -626,7 +679,7 @@ fn render_track(
     }
 
     // The mix.
-    let (gl, gr) = (&mut track.graph.left, &mut track.graph.right);
+    let (gl, gr) = (&mut graph.left, &mut graph.right);
     if gl.is_still() && gr.is_still() {
         let (a, b) = (gl.target, gr.target);
         if a != 0.0 {
@@ -648,6 +701,11 @@ fn render_track(
     gl.advance(frames as u32);
     gr.advance(frames as u32);
     true
+}
+
+/// Whether the track has a launch order its player has not taken yet.
+fn launch_pending(env: &Option<Env<'_>>) -> bool {
+    env.as_ref().is_some_and(|e| e.launch.is_some())
 }
 
 /// The live notes of the track at offset 0, then a release when live events were lost.

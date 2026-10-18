@@ -28,7 +28,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Événement daté** : un événement placé à un tick dans une table que le moteur lit pendant la lecture (notes, valeurs de paramètres) ; le moteur le livre au device à l'échantillon qui contient sa position, dans un sous-bloc (un morceau de bloc qui ne traverse jamais un bouclage). Code : `Schedule`, `Timed`, `Sink` (`engine::events`, MO-4).
 
-**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé par la validation comme instrument d'une piste audio et refusé ailleurs) ; le device lui-même **(prévu)**.
+**Lecteur de clips** : l'instrument des pistes audio : il lit les clips audio. Une piste audio est donc une piste dont l'instrument est le lecteur de clips. Code : `faulk.clip_player` (`CLIP_PLAYER`, exigé par la validation comme instrument d'une piste audio et refusé ailleurs) ; le device lui-même **(prévu)**. Distinct du `ClipPlayer` du moteur (CL-2), qui joue dans chaque piste les clips MIDI lancés.
 
 **Scène** : une ligne de la grille de lancement ; lancer une scène lance les clips de ses emplacements. Code : `Scene` ; commandes `scene.*` et `launch.scene` **(prévu)**.
 
@@ -44,7 +44,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Région de boucle** : la plage `[début, fin)` en ticks que le transport répète. Code : `LoopRegion` (`engine::time`).
 
-**Clip** : un contenu musical, MIDI (notes, longueur et boucle en ticks) ou audio (plage d'un fichier en frames). Le clip est le contenu ; l'emplacement le met dans la grille, le placement le pose dans l'arrangement. Copier un clip crée un clip indépendant, sauf option « lié ». Code : `Clip`, `ClipContent::{Midi, Audio}`, `AudioMedia`.
+**Clip** : un contenu musical, MIDI (notes, longueur et boucle en ticks) ou audio (plage d'un fichier en frames). Le clip est le contenu ; l'emplacement le met dans la grille, le placement le pose dans l'arrangement. Copier un clip crée un clip indépendant, sauf option « lié ». Code : `Clip`, `ClipContent::{Midi, Audio}`, `AudioMedia` ; dans le moteur, les notes d'un clip MIDI sont une `ClipNotes` que joue le `ClipPlayer` de la piste (CL-2).
 
 **Note** : un événement musical d'un clip MIDI, une valeur sans identifiant sur disque : début, hauteur, durée, vélocité, et trois champs optionnels : accord fin en cents (-50 à 50), chance (0 à 100 %) et répétitions (1 à 16), absents du fichier quand ils valent leur défaut. Une note hors de la longueur de son clip est refusée par les commandes, jamais tronquée en silence (seul `clip.set_length` avec `trim` coupe). Code : `Note { start, pitch, length, velocity, cents, chance, repeat }` ; le moteur joue des notes par les événements `NoteOn` et `NoteOff` du contrat de device (`engine::device::Event`).
 
@@ -52,7 +52,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Placement** : un clip posé dans l'arrangement : début en ticks et étendue (durée et décalage de coupe, en ticks pour un clip MIDI, en frames pour un clip audio). Plusieurs placements d'un même clip sont des clips liés. Code : `Placement`, `Span`.
 
-**Lancement** : démarrer ou arrêter un clip ou une scène depuis la grille ; il s'exécute à la prochaine limite de quantification. L'état de lecture est éphémère, jamais enregistré. Code : commandes `launch.clip`, `launch.scene`, `launch.stop_track`, `launch.stop_all` **(prévu)**.
+**Lancement** : démarrer ou arrêter un clip ou une scène depuis la grille ; il s'exécute à la prochaine limite de quantification (ou au saut de la tête de lecture, si elle saute avant). L'état de lecture est éphémère, jamais enregistré. Code : le lecteur de clips MIDI de chaque piste exécute `LaunchClip` et `StopTrack` (`ClipPlayer`, `engine::clip_player`, CL-2) ; commandes `launch.clip`, `launch.scene`, `launch.stop_track`, `launch.stop_all` **(prévu)**.
 
 **Quantification** (de lancement) : la durée sur laquelle un lancement s'aligne : aucune, 1/16, 1 temps, 1, 2, 4 ou 8 mesures. Elle est globale au projet, 1 mesure par défaut ; un réglage par clip viendra après le MVP. Code : `Quantize` (`engine::time`, sept valeurs, `next_boundary_at_or_after` donne la prochaine limite) ; `TransportSettings::launch_quantize` ; la commande `transport.set_launch_quantization` **(prévu)**.
 

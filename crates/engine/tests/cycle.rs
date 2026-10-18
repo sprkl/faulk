@@ -90,8 +90,8 @@ fn every_table_grows_during_playback_without_a_gap() {
     let ClipContent::Notes(notes) = &clip.content else {
         panic!("a MIDI clip")
     };
-    assert_eq!(notes.len(), SCENARIO_NOTES as usize);
-    assert_eq!(notes.as_slice()[123_456].start.0, 123_456 * 120);
+    assert_eq!(notes.notes(), SCENARIO_NOTES as usize);
+    assert_eq!(notes.note(123_456).unwrap().start().0, 123_456 * 120);
     assert!(state.lanes.capacity() > 3000 && state.lane(LaneSlot(3000)).is_some());
     assert_eq!(state.lanes.capacity() % PAGE_SLOTS, 0);
     assert_eq!(state.sources.capacity(), 128);

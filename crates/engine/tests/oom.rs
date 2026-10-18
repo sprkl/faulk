@@ -105,7 +105,7 @@ fn upload(clip: u32, first: u32, total: u32, n: u32) -> M {
     M::ClipNotesUpload {
         clip: ClipSlot(clip),
         length: Tick(960),
-        looped: false,
+        looping: None,
         first,
         total,
         notes: (first..first + n)
@@ -114,6 +114,7 @@ fn upload(clip: u32, first: u32, total: u32, n: u32) -> M {
                 length: Tick(1),
                 pitch: 60,
                 velocity: 100,
+                ..Note::default()
             })
             .collect(),
     }
@@ -199,7 +200,7 @@ fn the_last_chunk_of_an_upload_that_grows_the_clip_directory() {
         let ClipContent::Notes(n) = &e.state().clip(ClipSlot(1)).unwrap().content else {
             panic!()
         };
-        assert_eq!(n.len(), 4);
+        assert_eq!(n.notes(), 4);
     });
     every_site("ClipNotesUpload (directory)", upload(9000, 0, 3, 3), |e| {
         assert!(e.state().clip(ClipSlot(9000)).is_some());

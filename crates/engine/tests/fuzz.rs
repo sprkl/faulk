@@ -45,7 +45,7 @@ fn valid_stream() -> Vec<u8> {
     msgs.push(ControlMsg::ClipNotesUpload {
         clip: ClipSlot(2000),
         length: Tick(960),
-        looped: true,
+        looping: None,
         first: 0,
         total: 4,
         notes: vec![Note::default(); 4],
