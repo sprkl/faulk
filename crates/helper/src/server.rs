@@ -30,9 +30,19 @@ pub enum HelperEvent {
     AudioError,
 }
 
+/// What the session's writer sends: a JSON message, or the bytes of an engine report (a
+/// binary frame, `protocol` module doc).
+enum Out {
+    Msg(ServerMessage),
+    Report(Vec<u8>),
+}
+
 struct Session {
     id: u64,
-    tx: mpsc::UnboundedSender<ServerMessage>,
+    tx: mpsc::UnboundedSender<Out>,
+    /// A report frame waits in the queue: the next one is not sent until the writer took it
+    /// (a stalled page never makes the queue grow by 30 reports per second).
+    report_pending: Arc<ReportGate>,
 }
 
 pub struct Shared {
@@ -94,7 +104,17 @@ impl Shared {
         if let Ok(session) = self.session.lock()
             && let Some(s) = session.as_ref()
         {
-            let _ = s.tx.send(message);
+            let _ = s.tx.send(Out::Msg(message));
+        }
+    }
+
+    /// Sends a report frame unless the previous one still waits in the session's queue.
+    fn report_to_session(&self, bytes: Vec<u8>) {
+        if let Ok(session) = self.session.lock()
+            && let Some(s) = session.as_ref()
+            && s.report_pending.claim()
+        {
+            let _ = s.tx.send(Out::Report(bytes));
         }
     }
 
@@ -158,11 +178,20 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
 async fn ticker(shared: Arc<Shared>) {
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     let mut ticks: u64 = 0;
+    let mut report = Vec::new();
+    let mut last_report = None;
     loop {
         interval.tick().await;
         ticks += 1;
-        let (peak, voices) = shared.meter.take();
-        shared.to_session(ServerMessage::Meter { peak, voices });
+        if shared.meter.copy_report(&mut report) {
+            let seq = report
+                .get(4..8)
+                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+            if seq != last_report {
+                last_report = seq;
+                shared.report_to_session(core::mem::take(&mut report));
+            }
+        }
         let lights: Vec<_> = shared
             .activity
             .lock()
@@ -302,31 +331,49 @@ async fn pair(mut ws: Ws, shared: &Shared) {
 
 async fn session(ws: Ws, shared: &Arc<Shared>) {
     let (mut sink, mut stream) = ws.split();
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
+    let pending = Arc::new(ReportGate::default());
+    let taken = pending.clone();
     let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
     {
         let mut current = shared.session.lock().expect("session lock");
         if let Some(previous) = current.take() {
-            let _ = previous.tx.send(ServerMessage::Error {
+            let _ = previous.tx.send(Out::Msg(ServerMessage::Error {
                 code: "session.replaced".into(),
                 message: "another page opened a session".into(),
-            });
+            }));
         }
-        *current = Some(Session { id, tx: tx.clone() });
+        *current = Some(Session {
+            id,
+            tx: tx.clone(),
+            report_pending: pending.clone(),
+        });
         // Under the lock, so it can never be overtaken by an older session's end.
         (shared.notify)(HelperEvent::Session(true));
     }
     // A new session starts from silence.
     shared.send_command(&all_notes_off());
-    let _ = tx.send(shared.hello());
+    let _ = tx.send(Out::Msg(shared.hello()));
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
-    let _ = tx.send(shared.midi_inputs());
+    let _ = tx.send(Out::Msg(shared.midi_inputs()));
 
     let writer = tokio::spawn(async move {
-        while let Some(message) = rx.recv().await {
-            let replaced =
-                matches!(&message, ServerMessage::Error { code, .. } if code == "session.replaced");
-            if sink.send(text(&message)).await.is_err() || replaced {
+        while let Some(out) = rx.recv().await {
+            let is_report = matches!(out, Out::Report(_));
+            let (frame, replaced) = match out {
+                Out::Msg(message) => {
+                    let replaced = matches!(&message, ServerMessage::Error { code, .. } if code == "session.replaced");
+                    (text(&message), replaced)
+                }
+                Out::Report(bytes) => (Message::binary(bytes), false),
+            };
+            let sent = sink.send(frame).await;
+            // A report left the queue: the next one may follow (a JSON frame says nothing
+            // about the reports waiting).
+            if is_report {
+                taken.release();
+            }
+            if sent.is_err() || replaced {
                 break;
             }
         }
@@ -348,7 +395,7 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
             }],
         };
         for reply in replies {
-            let _ = tx.send(reply);
+            let _ = tx.send(Out::Msg(reply));
         }
     }
 
@@ -367,4 +414,39 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
     }
     drop(current);
     writer.abort();
+}
+
+/// At most one report waits in a session's queue: a stalled page never makes the queue grow
+/// by 30 reports per second. The ticker claims the gate before it queues a report, the writer
+/// releases it once that report left the queue (and only then: a JSON frame says nothing
+/// about the reports waiting).
+#[derive(Debug, Default)]
+struct ReportGate(AtomicBool);
+
+impl ReportGate {
+    /// Takes the gate: `true` when no report waits.
+    fn claim(&self) -> bool {
+        !self.0.swap(true, Ordering::Relaxed)
+    }
+
+    fn release(&self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_gate_lets_one_report_wait_until_it_is_released() {
+        let gate = ReportGate::default();
+        assert!(gate.claim(), "the first report is queued");
+        for _ in 0..100 {
+            assert!(!gate.claim(), "no second report while one waits");
+        }
+        gate.release();
+        assert!(gate.claim(), "the next one follows the first");
+        assert!(!gate.claim());
+    }
 }

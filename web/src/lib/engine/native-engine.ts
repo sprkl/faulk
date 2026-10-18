@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
+import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 import { allNotesOff } from '../synth-commands'
 
@@ -17,6 +18,8 @@ export class NativeEngine implements Engine {
   static connect(token: string, events: EngineEvents, timeoutMs = 3000): Promise<NativeEngine> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${HELPER_URL}/session?token=${encodeURIComponent(token)}`)
+      // Reports are binary frames: delivered as ArrayBuffer, not Blob (decoded synchronously).
+      ws.binaryType = 'arraybuffer'
       const engine = new NativeEngine(ws)
       let opened = false
       const timer = setTimeout(() => {
@@ -26,6 +29,11 @@ export class NativeEngine implements Engine {
         }
       }, timeoutMs)
       ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          const report = decodeFeedback(event.data)
+          if (report) events.onFeedback(report)
+          return
+        }
         const message = parseServerMessage(event.data)
         if (!message) return
         switch (message.type) {
@@ -46,9 +54,6 @@ export class NativeEngine implements Engine {
               resolve(engine)
             }
             events.onStatus(engine.status)
-            break
-          case 'meter':
-            events.onMeter(message.peak, message.voices)
             break
           case 'midi.inputs':
             events.onMidiInputs?.(message.inputs, message.selected ?? null)

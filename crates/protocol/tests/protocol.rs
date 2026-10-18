@@ -50,10 +50,6 @@ fn messages_round_trip_through_json() {
             note: 60,
             velocity: 0,
         },
-        ServerMessage::Meter {
-            peak: 0.5,
-            voices: 2,
-        },
         ServerMessage::Error {
             code: "midi.connect".into(),
             message: "x".into(),
@@ -75,7 +71,7 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        8,
+        7,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();

@@ -43,7 +43,8 @@ use crate::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Feedback,
     Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note,
     PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg, SceneSlot, Slots,
-    SourceSlot, Spare, Table, TrackKind, TrackSlot, TransportMsg, limits, state_pairs, try_box,
+    SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg, limits, state_pairs,
+    try_box,
 };
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use crate::transport::{Segment, Transport};
@@ -1509,6 +1510,9 @@ impl Engine {
                 &mut left[start..end],
                 &mut right[start..end],
             );
+            // The output's meter: what leaves the engine, the metronome included.
+            self.graph
+                .meter_output(&left[start..end], &right[start..end]);
             self.transport.end_block();
             start = end;
         }
@@ -1524,11 +1528,24 @@ impl Engine {
     }
 
     /// Writes the transport part of a report: its state and the playhead (the start of
-    /// the next block). No allocation. The rest of the report is MO-5's.
+    /// the next block). No allocation.
     pub fn report_transport(&self, feedback: &mut Feedback) {
         feedback.transport = self.transport.state();
         feedback.playhead_tick = self.transport.playhead_tick();
         feedback.playhead_frame = self.transport.playhead_frame();
+    }
+
+    /// Voices sounding in the tracks' devices after the last rendered block (MO-5).
+    pub fn voices(&self) -> u32 {
+        self.graph.voices()
+    }
+
+    /// Takes the meters of the period of `frames` frames (MO-5): one per track slot, in
+    /// `out` (zeros for an empty slot; a track beyond `out` is not reported), and returns
+    /// the number of slots written (up to the last track) and the output's meter after the
+    /// master. Starts a new period. No allocation.
+    pub fn take_meters(&mut self, frames: u32, out: &mut [TrackMeter]) -> (usize, TrackMeter) {
+        self.graph.take_meters(&mut self.state, frames, out)
     }
 
     /// Changes the sample rate of the engine's own processing (clock, metronome, graph

@@ -461,6 +461,12 @@ pub trait Device: Send {
     /// Clears the DSP state (voices, tails) and snaps smoothed parameters to their
     /// targets; parameter values are kept.
     fn reset(&mut self);
+
+    /// Voices sounding after the last block, releasing ones included, for the visual
+    /// feedback (MO-5); 0 for a device that has no voices.
+    fn voices(&self) -> u32 {
+        0
+    }
 }
 
 /// Builds a device off the audio path, with fallible allocations only.

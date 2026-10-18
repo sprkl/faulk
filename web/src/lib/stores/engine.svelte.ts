@@ -1,4 +1,5 @@
 import type { EngineStatus } from '../engine/engine'
+import type { FeedbackReport } from '../engine/feedback'
 import type { MidiInput } from '../generated/protocol'
 import type { MessageKey } from '../i18n/index'
 import { storage, TOKEN_KEY } from './storage'
@@ -18,6 +19,8 @@ export class EngineStore {
   mode = $state<'web' | 'native'>('web')
   peak = $state(0)
   voices = $state(0)
+  /** The engine's last report (meters per track and master, transport, playhead, load, counters). */
+  feedback = $state.raw<FeedbackReport | null>(null)
   /** Notes sounding, for the piano strip and the MIDI activity light. */
   activeNotes = $state<number[]>([])
   inputs = $state<MidiInput[]>([])

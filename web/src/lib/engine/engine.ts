@@ -1,4 +1,5 @@
 import type { Command, MidiInput } from '../generated/protocol'
+import type { FeedbackReport } from './feedback'
 
 export type EngineKind = 'web' | 'native'
 
@@ -12,7 +13,8 @@ export interface EngineStatus {
 /** What an engine tells the page. */
 export interface EngineEvents {
   onStatus(status: EngineStatus): void
-  onMeter(peak: number, voices: number): void
+  /** The engine's report, about 30 times per second (both modes decode the same bytes). */
+  onFeedback(report: FeedbackReport): void
   /** Native engine only: its MIDI inputs (the page owns MIDI in Web mode). */
   onMidiInputs?(inputs: MidiInput[], selected: string | null): void
   onMidiActivity?(note: number, velocity: number): void

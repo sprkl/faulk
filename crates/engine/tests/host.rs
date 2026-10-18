@@ -3,10 +3,12 @@
 //! the render never allocates, the report region decodes, the live overflow releases.
 
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
-use engine::host::{Host, Prepare, channel, feedback_voices, read_feedback};
+use engine::host::{Host, Prepare, channel, copy_feedback, feedback_voices, read_feedback};
 use engine::msg::{
-    ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, encode_stream, limits,
+    ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, TransportState, encode_stream,
+    limits,
 };
+use engine::time::Tick;
 use engine::{OSC_SYNTH, Param, Synth};
 
 #[cfg(debug_assertions)]
@@ -192,7 +194,11 @@ fn the_report_holds_the_meters_and_the_counters() {
     assert_eq!(fb.epoch, 1);
     assert_eq!(fb.seq % 2, 0);
     assert_eq!(fb.rejected, 1);
-    assert_eq!(fb.meters.len(), 1, "one meter: the output's");
+    assert_eq!(fb.meters.len(), 1, "one track meter");
+    assert_eq!(
+        fb.master.peak_l, fb.meters[0].peak_l,
+        "unity master: same signal"
+    );
     let m = fb.meters[0];
     assert!(m.peak_l > 0.05 && m.peak_r > 0.05);
     assert!(m.rms_l > 0.0 && m.rms_l <= m.peak_l);
@@ -233,5 +239,291 @@ fn a_full_live_queue_releases_every_note() {
             .unwrap()
             .live_overflows
             > 0
+    );
+}
+
+/// The two tracks of the meter tests: a synth each, track 0 at unity and track 1 at `gain`.
+fn two_tracks(gain: f32) -> Session {
+    let mut session = Session::new();
+    session.send(&[
+        M::TrackCreate {
+            track: TrackSlot(1),
+            kind: TrackKind::Midi,
+        },
+        M::DeviceInsert {
+            track: TrackSlot(1),
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: Vec::new(),
+        },
+        M::TrackSetMix {
+            track: TrackSlot(1),
+            gain,
+            pan: 0.0,
+            mute: false,
+        },
+        note_on(69, 127),
+        M::NoteOn {
+            track: TrackSlot(1),
+            pitch: 69,
+            velocity: 127,
+        },
+    ]);
+    // The fades settle (5 ms), then a few reporting periods.
+    for _ in 0..60 {
+        session.host.render(128);
+    }
+    session
+}
+
+/// A report of a whole period rendered after `session` settled.
+fn report_of(session: &mut Session) -> engine::msg::Feedback {
+    session.host.write_feedback();
+    for _ in 0..12 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    read_feedback(session.host.feedback()).expect("a whole report")
+}
+
+#[test]
+fn the_meters_follow_each_tracks_fader_and_the_master() {
+    let mut session = two_tracks(0.5);
+    let fb = report_of(&mut session);
+    assert_eq!(fb.meters.len(), 2);
+    let (a, b) = (fb.meters[0], fb.meters[1]);
+    assert!(a.peak_l > 0.05, "track 0 sounds: {a:?}");
+    // Same note and velocity on both: the second is the first through a 0.5 fader.
+    assert!((b.peak_l - a.peak_l * 0.5).abs() < 1e-3, "{a:?} {b:?}");
+    assert!((b.rms_l - a.rms_l * 0.5).abs() < 1e-3, "{a:?} {b:?}");
+    for m in [a, b, fb.master] {
+        assert!(m.peak_l.is_finite() && m.rms_l.is_finite());
+        assert!(m.rms_l <= m.peak_l && m.rms_r <= m.peak_r);
+        assert_eq!(m.peak_l, m.peak_r, "centered");
+    }
+    // The master is the sum of the tracks (identical waveforms, so the peaks add).
+    assert!(
+        (fb.master.peak_l - (a.peak_l + b.peak_l)).abs() < 1e-3,
+        "{fb:?}"
+    );
+    assert_eq!(fb.voices, 2);
+}
+
+#[test]
+fn a_muted_track_and_an_empty_slot_meter_zero_and_master_gain_applies() {
+    let mut session = two_tracks(1.0);
+    session.send(&[
+        M::TrackSetMix {
+            track: TrackSlot(1),
+            gain: 1.0,
+            pan: 0.0,
+            mute: true,
+        },
+        M::SetMaster {
+            gain: 0.25,
+            mute: false,
+        },
+        // A track far beyond: the slots between are empty.
+        M::TrackCreate {
+            track: TrackSlot(5),
+            kind: TrackKind::Midi,
+        },
+    ]);
+    for _ in 0..60 {
+        session.host.render(128);
+    }
+    let fb = report_of(&mut session);
+    assert_eq!(fb.meters.len(), 6, "up to the last track");
+    assert!(fb.meters[0].peak_l > 0.0);
+    for slot in [1, 2, 3, 4, 5] {
+        assert_eq!(fb.meters[slot], Default::default(), "slot {slot}");
+    }
+    // After the master: a quarter of the audible track.
+    assert!(
+        (fb.master.peak_l - fb.meters[0].peak_l * 0.25).abs() < 1e-3,
+        "{fb:?}"
+    );
+}
+
+#[test]
+fn silence_meters_zero_and_the_period_restarts() {
+    let mut session = Session::new();
+    for _ in 0..20 {
+        session.host.render(128);
+    }
+    let fb = report_of(&mut session);
+    assert_eq!(fb.meters[0], Default::default());
+    assert_eq!(fb.master, Default::default());
+    assert_eq!(fb.voices, 0);
+    // A note, then its period passes: the next report starts from a fresh period.
+    session.send(&[note_on(69, 127)]);
+    let loud = report_of(&mut session);
+    assert!(loud.master.peak_l > 0.05);
+    session.send(&[
+        M::AllNotesOff {
+            track: TrackSlot(0),
+        },
+        M::AllNotesOff {
+            track: TrackSlot(1),
+        },
+    ]);
+    for _ in 0..400 {
+        session.host.render(128);
+    }
+    let quiet = report_of(&mut session);
+    assert_eq!(quiet.master, Default::default());
+}
+
+#[test]
+fn the_report_carries_the_transport_and_the_playhead() {
+    let mut session = Session::new();
+    let fb = report_of(&mut session);
+    assert_eq!(fb.transport, TransportState::Stopped);
+    assert_eq!(fb.playhead_tick, Tick(0));
+    session.send(&[M::Play { from: Tick(0) }]);
+    let a = report_of(&mut session);
+    assert_eq!(a.transport, TransportState::Playing);
+    let b = report_of(&mut session);
+    assert!(b.playhead_tick > a.playhead_tick, "{a:?} {b:?}");
+    assert!(b.playhead_frame.0 > a.playhead_frame.0);
+    session.send(&[M::Stop]);
+    session.host.render(128);
+    let stopped = report_of(&mut session);
+    assert_eq!(stopped.transport, TransportState::Stopped);
+}
+
+#[test]
+fn the_cpu_load_is_the_timed_render_time_over_the_period() {
+    let mut session = Session::new();
+    // Untimed: not measured.
+    assert_eq!(report_of(&mut session).cpu_load, engine::host::NOT_MEASURED);
+    // 1600 frames at 48 kHz are 1/30 s: 5 ms of render time is 15 %.
+    for _ in 0..12 {
+        session.host.render(128);
+    }
+    session.host.add_render_time(0.005);
+    session.host.add_render_time(f32::NAN);
+    session.host.add_render_time(-1.0);
+    session.host.render(128);
+    let load = read_feedback(session.host.feedback()).unwrap().cpu_load;
+    assert!((0.1..0.2).contains(&load), "{load}");
+    // Over budget saturates at 1.
+    session.host.add_render_time(10.0);
+    session.host.render(1600);
+    assert_eq!(
+        read_feedback(session.host.feedback()).unwrap().cpu_load,
+        1.0
+    );
+}
+
+#[test]
+fn a_report_is_copied_as_bytes_and_decodes_alike() {
+    let mut session = two_tracks(0.5);
+    session.host.write_feedback();
+    let mut bytes = vec![0xAA; 3];
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    assert_eq!(bytes.len(), 56 + 3 * 16, "header, two tracks, the output");
+    assert_eq!(bytes[0], engine::msg::FEEDBACK_VERSION);
+    let decoded = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
+    // Truncated or of another version: nothing.
+    assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
+    bytes[0] = 9;
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+    // Torn (odd seq): `false`, the buffer cleared of a half copy.
+    let region = session.host.feedback();
+    let seq = region[1].load(std::sync::atomic::Ordering::Relaxed);
+    region[1].store(
+        seq | u32::from_ne_bytes(1u32.to_le_bytes()),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    assert!(!copy_feedback(region, &mut bytes));
+    // No report yet.
+    let (_prepare, fresh) = channel(RATE).unwrap();
+    assert!(!copy_feedback(fresh.feedback(), &mut bytes));
+}
+
+#[test]
+fn rendering_and_reporting_with_tracks_never_allocates() {
+    let mut session = two_tracks(0.7);
+    session.send(&[M::Play { from: Tick(0) }]);
+    session.host.render(128);
+    let mut bytes = Vec::with_capacity(limits::MAX_TRACKS as usize * 16 + 64);
+    // 2 000 blocks: many reports (every 1 600 frames), with the clock running.
+    assert_no_alloc(|| {
+        for block in 0..2_000u32 {
+            session.host.render(1 + (block as usize * 37) % 512);
+            assert!(session.host.voices() <= 2);
+        }
+        session.host.write_feedback();
+        assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    });
+}
+
+#[test]
+fn the_output_meter_includes_the_metronome_and_the_track_meters_do_not() {
+    let mut session = Session::new();
+    session.send(&[
+        M::SetMetronome {
+            enabled: true,
+            volume: 1.0,
+            count_in_bars: 0,
+        },
+        M::Play { from: Tick(0) },
+    ]);
+    for _ in 0..8 {
+        session.host.render(128);
+    }
+    // A beat at the default tempo is 0.5 s (40 reports of 32 ms): a click passes.
+    let mut master = 0.0f32;
+    for _ in 0..40 {
+        let fb = report_of(&mut session);
+        assert_eq!(fb.meters[0], Default::default(), "no track sounds");
+        master = master.max(fb.master.peak_l);
+    }
+    assert!(
+        master > 0.01,
+        "the click reaches the output meter: {master}"
+    );
+}
+
+#[test]
+fn a_fader_ramp_is_metered_as_it_plays_not_at_its_target() {
+    let mut session = two_tracks(1.0);
+    let settled = report_of(&mut session);
+    let steady = settled.meters[1].peak_l;
+    assert!(steady > 0.05);
+    // Track 1 to silence: its fade lasts 5 ms (240 frames); 64 frames are rendered.
+    session.host.write_feedback();
+    session.send(&[M::TrackSetMix {
+        track: TrackSlot(1),
+        gain: 0.0,
+        pan: 0.0,
+        mute: false,
+    }]);
+    session.host.render(64);
+    session.host.write_feedback();
+    let ramp = read_feedback(session.host.feedback()).unwrap().meters[1];
+    assert!(
+        ramp.peak_l > 0.0,
+        "still audible at the ramp's start: {ramp:?}"
+    );
+    assert!(
+        ramp.peak_l < steady * 1.001,
+        "never louder than before: {ramp:?}"
+    );
+    assert!(ramp.rms_l < steady, "the ramp lowers the level: {ramp:?}");
+    // Past the ramp the track meters silence.
+    for _ in 0..4 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    for _ in 0..12 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback()).unwrap().meters[1].peak_l,
+        0.0
     );
 }

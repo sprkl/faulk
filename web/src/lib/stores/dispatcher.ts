@@ -1,5 +1,6 @@
 import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
+import { peakOf } from '../engine/feedback'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
@@ -57,10 +58,11 @@ export class Dispatcher {
       onStatus: (status) => {
         if (current()) this.state.status = status
       },
-      onMeter: (peak, voices) => {
+      onFeedback: (report) => {
         if (!current()) return
-        this.state.peak = peak
-        this.state.voices = voices
+        this.state.feedback = report
+        this.state.peak = peakOf(report.master)
+        this.state.voices = report.voices
       },
       onMidiInputs: (inputs, selected) => {
         if (kind !== 'native' || !current()) return
