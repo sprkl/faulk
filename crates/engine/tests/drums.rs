@@ -473,6 +473,21 @@ fn the_decay_parameters_set_the_length_of_each_sound() {
 }
 
 #[test]
+fn reports_its_voices_through_the_device_trait() {
+    let mut device = Drums::new(SR);
+    let as_device: &mut dyn Device = &mut device;
+    assert_eq!(as_device.voices(), 0);
+    block(
+        as_device,
+        128,
+        &[on(0, 36, 1.0), on(0, 38, 1.0), on(0, 46, 1.0)],
+    );
+    assert_eq!(as_device.voices(), 3);
+    as_device.reset();
+    assert_eq!(as_device.voices(), 0);
+}
+
+#[test]
 fn reset_silences_at_once_and_keeps_the_parameters() {
     let mut device = Drums::new(SR);
     device.set_param(ParamId(drums::KICK_TUNE), 80.0);
