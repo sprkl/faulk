@@ -7,11 +7,13 @@
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
+  import { historyShortcut } from '../../lib/keyboard'
+  import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, viewById } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import TopBar from './TopBar.svelte'
-  import TrackList from './TrackList.svelte'
+  import TrackList from '../tracks/TrackList.svelte'
 
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL) }: { stores?: Stores } = $props()
@@ -41,10 +43,19 @@
     }
   })
 
+  function onKeyDown(event: KeyboardEvent) {
+    const action = historyShortcut(event)
+    if (!action) return
+    event.preventDefault()
+    dispatcher.run(action === 'undo' ? undo() : redo())
+  }
+
   $effect(() => {
     document.documentElement.lang = ui.lang
   })
 </script>
+
+<svelte:window onkeydown={onKeyDown} />
 
 <div class="shell">
   <TopBar />
@@ -89,7 +100,7 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 272px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(120px, 28%);
     grid-template-areas:
       'tracks main'
