@@ -1,3 +1,4 @@
+// demo: no-op comment
 //! Faulk audio engine core.
 //!
 //! Pure DSP: no I/O, no allocation after construction, no panic on any input.
