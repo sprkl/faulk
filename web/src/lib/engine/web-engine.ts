@@ -1,10 +1,8 @@
 import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
-import { allNotesOff } from '../synth-commands'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
-import { coreModule, engineStep, ProjectCore } from '../project/core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -14,13 +12,10 @@ type FromWorklet = { type: 'ready' } | { type: 'error'; message: string }
 /** How often the page reads the engine's report, in ms (the engine writes ~30 per second). */
 const FEEDBACK_MS = 33
 
-/** The epoch of a fresh web engine: newer than the channel's initial 0, so its `Reset` is taken. */
-const FIRST_EPOCH = 1
-
 /**
  * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
- * A Worker holds the prepare side and takes the ControlMsg streams the page encodes in Rust
- * (`project/core.ts`); the AudioWorklet holds the render side; the page reads the report
+ * A Worker holds the prepare side and takes the ControlMsg streams the page's project core
+ * encodes in Rust (`project/core.ts`, owned by the dispatcher); the AudioWorklet holds the render side; the page reads the report
  * from the shared memory. Nothing crosses the audio thread by `postMessage` once it runs.
  */
 export class WebEngine implements Engine {
@@ -30,10 +25,9 @@ export class WebEngine implements Engine {
   private constructor(
     private readonly context: AudioContext,
     private readonly worker: Worker,
-    private readonly core: ProjectCore,
     memory: WebAssembly.Memory,
     feedback: { at: number; len: number },
-    private readonly events: EngineEvents,
+    events: EngineEvents,
   ) {
     let last = 0
     this.timer = setInterval(() => {
@@ -60,9 +54,8 @@ export class WebEngine implements Engine {
 
   private static async start(context: AudioContext, events: EngineEvents, track: (w: Worker) => void): Promise<WebEngine> {
     const memory = engineMemory()
-    const [engineWasm, coreWasm] = await Promise.all([
+    const [engineWasm] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
-      coreModule(),
       context.audioWorklet.addModule(workletUrl),
     ])
     const worker = new Worker(new URL('./prepare-worker.ts', import.meta.url), { type: 'module' })
@@ -79,7 +72,7 @@ export class WebEngine implements Engine {
     worker.onmessage = (event: MessageEvent<FromPrepare>) => {
       const data = event.data
       // A stream the engine stopped (`MsgError::code`): out of memory, engine busy, corrupt.
-      // Surfaced as the engine store's error state; its message and the resync are PR-5's.
+      // Surfaced to the dispatcher, which stops this engine (restart = a new engine + snapshot).
       if (data.type === 'pushed') {
         console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
         events.onStreamRefused?.(data.code, data.at)
@@ -101,12 +94,7 @@ export class WebEngine implements Engine {
     })
     node.port.onmessage = null
 
-    // The page's one-synth project, one per engine until the dispatcher owns it (PR-5).
-    const core = ProjectCore.create(coreWasm, 'single_synth', FIRST_EPOCH)
-    const engine = new WebEngine(context, worker, core, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
-    const setup = core.setup()
-    if (setup.report.status === 'failed') throw new Error(`engine setup did not encode: code ${setup.report.stream_error}`)
-    engine.push(setup.engine)
+    const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
     await context.resume()
     events.onStatus(engine.status())
@@ -124,30 +112,20 @@ export class WebEngine implements Engine {
     }
   }
 
-  private push(bytes: Uint8Array) {
+  /** Takes the engine bytes the project core encoded for a command (the command itself is not needed). */
+  send(_command: Command, bytes: Uint8Array) {
+    this.push(bytes)
+  }
+
+  /** Pushes a stream of engine messages: a command's, or a snapshot to start from or to catch up. */
+  push(bytes: Uint8Array) {
     if (bytes.length === 0) return
     const buffer = bytes.buffer as ArrayBuffer
     this.worker.postMessage({ type: 'push', bytes: buffer } satisfies ToPrepare, [buffer])
   }
 
-  run(command: Command) {
-    const step = engineStep(() => this.core.run(command))
-    if ('refused' in step) {
-      // The dispatcher only sends commands the project takes: a refusal is a page bug.
-      console.warn(`the project refused ${command.type}`, step.refused)
-    } else if ('streamError' in step) {
-      // The project took the command but its messages did not reach the engine: the engine
-      // is behind the project, as after a refused stream.
-      console.error(`engine stream: error ${step.streamError}`)
-      this.events.onStreamRefused?.(step.streamError, 0)
-    } else {
-      this.push(step.push)
-    }
-  }
-
   /** Pauses audio without losing the engine (used while the helper plays). */
   async suspend() {
-    this.run(allNotesOff())
     await this.context.suspend()
   }
 
@@ -156,10 +134,8 @@ export class WebEngine implements Engine {
   }
 
   async close() {
-    this.run(allNotesOff())
     clearInterval(this.timer)
     await this.context.close()
     this.worker.terminate()
-    this.core.free()
   }
 }

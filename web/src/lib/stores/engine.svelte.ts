@@ -34,7 +34,8 @@ export class EngineStore {
   notice = $state<MessageKey | null>(null)
   /**
    * The Web engine stopped taking the stream (`MsgError` code, byte offset): it is behind the
-   * project until a resync. An error state only: its message and the resync are PR-5's.
+   * project. The dispatcher stopped it; the shell shows the message and the Start button
+   * restarts audio from a snapshot, which clears this.
    */
   streamError = $state<{ code: number; at: number } | null>(null)
   pairingMessage = $state<{ key: MessageKey; n?: number } | null>(null)

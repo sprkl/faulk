@@ -1,9 +1,8 @@
 import { SINGLE_SYNTH, type Command, type SynthParam } from './generated/protocol'
 
 /**
- * The commands that play and set the one synth. They name its track and device by the
- * ids of `SINGLE_SYNTH` until the project runs in the page (PR-4, PR-5); the engines
- * play them on their one synth whatever the ids.
+ * The commands that play and set the one synth. They name its track and device by the ids of
+ * `SINGLE_SYNTH`, the ids of the one-synth project the page's core starts with.
  */
 export const noteOn = (note: number, velocity: number): Command => ({
   type: 'live.note_on',
@@ -22,3 +21,5 @@ export const setParam = (param: SynthParam, value: number): Command => ({
   param,
   value,
 })
+
+export const listMidiInputs = (): Command => ({ type: 'midi.list_inputs' })

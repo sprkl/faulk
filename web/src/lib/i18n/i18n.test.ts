@@ -80,6 +80,11 @@ describe('i18n', () => {
     expect(translate('fr', 'helper.localAccessBlocked')).toContain(`« ${recheck} »`)
   })
 
+  it('names the real start button in the stream-refused text, in both languages', () => {
+    expect(translate('en', 'engine.streamError')).toContain(`"${translate('en', 'start.button')}"`)
+    expect(translate('fr', 'engine.streamError')).toContain(`« ${translate('fr', 'start.button')} »`)
+  })
+
   it('picks the stored language, else the browser one', () => {
     expect(defaultLang('fr', 'en-US')).toBe('fr')
     expect(defaultLang('en', 'fr-FR')).toBe('en')
