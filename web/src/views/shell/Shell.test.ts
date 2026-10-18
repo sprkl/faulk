@@ -73,8 +73,8 @@ describe('the shell', () => {
     expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="stream-error"')
     stores.engine.streamError = { code: -3, at: 0 }
     stores.ui.setLang('en')
-    expect(render(Shell, { props: { stores } }).body).toContain('The audio engine stopped taking changes. Restart audio to continue.')
+    expect(render(Shell, { props: { stores } }).body).toContain('The audio engine stopped taking changes. Click "Start audio" to continue.')
     stores.ui.setLang('fr')
-    expect(render(Shell, { props: { stores } }).body).toContain('Le moteur audio n’accepte plus les changements. Relance l’audio pour continuer.')
+    expect(render(Shell, { props: { stores } }).body).toContain('Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.')
   })
 })

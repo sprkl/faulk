@@ -17,7 +17,7 @@ export const engine = defineFeature(
     'meter.label': 'Output level',
     'meter.clip': 'CLIP',
     'audio.error': 'The helper’s audio output stopped: back to Web mode.',
-    'engine.streamError': 'The audio engine stopped taking changes. Restart audio to continue.',
+    'engine.streamError': 'The audio engine stopped taking changes. Click "Start audio" to continue.',
   },
   {
     'start.title': 'Démarrer le moteur audio',
@@ -33,6 +33,6 @@ export const engine = defineFeature(
     'meter.label': 'Niveau de sortie',
     'meter.clip': 'SATURE',
     'audio.error': 'La sortie audio du helper s’est arrêtée : retour en mode Web.',
-    'engine.streamError': 'Le moteur audio n’accepte plus les changements. Relance l’audio pour continuer.',
+    'engine.streamError': 'Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.',
   },
 )

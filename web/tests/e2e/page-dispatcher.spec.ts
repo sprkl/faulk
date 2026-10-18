@@ -68,7 +68,7 @@ test('a stream the engine refuses stops audio with a message, and restarting kee
   await page.evaluate(() => ((window as unknown as { __corrupt: boolean }).__corrupt = true))
   await page.getByRole('radio', { name: 'Sine' }).click()
   const message = page.getByTestId('stream-error')
-  await expect(message).toHaveText('The audio engine stopped taking changes. Restart audio to continue.')
+  await expect(message).toHaveText('The audio engine stopped taking changes. Click "Start audio" to continue.')
   await expect(page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' })).toBeVisible()
 
   // Restart: a new engine starts from a snapshot of the project, which holds the change the engine
