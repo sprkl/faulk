@@ -3,6 +3,7 @@
 
 use crate::ids::TrackId;
 use crate::model::Project;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -10,7 +11,7 @@ use std::collections::BTreeSet;
 /// ignored by git, restored on reopening and never versioned: no field of [`Project`]
 /// holds it, so changing it never changes the project's text. Commands change it like
 /// the project; `live` commands change only it.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SessionState {
     /// The selected track: where live MIDI goes. `None` when no track is selected.

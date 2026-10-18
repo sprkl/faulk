@@ -147475,7 +147475,7 @@
         }
       ],
       "description": "The output of a command, `{\"type\": \"domain.verb\", ...}` with the same name.",
-      "title": "Output"
+      "title": "CommandOutput"
     }
   },
   "device_descriptor": {
@@ -147795,6 +147795,3110 @@
     "release": 4,
     "sustain": 3,
     "waveform": 0
+  },
+  "project_core": {
+    "load_report": {
+      "$defs": {
+        "LoadError": {
+          "description": "Why project files were refused.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "A required file is missing.",
+              "properties": {
+                "code": {
+                  "const": "missing_file",
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "file"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The project's format version is not the one this build reads (newer, or older\nwithout a migration).",
+              "properties": {
+                "code": {
+                  "const": "format",
+                  "type": "string"
+                },
+                "found": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "supported": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "code",
+                "found",
+                "supported"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A file is not valid JSON of its type; `message` is for developers.",
+              "properties": {
+                "code": {
+                  "const": "parse",
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "file",
+                "message"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The project breaks its invariants (`Project::validate`), one line per violation.",
+              "properties": {
+                "code": {
+                  "const": "invalid",
+                  "type": "string"
+                },
+                "violations": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "code",
+                "violations"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "SnapshotReport": {
+          "description": "What encoding a snapshot for the engine did: the bytes are returned beside it.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "The engine stream starts with a `Reset` to `epoch`.",
+              "properties": {
+                "epoch": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "status": {
+                  "const": "encoded",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "epoch"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The messages did not encode (`MsgError` code): no bytes.",
+              "properties": {
+                "status": {
+                  "const": "failed",
+                  "type": "string"
+                },
+                "stream_error": {
+                  "format": "int32",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "status",
+                "stream_error"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What loading a project did.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The project replaced the previous one, with an empty history; the engine bytes\nbeside this report reset the engine to it (`snapshot`).\n`session_reset` when the session file was unreadable and the default session was\nused instead: the session is machine-local and never blocks opening a project.",
+          "properties": {
+            "session_reset": {
+              "type": "boolean"
+            },
+            "snapshot": {
+              "$ref": "#/$defs/SnapshotReport"
+            },
+            "status": {
+              "const": "loaded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "snapshot",
+            "session_reset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The files were refused: nothing changed.",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/LoadError"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "LoadReport"
+    },
+    "project_changes": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "What to change in the project folder: files to write (path → text) and files to\nremove. The interim files never remove anything; the folder format of SV-1 removes\nthe files of a deleted track or clip.",
+      "properties": {
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "write": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "write",
+        "remove"
+      ],
+      "title": "ProjectChanges",
+      "type": "object"
+    },
+    "project_files": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Map_of_string",
+      "type": "object"
+    },
+    "project_view": {
+      "$defs": {
+        "AudioMedia": {
+          "additionalProperties": false,
+          "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
+          "properties": {
+            "channels": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "frames": {
+              "description": "Length of the whole file in frames.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hash": {
+              "$ref": "#/$defs/Hash"
+            },
+            "name": {
+              "description": "The file's original name.",
+              "type": "string"
+            },
+            "sample_rate": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "hash",
+            "sample_rate",
+            "channels",
+            "frames",
+            "name"
+          ],
+          "type": "object"
+        },
+        "AutomationLane": {
+          "additionalProperties": false,
+          "description": "A parameter's curve over time, in a track's arrangement.",
+          "properties": {
+            "points": {
+              "additionalProperties": false,
+              "description": "Points by tick: at most one point per tick.",
+              "patternProperties": {
+                "^-?\\d+$": {
+                  "$ref": "#/$defs/AutomationPoint"
+                }
+              },
+              "type": "object"
+            },
+            "target": {
+              "$ref": "#/$defs/AutomationTarget"
+            }
+          },
+          "required": [
+            "target",
+            "points"
+          ],
+          "type": "object"
+        },
+        "AutomationPoint": {
+          "additionalProperties": false,
+          "description": "A value at a tick and the shape of the transition to the next point.",
+          "properties": {
+            "shape": {
+              "$ref": "#/$defs/Shape"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "value",
+            "shape"
+          ],
+          "type": "object"
+        },
+        "AutomationTarget": {
+          "description": "What a lane automates.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "A parameter of a device of the same track.",
+              "properties": {
+                "device": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "device": {
+                      "$ref": "#/$defs/DeviceId"
+                    },
+                    "param": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "device",
+                    "param"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "device"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A parameter of the track's mixer.",
+              "properties": {
+                "mixer": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "param": {
+                      "$ref": "#/$defs/MixerParam"
+                    }
+                  },
+                  "required": [
+                    "param"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "mixer"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "Clip": {
+          "additionalProperties": false,
+          "description": "A clip: the content. A slot puts it in the launch grid, a [`Placement`] in the\narrangement. Copying a clip makes a new, independent clip (founder's decision 11); two\nplacements of the same clip are linked clips.",
+          "properties": {
+            "color": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Rgb"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "content": {
+              "$ref": "#/$defs/ClipContent"
+            },
+            "launch_quantize": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Quantize"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Reserved for a per-clip launch quantization after the MVP: absent means the\nproject setting. The MVP never writes it."
+            },
+            "name": {
+              "type": "string"
+            },
+            "slot": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SceneId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The scene of the launch-grid slot the clip sits in."
+            }
+          },
+          "required": [
+            "name",
+            "content"
+          ],
+          "type": "object"
+        },
+        "ClipContent": {
+          "description": "A clip's content.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "Musical time: length and loop in ticks.",
+              "properties": {
+                "midi": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "length": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "looping": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TickLoop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "notes": {
+                      "items": {
+                        "$ref": "#/$defs/Note"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "length",
+                    "notes"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "midi"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Source time: a range `[start, start + frames)` of an audio file, in frames. No\nlength in ticks is stored: it is computed at the project's tempo.",
+              "properties": {
+                "audio": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "frames": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "gain_db": {
+                      "description": "Clip gain in dB; `-inf` is written `null`.",
+                      "format": "double",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "looping": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/FrameLoop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "media": {
+                      "$ref": "#/$defs/AudioMedia"
+                    },
+                    "start": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "media",
+                    "start",
+                    "frames"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "audio"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ClipId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a clip."
+        },
+        "Device": {
+          "additionalProperties": false,
+          "description": "A link of a track's chain. Its display name is its type's single English name, never\ntranslated nor stored here.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "order": {
+              "$ref": "#/$defs/OrderKey"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "Parameter id → value in the unit the device declares.",
+              "type": "object"
+            },
+            "role": {
+              "$ref": "#/$defs/DeviceRole"
+            },
+            "source": {
+              "$ref": "#/$defs/DeviceSource"
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Hash"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque instrument state, stored as a blob."
+            }
+          },
+          "required": [
+            "order",
+            "role",
+            "enabled",
+            "source",
+            "params"
+          ],
+          "type": "object"
+        },
+        "DeviceId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a device in a track's chain."
+        },
+        "DeviceRole": {
+          "description": "What a device does in the chain.",
+          "enum": [
+            "instrument",
+            "effect"
+          ],
+          "type": "string"
+        },
+        "DeviceSource": {
+          "description": "Where a device comes from. Third-party plugins come after the MVP.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "A device built into Faulk, by type id (`\"faulk.osc_synth\"`) and version.",
+              "properties": {
+                "builtin": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "builtin"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A module of the Workshop, by name and the hash of its compiled code.",
+              "properties": {
+                "module": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hash": {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "hash"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "module"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "FrameLoop": {
+          "additionalProperties": false,
+          "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+          "properties": {
+            "end": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "start",
+            "end"
+          ],
+          "type": "object"
+        },
+        "Hash": {
+          "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "Id": {
+          "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        "LoopRegion": {
+          "description": "The transport's loop: a half-open region `[start, end)` in ticks, never empty, and\nnever longer than `i64::MAX` ticks so that its length is itself a [`Tick`].",
+          "properties": {
+            "end": {
+              "$ref": "#/$defs/Tick",
+              "description": "The tick after the last tick of the loop."
+            },
+            "start": {
+              "$ref": "#/$defs/Tick",
+              "description": "The first tick of the loop."
+            }
+          },
+          "required": [
+            "start",
+            "end"
+          ],
+          "type": "object"
+        },
+        "MeterPoint": {
+          "additionalProperties": false,
+          "description": "A time signature from a tick on.",
+          "properties": {
+            "signature": {
+              "$ref": "#/$defs/TimeSignature"
+            },
+            "tick": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "tick",
+            "signature"
+          ],
+          "type": "object"
+        },
+        "Metronome": {
+          "additionalProperties": false,
+          "description": "The metronome settings.",
+          "properties": {
+            "count_in_bars": {
+              "description": "Bars counted in before recording.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "gain_db": {
+              "description": "Level in dB; `-inf` is written `null`.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "count_in_bars"
+          ],
+          "type": "object"
+        },
+        "Mixer": {
+          "additionalProperties": false,
+          "description": "Gain, pan and mute of a track or of the master. Solo is not here: it is session state\n(founder's decision 10). Sends come after the MVP.",
+          "properties": {
+            "gain_db": {
+              "description": "Gain in dB; `-inf` (silence) is written `null`.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "mute": {
+              "type": "boolean"
+            },
+            "pan": {
+              "description": "Pan from -1 (left) to 1 (right).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "pan",
+            "mute"
+          ],
+          "type": "object"
+        },
+        "MixerParam": {
+          "description": "An automatable mixer parameter.",
+          "enum": [
+            "gain",
+            "pan"
+          ],
+          "type": "string"
+        },
+        "Note": {
+          "additionalProperties": false,
+          "description": "A note: a value without an id (CT-4). Its order compares fields in declaration order:\n(start, pitch, length, velocity, cents, chance, repeat).\n\nThe last three fields are optional in the file: a default value is not written, and an\nabsent one reads as the default, so a note has exactly one representation. `chance` and\n`repeat` are stored and edited here; the clip player reads them with #192.",
+          "properties": {
+            "cents": {
+              "description": "Fine tuning in cents, -50 to 50 (0 by default).",
+              "format": "int8",
+              "maximum": 50,
+              "minimum": -50,
+              "type": "integer"
+            },
+            "chance": {
+              "description": "Probability that the note plays, in percent, 0 to 100 (100 by default).",
+              "format": "uint8",
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "length": {
+              "$ref": "#/$defs/Tick",
+              "description": "Duration in ticks, at least 1."
+            },
+            "pitch": {
+              "description": "MIDI key, 0 to 127.",
+              "format": "uint8",
+              "maximum": 127,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "repeat": {
+              "description": "How many times the note repeats, 1 to 16 (1 by default).",
+              "format": "uint8",
+              "maximum": 16,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "start": {
+              "$ref": "#/$defs/Tick",
+              "description": "Position from the start of the clip, in ticks."
+            },
+            "velocity": {
+              "description": "Velocity, 1 to 127.",
+              "format": "uint8",
+              "maximum": 127,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "start",
+            "pitch",
+            "length",
+            "velocity"
+          ],
+          "type": "object"
+        },
+        "OrderKey": {
+          "description": "A fractional order key: elements sort by it.",
+          "type": "string"
+        },
+        "Output": {
+          "description": "Where a track's signal goes. Only the master in the MVP; groups and returns later.",
+          "enum": [
+            "master"
+          ],
+          "type": "string"
+        },
+        "Placement": {
+          "additionalProperties": false,
+          "description": "A clip set in the arrangement.",
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "span": {
+              "$ref": "#/$defs/Span"
+            },
+            "start": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "clip",
+            "start",
+            "span"
+          ],
+          "type": "object"
+        },
+        "Project": {
+          "additionalProperties": false,
+          "description": "The project document: what makes the music, saved and versioned.",
+          "properties": {
+            "format": {
+              "description": "On-disk format version, for migrations ([`FORMAT_VERSION`]).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "$ref": "#/$defs/ProjectId",
+              "description": "Stable identity, created once with the project and never changed (\"save as\"\nmakes a new one). Required: a project without it is refused on read."
+            },
+            "master": {
+              "$ref": "#/$defs/Mixer"
+            },
+            "meter": {
+              "description": "The time-signature map, sorted by tick. Exactly one point at tick 0 in the MVP.",
+              "items": {
+                "$ref": "#/$defs/MeterPoint"
+              },
+              "type": "array"
+            },
+            "name": {
+              "description": "Display name: trimmed, not empty.",
+              "type": "string"
+            },
+            "scenes": {
+              "additionalProperties": false,
+              "description": "The rows of the launch grid.",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Scene"
+                }
+              },
+              "type": "object"
+            },
+            "tempo": {
+              "description": "The tempo map, sorted by tick. Exactly one point at tick 0 in the MVP (constant\ntempo); the map shape keeps the format ready for tempo changes.",
+              "items": {
+                "$ref": "#/$defs/TempoPoint"
+              },
+              "type": "array"
+            },
+            "tracks": {
+              "additionalProperties": false,
+              "description": "The tracks.",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Track"
+                }
+              },
+              "type": "object"
+            },
+            "transport": {
+              "$ref": "#/$defs/TransportSettings",
+              "description": "Saved transport settings."
+            }
+          },
+          "required": [
+            "format",
+            "id",
+            "name",
+            "tempo",
+            "meter",
+            "transport",
+            "scenes",
+            "master",
+            "tracks"
+          ],
+          "type": "object"
+        },
+        "ProjectId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a project: created once with it, never changed (project model § 1.3)."
+        },
+        "Quantize": {
+          "description": "The launch quantization: the grid a launch snaps to. Global to the project at the MVP,\none bar by default (founder's decision 8).\n\nThe grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever\nthe signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].",
+          "oneOf": [
+            {
+              "const": "none",
+              "description": "No quantization: a launch happens at once.",
+              "type": "string"
+            },
+            {
+              "const": "sixteenth",
+              "description": "A sixteenth note (240 ticks).",
+              "type": "string"
+            },
+            {
+              "const": "beat",
+              "description": "One beat of the time signature.",
+              "type": "string"
+            },
+            {
+              "const": "bar",
+              "description": "One bar.",
+              "type": "string"
+            },
+            {
+              "const": "bars_2",
+              "description": "Two bars.",
+              "type": "string"
+            },
+            {
+              "const": "bars_4",
+              "description": "Four bars.",
+              "type": "string"
+            },
+            {
+              "const": "bars_8",
+              "description": "Eight bars.",
+              "type": "string"
+            }
+          ]
+        },
+        "Rgb": {
+          "description": "A colour, written #rrggbb.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "Scene": {
+          "additionalProperties": false,
+          "description": "A row of the launch grid. A tempo per scene comes after the MVP.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "order": {
+              "$ref": "#/$defs/OrderKey"
+            }
+          },
+          "required": [
+            "name",
+            "order"
+          ],
+          "type": "object"
+        },
+        "SceneId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a scene."
+        },
+        "SessionState": {
+          "additionalProperties": false,
+          "description": "The session state. Written apart from the project, to `.faulk/session.json` (SV-1),\nignored by git, restored on reopening and never versioned: no field of [`Project`]\nholds it, so changing it never changes the project's text. Commands change it like\nthe project; `live` commands change only it.",
+          "properties": {
+            "midi_input": {
+              "description": "The name of the chosen MIDI input port; `None` when none is chosen.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_track": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TrackId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The selected track: where live MIDI goes. `None` when no track is selected."
+            },
+            "solo": {
+              "description": "The soloed tracks. Solo is session state; mute is in the project.",
+              "items": {
+                "$ref": "#/$defs/TrackId"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "solo"
+          ],
+          "type": "object"
+        },
+        "Shape": {
+          "description": "The shape of the transition from a point to the next one.",
+          "enum": [
+            "linear",
+            "step"
+          ],
+          "type": "string"
+        },
+        "Span": {
+          "description": "The extent of a placement: in ticks for a MIDI clip, in source frames for an audio\nclip.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "ticks": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "length": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "offset": {
+                      "$ref": "#/$defs/Tick"
+                    }
+                  },
+                  "required": [
+                    "length",
+                    "offset"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "ticks"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "frames": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "length": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "length",
+                    "offset"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "frames"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "Tempo": {
+          "description": "A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.\n\nConstant per project at the MVP. Carries every conversion between ticks, seconds,\nsamples and frames (see the module documentation for the rounding rules).",
+          "format": "double",
+          "type": "number"
+        },
+        "TempoPoint": {
+          "additionalProperties": false,
+          "description": "A tempo from a tick on.",
+          "properties": {
+            "bpm": {
+              "$ref": "#/$defs/Tempo"
+            },
+            "tick": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "tick",
+            "bpm"
+          ],
+          "type": "object"
+        },
+        "Tick": {
+          "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "TickLoop": {
+          "additionalProperties": false,
+          "description": "A MIDI clip's loop `[start, end)` in ticks, within `[0, length]`.",
+          "properties": {
+            "end": {
+              "$ref": "#/$defs/Tick"
+            },
+            "start": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "start",
+            "end"
+          ],
+          "type": "object"
+        },
+        "TimeSignature": {
+          "description": "A time signature `numerator / denominator`: the numerator in `1..=32`, the denominator\na power of two in `1..=32`. The beat is the denominator's note value (3/8 has an\neighth-note beat of 480 ticks).",
+          "properties": {
+            "denominator": {
+              "description": "The note value of one beat.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "numerator": {
+              "description": "Beats per bar.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "numerator",
+            "denominator"
+          ],
+          "type": "object"
+        },
+        "Track": {
+          "additionalProperties": false,
+          "description": "A track: its chain of devices, its clips, its arrangement and its automation.",
+          "properties": {
+            "automation": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/AutomationLane"
+                }
+              },
+              "type": "object"
+            },
+            "clips": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Clip"
+                }
+              },
+              "type": "object"
+            },
+            "color": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Rgb"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "devices": {
+              "additionalProperties": false,
+              "description": "The chain: at most one instrument, first, then effects, ordered by\n[`Device::order`].",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Device"
+                }
+              },
+              "type": "object"
+            },
+            "kind": {
+              "$ref": "#/$defs/TrackKind"
+            },
+            "mixer": {
+              "$ref": "#/$defs/Mixer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "order": {
+              "$ref": "#/$defs/OrderKey"
+            },
+            "output": {
+              "$ref": "#/$defs/Output"
+            },
+            "placements": {
+              "additionalProperties": false,
+              "description": "This track's arrangement.",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Placement"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "order",
+            "kind",
+            "mixer",
+            "output",
+            "devices",
+            "clips",
+            "placements",
+            "automation"
+          ],
+          "type": "object"
+        },
+        "TrackId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a track."
+        },
+        "TrackKind": {
+          "description": "What a track's clips hold.",
+          "oneOf": [
+            {
+              "const": "midi",
+              "description": "MIDI clips, played by the track's instrument.",
+              "type": "string"
+            },
+            {
+              "const": "audio",
+              "description": "Audio clips, played by the clip player ([`CLIP_PLAYER`]).",
+              "type": "string"
+            }
+          ]
+        },
+        "TransportSettings": {
+          "additionalProperties": false,
+          "description": "The transport settings saved with the project (§ 1.3). Play state and the playhead\nare ephemeral and never saved.",
+          "properties": {
+            "launch_quantize": {
+              "$ref": "#/$defs/Quantize",
+              "description": "The launch quantization, global to the project (founder's decision 8): one bar by\ndefault."
+            },
+            "loop_enabled": {
+              "description": "Whether the transport loops over `loop_region`.",
+              "type": "boolean"
+            },
+            "loop_region": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/LoopRegion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The loop region `[start, end)` in ticks, when one is set."
+            },
+            "metronome": {
+              "$ref": "#/$defs/Metronome"
+            }
+          },
+          "required": [
+            "launch_quantize",
+            "loop_enabled",
+            "metronome"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The page's view of the project: what it reads after an event that names an entity\n(`track_created`, `clip_created`), from its own copy of the project.",
+      "properties": {
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionState"
+        }
+      },
+      "required": [
+        "project",
+        "session"
+      ],
+      "title": "ProjectView",
+      "type": "object"
+    },
+    "run_report": {
+      "$defs": {
+        "ArrangementOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "Author": {
+          "description": "Who runs a command. Serialized as `user` or `agent:<name>`: the form of the\n`Faulk-Author` trailer in version messages and of the history entries.",
+          "type": "string"
+        },
+        "AutomationOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "ClipId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a clip."
+        },
+        "ClipOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId",
+                  "description": "The clip created."
+                },
+                "placement": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlacementId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its placement, when it was created in the arrangement."
+                },
+                "type": {
+                  "const": "clip.create",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "placements": {
+                  "description": "How many placements were removed with the clip.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "placements"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId",
+                  "description": "The new clip."
+                },
+                "type": {
+                  "const": "clip.duplicate",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "clip.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "The length before the command."
+                },
+                "type": {
+                  "const": "clip.set_length",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TickLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The loop before the command."
+                },
+                "type": {
+                  "const": "clip.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "notes": {
+                  "description": "How many notes the clip has now.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.set_content",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "notes"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "added": {
+                  "description": "How many notes were new.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.notes.add",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "added"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "removed": {
+                  "description": "How many notes were in the clip.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.notes.remove",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "removed"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.notes.update",
+                  "type": "string"
+                },
+                "updated": {
+                  "description": "How many notes changed.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "updated"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ClipPart": {
+          "description": "Which part of a clip a [`ProjectEvent::ClipChanged`] reports.",
+          "oneOf": [
+            {
+              "enum": [
+                "name",
+                "length",
+                "loop",
+                "notes"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "content",
+              "description": "Length, loop and notes at once.",
+              "type": "string"
+            }
+          ]
+        },
+        "CommandError": {
+          "description": "Why a command was refused. `code()` is stable for the interface and the agents;\nthe message is for developers.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "The entity the command addresses does not exist.",
+              "properties": {
+                "code": {
+                  "const": "not_found",
+                  "type": "string"
+                },
+                "entity": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "entity",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An input value is invalid.",
+              "properties": {
+                "code": {
+                  "const": "invalid",
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "field",
+                "message"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A safety limit of the project would be exceeded (spec § 2.3: the engine never\nfails in real time, the project refuses first).",
+              "properties": {
+                "code": {
+                  "const": "limit",
+                  "type": "string"
+                },
+                "entity": {
+                  "type": "string"
+                },
+                "max": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "code",
+                "entity",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The command is declared but its domain does not implement it yet.",
+              "properties": {
+                "code": {
+                  "const": "unsupported",
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "command"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "CommandOutput": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectOutput"
+            },
+            {
+              "$ref": "#/$defs/TrackOutput"
+            },
+            {
+              "$ref": "#/$defs/DeviceOutput"
+            },
+            {
+              "$ref": "#/$defs/ClipOutput"
+            },
+            {
+              "$ref": "#/$defs/NoteOutput"
+            },
+            {
+              "$ref": "#/$defs/SceneOutput"
+            },
+            {
+              "$ref": "#/$defs/LaunchOutput"
+            },
+            {
+              "$ref": "#/$defs/ArrangementOutput"
+            },
+            {
+              "$ref": "#/$defs/AutomationOutput"
+            },
+            {
+              "$ref": "#/$defs/TransportOutput"
+            },
+            {
+              "$ref": "#/$defs/MixerOutput"
+            },
+            {
+              "$ref": "#/$defs/RecordOutput"
+            },
+            {
+              "$ref": "#/$defs/MidiOutput"
+            },
+            {
+              "$ref": "#/$defs/LiveOutput"
+            },
+            {
+              "$ref": "#/$defs/HistoryOutput"
+            },
+            {
+              "$ref": "#/$defs/ViewOutput"
+            }
+          ],
+          "description": "The output of a command, `{\"type\": \"domain.verb\", ...}` with the same name."
+        },
+        "DeviceId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a device in a track's chain."
+        },
+        "DeviceOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The value before the command.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "device.set_param",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "GroupId": {
+          "description": "Identifier of a history group: the commands of one mouse drag or one agent turn\nshare a group and are undone together.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "HistoryOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "author": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Author"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Who ran the entry undone."
+                },
+                "name": {
+                  "description": "The name of the first command of the entry undone; `null` when there was\nnothing to undo.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "history.undo",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "author": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Author"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Who ran the entry redone."
+                },
+                "name": {
+                  "description": "The name of the first command of the entry redone; `null` when there was\nnothing to redo.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "history.redo",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group opened."
+                },
+                "type": {
+                  "const": "history.begin_group",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "group"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group closed."
+                },
+                "type": {
+                  "const": "history.end_group",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "group"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "Id": {
+          "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        "LaunchOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "LiveOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "live.note_on",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "live.note_off",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "live.all_notes_off",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "MidiOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "midi.list_inputs",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The input chosen before the command.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "midi.select_input",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "MixerOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The volume before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "mixer.set_volume",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The pan before the command.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "mixer.set_pan",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "Whether the track was muted before the command.",
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "mixer.set_mute",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The volume before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "mixer.set_master_volume",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "Whether the track was soloed before the command.",
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "mixer.set_solo",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "NoteOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "PlacementId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a placement in a track's arrangement."
+        },
+        "ProjectEvent": {
+          "description": "What the interface learns from an applied command: its mirror of the project is fed\nby these events only (spec § 2.6). Each task adds the events its commands emit, next\nto them in this enum.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "The project was renamed.",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "project_renamed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The selected track changed.",
+              "properties": {
+                "track": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "track_selected",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A device parameter changed.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "param": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "device_param_changed",
+                  "type": "string"
+                },
+                "value": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "param",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A track's or the master's mixer changed: its whole state, so the interface needs\nno merge. `track` is `null` for the master; `gain_db` is `null` for silence.",
+              "properties": {
+                "gain_db": {
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "mute": {
+                  "type": "boolean"
+                },
+                "pan": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "track": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "mixer_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pan",
+                "mute"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A track was soloed or unsoloed (session state).",
+              "properties": {
+                "solo": {
+                  "type": "boolean"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "solo_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "solo"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The tempo changed (the project's one tempo, in BPM).",
+              "properties": {
+                "bpm": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "tempo_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "bpm"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The time signature changed (the project's one signature).",
+              "properties": {
+                "denominator": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "numerator": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "time_signature_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "numerator",
+                "denominator"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The loop region or whether the transport loops changed; `region` is `null` when\nnone is set.",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "region": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TickLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "loop_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "enabled"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The metronome settings changed: the whole state; `gain_db` is `null` for silence.",
+              "properties": {
+                "count_in_bars": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "gain_db": {
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "metronome_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "enabled",
+                "count_in_bars"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The chosen MIDI input changed; `null` when none is chosen.",
+              "properties": {
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "midi_input_selected",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A clip was created or brought back, with the placements it came with. The page\nreads the clip from its own copy of the project, to which the same command applies.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "placements": {
+                  "items": {
+                    "$ref": "#/$defs/PlacementId"
+                  },
+                  "type": "array"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip_created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "clip",
+                "placements"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A clip was deleted, with its placements.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "placements": {
+                  "items": {
+                    "$ref": "#/$defs/PlacementId"
+                  },
+                  "type": "array"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip_deleted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "clip",
+                "placements"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Part of a clip changed.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "part": {
+                  "$ref": "#/$defs/ClipPart"
+                },
+                "type": {
+                  "const": "clip_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip",
+                "part"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A track was created or brought back, with everything it holds. The page reads it\nfrom its own copy of the project, to which the same command applies.",
+              "properties": {
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "track_created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A track was deleted, with everything it holds.",
+              "properties": {
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "track_deleted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Part of a track changed.",
+              "properties": {
+                "part": {
+                  "$ref": "#/$defs/TrackPart"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "track_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "part"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The undo history changed: an entry was recorded, undone or redone, or the\nhistory was cleared.",
+              "properties": {
+                "can_redo": {
+                  "type": "boolean"
+                },
+                "can_undo": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "history_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "can_undo",
+                "can_redo"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProjectOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "project.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "RecordOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "Rgb": {
+          "description": "A colour, written #rrggbb.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "SceneOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "not": {}
+        },
+        "Tick": {
+          "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "TickLoop": {
+          "additionalProperties": false,
+          "description": "A MIDI clip's loop `[start, end)` in ticks, within `[0, length]`.",
+          "properties": {
+            "end": {
+              "$ref": "#/$defs/Tick"
+            },
+            "start": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "start",
+            "end"
+          ],
+          "type": "object"
+        },
+        "TrackId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a track."
+        },
+        "TrackOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId",
+                  "description": "Its instrument: the chosen one, or the clip player of an audio track."
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId",
+                  "description": "The track created."
+                },
+                "type": {
+                  "const": "track.create",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "device"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clips": {
+                  "description": "How many clips were removed with the track.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "devices": {
+                  "description": "How many devices were removed with the track.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "track.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "devices",
+                "clips"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "track.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "track.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The colour before the command."
+                },
+                "type": {
+                  "const": "track.set_color",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_index": {
+                  "description": "The track's index before the command.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "track.move",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_index"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "track.restore_order",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "track": {
+                  "$ref": "#/$defs/TrackId",
+                  "description": "The new track."
+                },
+                "type": {
+                  "const": "track.duplicate",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "TrackPart": {
+          "description": "Which part of a track a [`ProjectEvent::TrackChanged`] reports.",
+          "oneOf": [
+            {
+              "enum": [
+                "name",
+                "color"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "order",
+              "description": "The track's position in the list changed.",
+              "type": "string"
+            }
+          ]
+        },
+        "TransportOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "transport.play",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "transport.stop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "transport.seek",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The tempo before the command, in BPM.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "transport.set_tempo",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_denominator": {
+                  "description": "The denominator before the command.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_numerator": {
+                  "description": "The numerator before the command.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "transport.set_time_signature",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_numerator",
+                "previous_denominator"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TickLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The region before the command."
+                },
+                "type": {
+                  "const": "transport.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "description": "Whether the loop is on after the command.",
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "transport.toggle_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "enabled"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_count_in_bars": {
+                  "description": "The count-in before the command, in bars.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_enabled": {
+                  "description": "Whether the click was on before the command.",
+                  "type": "boolean"
+                },
+                "previous_gain_db": {
+                  "description": "The level before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "transport.set_metronome",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_enabled",
+                "previous_gain_db",
+                "previous_count_in_bars"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ViewOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The track selected before the command."
+                },
+                "type": {
+                  "const": "view.select_track",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What running a command did.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The command applied: its typed output and its events. Its engine messages are\nreturned beside this report, as bytes; `stream_error` is the `MsgError` code when\nthey did not encode: the project changed, the engine is behind it until a\nsnapshot.",
+          "properties": {
+            "events": {
+              "items": {
+                "$ref": "#/$defs/ProjectEvent"
+              },
+              "type": "array"
+            },
+            "output": {
+              "$ref": "#/$defs/CommandOutput"
+            },
+            "status": {
+              "const": "applied",
+              "type": "string"
+            },
+            "stream_error": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "output",
+            "events"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The project refused the command: nothing changed.",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/CommandError"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The JSON is not a command this build knows: nothing changed.",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "status": {
+              "const": "invalid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "message"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "RunReport"
+    },
+    "save_report": {
+      "$defs": {
+        "ProjectChanges": {
+          "additionalProperties": false,
+          "description": "What to change in the project folder: files to write (path → text) and files to\nremove. The interim files never remove anything; the folder format of SV-1 removes\nthe files of a deleted track or clip.",
+          "properties": {
+            "remove": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "write": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "write",
+            "remove"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What asking for the project's changes gave.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The changes since the last recorded write (empty when the folder is up to date).",
+          "properties": {
+            "changes": {
+              "$ref": "#/$defs/ProjectChanges"
+            },
+            "status": {
+              "const": "changes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "changes"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The project did not serialize (a bug: the commands keep it valid); nothing to\nwrite, and the project in memory is untouched. `message` is for developers.",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "status": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "message"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "SaveReport"
+    },
+    "snapshot_report": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What encoding a snapshot for the engine did: the bytes are returned beside it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine stream starts with a `Reset` to `epoch`.",
+          "properties": {
+            "epoch": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "const": "encoded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "epoch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The messages did not encode (`MsgError` code): no bytes.",
+          "properties": {
+            "status": {
+              "const": "failed",
+              "type": "string"
+            },
+            "stream_error": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "stream_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "SnapshotReport"
+    }
   },
   "protocol_version": 2,
   "server_message": {

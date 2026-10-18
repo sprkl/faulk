@@ -4,20 +4,21 @@
 // (crates/project-wasm, for wasm32-unknown-unknown).
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
-const dest = fileURLToPath(new URL('../src/lib/engine/wasm/', import.meta.url))
+const lib = fileURLToPath(new URL('../src/lib/', import.meta.url))
 const cargo = process.env.CARGO ?? 'cargo'
 
 const builds = [
-  { crate: 'engine-wasm', target: 'wasm32-wasip1-threads', file: 'engine_wasm.wasm', out: 'engine.wasm' },
-  { crate: 'project-wasm', target: 'wasm32-unknown-unknown', file: 'project_wasm.wasm', out: 'project.wasm' },
+  { crate: 'engine-wasm', target: 'wasm32-wasip1-threads', file: 'engine_wasm.wasm', out: 'engine/wasm/engine.wasm' },
+  { crate: 'project-wasm', target: 'wasm32-unknown-unknown', file: 'project_wasm.wasm', out: 'project/wasm/project.wasm' },
 ]
 
-mkdirSync(dest, { recursive: true })
 for (const { crate, target, file, out } of builds) {
   execFileSync(cargo, ['build', '-q', '-p', crate, '--release', '--target', target], { cwd: root, stdio: 'inherit' })
-  copyFileSync(`${root}target/${target}/release/${file}`, dest + out)
-  console.log(`built src/lib/engine/wasm/${out}`)
+  mkdirSync(dirname(lib + out), { recursive: true })
+  copyFileSync(`${root}target/${target}/release/${file}`, lib + out)
+  console.log(`built src/lib/${out}`)
 }

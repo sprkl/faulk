@@ -4,7 +4,7 @@ import { allNotesOff } from '../synth-commands'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
-import { EngineStream, projectModule, streamErrorCode } from './project-core'
+import { coreModule, ProjectCore } from '../project/core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -20,7 +20,7 @@ const FIRST_EPOCH = 1
 /**
  * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
  * A Worker holds the prepare side and takes the ControlMsg streams the page encodes in Rust
- * (`project-core.ts`); the AudioWorklet holds the render side; the page reads the report
+ * (`project/core.ts`); the AudioWorklet holds the render side; the page reads the report
  * from the shared memory. Nothing crosses the audio thread by `postMessage` once it runs.
  */
 export class WebEngine implements Engine {
@@ -30,7 +30,7 @@ export class WebEngine implements Engine {
   private constructor(
     private readonly context: AudioContext,
     private readonly worker: Worker,
-    private readonly stream: EngineStream,
+    private readonly core: ProjectCore,
     memory: WebAssembly.Memory,
     feedback: { at: number; len: number },
     private readonly events: EngineEvents,
@@ -62,7 +62,7 @@ export class WebEngine implements Engine {
     const memory = engineMemory()
     const [bytes, project] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
-      projectModule(),
+      coreModule(),
       context.audioWorklet.addModule(workletUrl),
     ])
     const worker = new Worker(new URL('./prepare-worker.ts', import.meta.url), { type: 'module' })
@@ -101,9 +101,12 @@ export class WebEngine implements Engine {
     })
     node.port.onmessage = null
 
-    const stream = new EngineStream(project, FIRST_EPOCH)
-    const engine = new WebEngine(context, worker, stream, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
-    engine.push(stream.setup())
+    // The page's one-synth project, one per engine until the dispatcher owns it (PR-5).
+    const core = ProjectCore.create(project, 'single_synth', FIRST_EPOCH)
+    const engine = new WebEngine(context, worker, core, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
+    const setup = core.setup()
+    if (setup.report.status === 'failed') throw new Error(`engine setup did not encode: code ${setup.report.stream_error}`)
+    engine.push(setup.engine)
     node.connect(context.destination)
     await context.resume()
     events.onStatus(engine.status())
@@ -128,17 +131,20 @@ export class WebEngine implements Engine {
   }
 
   run(command: Command) {
-    let bytes: Uint8Array
-    try {
-      bytes = this.stream.command(command)
-    } catch (error) {
-      // The project took the command but its messages did not encode: the engine is behind
-      // the project, as after a refused stream.
-      console.error(error)
-      this.events.onStreamRefused?.(streamErrorCode(error), 0)
+    const { report, engine } = this.core.run(command)
+    if (report.status !== 'applied') {
+      // The dispatcher only sends commands the project takes: a refusal is a page bug.
+      console.warn(`the project refused ${command.type}`, report)
       return
     }
-    this.push(bytes)
+    if (typeof report.stream_error === 'number') {
+      // The project took the command but its messages did not encode: the engine is behind
+      // the project, as after a refused stream.
+      console.error(`engine stream: error ${report.stream_error}`)
+      this.events.onStreamRefused?.(report.stream_error, 0)
+      return
+    }
+    this.push(engine)
   }
 
   /** Pauses audio without losing the engine (used while the helper plays). */
@@ -156,5 +162,6 @@ export class WebEngine implements Engine {
     clearInterval(this.timer)
     await this.context.close()
     this.worker.terminate()
+    this.core.free()
   }
 }

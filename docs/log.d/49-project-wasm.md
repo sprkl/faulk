@@ -1,0 +1,2 @@
+2026-10-18
+* **Update** (#49): PR-4, the project core in the page: `crates/project-wasm` runs commands, snapshots, loads and saves the project behind a plain C ABI with JSON reports typed from `commands::host` (generated into the web types), wrapped by `web/src/lib/project/core.ts`; interim `project.json` and `.faulk/session.json` until SV-1; `project.wasm` measured at 1 748 910 bytes (442 877 gzip). Spec PR-4 note, `CLAUDE.md` and the architecture row of `project-wasm` updated.
