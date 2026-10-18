@@ -208,7 +208,7 @@ impl Param {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct LinearRamp {
     start: f32,
-    pub(super) target: f32,
+    target: f32,
     frames: u32,
     done: u32,
 }
@@ -224,7 +224,7 @@ impl LinearRamp {
     }
 
     /// The value of the next frame.
-    pub(super) fn current(&self) -> f32 {
+    fn current(&self) -> f32 {
         if self.done >= self.frames {
             self.target
         } else {

@@ -370,7 +370,7 @@ impl Kick {
             self.phase -= 1.0;
         }
         let out = (self.phase * TAU).sin() * self.env * self.amplitude;
-        self.sweep *= self.sweep_coef;
+        self.sweep = flush(self.sweep * self.sweep_coef);
         self.env *= self.env_coef;
         if self.env < END_LEVEL {
             self.active = false;
@@ -453,7 +453,7 @@ impl Snare {
         let body = (self.phase * TAU).sin() * self.body_env * 0.7 * (1.0 - 0.4 * self.snap);
         let (_, high) = self.filter.process(self.noise.next());
         let hiss = high * self.noise_env * 0.8 * self.snap;
-        self.sweep *= self.sweep_coef;
+        self.sweep = flush(self.sweep * self.sweep_coef);
         self.body_env *= self.body_coef;
         self.noise_env *= self.noise_coef;
         if self.noise_env < END_LEVEL {
@@ -907,5 +907,33 @@ impl Device for Drums {
         for level in &mut self.levels {
             level.snap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pitch sweep that falls for as long as the sound rings is flushed to zero before it
+    /// goes subnormal (a subnormal multiply is slow on some CPUs and in WASM).
+    #[test]
+    fn the_pitch_sweeps_never_go_subnormal() {
+        let mut values = Values([0.0; PARAM_COUNT]);
+        for p in DESCRIPTOR.params {
+            values.0[p.id.0 as usize] = p.max as f32;
+        }
+        let sample_rate = 48_000.0;
+        let mut kick = Kick::IDLE;
+        kick.start(1.0, &values, sample_rate);
+        let mut snare = Snare::IDLE;
+        snare.start(1.0, &values, sample_rate);
+        for _ in 0..(2.2 * sample_rate) as usize {
+            kick.next();
+            snare.next();
+            for sweep in [kick.sweep, snare.sweep] {
+                assert!(sweep == 0.0 || sweep >= DENORMAL_FLOOR, "{sweep}");
+            }
+        }
+        assert!(!kick.active && !snare.active);
     }
 }

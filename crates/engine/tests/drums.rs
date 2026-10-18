@@ -414,22 +414,31 @@ fn values_are_sanitized_by_the_descriptor() {
 
 #[test]
 fn a_level_is_a_linear_ramp_that_lands_after_ten_ms_and_every_level_scales_its_sound() {
-    // The kick at level 1, then its level to 0 at frame 1000: the output falls by a ramp.
-    let events = [
+    // A quiet kick (the soft clip is then linear to better than 0.1 %), the level to 0 at
+    // frame 1000: against the same render with the level held, the ratio is the ramp.
+    let hold = [
         (0, set(0, drums::KICK_LEVEL, 1.0)),
         (0, set(0, drums::GAIN, 1.0)),
-        (0, on(0, 36, 1.0)),
-        (1_000, set(0, drums::KICK_LEVEL, 0.0)),
+        (0, on(0, 36, 0.05)),
     ];
-    let r = render(&events, 0.2);
-    let landed = 1_000 + (0.01 * SR) as usize;
+    let mut ramped = hold.to_vec();
+    ramped.push((1_000, set(0, drums::KICK_LEVEL, 0.0)));
+    let (held, ramp) = (render(&hold, 0.2), render(&ramped, 0.2));
+    let n = (0.01 * SR) as usize;
+    assert_eq!(ramp.left[..1_000], held.left[..1_000]);
+    for i in 0..n {
+        let (a, b) = (held.left[1_000 + i], ramp.left[1_000 + i]);
+        assert!(a.abs() > 1e-4, "frame {i}");
+        let expected = 1.0 - i as f32 / n as f32;
+        assert!(
+            (b / a - expected).abs() < 2e-3,
+            "frame {i}: {} vs {expected}",
+            b / a
+        );
+    }
     assert!(
-        r.left[landed..].iter().all(|s| *s == 0.0),
+        ramp.left[1_000 + n..].iter().all(|s| *s == 0.0),
         "the level reached 0"
-    );
-    assert!(
-        r.left[1_000..landed].iter().any(|s| s.abs() > 1e-3),
-        "not a jump"
     );
     for (id, key) in [
         (drums::KICK_LEVEL, 36u8),
