@@ -17,41 +17,74 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      # Pull requests: the heavy steps run only when the changed files can affect this job. The
+      # job always runs, so its check name always reports (a required check never stays pending).
+      # Pushes to develop and main run everything.
+      - name: Changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PATTERN: '^(web/|crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/ci\.yml$)'
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+            printf '%s\n' "$files"
+            grep -Eq "$PATTERN" <<< "$files" || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "heavy steps run: $run"
 
       # The web app builds the engine to WebAssembly and generates its types from Rust.
       - name: Setup Rust
+        if: steps.changes.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown, wasm32-wasip1-threads
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
 
       - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.run == 'true'
         with:
           package_json_file: web/package.json
 
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+        if: steps.changes.outputs.run == 'true'
 
       # `pnpm dev`, `build` and `test` regenerate src/lib/generated/ themselves; this fails when the
       # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`), never merge by hand.
       - name: Generated files are up to date
+        if: steps.changes.outputs.run == 'true'
         run: pnpm gen:check
 
       - run: pnpm typecheck
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm lint
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm test
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm build
+        if: steps.changes.outputs.run == 'true'
 
       # Real browser checks on the dev server and the built site: cross-origin isolation, helper
       # sockets, simulated Web MIDI, the landing page (tests/e2e/).
       - name: Install the Playwright browser
+        if: steps.changes.outputs.run == 'true'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end tests
+        if: steps.changes.outputs.run == 'true'
         run: pnpm test:e2e
