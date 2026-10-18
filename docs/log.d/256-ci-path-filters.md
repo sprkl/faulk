@@ -1,0 +1,2 @@
+2026-10-18
+* **Update** (#256): CI filters its jobs by changed paths on pull requests (the job always runs, its heavy steps are skipped when no relevant file changed), and the helper trial build no longer runs on a `Cargo.lock` change alone in a pull request but runs on a push to `develop` or `main` that touches the helper, the lockfile or the release files; `docs/agents/verification.md` and the distribution document describe it.

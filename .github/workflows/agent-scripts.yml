@@ -16,10 +16,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      # Pull requests: the heavy steps run only when the changed files can affect this job. The
+      # job always runs, so its check name always reports (a required check never stays pending).
+      # Pushes to develop and main run everything.
+      - name: Changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PATTERN: '^(scripts/|\.claude/|web/vercel\.json$|\.github/workflows/agent-scripts\.yml$)'
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            printf '%s\n' "$files"
+            grep -Eq "$PATTERN" <<< "$files" || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "heavy steps run: $run"
 
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: 24
 
       - name: Test the agent scripts
+        if: steps.changes.outputs.run == 'true'
         run: node --test "scripts/**/*.test.mjs"

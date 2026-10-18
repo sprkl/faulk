@@ -76,6 +76,21 @@ Measure the output latency (and the round trip when input is involved) in both m
 
 Run `node --test "scripts/**/*.test.mjs"` (CI runs it too), then try the changed hook or script by hand.
 
+## CI (GitHub Actions, `.github/workflows/`)
+
+On a pull request, each job of `rust.yml` (`rust`, `helper-windows`), `ci.yml` (`web`) and `agent-scripts.yml` always starts, so its check name always reports, but its heavy steps run only when a changed file can affect it. A first step, `Changed files`, lists `git diff --name-only --no-renames HEAD^1 HEAD` (the merge commit of the pull request against its base) and matches it with the job's `PATTERN`. Pushes to `develop` and `main` run everything. A pattern that misses a path the job reads lets a broken change through green: add the path to the `PATTERN` of the job in the same change that makes the job read it.
+
+| Job | Heavy steps run when the pull request changes |
+|---|---|
+| `rust` | `crates/`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/src/lib/engine/proto/crate/` (the prototype crate it lints), `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by the helper's updater tests, which `cargo test --workspace` runs), `rust.yml` |
+| `helper-windows` | `crates/helper/` and the crates it depends on by path (`engine`, `commands`, `protocol`, `project`), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by its tests), `rust.yml` |
+| `web` | `web/`, `crates/` (the page embeds the engine and project WASM and the generated types), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `ci.yml` |
+| `agent-scripts` | `scripts/`, `.claude/`, `web/vercel.json` (read by the release script tests), `agent-scripts.yml` |
+
+`release-helper.yml` (Windows, macOS and Linux trial build) runs on a pull request only for the helper's updater, wiring and manifest, `scripts/helper-release/`, `web/vercel.json` and itself (not `Cargo.lock`: it changes for any dependency); it runs in full on a push to `develop` or `main` that touches `crates/helper/`, `Cargo.lock`, `scripts/helper-release/`, `web/vercel.json` or the workflow, on `helper-v*` tags and on dispatch.
+
+After changing a workflow, lint it: `actionlint` with `shellcheck` available. To see the filter work, a pull request that changes only `docs/` shows `Changed files` ending with `heavy steps run: false` in each job, and one that touches `crates/` shows `true`.
+
 ## Recording the verification
 
 Once the checks pass, record them for the current state of the code:
