@@ -245,6 +245,7 @@ impl From<SampleRate> for u32 {
     derive(Serialize, Deserialize),
     serde(try_from = "f64", into = "f64")
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Tempo(f64);
 
 impl Tempo {
@@ -388,6 +389,7 @@ fn round_to_tick(input: f64, scale: f64) -> Tick {
     derive(Serialize, Deserialize),
     serde(try_from = "TimeSignatureRaw", into = "TimeSignatureRaw")
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TimeSignature {
     numerator: u8,
     denominator: u8,
@@ -449,6 +451,7 @@ impl Default for TimeSignature {
 /// The on-disk shape of a [`TimeSignature`], validated on the way in.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TimeSignatureRaw {
     /// Beats per bar.
     pub numerator: u8,
@@ -577,6 +580,7 @@ impl Quantize {
     derive(Serialize, Deserialize),
     serde(try_from = "LoopRegionRaw", into = "LoopRegionRaw")
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LoopRegion {
     start: Tick,
     end: Tick,
@@ -628,6 +632,7 @@ impl LoopRegion {
 /// The on-disk shape of a [`LoopRegion`], validated on the way in.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LoopRegionRaw {
     /// The first tick of the loop.
     pub start: Tick,

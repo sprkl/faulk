@@ -128,6 +128,16 @@ pub fn schema_bundle() -> serde_json::Value {
         },
         "client_message": schemars::schema_for!(ClientMessage),
         "server_message": schemars::schema_for!(ServerMessage),
+        // The page's project core (PR-4, `crates/project-wasm`): what its calls return.
+        "project_core": {
+            "run_report": schemars::schema_for!(commands::host::RunReport),
+            "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
+            "load_report": schemars::schema_for!(commands::host::LoadReport),
+            "project_view": schemars::schema_for!(commands::host::ProjectView),
+            "save_report": schemars::schema_for!(commands::host::SaveReport),
+            "project_changes": schemars::schema_for!(commands::host::ProjectChanges),
+            "project_files": schemars::schema_for!(commands::host::ProjectFiles),
+        },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.
         "devices": engine::device::builtin_descriptors().collect::<Vec<_>>(),

@@ -134,6 +134,9 @@ macro_rules! root {
         /// The output of a command, `{"type": "domain.verb", ...}` with the same name.
         #[derive(Clone, Debug, PartialEq, ::serde::Serialize, ::serde::Deserialize, ::schemars::JsonSchema)]
         #[serde(untagged)]
+        // Named apart from the project's `Output` (a track's destination), which a schema
+        // holding both (the page's `RunReport`) would confuse with it.
+        #[schemars(rename = "CommandOutput")]
         pub enum Output {
             $( $Variant($module::Output), )*
         }
