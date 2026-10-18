@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { Worker } from 'node:worker_threads'
 import { describe, expect, it } from 'vitest'
 import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, type EngineExports } from './engine-abi'
-import { readFeedback } from './feedback'
+import { peakOf, readFeedback } from './feedback'
 import { PushQueue } from './push-queue'
 
 const bytes = new Uint8Array(readFileSync(new URL('./wasm/engine.wasm', import.meta.url))).buffer
@@ -128,8 +128,11 @@ describe('the shipped engine module, two instances on one shared memory', () => 
     expect(report!.epoch).toBe(1)
     expect(report!.rejected).toBe(0)
     expect(report!.voices).toBe(1)
-    expect(report!.peaks).toHaveLength(1)
-    expect(report!.peaks[0]).toBeGreaterThan(0.05)
+    expect(report!.tracks).toHaveLength(1)
+    expect(peakOf(report!.tracks[0])).toBeGreaterThan(0.05)
+    expect(peakOf(report!.master)).toBeGreaterThan(0.05)
+    expect(report!.cpuLoad).toBeNull() // the worklet has no clock
+    expect(report!.transport).toBe('stopped')
   })
 
   it('grows the shared memory from the prepare thread while the shipped worklet plays', async () => {

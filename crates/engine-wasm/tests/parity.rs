@@ -214,6 +214,13 @@ fn recorded() -> Vec<Step> {
 }
 
 fn render_native(steps: &[Step]) -> Vec<f32> {
+    let (out, _, capacity) = run_native(steps);
+    assert_eq!(capacity, 64);
+    out
+}
+
+/// The render and the report region (its bytes) after the last step.
+fn run_native(steps: &[Step]) -> (Vec<f32>, Vec<u8>, usize) {
     let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
     let mut out = Vec::new();
     for step in steps {
@@ -230,8 +237,12 @@ fn render_native(steps: &[Step]) -> Vec<f32> {
     }
     assert_eq!(prepare.preparer().rejected(), 0);
     assert_eq!(host.engine().skipped(), 0);
-    assert_eq!(host.engine().state().tracks.capacity(), 64);
-    out
+    let region = host.feedback();
+    let report = region
+        .iter()
+        .flat_map(|w| w.load(std::sync::atomic::Ordering::Relaxed).to_ne_bytes())
+        .collect();
+    (out, report, host.engine().state().tracks.capacity())
 }
 
 /// Builds the wasm module in its own target directory, so the build does not wait on
@@ -251,6 +262,11 @@ fn build_wasm() -> PathBuf {
 }
 
 fn render_wasm(steps: &[Step]) -> Vec<f32> {
+    run_wasm(steps).0
+}
+
+/// The render and the report region (its bytes) after the last step.
+fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
@@ -317,7 +333,13 @@ fn render_wasm(steps: &[Step]) -> Vec<f32> {
         0,
         "rejected"
     );
-    out
+    let feedback = func::<i32, i32>(&instance, &store, "fk_feedback");
+    let feedback_len = func::<i32, i32>(&instance, &store, "fk_feedback_len");
+    let at = feedback.call(&mut store, ch).unwrap() as usize;
+    let len = feedback_len.call(&mut store, ch).unwrap() as usize;
+    let mut report = vec![0u8; len];
+    memory.read(&store, at, &mut report).unwrap();
+    (out, report)
 }
 
 #[test]
@@ -475,4 +497,111 @@ fn a_push_outside_the_inbox_is_refused_and_sizes_are_clamped() {
             engine_wasm::MAX_FRAMES
         );
     }
+}
+
+/// A session on four tracks (the page never builds one yet): faders, a master gain, a
+/// muted track, notes on three tracks, the clock running, in pushes between renders.
+fn report_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::Tick;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let mut setup = vec![M::Reset { epoch: 1 }];
+    for t in 0..4u32 {
+        setup.push(M::TrackCreate {
+            track: TrackSlot(t),
+            kind: TrackKind::Midi,
+        });
+        setup.push(M::DeviceInsert {
+            track: TrackSlot(t),
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: Vec::new(),
+        });
+    }
+    let mix = |t: u32, gain: f32, pan: f32, mute: bool| M::TrackSetMix {
+        track: TrackSlot(t),
+        gain,
+        pan,
+        mute,
+    };
+    let note = |t: u32, pitch: u8| M::NoteOn {
+        track: TrackSlot(t),
+        pitch,
+        velocity: 100,
+    };
+    vec![
+        push(&setup),
+        push(&[
+            mix(1, 0.5, -0.5, false),
+            mix(2, 1.0, 0.0, true),
+            mix(3, 0.8, 0.9, false),
+            M::SetMaster {
+                gain: 0.7,
+                mute: false,
+            },
+            note(0, 57),
+            note(1, 64),
+            note(2, 67),
+            note(3, 72),
+            M::Play { from: Tick(0) },
+        ]),
+        // 30 blocks of 128 frames: past two report periods (1 600 frames each); the last
+        // report is the one compared.
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_write_the_same_report() {
+    use engine::host::decode_feedback;
+    let steps = report_session();
+    let (_, native, _) = run_native(&steps);
+    let (_, wasm) = run_wasm(&steps);
+    assert_eq!(native.len(), wasm.len());
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.seq, w.seq);
+    assert!(n.seq >= 2, "a report was written");
+    assert_eq!((n.transport, n.epoch), (w.transport, w.epoch));
+    assert_eq!(n.transport, engine::msg::TransportState::Playing);
+    assert_eq!(
+        (n.playhead_tick, n.playhead_frame),
+        (w.playhead_tick, w.playhead_frame)
+    );
+    assert!(n.playhead_frame.0 > 0);
+    assert_eq!(
+        (n.live_overflows, n.rejected, n.disk_underruns),
+        (w.live_overflows, w.rejected, w.disk_underruns)
+    );
+    assert_eq!(n.cpu_load, engine::host::NOT_MEASURED);
+    assert_eq!(w.cpu_load, engine::host::NOT_MEASURED);
+    assert_eq!(n.voices, 4, "the muted track still has its voice");
+    assert_eq!(n.voices, w.voices);
+    assert_eq!(n.meters.len(), 4);
+    assert_eq!(n.meters.len(), w.meters.len());
+    let close = |a: f32, b: f32| (a - b).abs() <= TOLERANCE;
+    for (slot, (a, b)) in n.meters.iter().zip(&w.meters).enumerate() {
+        assert!(
+            close(a.peak_l, b.peak_l)
+                && close(a.peak_r, b.peak_r)
+                && close(a.rms_l, b.rms_l)
+                && close(a.rms_r, b.rms_r),
+            "track {slot}: {a:?} against {b:?}"
+        );
+    }
+    assert!(n.meters[0].peak_l > 0.05, "track 0 sounds");
+    assert!(n.meters[1].peak_l > n.meters[1].peak_r, "panned left");
+    assert!(n.meters[3].peak_r > n.meters[3].peak_l, "panned right");
+    assert_eq!(n.meters[2], Default::default(), "muted");
+    let (a, b) = (n.master, w.master);
+    assert!(
+        close(a.peak_l, b.peak_l) && close(a.peak_r, b.peak_r) && close(a.rms_l, b.rms_l),
+        "master {a:?} against {b:?}"
+    );
+    assert!(a.peak_l > 0.05);
 }

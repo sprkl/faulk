@@ -205,7 +205,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 1;
+pub const FEEDBACK_VERSION: u8 = 2;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1549,16 +1549,19 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///             a reader takes an even seq, the body, then the same seq again, or re-reads)
 ///      8    8 playhead_tick (i64)
 ///     16    8 playhead_frame (u64)
-///     24    4 cpu_load (f32, 0..1, render time over block time)
+///     24    4 cpu_load (f32, 0..1, render time over block time; -1 where the host has no clock,
+///             the web worklet)
 ///     28    4 live_overflows (u32, cumulative)
 ///     32    4 rejected (u32, cumulative: unknown tags, stale epochs, bad chunks)
 ///     36    4 disk_underruns (u32, cumulative, AU-3)
 ///     40    4 tracks (u32)
 ///     44    4 active_clips (u32, at most 2 per track: one playing, one queued)
 ///     48    4 recorded (u32, notes recorded since the last report, drained)
-///     52    4 voices (u32, interim, MO-2: the most voices sounding in the synth during the
-///             period, `crate::host`; reserved again once DV-1 and MO-3 report otherwise)
-///     56      TrackMeter × tracks (16 bytes each)
+///     52    4 voices (u32, MO-5: the most voices sounding in the tracks' devices during the
+///             period, `Device::voices` summed over the tracks, `crate::host`)
+///     56      TrackMeter × (tracks + 1) (16 bytes each): one per track slot below `tracks`
+///             (zeros for an empty slot; peak and RMS after the track's fader), then the
+///             output's meter after the master (version 2)
 ///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
 ///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
@@ -1575,6 +1578,9 @@ pub struct Feedback {
     pub rejected: u32,
     pub disk_underruns: u32,
     pub meters: Vec<TrackMeter>,
+    /// The output's meter after the master, last of the meters section on the wire.
+    pub master: TrackMeter,
+    pub voices: u32,
     pub active_clips: Vec<ActiveClip>,
     pub recorded: Vec<RecordedNote>,
 }
@@ -1583,7 +1589,7 @@ impl Feedback {
     /// Bytes of a report for `tracks` tracks, `active_clips` grid slots and `recorded` notes.
     pub fn size_for(tracks: usize, active_clips: usize, recorded: usize) -> usize {
         FEEDBACK_HEADER_BYTES
-            + tracks * TRACK_METER_BYTES
+            + (tracks + 1) * TRACK_METER_BYTES
             + active_clips * ACTIVE_CLIP_BYTES
             + recorded * RECORDED_NOTE_WIRE_BYTES
     }

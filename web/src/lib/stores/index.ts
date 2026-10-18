@@ -5,6 +5,7 @@
  */
 
 import { getContext, setContext } from 'svelte'
+import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { Dispatcher } from './dispatcher'
 import { EngineStore } from './engine.svelte'
@@ -26,7 +27,13 @@ export interface Stores {
 export function createStores(view: MainViewId, panel: PanelViewId): Stores {
   const project = new ProjectStore()
   const engine = new EngineStore()
-  return { project, engine, ui: new UiStore(view, panel), dispatcher: new Dispatcher(project, engine) }
+  const dispatcher = new Dispatcher(project, engine)
+  // Dev server only: lets the browser checks send a command through the one entry point
+  // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet.
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    Object.assign(window, { __faulkRun: (command: Command) => dispatcher.run(command) })
+  }
+  return { project, engine, ui: new UiStore(view, panel), dispatcher }
 }
 
 const KEY = Symbol('faulk.stores')

@@ -74,7 +74,7 @@ use crate::device::{
 };
 use crate::engine::{Clip, DeviceEntry, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
-use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackSlot};
+use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackMeter, TrackSlot};
 use crate::time::{Quantize, TimeSignature};
 use crate::transport::Segment;
 
@@ -168,6 +168,52 @@ impl Ramp {
     }
 }
 
+/// A meter accumulated between two reports (MO-5): the peak and the sum of squares of each
+/// channel. No allocation: four floats.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MeterAcc {
+    peak: [f32; 2],
+    squares: [f32; 2],
+}
+
+impl MeterAcc {
+    /// Adds one sample of channel `i` (already scaled by the fader). A non-finite sample
+    /// stays out of both the peak and the sum of squares.
+    #[inline]
+    fn push(&mut self, i: usize, sample: f32) {
+        let a = sample.abs();
+        // Below 1e-18 (-360 dB) a sample is silence for a meter, and squaring it would be a
+        // denormal on every sample of a decaying tail.
+        if a.is_finite() && a > 1e-18 {
+            self.peak[i] = self.peak[i].max(a);
+            self.squares[i] += a * a;
+        }
+    }
+
+    /// Adds a block of the two channels.
+    fn add(&mut self, left: &[f32], right: &[f32]) {
+        for s in left {
+            self.push(0, *s);
+        }
+        for s in right {
+            self.push(1, *s);
+        }
+    }
+
+    /// The meter over `frames` frames, then a fresh period.
+    pub(crate) fn take(&mut self, frames: u32) -> TrackMeter {
+        let n = frames.max(1) as f32;
+        let m = TrackMeter {
+            peak_l: self.peak[0],
+            peak_r: self.peak[1],
+            rms_l: (self.squares[0] / n).sqrt(),
+            rms_r: (self.squares[1] / n).sqrt(),
+        };
+        *self = MeterAcc::default();
+        m
+    }
+}
+
 /// What the graph keeps in a track: its two levels and, while it retires, the next track of
 /// the retiring list.
 #[derive(Debug)]
@@ -183,6 +229,8 @@ pub struct TrackGraph {
     /// set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the
     /// track's clip player plays or waits to launch ([`crate::clip_player`], CL-2).
     schedule: Option<Box<Schedule>>,
+    /// The track's meter since the last report, after its fader (MO-5).
+    meter: MeterAcc,
     next: Option<Box<Track>>,
 }
 
@@ -194,6 +242,10 @@ impl TrackGraph {
             right: Ramp::new(0.0),
             release: false,
             schedule: None,
+            meter: MeterAcc {
+                peak: [0.0; 2],
+                squares: [0.0; 2],
+            },
             next: None,
         }
     }
@@ -292,6 +344,10 @@ pub struct Graph {
     max_frames: usize,
     scratch: Scratch,
     master: Ramp,
+    /// The output's meter since the last report, after the master and the metronome (MO-5).
+    master_meter: MeterAcc,
+    /// Voices sounding in the tracks' devices after the last block (MO-5).
+    voices: u32,
     retiring: Option<Box<Track>>,
     retiring_len: usize,
     retired: Producer<Box<Track>>,
@@ -347,6 +403,8 @@ impl Graph {
                 unused: EventBuffer::try_with_capacity(1)?,
             },
             master: Ramp::new(1.0),
+            master_meter: MeterAcc::default(),
+            voices: 0,
             retiring: None,
             retiring_len: 0,
             retired,
@@ -412,6 +470,7 @@ impl Graph {
             },
         };
         let fade = self.fade;
+        let mut voices = 0u32;
         let any_solo = state.tracks.as_slice().iter().flatten().any(|t| t.solo);
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
         let clips = &mut state.clips;
@@ -442,7 +501,9 @@ impl Graph {
                 left,
                 right,
             );
+            voices = voices.saturating_add(track_voices(track));
         }
+        self.voices = voices;
 
         // The retiring tracks: rendered toward silence, then handed to the retire ring.
         let mut rest = self.retiring.take();
@@ -500,6 +561,55 @@ impl Graph {
         }
         self.master.advance(frames as u32);
     }
+    /// Adds a rendered slice of the output (after the master and the metronome) to the
+    /// output's meter.
+    pub(crate) fn meter_output(&mut self, left: &[f32], right: &[f32]) {
+        self.master_meter.add(left, right);
+    }
+
+    /// Voices sounding in the tracks' devices after the last block.
+    pub fn voices(&self) -> u32 {
+        self.voices
+    }
+
+    /// Writes the meter of every track slot below `out.len()` into `out` (zeros for an
+    /// empty slot), starts a new period for every meter, and returns the number of slots
+    /// written (up to the last occupied one) and the output's meter. No allocation.
+    pub(crate) fn take_meters(
+        &mut self,
+        state: &mut State,
+        frames: u32,
+        out: &mut [TrackMeter],
+    ) -> (usize, TrackMeter) {
+        let mut used = 0;
+        for (slot, (entry, o)) in state
+            .tracks
+            .as_mut_slice()
+            .iter_mut()
+            .zip(out.iter_mut())
+            .enumerate()
+        {
+            match entry.as_deref_mut() {
+                Some(track) => {
+                    *o = track.graph.meter.take(frames);
+                    used = slot + 1;
+                }
+                None => *o = TrackMeter::default(),
+            }
+        }
+        (used, self.master_meter.take(frames))
+    }
+}
+
+/// Voices sounding in the enabled devices of `track`.
+fn track_voices(track: &Track) -> u32 {
+    track
+        .devices
+        .as_slice()
+        .iter()
+        .flatten()
+        .filter(|d| d.enabled)
+        .fold(0u32, |n, d| n.saturating_add(d.device.voices()))
 }
 
 impl Drop for Graph {
@@ -680,6 +790,22 @@ fn render_track(
 
     // The mix.
     let (gl, gr) = (&mut graph.left, &mut graph.right);
+    // The track's meter: the signal after its fader, as it enters the sum.
+    let meter = &mut graph.meter;
+    if gl.is_still() && gr.is_still() {
+        let (a, b) = (gl.target, gr.target);
+        for s in left.iter() {
+            meter.push(0, s * a);
+        }
+        for s in right.iter() {
+            meter.push(1, s * b);
+        }
+    } else {
+        for k in 0..frames {
+            meter.push(0, left[k] * gl.at(k as u32));
+            meter.push(1, right[k] * gr.at(k as u32));
+        }
+    }
     if gl.is_still() && gr.is_still() {
         let (a, b) = (gl.target, gr.target);
         if a != 0.0 {
