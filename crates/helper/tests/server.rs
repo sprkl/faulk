@@ -85,7 +85,7 @@ fn refused(result: Result<Ws, Error>) -> bool {
     matches!(result, Err(Error::Http(response)) if response.status() == 403)
 }
 
-/// Next server message that is not a periodic meter.
+/// Next server message (text frames; the engine report frames are binary and skipped).
 async fn next(ws: &mut Ws) -> ServerMessage {
     loop {
         let frame = tokio::time::timeout(Duration::from_secs(5), ws.next())
@@ -95,9 +95,7 @@ async fn next(ws: &mut Ws) -> ServerMessage {
             .expect("a valid frame");
         if let Message::Text(text) = frame {
             let message: ServerMessage = serde_json::from_str(&text).unwrap();
-            if !matches!(message, ServerMessage::Meter { .. }) {
-                return message;
-            }
+            return message;
         }
     }
 }
@@ -332,4 +330,90 @@ async fn reports_an_audio_error() {
     h.audio_error
         .store(true, std::sync::atomic::Ordering::Relaxed);
     wait_events(&h, &[HelperEvent::AudioError]).await;
+}
+
+/// The next binary frame of the session within 5 s (text frames are skipped).
+async fn next_report(ws: &mut Ws) -> Vec<u8> {
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("a report within 5 s")
+            .expect("the stream is open")
+            .expect("a valid frame");
+        if let Message::Binary(bytes) = frame {
+            return bytes.to_vec();
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_session_receives_the_engine_report_as_binary_frames() {
+    let mut h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    send(
+        &mut ws,
+        &ClientMessage::Command {
+            command: commands::Command::Live(commands::live::Command::NoteOn {
+                track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
+                note: 69,
+                velocity: 127,
+            }),
+        },
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // A second of audio writes a report every 1/30 s.
+    play(&mut h.core, 1_000);
+    let bytes = next_report(&mut ws).await;
+    let report = engine::host::decode_feedback(&bytes).expect("a report of this version");
+    assert_eq!(report.meters.len(), 1, "the helper's one track");
+    assert!(
+        report.master.peak_l > 0.05,
+        "the note is on the master meter"
+    );
+    assert!(report.meters[0].peak_l > 0.05);
+    assert_eq!(report.voices, 1);
+    assert_eq!(report.cpu_load, engine::host::NOT_MEASURED);
+    // Reports keep coming only when the engine wrote a new one: another second of audio,
+    // another frame, with a newer sequence number.
+    play(&mut h.core, 1_000);
+    let mut newer = None;
+    for _ in 0..5 {
+        let next = engine::host::decode_feedback(&next_report(&mut ws).await).unwrap();
+        if next.seq != report.seq {
+            newer = Some(next);
+            break;
+        }
+    }
+    assert!(newer.is_some(), "a newer report arrived");
+}
+
+#[tokio::test]
+async fn a_page_that_does_not_read_never_queues_more_than_one_report() {
+    let mut h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    // The page reads nothing while the audio writes reports for 3 s.
+    for _ in 0..3 {
+        play(&mut h.core, 1_000);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+    // Then reads: the frames that were buffered by the socket are few (the writer held at
+    // most one report in the queue when the socket was full).
+    let mut frames = 0;
+    while let Ok(Some(Ok(frame))) =
+        tokio::time::timeout(Duration::from_millis(300), ws.next()).await
+    {
+        if matches!(frame, Message::Binary(_)) {
+            frames += 1;
+        }
+    }
+    assert!(frames > 0, "reports flow");
+    assert!(
+        frames <= 100,
+        "{frames} reports in 3 s of ticks: the ticker sends 30 a second at most"
+    );
 }

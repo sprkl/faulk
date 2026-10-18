@@ -1,0 +1,2 @@
+2026-10-18
+* **Update** (#58): MO-5, multi-track visual feedback: the engine report (layout version 2) carries per-track and output meters, voices of the tracks' devices, transport state and playhead; the helper sends it as binary WebSocket frames (protocol 3, `meter` message removed); spec section 2.3 "Rapport" updated; the CPU load is `-1` (not measured) until a clock on the audio thread is decided.

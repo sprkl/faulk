@@ -51,6 +51,16 @@
         <span class="value" data-testid="latency">{latency}</span>
       </span>
       <span class="value muted" data-testid="voices">{t('engine.voices', { n: engine.voices })}</span>
+      <!-- The engine's report as data, for the browser checks: the mixer and the transport (MX-3, TR-4) will draw it. -->
+      <span
+        hidden
+        data-testid="feedback"
+        data-seq={engine.feedback?.seq ?? 0}
+        data-transport={engine.feedback?.transport ?? 'stopped'}
+        data-tick={engine.feedback?.playheadTick ?? 0}
+        data-master-peak={engine.peak}
+        data-track-peaks={engine.feedback?.tracks.map((m) => Math.max(m.peakL, m.peakR).toFixed(4)).join(',') ?? ''}
+      ></span>
     {:else}
       <button class="primary" disabled={engine.starting} onclick={() => dispatcher.start()}>{t('start.button')}</button>
     {/if}

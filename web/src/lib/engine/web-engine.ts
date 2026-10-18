@@ -40,7 +40,7 @@ export class WebEngine implements Engine {
       const report = readFeedback(memory.buffer, feedback.at, feedback.len)
       if (!report || report.seq === last) return
       last = report.seq
-      events.onMeter(Math.max(0, ...report.peaks), report.voices)
+      events.onFeedback(report)
     }, FEEDBACK_MS)
   }
 

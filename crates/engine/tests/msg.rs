@@ -391,7 +391,11 @@ fn an_rt_message_is_small_and_sent_by_move() {
         "Note is {} bytes",
         size_of::<Note>()
     );
-    assert_eq!(Feedback::size_for(0, 0, 0), FEEDBACK_HEADER_BYTES);
+    assert_eq!(
+        Feedback::size_for(0, 0, 0),
+        FEEDBACK_HEADER_BYTES + TRACK_METER_BYTES,
+        "the output's meter always follows the track meters"
+    );
     // The wire sizes of the Feedback records are their repr(C) sizes.
     assert_eq!(size_of::<TrackMeter>(), TRACK_METER_BYTES);
     assert_eq!(size_of::<ActiveClip>(), ACTIVE_CLIP_BYTES);
@@ -399,7 +403,7 @@ fn an_rt_message_is_small_and_sent_by_move() {
     assert_eq!(
         Feedback::size_for(2, 3, 4),
         FEEDBACK_HEADER_BYTES
-            + 2 * TRACK_METER_BYTES
+            + 3 * TRACK_METER_BYTES
             + 3 * ACTIVE_CLIP_BYTES
             + 4 * RECORDED_NOTE_WIRE_BYTES
     );

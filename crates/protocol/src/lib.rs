@@ -9,7 +9,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
+
+// Version 3 (MO-5): the helper reports the engine's state as binary WebSocket frames, about
+// 30 per second: the bytes of an `engine::msg::Feedback` (little-endian layout of that
+// type, version `engine::msg::FEEDBACK_VERSION`), the same bytes the web build's engine
+// writes into its shared memory. Every other message is a JSON text frame. The JSON
+// `meter` message of version 2 is gone.
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -85,9 +91,6 @@ pub enum ServerMessage {
     /// A note received from the selected MIDI input (for the activity light).
     #[serde(rename = "midi.activity")]
     MidiActivity { note: u8, velocity: u8 },
-    /// Output level and voice count, about 30 times per second.
-    #[serde(rename = "meter")]
-    Meter { peak: f32, voices: u32 },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
