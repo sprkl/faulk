@@ -112,6 +112,14 @@ describe('ProjectCore', () => {
     expect(target.project()).toEqual(source.project())
 
     expect(() => target.saved([] as unknown as ProjectChanges)).toThrow(CoreError)
+
+    // An edit made between `save` and `saved` stays dirty: the written text is the reference.
+    apply(source, { type: 'project.rename', name: 'Song' })
+    const pending = changes(source)
+    apply(source, { type: 'project.rename', name: 'Song 2' })
+    source.saved(pending)
+    expect(changes(source).write['project.json']).toContain('Song 2')
+    source.saved(changes(source))
     source.free()
     target.free()
     expect(() => target.project()).toThrow(CoreError)

@@ -60,7 +60,7 @@ export class WebEngine implements Engine {
 
   private static async start(context: AudioContext, events: EngineEvents, track: (w: Worker) => void): Promise<WebEngine> {
     const memory = engineMemory()
-    const [bytes, project] = await Promise.all([
+    const [engineWasm, coreWasm] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
       coreModule(),
       context.audioWorklet.addModule(workletUrl),
@@ -74,7 +74,7 @@ export class WebEngine implements Engine {
         else if (data.type === 'error') reject(new Error(`engine worker: ${data.message}`))
       }
       worker.onerror = (event) => reject(new Error(`engine worker: ${event.message}`))
-      worker.postMessage({ type: 'init', bytes: bytes.slice(0), memory, sampleRate: context.sampleRate } satisfies ToPrepare)
+      worker.postMessage({ type: 'init', bytes: engineWasm.slice(0), memory, sampleRate: context.sampleRate } satisfies ToPrepare)
     })
     worker.onmessage = (event: MessageEvent<FromPrepare>) => {
       const data = event.data
@@ -97,12 +97,12 @@ export class WebEngine implements Engine {
         else reject(new Error(`audio worklet: ${data.message}`))
       }
       const setup = { channel: ready.channel, stackTop: ready.stackTop, tls: ready.tls }
-      node.port.postMessage({ type: 'init', bytes, memory, setup } satisfies WorkletMessage, [bytes])
+      node.port.postMessage({ type: 'init', bytes: engineWasm, memory, setup } satisfies WorkletMessage, [engineWasm])
     })
     node.port.onmessage = null
 
     // The page's one-synth project, one per engine until the dispatcher owns it (PR-5).
-    const core = ProjectCore.create(project, 'single_synth', FIRST_EPOCH)
+    const core = ProjectCore.create(coreWasm, 'single_synth', FIRST_EPOCH)
     const engine = new WebEngine(context, worker, core, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     const setup = core.setup()
     if (setup.report.status === 'failed') throw new Error(`engine setup did not encode: code ${setup.report.stream_error}`)

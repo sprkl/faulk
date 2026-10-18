@@ -846,6 +846,52 @@ message: string
 type: "error"
 })
 /**
+ * What loading a project did.
+ */
+export type LoadReport = ({
+session_reset: boolean
+snapshot: SnapshotReport
+status: "loaded"
+} | {
+error: LoadError
+status: "refused"
+})
+/**
+ * What encoding a snapshot for the engine did: the bytes are returned beside it.
+ */
+export type SnapshotReport = ({
+epoch: number
+status: "encoded"
+} | {
+status: "failed"
+stream_error: number
+})
+/**
+ * Why project files were refused.
+ */
+export type LoadError = ({
+code: "missing_file"
+file: string
+} | {
+code: "format"
+found: number
+supported: number
+} | {
+code: "parse"
+file: string
+message: string
+} | {
+code: "invalid"
+violations: string[]
+})
+/**
+ * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
+ * 
+ * Constant per project at the MVP. Carries every conversion between ticks, seconds,
+ * samples and frames (see the module documentation for the rounding rules).
+ */
+export type Tempo = number
+/**
  * What running a command did.
  */
 export type RunReport = ({
@@ -998,52 +1044,6 @@ max: number
 code: "unsupported"
 command: string
 })
-/**
- * What encoding a snapshot for the engine did: the bytes are returned beside it.
- */
-export type SnapshotReport = ({
-epoch: number
-status: "encoded"
-} | {
-status: "failed"
-stream_error: number
-})
-/**
- * What loading a project did.
- */
-export type LoadReport = ({
-session_reset: boolean
-snapshot: SnapshotReport
-status: "loaded"
-} | {
-error: LoadError
-status: "refused"
-})
-/**
- * Why project files were refused.
- */
-export type LoadError = ({
-code: "missing_file"
-file: string
-} | {
-code: "format"
-found: number
-supported: number
-} | {
-code: "parse"
-file: string
-message: string
-} | {
-code: "invalid"
-violations: string[]
-})
-/**
- * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
- * 
- * Constant per project at the MVP. Carries every conversion between ticks, seconds,
- * samples and frames (see the module documentation for the rounding rules).
- */
-export type Tempo = number
 /**
  * What asking for the project's changes gave.
  */
@@ -1424,6 +1424,20 @@ id: string
 name: string
 }
 /**
+ * What to change in the project folder: files to write (path → text) and files to
+ * remove. The interim files never remove anything; the folder format of SV-1 removes
+ * the files of a deleted track or clip.
+ */
+export interface ProjectChanges {
+remove: string[]
+write: {
+[k: string]: string | undefined
+}
+}
+export interface ProjectFiles {
+[k: string]: string | undefined
+}
+/**
  * The page's view of the project: what it reads after an event that names an entity
  * (`track_created`, `clip_created`), from its own copy of the project.
  */
@@ -1588,19 +1602,5 @@ selected_track?: (string | null)
  * Items: Identifier of a track.
  */
 solo: string[]
-}
-/**
- * What to change in the project folder: files to write (path → text) and files to
- * remove. The interim files never remove anything; the folder format of SV-1 removes
- * the files of a deleted track or clip.
- */
-export interface ProjectChanges {
-remove: string[]
-write: {
-[k: string]: string | undefined
-}
-}
-export interface ProjectFiles {
-[k: string]: string | undefined
 }
 

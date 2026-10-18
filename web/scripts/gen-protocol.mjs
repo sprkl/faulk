@@ -27,14 +27,14 @@ const roots = {
   CommandOutput: bundle.command.output,
   ClientMessage: bundle.client_message,
   ServerMessage: bundle.server_message,
-  // The page's project core (PR-4): what each call of `src/lib/project/core.ts` returns.
-  RunReport: bundle.project_core.run_report,
-  SnapshotReport: bundle.project_core.snapshot_report,
-  LoadReport: bundle.project_core.load_report,
-  ProjectView: bundle.project_core.project_view,
-  SaveReport: bundle.project_core.save_report,
-  ProjectChanges: bundle.project_core.project_changes,
-  ProjectFiles: bundle.project_core.project_files,
+  // The page's project core (PR-4): what each call of `src/lib/project/core.ts` returns, one
+  // root per schema of `project_core`, named in PascalCase (`run_report` → `RunReport`).
+  ...Object.fromEntries(
+    Object.entries(bundle.project_core).map(([key, schema]) => [
+      key.replace(/(^|_)([a-z])/g, (_, __, c) => c.toUpperCase()),
+      schema,
+    ]),
+  ),
 }
 const defs = mergeRoots(roots)
 /** @type {import('json-schema-to-typescript').JSONSchema} */

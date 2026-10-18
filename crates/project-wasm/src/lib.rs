@@ -212,7 +212,8 @@ impl Core {
         self.synced.epoch()
     }
 
-    /// The number of entries that can be undone (tests).
+    /// The number of entries that can be undone.
+    #[cfg(test)]
     pub fn undo_depth(&self) -> usize {
         self.synced.state.history.undo.len()
     }
@@ -261,6 +262,7 @@ pub extern "C" fn pw_engine_len() -> u32 {
 
 /// A new core ([`Core::new`]): `kind` is [`KIND_EMPTY`] or [`KIND_SINGLE_SYNTH`], the
 /// random seed is `r0 | r1 << 32 | r2 << 64` (80 bits kept). Null for an unknown kind.
+/// The pointer is the page's handle for the other `pw_*` calls; [`pw_free`] frees it once.
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_new(
     kind: u32,

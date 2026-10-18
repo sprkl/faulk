@@ -45,6 +45,7 @@ export interface WithEngine<R> {
 /** Seeds the ids the core creates: the page's clock and 80 random bits (spec § 2.1). */
 export interface Seed {
   timeMs: number
+  /** Three u32, low first; the core keeps the low 80 of their 96 bits. */
   random: [number, number, number]
 }
 
