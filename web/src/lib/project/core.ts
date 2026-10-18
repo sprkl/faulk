@@ -7,6 +7,7 @@ import type {
   Command,
   LoadReport,
   ProjectChanges,
+  ProjectEvent,
   ProjectFiles,
   ProjectView,
   RunReport,
@@ -78,9 +79,13 @@ export class CoreError extends Error {
 /** What running a command means for the engine. */
 export type EngineStep =
   /** Bytes to push (possibly empty). */
-  | { push: Uint8Array }
-  /** The command may have changed the project but the engine did not get it: behind until a snapshot. */
-  | { streamError: number }
+  | { push: Uint8Array; events: ProjectEvent[] }
+  /**
+   * The command may have changed the project but the engine did not get it: behind until a
+   * snapshot. `events` is empty when the report itself was lost (a `CoreError`): refresh the
+   * page's mirror of the project from `ProjectCore.project`.
+   */
+  | { streamError: number; events: ProjectEvent[] }
   /** The project refused the command, or it is not a command: nothing changed. */
   | { refused: RunReport }
 
@@ -90,13 +95,13 @@ export function engineStep(run: () => WithEngine<RunReport>): EngineStep {
   try {
     result = run()
   } catch (error) {
-    if (error instanceof CoreError) return { streamError: error.code }
+    if (error instanceof CoreError) return { streamError: error.code, events: [] }
     throw error
   }
   const { report, engine } = result
   if (report.status !== 'applied') return { refused: report }
-  if (typeof report.stream_error === 'number') return { streamError: report.stream_error }
-  return { push: engine }
+  if (typeof report.stream_error === 'number') return { streamError: report.stream_error, events: report.events }
+  return { push: engine, events: report.events }
 }
 
 /**
