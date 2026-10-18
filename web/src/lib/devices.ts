@@ -16,17 +16,25 @@ export function descriptorOf(kind: string): DeviceDescriptor {
   return found
 }
 
+/** The oscillator synth's descriptor, narrowed: its parameter keys are the `SynthParam`s, not those of every device. */
+export type SynthDescriptor = Extract<DeviceDescriptor, { kind: 'faulk.osc_synth' }>
+
 /** The descriptor of the one synth the page plays (`SINGLE_SYNTH.kind`). */
-export const SYNTH: DeviceDescriptor = descriptorOf(SINGLE_SYNTH.kind)
+export const SYNTH: SynthDescriptor = ((d: DeviceDescriptor): SynthDescriptor => {
+  if (d.kind !== 'faulk.osc_synth') throw new Error(`the page plays ${d.kind}, not the oscillator`)
+  return d
+})(descriptorOf(SINGLE_SYNTH.kind))
 
 /** Whether a parameter is a choice among named values (shown as buttons, not a knob). */
 export const isChoice = (p: ParamDescriptor): boolean => p.values.length > 0
 
 /** The parameters shown as knobs: the continuous and stepped ones, in the descriptor's order. */
-export const knobParams = (d: DeviceDescriptor): ParamDescriptor[] => d.params.filter((p) => !isChoice(p))
+export const knobParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] =>
+  (d.params as readonly D['params'][number][]).filter((p) => !isChoice(p))
 
 /** The parameters shown as a choice of values. */
-export const choiceParams = (d: DeviceDescriptor): ParamDescriptor[] => d.params.filter(isChoice)
+export const choiceParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] =>
+  (d.params as readonly D['params'][number][]).filter(isChoice)
 
 /** The values of a choice parameter: its number and the key of its name. */
 export const choices = (p: ParamDescriptor): { value: number; key: string }[] =>

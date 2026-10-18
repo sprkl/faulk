@@ -206,15 +206,15 @@ impl Param {
 /// value is the target; in between, `start + (target − start) · i / frames`. A new target
 /// starts a new ramp from the current value. (AM-3 writes the shared smoother.)
 #[derive(Clone, Copy, Debug)]
-struct LinearRamp {
+pub(super) struct LinearRamp {
     start: f32,
-    target: f32,
+    pub(super) target: f32,
     frames: u32,
     done: u32,
 }
 
 impl LinearRamp {
-    const fn new(value: f32) -> Self {
+    pub(super) const fn new(value: f32) -> Self {
         Self {
             start: value,
             target: value,
@@ -224,7 +224,7 @@ impl LinearRamp {
     }
 
     /// The value of the next frame.
-    fn current(&self) -> f32 {
+    pub(super) fn current(&self) -> f32 {
         if self.done >= self.frames {
             self.target
         } else {
@@ -233,7 +233,7 @@ impl LinearRamp {
     }
 
     /// Aims at `target` over `frames` frames from the current value (0 frames: a jump).
-    fn set(&mut self, target: f32, frames: u32) {
+    pub(super) fn set(&mut self, target: f32, frames: u32) {
         self.start = self.current();
         self.target = target;
         self.frames = frames;
@@ -241,14 +241,14 @@ impl LinearRamp {
     }
 
     /// Ends the ramp at its target.
-    fn snap(&mut self) {
+    pub(super) fn snap(&mut self) {
         self.start = self.target;
         self.frames = 0;
         self.done = 0;
     }
 
     /// The value of this frame, then one frame on.
-    fn next_value(&mut self) -> f32 {
+    pub(super) fn next_value(&mut self) -> f32 {
         let value = self.current();
         if self.done < self.frames {
             self.done += 1;
