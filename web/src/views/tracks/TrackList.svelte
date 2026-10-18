@@ -5,7 +5,7 @@
    * track comes back that way. Every action is a command through the dispatcher.
    */
   import TrackHeader from '../../lib/components/TrackHeader.svelte'
-  import { INSTRUMENTS, nextColor } from '../../lib/project/tracks'
+  import { INSTRUMENTS, nextColor, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { createTrack, redo, selectTrack, undo } from '../../lib/track-commands'
 
@@ -75,8 +75,10 @@
           {#each INSTRUMENTS as instrument (instrument.kind)}
             <button role="menuitem" type="button" onclick={() => add('midi', instrument.kind)}>{instrument.name}</button>
           {/each}
-          <hr />
-          <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
+          {#if OFFER_AUDIO_TRACK}
+            <hr />
+            <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
+          {/if}
         </div>
       {/if}
     </div>

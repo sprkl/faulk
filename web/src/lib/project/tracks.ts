@@ -38,6 +38,12 @@ export function deviceOfKind(track: Track, kind: string): { id: string; params: 
   return null
 }
 
+/**
+ * Whether the add-track menu offers an audio track. Off until audio can be imported (AU-1): an audio
+ * track with no way to put audio in only confuses. The code path stays; this is the one flag.
+ */
+export const OFFER_AUDIO_TRACK = false
+
 /** The instruments a MIDI track can be created with, from the device descriptors. */
 export const INSTRUMENTS = DEVICES.filter((d) => d.role === 'instrument').map((d) => ({ kind: d.kind, name: d.name }))
 

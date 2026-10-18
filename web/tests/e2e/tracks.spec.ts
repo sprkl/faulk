@@ -76,15 +76,13 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(header(page, 'Synth')).toContainText(`${x.midi} · Oscillator`)
       await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
 
-      // Each instrument, and an audio track; the new track is selected.
+      // Each instrument; the new track is selected.
       await addTrack(page, 'Drums')
       await expect(header(page, x.track(2))).toContainText(`${x.midi} · Drums`)
       await expect(header(page, x.track(2))).toHaveAttribute('aria-current', 'true')
       await addTrack(page, 'Oscillator')
       await expect(header(page, x.track(3))).toContainText(`${x.midi} · Oscillator`)
-      await addTrack(page, lang === 'en' ? 'Audio track' : 'Piste audio')
-      await expect(header(page, x.track(4))).toContainText(x.audio)
-      await expect(page.getByTestId('track-header')).toHaveCount(4)
+      await expect(page.getByTestId('track-header')).toHaveCount(3)
       await expect(page.getByTestId('stream-error')).toHaveCount(0)
       await expect(page.locator('[data-testid=track-header][aria-current=true]')).toHaveCount(1)
 
@@ -94,13 +92,13 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByRole('textbox', { name: x.rename, exact: true })).toBeFocused()
       await page.keyboard.type('Kit')
       await page.keyboard.press('Enter')
-      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3), x.track(4)])
+      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3)])
       await expect(header(page, 'Kit').getByTestId('track-name')).toBeFocused()
       // Escape gives the edit up.
       await page.keyboard.press('F2')
       await page.keyboard.type(' and more')
       await page.keyboard.press('Escape')
-      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3), x.track(4)])
+      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3)])
 
       // Mute is in the project, solo in the session; solo adds up.
       const kit = header(page, 'Kit')
@@ -166,12 +164,11 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(header(page, 'Kit')).not.toHaveAttribute('aria-current', 'true')
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
       await page.keyboard.up('KeyA')
-      // An audio track is not playable yet: its keys play nothing.
-      await header(page, x.track(4)).getByTestId('track-name').click()
-      await page.keyboard.down('KeyA')
-      await page.waitForTimeout(300)
-      await expect(page.getByTestId('voices')).toContainText(/\b0\b/)
-      await page.keyboard.up('KeyA')
+
+      // Audio tracks are not offered until audio can be imported (AU-1): the menu lists the instruments only.
+      await page.getByTestId('add-track').click()
+      await expect(page.getByRole('menuitem')).toHaveText(['Oscillator', 'Drums'])
+      await page.keyboard.press('Escape')
 
       expect(await horizontalOverflow(page)).toEqual([])
       const shots = process.env.FAULK_E2E_SHOTS
@@ -182,13 +179,13 @@ for (const lang of ['en', 'fr'] as const) {
 
       // Delete, then undo: the track comes back with its name and mute, in place.
       await kit.getByRole('button', { name: x.remove('Kit'), exact: true }).click()
-      expect(await names(page)).toEqual(['Synth', x.track(2), x.track(3)])
+      expect(await names(page)).toEqual(['Synth', x.track(2)])
       await expect(page.locator('.solo[aria-pressed=true]')).toHaveCount(1)
       await page.getByRole('button', { name: x.undo, exact: true }).click()
-      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3), x.track(4)])
+      expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3)])
       await expect(header(page, 'Kit').getByRole('button', { name: x.mute('Kit'), exact: true })).toHaveAttribute('aria-pressed', 'true')
       // Deleting every track leaves an empty list that says so; undo brings the last one back.
-      for (let n = 4; n > 0; n--) await page.getByRole('button', { name: /^(Delete|Supprimer) /, exact: false }).first().click()
+      for (let n = 3; n > 0; n--) await page.getByRole('button', { name: /^(Delete|Supprimer) /, exact: false }).first().click()
       await expect(page.getByTestId('tracks-empty')).toBeVisible()
       await expect(page.getByTestId('keys-target')).toBeVisible()
       await page.keyboard.press('Control+z')
