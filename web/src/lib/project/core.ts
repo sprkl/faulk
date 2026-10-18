@@ -75,6 +75,30 @@ export class CoreError extends Error {
   }
 }
 
+/** What running a command means for the engine. */
+export type EngineStep =
+  /** Bytes to push (possibly empty). */
+  | { push: Uint8Array }
+  /** The command may have changed the project but the engine did not get it: behind until a snapshot. */
+  | { streamError: number }
+  /** The project refused the command, or it is not a command: nothing changed. */
+  | { refused: RunReport }
+
+/** Runs a command through `run` and says what to do with the engine; never throws a `CoreError`. */
+export function engineStep(run: () => WithEngine<RunReport>): EngineStep {
+  let result: WithEngine<RunReport>
+  try {
+    result = run()
+  } catch (error) {
+    if (error instanceof CoreError) return { streamError: error.code }
+    throw error
+  }
+  const { report, engine } = result
+  if (report.status !== 'applied') return { refused: report }
+  if (typeof report.stream_error === 'number') return { streamError: report.stream_error }
+  return { push: engine }
+}
+
 /**
  * One project in the page with the stream of the engine that plays it. Each call returns
  * what the Rust side reported; refusals are reports, never exceptions.

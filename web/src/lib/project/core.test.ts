@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Command, Note, ProjectChanges, RunReport } from '../generated/protocol'
-import { CoreError, coreModule, ProjectCore } from './core'
+import { CoreError, coreModule, engineStep, ProjectCore } from './core'
 
 let module: WebAssembly.Module
 
@@ -123,6 +123,24 @@ describe('ProjectCore', () => {
     source.free()
     target.free()
     expect(() => target.project()).toThrow(CoreError)
+  })
+
+  it('tells what a run means for the engine', () => {
+    const core = ProjectCore.create(module, 'single_synth', 1, seed)
+    core.setup()
+    const note = { type: 'live.note_on', track: '00000000000000000000000001', note: 60, velocity: 100 } as const
+    const push = engineStep(() => core.run(note))
+    expect('push' in push && push.push.length > 0).toBe(true)
+    expect('push' in engineStep(() => core.run({ type: 'midi.list_inputs' }))).toBe(true)
+    const refused = engineStep(() => core.run({ type: 'track.rename', track: '00000000000000000000000009', name: 'x' }))
+    expect('refused' in refused && refused.refused.status).toBe('refused')
+    const applied = { status: 'applied', output: { type: 'history.undo' }, events: [] } as unknown as RunReport
+    expect(engineStep(() => ({ report: { ...applied, stream_error: -4 }, engine: new Uint8Array() }))).toEqual({ streamError: -4 })
+    expect(engineStep(() => { throw new CoreError('run', -3) })).toEqual({ streamError: -3 })
+    expect(() => engineStep(() => { throw new TypeError('other') })).toThrow(TypeError)
+    core.free()
+    // A freed core is a CoreError too: reported, not thrown.
+    expect(engineStep(() => core.run(note))).toEqual({ streamError: 0 })
   })
 
   it('takes a snapshot in the next epoch', () => {

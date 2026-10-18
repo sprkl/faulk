@@ -4,7 +4,7 @@ import { allNotesOff } from '../synth-commands'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
-import { coreModule, ProjectCore } from '../project/core'
+import { coreModule, engineStep, ProjectCore } from '../project/core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -131,20 +131,18 @@ export class WebEngine implements Engine {
   }
 
   run(command: Command) {
-    const { report, engine } = this.core.run(command)
-    if (report.status !== 'applied') {
+    const step = engineStep(() => this.core.run(command))
+    if ('refused' in step) {
       // The dispatcher only sends commands the project takes: a refusal is a page bug.
-      console.warn(`the project refused ${command.type}`, report)
-      return
+      console.warn(`the project refused ${command.type}`, step.refused)
+    } else if ('streamError' in step) {
+      // The project took the command but its messages did not reach the engine: the engine
+      // is behind the project, as after a refused stream.
+      console.error(`engine stream: error ${step.streamError}`)
+      this.events.onStreamRefused?.(step.streamError, 0)
+    } else {
+      this.push(step.push)
     }
-    if (typeof report.stream_error === 'number') {
-      // The project took the command but its messages did not encode: the engine is behind
-      // the project, as after a refused stream.
-      console.error(`engine stream: error ${report.stream_error}`)
-      this.events.onStreamRefused?.(report.stream_error, 0)
-      return
-    }
-    this.push(engine)
   }
 
   /** Pauses audio without losing the engine (used while the helper plays). */

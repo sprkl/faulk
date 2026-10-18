@@ -36,7 +36,9 @@ pub const ERR_NO_CORE: i32 = -1;
 /// The input is not what the call takes (`pw_saved`: not a `ProjectChanges`).
 pub const ERR_BAD_INPUT: i32 = -2;
 /// The call's JSON did not serialize (a value the project's writers refuse): nothing
-/// at [`pw_out`] nor [`pw_engine`]. The core is untouched.
+/// at [`pw_out`] nor [`pw_engine`]. The call itself may have happened ([`pw_run`] applied
+/// the command, [`pw_load`] replaced the project): the engine is then behind the project
+/// until a snapshot.
 pub const ERR_SERIALIZE: i32 = -3;
 
 /// [`pw_new`]: an empty project.
@@ -157,8 +159,10 @@ impl Core {
             Ok(loaded) => loaded,
             Err(error) => return (LoadReport::Refused { error }, Vec::new()),
         };
-        // A loaded project serializes (it was just read from these writers' text); if
-        // it did not, it stays fully dirty rather than wrongly clean.
+        // The baseline is this core's own text of the loaded project, not the text read:
+        // an unchanged project is not rewritten, even if it was formatted otherwise (SV-1's
+        // canonical reader and writer replace this). A project that does not serialize
+        // stays fully dirty rather than wrongly clean.
         self.saved = save_files(&loaded.state).unwrap_or_default();
         self.synced.state = loaded.state;
         // A group opened on the previous project's history is gone with it.
