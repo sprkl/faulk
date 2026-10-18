@@ -71,7 +71,9 @@
     }
   }
 
-  function select() {
+  /** Only the name, the kind line and the background select: a click on a control acts on its track without moving the keyboard. */
+  function select(event: MouseEvent) {
+    if ((event.target as Element).closest('.strip, .swatch, .icon')) return
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
 

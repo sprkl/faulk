@@ -63,8 +63,9 @@
   }
 
   // Selecting another track (or deleting the selected one) ends the notes of the previous one.
+  const selectedId = $derived(project.selected?.id)
   $effect(() => {
-    void project.selected?.id
+    void selectedId
     releaseAllKeys()
   })
 

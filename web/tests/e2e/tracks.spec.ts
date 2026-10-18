@@ -139,6 +139,33 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
       await page.keyboard.up('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b0\b/)
+      // A created track sounds too: the oscillator, then the drums.
+      await header(page, x.track(3)).getByTestId('track-name').click()
+      await page.keyboard.down('KeyA')
+      await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+      await page.keyboard.up('KeyA')
+      await expect(page.getByTestId('voices')).toContainText(/\b0\b/)
+      // The drums answer on C2 (the kick): two octaves down with Z.
+      await header(page, 'Kit').getByTestId('track-name').click()
+      await page.keyboard.press('KeyZ')
+      await page.keyboard.press('KeyZ')
+      await page.keyboard.down('KeyA')
+      await expect(page.getByTestId('voices')).toContainText(/\b[1-9]/)
+      await page.keyboard.up('KeyA')
+      await page.keyboard.press('KeyX')
+      await page.keyboard.press('KeyX')
+      // A held note survives a change elsewhere in the project, and a click on a control of another
+      // track neither selects it nor moves the keyboard.
+      await header(page, x.track(3)).getByTestId('track-name').click()
+      await page.keyboard.down('KeyA')
+      await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+      await header(page, 'Kit').getByRole('slider', { name: x.pan('Kit'), exact: true }).fill('0.2')
+      await header(page, 'Kit').getByRole('button', { name: x.solo('Kit'), exact: true }).click()
+      await header(page, 'Kit').getByRole('button', { name: x.solo('Kit'), exact: true }).click()
+      await expect(header(page, x.track(3))).toHaveAttribute('aria-current', 'true')
+      await expect(header(page, 'Kit')).not.toHaveAttribute('aria-current', 'true')
+      await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+      await page.keyboard.up('KeyA')
       // An audio track is not playable yet: its keys play nothing.
       await header(page, x.track(4)).getByTestId('track-name').click()
       await page.keyboard.down('KeyA')
