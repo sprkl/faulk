@@ -323,14 +323,23 @@ fn step(
 type Applied = (Vec<crate::Command>, Vec<ProjectEvent>, Vec<ControlMsg>);
 
 /// Applies an entry's commands in reverse order. All or nothing: a command that fails
-/// leaves the project and the session as they were before the entry (each command is
-/// atomic on its own; an entry of several commands is applied on a saved copy).
+/// leaves the project, the session and the engine's slot table as they were before the
+/// entry (each command is atomic on its own; an entry of several commands is applied on a
+/// saved copy).
 fn apply_entry(
     entry: &Entry,
     state: &mut State,
     ctx: &mut Context,
 ) -> Result<Applied, CommandError> {
-    let saved = (entry.commands.len() > 1).then(|| (state.project.clone(), state.session.clone()));
+    // The engine's slot table too: the messages of the commands already applied are
+    // dropped with the error, so the engine never saw them.
+    let saved = (entry.commands.len() > 1).then(|| {
+        (
+            state.project.clone(),
+            state.session.clone(),
+            ctx.engine.clone(),
+        )
+    });
     let mut reverse = Vec::with_capacity(entry.commands.len());
     let mut events = Vec::new();
     let mut control = Vec::new();
@@ -344,9 +353,10 @@ fn apply_entry(
                 control.extend(outcome.control);
             }
             Err(error) => {
-                if let Some((project, session)) = saved {
+                if let Some((project, session, engine)) = saved {
                     state.project = project;
                     state.session = session;
+                    ctx.engine = engine;
                 }
                 return Err(error);
             }

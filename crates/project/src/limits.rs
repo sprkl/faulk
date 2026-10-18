@@ -51,6 +51,15 @@ pub const MAX_LANES_PER_TRACK: usize = 10_000;
 /// Most notes in one MIDI clip.
 pub const MAX_NOTES_PER_CLIP: usize = 1_000_000;
 
+/// Clips in the whole project, every track together: the engine's clip slots (PR-3).
+pub const MAX_CLIPS: usize = engine::msg::limits::MAX_CLIPS as usize;
+
+/// Placements in the whole project, every track together: the engine's placement slots.
+pub const MAX_PLACEMENTS: usize = engine::msg::limits::MAX_PLACEMENTS as usize;
+
+/// Automation lanes in the whole project, every track together: the engine's lane slots.
+pub const MAX_LANES: usize = engine::msg::limits::MAX_LANES as usize;
+
 /// Most points in one automation lane.
 pub const MAX_POINTS_PER_LANE: usize = engine::msg::limits::MAX_POINTS_PER_LANE as usize;
 
@@ -85,6 +94,9 @@ pub struct Limits {
     pub points_per_lane: usize,
     pub notes: usize,
     pub points: usize,
+    pub clips: usize,
+    pub placements: usize,
+    pub lanes: usize,
 }
 
 impl Limits {
@@ -101,6 +113,9 @@ impl Limits {
         points_per_lane: MAX_POINTS_PER_LANE,
         notes: MAX_NOTES,
         points: MAX_POINTS,
+        clips: MAX_CLIPS,
+        placements: MAX_PLACEMENTS,
+        lanes: MAX_LANES,
     };
 }
 
@@ -117,5 +132,8 @@ const _: () = {
     assert!(MAX_NOTES_PER_CLIP <= engine::MAX_NOTES_PER_CLIP as usize);
     assert!(MAX_POINTS_PER_LANE <= engine::MAX_POINTS_PER_LANE as usize);
     assert!(MAX_NOTES <= engine::MAX_NOTES as usize);
+    assert!(MAX_CLIPS <= engine::MAX_CLIPS as usize);
+    assert!(MAX_PLACEMENTS <= engine::MAX_PLACEMENTS as usize);
+    assert!(MAX_LANES <= engine::MAX_LANES as usize);
     assert!(MAX_POINTS <= engine::MAX_AUTOMATION_POINTS as usize);
 };

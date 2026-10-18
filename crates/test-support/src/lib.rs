@@ -12,9 +12,12 @@ mod scenario;
 mod signal;
 mod wasm;
 
+pub mod view;
+
 pub mod reference;
 
 pub use render::{PARITY_TOLERANCE, QUANTUM, SAMPLE_RATE, parity, render_native};
 pub use scenario::{Scenario, Session, Step};
 pub use signal::{Render, Spectrum};
+pub use view::EngineView;
 pub use wasm::render_wasm;

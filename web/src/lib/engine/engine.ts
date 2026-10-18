@@ -17,6 +17,11 @@ export interface EngineEvents {
   onMidiInputs?(inputs: MidiInput[], selected: string | null): void
   onMidiActivity?(note: number, velocity: number): void
   onError(code: string): void
+  /**
+   * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,
+   * corrupt stream) at byte `at` of a push: it is behind the project until a resync (PR-5).
+   */
+  onStreamRefused?(code: number, at: number): void
   /** The engine stopped on its own (helper gone, session replaced). */
   onClosed(): void
 }

@@ -13,7 +13,8 @@
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
 use project::{
-    ClipId, DeviceId, IdGenerator, PlacementId, Project, SessionState, TickLoop, TrackId,
+    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, SessionState, TickLoop,
+    TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -80,23 +81,31 @@ impl TryFrom<String> for Author {
 #[serde(transparent)]
 pub struct GroupId(pub u64);
 
-/// Who runs the command, in which history group, and where new identifiers come from.
-/// The history (PR-2) stamps author and group on every entry. The generator is here,
-/// not in the [`State`], so that the project stays pure (the host seeds it with its
-/// clock and randomness) and so that undoing a command restores the state exactly.
+/// Who runs the command, in which history group, where new identifiers come from, and
+/// what the engine holds. The history (PR-2) stamps author and group on every entry. The
+/// generator and the engine's slot table are here, not in the [`State`], so that the
+/// project stays pure (the host seeds the generator with its clock and randomness) and so
+/// that undoing a command restores the state exactly: the slot table depends on the
+/// order things were created and deleted, and belongs to one engine connection, rebuilt
+/// by every snapshot ([`crate::engine_msgs::resync`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Context {
     pub author: Author,
     pub group: Option<GroupId>,
     pub ids: IdGenerator,
+    /// The engine's slots of the project's entities (PR-3).
+    pub engine: EngineSlots,
 }
 
 impl Context {
+    /// A context for an engine that holds nothing yet: the host sends a snapshot
+    /// ([`crate::engine_msgs::resync`]) before the commands.
     pub fn new(author: Author, ids: IdGenerator) -> Self {
         Self {
             author,
             group: None,
             ids,
+            engine: EngineSlots::default(),
         }
     }
 }
@@ -274,13 +283,9 @@ pub enum ClipPart {
     Content,
 }
 
-/// What the project sends to the engine after a command (spec § 2.3). CT-3 (#39)
-/// declares `engine::msg::ControlMsg`; until it is merged this placeholder has no
-/// variant, so nothing can be sent, and the hosts translate the `live.*` and
-/// `device.set_param` commands to the engine themselves. PR-3 replaces it by the
-/// engine's type and compiles the project's ids to engine slots.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ControlMsg {}
+/// What the project sends to the engine after a command (spec § 2.3): the engine's own
+/// message type (CT-3), whose slots the project assigns ([`project::EngineSlots`]).
+pub use engine::msg::ControlMsg;
 
 /// What applying a command produced.
 #[derive(Clone, Debug, PartialEq)]
@@ -290,7 +295,9 @@ pub struct Outcome<C, O> {
     pub undo: Undo<C>,
     /// For the interface.
     pub events: Vec<ProjectEvent>,
-    /// For the engine.
+    /// For the engine: what the change means for it, in order (PR-3). A domain leaves it
+    /// empty; the root [`crate::Command::apply`] fills it from the command and its events
+    /// ([`crate::engine_msgs::compile`]).
     pub control: Vec<ControlMsg>,
 }
 

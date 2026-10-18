@@ -535,10 +535,28 @@ impl Project {
         by_order(&self.tracks, |t| &t.order)
     }
 
+    /// How many clips, placements and lanes the whole project has: the counts the
+    /// engine's slot tables bound project-wide ([`crate::limits::MAX_CLIPS`]…).
+    pub fn counts(&self) -> Counts {
+        self.tracks.values().fold(Counts::default(), |c, t| Counts {
+            clips: c.clips + t.clips.len(),
+            placements: c.placements + t.placements.len(),
+            lanes: c.lanes + t.automation.len(),
+        })
+    }
+
     /// The scenes in display order (order key, then id).
     pub fn scenes_in_order(&self) -> Vec<(&SceneId, &Scene)> {
         by_order(&self.scenes, |s| &s.order)
     }
+}
+
+/// Counts of a project's entities (see [`Project::counts`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub clips: usize,
+    pub placements: usize,
+    pub lanes: usize,
 }
 
 impl Track {

@@ -4,7 +4,7 @@ import { allNotesOff } from '../synth-commands'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
-import { EngineStream, projectModule } from './project-core'
+import { EngineStream, projectModule, streamErrorCode } from './project-core'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
@@ -33,7 +33,7 @@ export class WebEngine implements Engine {
     private readonly stream: EngineStream,
     memory: WebAssembly.Memory,
     feedback: { at: number; len: number },
-    events: EngineEvents,
+    private readonly events: EngineEvents,
   ) {
     let last = 0
     this.timer = setInterval(() => {
@@ -79,9 +79,11 @@ export class WebEngine implements Engine {
     worker.onmessage = (event: MessageEvent<FromPrepare>) => {
       const data = event.data
       // A stream the engine stopped (`MsgError::code`): out of memory, engine busy, corrupt.
-      // Reported, not shown yet: the resync and its message belong to PR-3 and PR-5.
-      if (data.type === 'pushed') console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
-      else if (data.type === 'error') console.error(`engine worker: ${data.message}`)
+      // Surfaced as the engine store's error state; its message and the resync are PR-5's.
+      if (data.type === 'pushed') {
+        console.error(`engine refused a stream: code ${data.code} at byte ${data.at}`)
+        events.onStreamRefused?.(data.code, data.at)
+      } else if (data.type === 'error') console.error(`engine worker: ${data.message}`)
     }
 
     const node = new AudioWorkletNode(context, 'faulk-engine', {
@@ -126,7 +128,17 @@ export class WebEngine implements Engine {
   }
 
   run(command: Command) {
-    this.push(this.stream.command(command))
+    let bytes: Uint8Array
+    try {
+      bytes = this.stream.command(command)
+    } catch (error) {
+      // The project took the command but its messages did not encode: the engine is behind
+      // the project, as after a refused stream.
+      console.error(error)
+      this.events.onStreamRefused?.(streamErrorCode(error), 0)
+      return
+    }
+    this.push(bytes)
   }
 
   /** Pauses audio without losing the engine (used while the helper plays). */

@@ -26,8 +26,8 @@
 use crate::contract::{ClipPart, CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
 use project::limits::{
-    MAX_CLIPS_PER_TRACK, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS_PER_TRACK,
-    MAX_TICK,
+    MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS,
+    MAX_PLACEMENTS_PER_TRACK, MAX_TICK,
 };
 use project::{
     Clip, ClipContent, ClipId, Note, Placement, PlacementId, Project, Quantize, Rgb, SceneId, Span,
@@ -374,14 +374,38 @@ fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandErr
     Ok(())
 }
 
-fn check_clips(track: &Track) -> Result<(), CommandError> {
-    if track.clips.len() >= MAX_CLIPS_PER_TRACK {
+/// Refuses `count + more` beyond `max` with a typed limit error.
+fn check_total(entity: &str, count: usize, more: usize, max: usize) -> Result<(), CommandError> {
+    if count.saturating_add(more) > max {
         return Err(CommandError::Limit {
-            entity: "clips per track".into(),
-            max: MAX_CLIPS_PER_TRACK as u64,
+            entity: entity.into(),
+            max: max as u64,
         });
     }
     Ok(())
+}
+
+/// Refuses one more clip beyond the track's limit or the project's (the engine's clip
+/// slots are project-wide).
+fn check_clips(project: &Project, track: &Track) -> Result<(), CommandError> {
+    check_total("clips per track", track.clips.len(), 1, MAX_CLIPS_PER_TRACK)?;
+    check_total("clips", project.counts().clips, 1, MAX_CLIPS)
+}
+
+/// Refuses `more` placements beyond the track's limit or the project's.
+fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(), CommandError> {
+    check_total(
+        "placements per track",
+        track.placements.len(),
+        more,
+        MAX_PLACEMENTS_PER_TRACK,
+    )?;
+    check_total(
+        "placements",
+        project.counts().placements,
+        more,
+        MAX_PLACEMENTS,
+    )
 }
 
 fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
@@ -625,19 +649,14 @@ fn create(
     check_length(length, "length")?;
     let name = name.map(str::trim).unwrap_or_default();
     check_name(name, "name")?;
-    check_clips(track)?;
+    check_clips(project, track)?;
     let (slot, start) = match at {
         ClipTarget::Slot { scene } => {
             check_slot(project, track, scene, "at.scene")?;
             (Some(scene.clone()), None)
         }
         ClipTarget::Arrangement { start } => {
-            if track.placements.len() >= MAX_PLACEMENTS_PER_TRACK {
-                return Err(CommandError::Limit {
-                    entity: "placements per track".into(),
-                    max: MAX_PLACEMENTS_PER_TRACK as u64,
-                });
-            }
+            check_placements(project, track, 1)?;
             check_span(*start, length, &mut taken_spans(track), "at.start")?;
             (None, Some(*start))
         }
@@ -776,13 +795,8 @@ fn restore(
         notes.len(),
         project_notes(project).saturating_add(notes.len()),
     )?;
-    check_clips(track)?;
-    if track.placements.len().saturating_add(placements.len()) > MAX_PLACEMENTS_PER_TRACK {
-        return Err(CommandError::Limit {
-            entity: "placements per track".into(),
-            max: MAX_PLACEMENTS_PER_TRACK as u64,
-        });
-    }
+    check_clips(project, track)?;
+    check_placements(project, track, placements.len())?;
     if let Some(scene) = &snap.slot {
         check_slot(project, track, scene, "snapshot.slot")?;
     }
@@ -855,7 +869,7 @@ fn duplicate(
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
     let (_, _, notes) = midi_ref(source)?;
-    check_clips(track)?;
+    check_clips(project, track)?;
     check_note_limits(
         notes.len(),
         project_notes(project).saturating_add(notes.len()),
@@ -1213,4 +1227,23 @@ fn notes_update(
         },
         changed(clip_id, ClipPart::Notes),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_count_past_its_limit_is_a_typed_refusal() {
+        assert_eq!(check_total("clips", MAX_CLIPS - 1, 1, MAX_CLIPS), Ok(()));
+        assert_eq!(
+            check_total("clips", MAX_CLIPS, 1, MAX_CLIPS),
+            Err(CommandError::Limit {
+                entity: "clips".into(),
+                max: MAX_CLIPS as u64
+            })
+        );
+        assert!(check_total("placements", MAX_PLACEMENTS - 3, 4, MAX_PLACEMENTS).is_err());
+        assert!(check_total("placements", usize::MAX, 1, MAX_PLACEMENTS).is_err());
+    }
 }

@@ -3,8 +3,8 @@
 //! selected and armed tracks.
 //!
 //! Live notes change neither the project nor the session: they only reach the engine.
-//! Until CT-3 and PR-3 give the [`crate::ControlMsg`], the hosts translate them to the
-//! engine themselves; `apply` checks them against the project.
+//! `apply` checks them against the project; their engine messages (`NoteOn`, `NoteOff`,
+//! `AllNotesOff` on every track the engine has) come from `engine_msgs::compile`.
 
 use crate::contract::{CommandError, Context, Outcome, State, Undo};
 use crate::macros::domain;

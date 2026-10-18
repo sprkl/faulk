@@ -11,3 +11,6 @@ engine = { path = "../engine" }
 commands = { path = "../commands" }
 project = { path = "../project" }
 wasmi = "2.0.0"
+
+[dev-dependencies]
+serde_json = "1.0.154"

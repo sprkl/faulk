@@ -24,15 +24,12 @@ pub mod paths {
     pub const SESSION: &str = "/session";
 }
 
-/// The ids the page and the helper give the one synth, until the project runs in the
-/// page (PR-4, PR-5): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`.
-/// The hosts play every live note and every parameter on their one synth whatever the
-/// ids; these keep the commands well-formed in the meantime.
+/// The ids of the page's one-synth project, until the project runs in the page (PR-4,
+/// PR-5): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`. The project
+/// itself is `commands::engine_msgs::single_synth`, which the page's module and the helper
+/// both run the commands on.
 pub mod single_synth {
-    /// The track of the one synth.
-    pub const TRACK: &str = "00000000000000000000000001";
-    /// The one synth, instrument of [`TRACK`].
-    pub const DEVICE: &str = "00000000000000000000000002";
+    pub use commands::engine_msgs::single_synth::{DEVICE, TRACK};
 }
 
 /// A message from the page to the helper.

@@ -161,7 +161,9 @@ macro_rules! root {
                 }
             }
 
-            /// Applies the command to the state. The frozen signature of the contract.
+            /// Applies the command to the state. The frozen signature of the contract. The
+            /// outcome's engine messages are compiled here, once the domain applied the
+            /// command, from the command and its events ([`crate::engine_msgs::compile`]).
             pub fn apply(
                 &self,
                 state: &mut $crate::contract::State,
@@ -171,6 +173,13 @@ macro_rules! root {
                     $(
                         Self::$Variant(c) => {
                             let out = $module::apply(c, state, ctx)?;
+                            let mut control = out.control;
+                            control.extend($crate::engine_msgs::compile(
+                                self,
+                                &out.events,
+                                state,
+                                &mut ctx.engine,
+                            ));
                             Ok($crate::contract::Outcome {
                                 output: Output::$Variant(out.output),
                                 undo: match out.undo {
@@ -180,7 +189,7 @@ macro_rules! root {
                                     $crate::contract::Undo::None => $crate::contract::Undo::None,
                                 },
                                 events: out.events,
-                                control: out.control,
+                                control,
                             })
                         }
                     )*

@@ -1,6 +1,6 @@
 //! A project session recorded as engine messages and render steps.
 
-use commands::engine_msgs::EngineStream;
+use commands::engine_msgs::Synced;
 use commands::testing::{self, Fixture};
 use commands::{Command, Context, State, device, live};
 use engine::msg::ControlMsg;
@@ -79,58 +79,90 @@ impl Scenario {
 /// A project edited through commands, and the engine stream those commands produce.
 ///
 /// Every command runs through [`commands::run`] on a real project state (so an invalid
-/// command fails the test), and the engine messages of the command layer
-/// (`commands::engine_msgs`) are recorded. Until PR-3 compiles every project edit to
-/// engine messages, only the commands that layer maps reach the engine: the page's one
-/// synth. [`Session::messages`] adds raw engine messages for the rest.
+/// command fails the test), and the engine messages of its outcome (PR-3,
+/// `commands::engine_msgs::compile`) are recorded. The session starts with a `Reset` and
+/// the snapshot of its project. [`Session::messages`] adds raw engine messages.
 pub struct Session {
-    pub state: State,
-    ctx: Context,
-    stream: EngineStream,
-    fixture: Fixture,
+    synced: Synced,
+    fixture: Option<Fixture>,
     scenario: Scenario,
 }
 
 impl Session {
-    /// A project with one MIDI track playing the built-in synth, and an engine set up
-    /// for it.
+    /// A project with one MIDI track playing the built-in synth (`commands::testing`'s
+    /// fixture), and an engine set up for it.
     pub fn single_synth() -> Session {
         let fixture = testing::fixture();
-        let mut stream = EngineStream::new(1);
-        let setup = stream.setup().expect("the setup encodes");
+        let mut s = Session::from_state(fixture.state.clone(), testing::context());
+        s.fixture = Some(fixture);
+        s
+    }
+
+    /// A session on `state`: the engine receives a `Reset` (epoch 1) and the snapshot of
+    /// the project, then the commands.
+    pub fn from_state(state: State, ctx: Context) -> Session {
+        let mut synced = Synced::new(state, ctx, 1);
+        let setup = synced.setup().expect("the setup encodes");
         Session {
-            state: fixture.state.clone(),
-            ctx: testing::context(),
-            stream,
-            fixture,
+            synced,
+            fixture: None,
             scenario: Scenario {
                 steps: vec![Step::Push(setup)],
             },
         }
     }
 
+    /// The project state the commands ran on.
+    pub fn state(&self) -> &State {
+        &self.synced.state
+    }
+
+    /// The command context: its slot table is the engine's view of the project.
+    pub fn ctx(&self) -> &Context {
+        &self.synced.ctx
+    }
+
+    fn fixture(&self) -> &Fixture {
+        self.fixture
+            .as_ref()
+            .expect("a single_synth session: the fixture's track and synth")
+    }
+
     /// Applies a command to the project and sends its engine messages. Panics when the
     /// command is refused.
     pub fn run(&mut self, command: Command) -> &mut Self {
-        if let Err(e) = commands::run(&command, &mut self.state, &mut self.ctx) {
-            panic!("command {command:?} refused: {e}");
-        }
-        let bytes = self.stream.command(&command).expect("the command encodes");
-        if !bytes.is_empty() {
-            self.scenario.steps.push(Step::Push(bytes));
-        }
+        self.exec(command);
         self
     }
 
-    /// Sends raw engine messages (what no command maps yet).
+    /// [`Session::run`], returning the command's output (the ids it created).
+    pub fn exec(&mut self, command: Command) -> commands::Output {
+        let (outcome, bytes) = match self.synced.run(&command) {
+            Ok(done) => done,
+            Err(e) => panic!("command {command:?} refused: {e:?}"),
+        };
+        if !bytes.is_empty() {
+            self.scenario.steps.push(Step::Push(bytes));
+        }
+        outcome.output
+    }
+
+    /// Sends a `Reset` in a new epoch and the snapshot of the project as it is now.
+    pub fn resync(&mut self) -> &mut Self {
+        let bytes = self.synced.resync().expect("the snapshot encodes");
+        self.scenario.steps.push(Step::Push(bytes));
+        self
+    }
+
+    /// Sends raw engine messages (what no command maps).
     pub fn messages(&mut self, msgs: &[ControlMsg]) -> &mut Self {
-        let bytes = self.stream.encode(msgs).expect("the messages encode");
+        let bytes = self.synced.encode(msgs).expect("the messages encode");
         self.scenario.steps.push(Step::Push(bytes));
         self
     }
 
     pub fn note_on(&mut self, note: u8, velocity: u8) -> &mut Self {
-        let track = self.fixture.track.clone();
+        let track = self.fixture().track.clone();
         self.run(Command::Live(live::Command::NoteOn {
             track,
             note,
@@ -139,7 +171,7 @@ impl Session {
     }
 
     pub fn note_off(&mut self, note: u8) -> &mut Self {
-        let track = self.fixture.track.clone();
+        let track = self.fixture().track.clone();
         self.run(Command::Live(live::Command::NoteOff { track, note }))
     }
 
@@ -149,7 +181,7 @@ impl Session {
 
     /// `device.set_param` on the synth.
     pub fn set_param(&mut self, param: &str, value: f64) -> &mut Self {
-        let device = self.fixture.device.clone();
+        let device = self.fixture().device.clone();
         self.run(Command::Device(device::Command::SetParam {
             device,
             param: param.into(),
