@@ -1401,6 +1401,7 @@ dependencies = [
  "commands",
  "engine",
  "project",
+ "serde",
  "serde_json",
 ]
 
