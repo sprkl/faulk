@@ -3,8 +3,8 @@
 //! detector. A probe instrument writes an impulse at each note-on and logs every event it
 //! receives with its absolute frame; the expected frames come from exact rational
 //! arithmetic (`tick × 60 × rate / (bpm × 960)`, floored), never from the clock under test.
-//! Every test also checks that no note is left hanging: each note-on is ended by its
-//! note-off or an `AllNotesOff`.
+//! The tests that hold notes check that none is left hanging: each note-on is ended by its
+//! note-off or an `AllNotesOff`, and no voice starts twice.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -357,6 +357,7 @@ fn the_block_size_changes_nothing() {
     for size in [1, 7, 2048] {
         let (ev, _) = bar_clip_events(44_100, size);
         assert_eq!(ev, reference, "blocks of {size}");
+        held(0);
     }
 }
 
@@ -735,5 +736,64 @@ fn an_unfinished_upload_leaves_the_playing_table_alone() {
     assert!(ons(0).iter().all(|(_, key)| *key == 60));
     r.send(&[M::Stop]);
     r.run(256, 128);
+    assert_nothing_held(0);
+}
+
+#[test]
+fn a_release_larger_than_the_sink_in_the_middle_of_a_block_stays_in_its_sub_blocks() {
+    // 6 000 notes held across the loop end (beyond the sink's room for a sub-block), the
+    // wrap in the middle of a block, after other notes of the same block.
+    let mut notes: Vec<Note> = (0..6000).map(|i| note(100, 800, (i % 128) as u8)).collect();
+    notes.push(note(880, 10, 1));
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 960, Some((0, 900)), notes));
+    // The wrap at tick 900 is frame 22 500, frame 100 of a block of 128 (the probe
+    // asserts every offset is below its sub-block's length).
+    r.run(25 * 900 * 3, 128);
+    r.send(&[M::Stop]);
+    r.run(256, 128);
+    assert_nothing_held(0);
+    let offs = offs(0);
+    let at_wrap = offs
+        .iter()
+        .filter(|(at, _)| *at >= 22_500 && *at < 22_500 + 10)
+        .count();
+    assert_eq!(
+        at_wrap, 6000,
+        "every held note released at the wrap (one frame late at most)"
+    );
+}
+
+#[test]
+fn a_transport_loop_that_wraps_before_the_launch_point_keeps_the_clip_in_phase() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    r.send(&[
+        upload(0, 960, Some((0, 960)), vec![note(0, 10, 60)]),
+        slot(0, 0, 0),
+        M::SetLoop {
+            region: LoopRegion::new(Tick(0), Tick(3840)),
+        },
+        M::Play { from: Tick(0) },
+    ]);
+    r.run(25 * 1000, 100);
+    // Launched at tick 1000: the clip's notes are at 1000 + 960 k, also before 1000 once
+    // the transport loop wraps back to 0: at 40 (= 1000 − 960).
+    r.send(&[launch(0, 0)]);
+    r.run(25 * (3840 + 1100), 100);
+    let ons: Vec<u64> = ons(0).into_iter().map(|(at, _)| at).collect();
+    let pass = 25 * 3840;
+    assert_eq!(
+        ons,
+        [
+            25_000,
+            25 * 1960,
+            25 * 2920,
+            pass + 25 * 40,
+            pass + 25_000,
+            pass + 25 * 1960
+        ]
+    );
+    r.send(&[M::Stop]);
+    r.run(256, 100);
     assert_nothing_held(0);
 }

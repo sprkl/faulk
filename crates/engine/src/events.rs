@@ -310,7 +310,8 @@ impl Cursor {
         if self.releasing {
             let at = (segment.offset.max(start) - start) as u32;
             if !self.release(events, at, sink) {
-                return self.full(segment, (at as usize).max(1));
+                // The note-offs pushed sit at `at`: the sub-block keeps that frame.
+                return self.full(segment, at as usize + 1);
             }
         }
         let len = events.len();
@@ -333,7 +334,7 @@ impl Cursor {
                     if !self.deliver(events, self.next, at, sink) {
                         // Room was checked for the whole group: not reached.
                         self.group_end = end;
-                        return self.full(segment, (at as usize).max(1));
+                        return self.full(segment, at as usize + 1);
                     }
                     self.next += 1;
                 }

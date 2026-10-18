@@ -60,7 +60,11 @@
 //! delivered are not read twice); any other segment is a jump.
 //!
 //! A transport stop releases the held notes and stops the clip; a launch order not yet run
-//! stays. A clip removed or replaced while it plays is handled by `apply`
+//! stays. A clip plays on one track at a time: a track whose launch names a clip another
+//! track still plays stays silent. Tracks are read in slot order, so a clip released by a
+//! track at a boundary can be taken at that boundary only by a track of a higher slot
+//! (a clip sits in one track's grid slot: only raw messages, or linked clips later, meet
+//! this). A clip removed or replaced while it plays is handled by `apply`
 //! ([`ClipPlayer::clip_changed`]). While the player plays or waits for a boundary, the
 //! track's schedule is silent: a launched clip takes the track (AR-2 settles the
 //! arrangement against the grid).
@@ -533,7 +537,8 @@ impl ClipPlayer {
             let at = rel(p);
             if !self.halt(env, at, sink) {
                 self.cut = Some((segment.from, segment.to, p));
-                return Read::Full((at as usize).max(1));
+                // The note-offs pushed sit at `at`: the sub-block keeps that frame.
+                return Read::Full(at as usize + 1);
             }
             if let Some(q) = self.queued.take()
                 && let LaunchRequest::Clip(scene) = q.order
