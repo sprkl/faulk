@@ -391,29 +391,23 @@ async fn the_session_receives_the_engine_report_as_binary_frames() {
 }
 
 #[tokio::test]
-async fn a_page_that_does_not_read_never_queues_more_than_one_report() {
+async fn an_unchanged_report_is_not_sent_again() {
     let mut h = start().await;
     let path = format!("/session?token={TOKEN}");
     let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
     assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
-    // The page reads nothing while the audio writes reports for 3 s.
-    for _ in 0..3 {
-        play(&mut h.core, 1_000);
-        tokio::time::sleep(Duration::from_millis(400)).await;
-    }
-    // Then reads: the frames that were buffered by the socket are few (the writer held at
-    // most one report in the queue when the socket was full).
+    play(&mut h.core, 200);
+    // Drain what the ticker sent while the audio ran, then the audio stops: no new report is
+    // written, so none is sent.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    while let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_millis(150), ws.next()).await {}
     let mut frames = 0;
     while let Ok(Some(Ok(frame))) =
-        tokio::time::timeout(Duration::from_millis(300), ws.next()).await
+        tokio::time::timeout(Duration::from_millis(400), ws.next()).await
     {
         if matches!(frame, Message::Binary(_)) {
             frames += 1;
         }
     }
-    assert!(frames > 0, "reports flow");
-    assert!(
-        frames <= 100,
-        "{frames} reports in 3 s of ticks: the ticker sends 30 a second at most"
-    );
+    assert_eq!(frames, 0, "the same report was sent again");
 }

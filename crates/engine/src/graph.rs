@@ -179,7 +179,9 @@ impl MeterAcc {
     #[inline]
     fn push(&mut self, i: usize, sample: f32) {
         let a = sample.abs();
-        if a.is_finite() {
+        // Below 1e-18 (-360 dB) a sample is silence for a meter, and squaring it would be a
+        // denormal on every sample of a decaying tail.
+        if a.is_finite() && a > 1e-18 {
             self.peak[i] = self.peak[i].max(a);
             self.squares[i] += a * a;
         }

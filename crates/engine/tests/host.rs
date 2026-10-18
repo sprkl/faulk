@@ -486,3 +486,44 @@ fn the_output_meter_includes_the_metronome_and_the_track_meters_do_not() {
         "the click reaches the output meter: {master}"
     );
 }
+
+#[test]
+fn a_fader_ramp_is_metered_as_it_plays_not_at_its_target() {
+    let mut session = two_tracks(1.0);
+    let settled = report_of(&mut session);
+    let steady = settled.meters[1].peak_l;
+    assert!(steady > 0.05);
+    // Track 1 to silence: its fade lasts 5 ms (240 frames); 64 frames are rendered.
+    session.host.write_feedback();
+    session.send(&[M::TrackSetMix {
+        track: TrackSlot(1),
+        gain: 0.0,
+        pan: 0.0,
+        mute: false,
+    }]);
+    session.host.render(64);
+    session.host.write_feedback();
+    let ramp = read_feedback(session.host.feedback()).unwrap().meters[1];
+    assert!(
+        ramp.peak_l > 0.0,
+        "still audible at the ramp's start: {ramp:?}"
+    );
+    assert!(
+        ramp.peak_l < steady * 1.001,
+        "never louder than before: {ramp:?}"
+    );
+    assert!(ramp.rms_l < steady, "the ramp lowers the level: {ramp:?}");
+    // Past the ramp the track meters silence.
+    for _ in 0..4 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    for _ in 0..12 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback()).unwrap().meters[1].peak_l,
+        0.0
+    );
+}

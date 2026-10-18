@@ -42,7 +42,7 @@ struct Session {
     tx: mpsc::UnboundedSender<Out>,
     /// A report frame waits in the queue: the next one is not sent until the writer took it
     /// (a stalled page never makes the queue grow by 30 reports per second).
-    report_pending: Arc<AtomicBool>,
+    report_pending: Arc<ReportGate>,
 }
 
 pub struct Shared {
@@ -112,7 +112,7 @@ impl Shared {
     fn report_to_session(&self, bytes: Vec<u8>) {
         if let Ok(session) = self.session.lock()
             && let Some(s) = session.as_ref()
-            && !s.report_pending.swap(true, Ordering::Relaxed)
+            && s.report_pending.claim()
         {
             let _ = s.tx.send(Out::Report(bytes));
         }
@@ -332,7 +332,7 @@ async fn pair(mut ws: Ws, shared: &Shared) {
 async fn session(ws: Ws, shared: &Arc<Shared>) {
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
-    let pending = Arc::new(AtomicBool::new(false));
+    let pending = Arc::new(ReportGate::default());
     let taken = pending.clone();
     let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
     {
@@ -359,6 +359,7 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
 
     let writer = tokio::spawn(async move {
         while let Some(out) = rx.recv().await {
+            let is_report = matches!(out, Out::Report(_));
             let (frame, replaced) = match out {
                 Out::Msg(message) => {
                     let replaced = matches!(&message, ServerMessage::Error { code, .. } if code == "session.replaced");
@@ -367,8 +368,11 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
                 Out::Report(bytes) => (Message::binary(bytes), false),
             };
             let sent = sink.send(frame).await;
-            // The report left the queue: the next one may follow.
-            taken.store(false, Ordering::Relaxed);
+            // A report left the queue: the next one may follow (a JSON frame says nothing
+            // about the reports waiting).
+            if is_report {
+                taken.release();
+            }
             if sent.is_err() || replaced {
                 break;
             }
@@ -410,4 +414,39 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
     }
     drop(current);
     writer.abort();
+}
+
+/// At most one report waits in a session's queue: a stalled page never makes the queue grow
+/// by 30 reports per second. The ticker claims the gate before it queues a report, the writer
+/// releases it once that report left the queue (and only then: a JSON frame says nothing
+/// about the reports waiting).
+#[derive(Debug, Default)]
+struct ReportGate(AtomicBool);
+
+impl ReportGate {
+    /// Takes the gate: `true` when no report waits.
+    fn claim(&self) -> bool {
+        !self.0.swap(true, Ordering::Relaxed)
+    }
+
+    fn release(&self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_gate_lets_one_report_wait_until_it_is_released() {
+        let gate = ReportGate::default();
+        assert!(gate.claim(), "the first report is queued");
+        for _ in 0..100 {
+            assert!(!gate.claim(), "no second report while one waits");
+        }
+        gate.release();
+        assert!(gate.claim(), "the next one follows the first");
+        assert!(!gate.claim());
+    }
 }
