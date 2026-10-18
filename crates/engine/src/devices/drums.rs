@@ -889,11 +889,14 @@ impl Device for Drums {
         if frames > cursor {
             self.render(&mut io.left[cursor..frames], &mut io.right[cursor..frames]);
         }
-        crate::host::add_block_voices(self.active_voices() as u32);
     }
 
     fn set_param(&mut self, id: ParamId, value: f32) {
         self.set_value(id, value);
+    }
+
+    fn voices(&self) -> u32 {
+        self.active_voices() as u32
     }
 
     /// Silences every sound at once, restarts the noise and snaps the levels to their
