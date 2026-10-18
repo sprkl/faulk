@@ -20,6 +20,13 @@ describe('the shell', () => {
     for (const id of ['engine-state', 'track-list', 'view', 'bottom-panel']) expect(body, id).toContain(`data-testid="${id}"`)
   })
 
+  it('says the project loads with the audio, and offers no track before', () => {
+    const { body } = render(Shell)
+    expect(body).toContain('data-testid="tracks-waiting"')
+    expect(body).not.toContain('data-testid="add-track"')
+    expect(body).not.toContain('data-testid="track-header"')
+  })
+
   it('lists the main views in the top bar and the panel views in the bottom panel, in registry order', () => {
     const { body } = render(Shell)
     expect(ids(body, 'nav')).toEqual(viewsIn('main').map((view) => view.id))

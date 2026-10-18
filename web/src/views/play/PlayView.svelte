@@ -8,6 +8,7 @@
   import type { MessageKey } from '../../lib/i18n/index'
   import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from '../../lib/devices'
+  import { trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { allNotesOff, noteOff, noteOn, setParam } from '../../lib/synth-commands'
 
@@ -16,10 +17,10 @@
 
   let octave = $state(DEFAULT_OCTAVE)
   let code = $state('')
-  /** Notes held on the computer keyboard, by physical key, so octave changes release the right note. */
+  /** Notes held on the computer keyboard, by physical key, with the track that plays each, so a change of octave or of selected track releases the right note. */
   // Not reactive on purpose: nothing renders from it.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const held = new Map<string, number>()
+  const held = new Map<string, { note: number; track: string }>()
 
   /** Icons of the waveform values, by the value's key in the synth's descriptor (none for a key without one). */
   const ICONS: Record<string, string> = {
@@ -28,10 +29,13 @@
     square: 'M2 16 L 2 4 L 12 4 L 12 16 L 22 16 L 22 4',
     triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
   }
+  const synth = $derived(project.synth)
+  /** The track the computer keyboard plays: the selected one, when it is a MIDI track. */
+  const target = $derived(project.selected?.track.kind === 'midi' ? project.selected : null)
   const label = (key: string) => t(labelKey(SYNTH, key) as MessageKey)
 
   function releaseAllKeys() {
-    for (const note of held.values()) dispatcher.run(noteOff(note))
+    for (const { note, track } of held.values()) dispatcher.run(noteOff(note, track))
     held.clear()
   }
 
@@ -45,16 +49,25 @@
     }
     const note = noteForKey(event.code, octave)
     if (note === null || held.has(event.code)) return
-    held.set(event.code, note)
-    dispatcher.run(noteOn(note, 100))
+    // The selected MIDI track plays; an audio track or no selection plays nothing.
+    if (!target) return
+    held.set(event.code, { note, track: target.id })
+    dispatcher.run(noteOn(note, 100, target.id))
   }
 
   function onKeyUp(event: KeyboardEvent) {
-    const note = held.get(event.code)
-    if (note === undefined) return
+    const key = held.get(event.code)
+    if (!key) return
     held.delete(event.code)
-    dispatcher.run(noteOff(note))
+    dispatcher.run(noteOff(key.note, key.track))
   }
+
+  // Selecting another track (or deleting the selected one) ends the notes of the previous one.
+  const selectedId = $derived(project.selected?.id)
+  $effect(() => {
+    void selectedId
+    releaseAllKeys()
+  })
 
   onMount(() => {
     const release = () => releaseAllKeys()
@@ -149,6 +162,7 @@
     </section>
 
     <section class="panel synth">
+      {#if synth}
       <h2 class="label">{SYNTH.name}</h2>
       {#each choiceParams(SYNTH) as param (param.key)}
         <div class="row">
@@ -156,10 +170,10 @@
             {#each choices(param) as choice (choice.value)}
               <button
                 role="radio"
-                aria-checked={project.params[param.key] === choice.value}
+                aria-checked={synth.params[param.key] === choice.value}
                 aria-label={label(choice.key)}
                 title={label(choice.key)}
-                onclick={() => dispatcher.run(setParam(param.key, choice.value))}
+                onclick={() => dispatcher.run(setParam(param.key, choice.value, synth.device))}
               >
                 {#if ICONS[choice.key]}
                   <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
@@ -176,9 +190,9 @@
         {#each knobParams(SYNTH) as param (param.key)}
           <Knob
             label={label(param.key)}
-            position={positionOf(param, project.params[param.key])}
-            display={formatValue(param, project.params[param.key])}
-            onchange={(p) => dispatcher.run(setParam(param.key, valueAt(param, p)))}
+            position={positionOf(param, synth.params[param.key])}
+            display={formatValue(param, synth.params[param.key])}
+            onchange={(p) => dispatcher.run(setParam(param.key, valueAt(param, p), synth.device))}
           />
         {/each}
       </div>
@@ -186,12 +200,20 @@
         <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
       </div>
       </div>
+      {:else}
+        <h2 class="label">{t('play.instrument')}</h2>
+        <p class="muted" data-testid="no-synth">{t(!project.selected ? 'play.noTrack' : project.selected.track.kind === 'audio' ? 'play.audioTrack' : 'play.noSynth')}</p>
+        <div class="meter-box">
+          <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
+        </div>
+      {/if}
     </section>
 
     <section class="panel keys">
       <div class="keys-head">
         <h2 class="label">{t('keys.title')}</h2>
         <span class="value">{t('keys.octave', { n: octave })}</span>
+        <span class="muted target" data-testid="keys-target">{target ? t('keys.target', { name: trackLabel(target, t) }) : t('keys.noTarget')}</span>
         <button class="ghost" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
       </div>
       <PianoStrip low={(octave + 1) * 12} active={engine.activeNotes} />
@@ -270,6 +292,12 @@
     display: flex;
     align-items: center;
     gap: var(--fk-space-3);
+  }
+  .target {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .keys-head button {
     margin-left: auto;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { clampOctave, ignoreKeyEvent, noteForKey, octaveStep } from './keyboard'
+import { clampOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep } from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -39,5 +39,30 @@ describe('computer keyboard', () => {
     const box = document.createElement('div')
     box.innerHTML = '<input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
     for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
+  })
+})
+
+describe('history shortcuts', () => {
+  const base = { key: 'z', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, target: document.body }
+
+  it('maps Ctrl or Cmd + Z to undo, Shift + Z and Ctrl + Y to redo', () => {
+    expect(historyShortcut(base)).toBe('undo')
+    expect(historyShortcut({ ...base, ctrlKey: false, metaKey: true })).toBe('undo')
+    expect(historyShortcut({ ...base, key: 'Z', shiftKey: true })).toBe('redo')
+    expect(historyShortcut({ ...base, key: 'y' })).toBe('redo')
+  })
+
+  it('leaves the other keys, a plain Z and text fields alone', () => {
+    expect(historyShortcut({ ...base, ctrlKey: false })).toBeNull()
+    expect(historyShortcut({ ...base, key: 'a' })).toBeNull()
+    expect(historyShortcut({ ...base, altKey: true })).toBeNull()
+    expect(historyShortcut({ ...base, key: 'y', shiftKey: true })).toBeNull()
+    const input = document.createElement('input')
+    input.type = 'text'
+    document.body.append(input)
+    expect(historyShortcut({ ...base, target: input })).toBeNull()
+    const range = document.createElement('input')
+    range.type = 'range'
+    expect(historyShortcut({ ...base, target: range })).toBe('undo')
   })
 })

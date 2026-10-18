@@ -1,0 +1,104 @@
+// Every action of a track header is a command the project core takes: each builder is run against
+// the real core (project.wasm, built by `pnpm test`), and the ones that edit undo to the same project.
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
+import type { Command, ProjectView, RunReport } from './generated/protocol'
+import { coreModule, ProjectCore } from './project/core'
+import { sortedTracks } from './project/tracks'
+import * as commands from './track-commands'
+
+let module: WebAssembly.Module
+beforeAll(async () => {
+  module = await coreModule(readFileSync(new URL('./project/wasm/project.wasm', import.meta.url)))
+})
+
+function run(core: ProjectCore, command: Command): RunReport & { status: 'applied' } {
+  const { report } = core.run(command)
+  if (report.status !== 'applied') throw new Error(`${command.type} not applied: ${JSON.stringify(report)}`)
+  return report
+}
+
+const project = (core: ProjectCore): ProjectView['project'] => core.project().project
+
+describe('the commands of the track headers', () => {
+  it('creates a MIDI track for each instrument and an audio track, unnamed, with a colour', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    for (const [kind, instrument] of [['midi', 'faulk.osc_synth'], ['midi', 'faulk.drums'], ['audio', null]] as const) {
+      run(core, commands.createTrack(kind, instrument, '#58c27d'))
+    }
+    const tracks = sortedTracks(project(core))
+    expect(tracks.map((e) => e.track.kind)).toEqual(['midi', 'midi', 'audio'])
+    expect(tracks.map((e) => e.track.name)).toEqual(['', '', ''])
+    expect(tracks.every((e) => e.track.color === '#58c27d')).toBe(true)
+    const sources = tracks.map((e) => JSON.stringify(Object.values(e.track.devices).map((d) => d?.source)))
+    expect(sources[0]).toContain('faulk.osc_synth')
+    expect(sources[1]).toContain('faulk.drums')
+  })
+
+  it('runs every other action, and each edit undoes to the project it started from', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.createTrack('midi', 'faulk.osc_synth', '#58c27d'))
+    const id = sortedTracks(project(core))[0].id
+    const actions: Command[] = [
+      commands.renameTrack(id, 'Bass'),
+      commands.setTrackColor(id, '#5b8def'),
+      commands.setMute(id, true),
+      commands.setVolume(id, -12),
+      commands.setVolume(id, null),
+      commands.setPan(id, -0.5),
+    ]
+    for (const action of actions) {
+      const before = JSON.stringify(project(core))
+      run(core, action)
+      expect(JSON.stringify(project(core)), action.type).not.toBe(before)
+      run(core, commands.undo())
+      expect(JSON.stringify(project(core)), `undo of ${action.type}`).toBe(before)
+    }
+  })
+
+  it('selects and solos in the session, not in the project', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.createTrack('midi', null, '#58c27d'))
+    run(core, commands.createTrack('midi', null, '#5b8def'))
+    const [a, b] = sortedTracks(project(core)).map((e) => e.id)
+    const before = JSON.stringify(project(core))
+    run(core, commands.selectTrack(b))
+    run(core, commands.setSolo(a, true))
+    run(core, commands.setSolo(b, true))
+    const { session } = core.project()
+    expect(session.selected_track).toBe(b)
+    expect([...session.solo].sort()).toEqual([a, b].sort())
+    expect(JSON.stringify(project(core))).toBe(before)
+    run(core, commands.setSolo(a, false))
+    expect(core.project().session.solo).toEqual([b])
+  })
+
+  it('deletes a track and brings it back whole with an undo; a gesture is one undo', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.createTrack('midi', 'faulk.drums', '#58c27d'))
+    const id = sortedTracks(project(core))[0].id
+    run(core, commands.renameTrack(id, 'Kit'))
+    run(core, commands.setMute(id, true))
+    const before = JSON.stringify(project(core))
+    run(core, commands.deleteTrack(id))
+    expect(sortedTracks(project(core))).toEqual([])
+    run(core, commands.undo())
+    expect(JSON.stringify(project(core))).toBe(before)
+    expect(run(core, commands.redo()).events.length).toBeGreaterThan(0)
+    run(core, commands.undo())
+
+    run(core, commands.beginGroup())
+    for (const db of [-3, -6, -9, -12]) run(core, commands.setVolume(id, db))
+    run(core, commands.endGroup())
+    expect(project(core).tracks[id]!.mixer.gain_db).toBe(-12)
+    run(core, commands.undo())
+    expect(project(core).tracks[id]!.mixer.gain_db).toBe(0)
+  })
+
+  it('refuses a second group while one is open: the page ends its gesture, it never nests', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.beginGroup())
+    expect(core.run(commands.beginGroup()).report.status).not.toBe('applied')
+    run(core, commands.endGroup())
+  })
+})
