@@ -31,7 +31,7 @@ pub struct FormatProbe {
 }
 
 /// The project document: what makes the music, saved and versioned.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
     /// On-disk format version, for migrations ([`FORMAT_VERSION`]).
@@ -51,7 +51,8 @@ pub struct Project {
     /// The rows of the launch grid.
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
-    /// The master bus.
+    // The master bus. Not a doc comment: a description beside its `$ref` would make the
+    // generated TypeScript declare a copy of `Mixer`.
     pub master: Mixer,
     /// The tracks.
     #[serde(deserialize_with = "unique_map")]
@@ -59,7 +60,7 @@ pub struct Project {
 }
 
 /// A tempo from a tick on.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TempoPoint {
     pub tick: Tick,
@@ -67,7 +68,7 @@ pub struct TempoPoint {
 }
 
 /// A time signature from a tick on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MeterPoint {
     pub tick: Tick,
@@ -76,7 +77,7 @@ pub struct MeterPoint {
 
 /// The transport settings saved with the project (§ 1.3). Play state and the playhead
 /// are ephemeral and never saved.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TransportSettings {
     /// The launch quantization, global to the project (founder's decision 8): one bar by
@@ -101,12 +102,13 @@ impl Default for TransportSettings {
 }
 
 /// The metronome settings.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Metronome {
     pub enabled: bool,
     /// Level in dB; `-inf` is written `null`.
     #[serde(with = "db")]
+    #[schemars(with = "Option<f64>")]
     pub gain_db: f64,
     /// Bars counted in before recording.
     pub count_in_bars: u8,
@@ -123,7 +125,7 @@ impl Default for Metronome {
 }
 
 /// A row of the launch grid. A tempo per scene comes after the MVP.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Scene {
     pub name: String,
