@@ -706,3 +706,34 @@ fn chunked_upload_and_voice_ids_of_a_clip_never_cross_the_live_ones() {
             .all(|&v| v >= SCHEDULE_FIRST_VOICE && VoiceId::new(v).is_some())
     );
 }
+
+#[test]
+fn an_unfinished_upload_leaves_the_playing_table_alone() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(0, 960, Some((0, 960)), vec![note(0, 10, 60)]),
+    );
+    r.run(25 * 100, 128);
+    // The first of two chunks of a new table: nothing changes until the last one.
+    let mut first = upload(0, 960, Some((0, 960)), vec![note(500, 10, 70)]);
+    if let M::ClipNotesUpload { total, .. } = &mut first {
+        *total = 2;
+    }
+    r.send(&[first]);
+    r.run(25 * 2000, 128);
+    assert!(ons(0).iter().all(|(_, key)| *key == 60), "{:?}", ons(0));
+    assert_eq!(ons(0).len(), 3);
+    // An out-of-order chunk is refused and the old table still plays.
+    let mut stray = upload(0, 960, Some((0, 960)), vec![note(500, 10, 70)]);
+    if let M::ClipNotesUpload { first, total, .. } = &mut stray {
+        *first = 5;
+        *total = 9;
+    }
+    r.send(&[stray]);
+    r.run(25 * 1000, 128);
+    assert!(ons(0).iter().all(|(_, key)| *key == 60));
+    r.send(&[M::Stop]);
+    r.run(256, 128);
+    assert_nothing_held(0);
+}

@@ -278,7 +278,8 @@ impl ClipNotes {
 
 /// Note `index` of a run of packed words.
 fn note_at(packed: &[u32], index: usize) -> Option<PackedNote> {
-    let w = packed.get(index * NOTE_WORDS..(index + 1) * NOTE_WORDS)?;
+    let at = index.checked_mul(NOTE_WORDS)?;
+    let w = packed.get(at..at.checked_add(NOTE_WORDS)?)?;
     Some(PackedNote::from_words([w[0], w[1], w[2], w[3]]))
 }
 
@@ -474,9 +475,14 @@ impl ClipPlayer {
                 clip.on_track = None;
             }
         }
+        self.forget();
+        true
+    }
+
+    /// No clip plays any more; the cursor starts over.
+    fn forget(&mut self) {
         self.playing = None;
         self.cursor = Cursor::default();
-        true
     }
 
     /// Reads the events of `segment` into `sink` for the sub-block that starts at frame
@@ -490,12 +496,17 @@ impl ClipPlayer {
     ) -> Read {
         self.take_launch(env);
         let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
-        let (from, jumped) = match self.cut.take() {
+        let cut = self.cut.take();
+        let (from, jumped) = match cut {
             // The same segment read again, or the next block's that continues it.
             Some((f, t, piece)) if (segment.from == f && segment.to == t) || segment.from == t => {
                 (piece, false)
             }
-            _ => (segment.from, self.last != Some(segment.from)),
+            // After a cut, any other segment is a jump.
+            _ => (
+                segment.from,
+                cut.is_some() || self.last != Some(segment.from),
+            ),
         };
         if let Some(q) = &mut self.queued {
             q.at = match q.at {
@@ -593,13 +604,11 @@ impl ClipPlayer {
         let track = env.track;
         let Some(clip) = env.clips.get_mut(pl.clip.0) else {
             // Removed: `apply` stopped it; nothing to read.
-            self.playing = None;
-            self.cursor = Cursor::default();
+            self.forget();
             return Ok(());
         };
         if clip.on_track != Some(track) {
-            self.playing = None;
-            self.cursor = Cursor::default();
+            self.forget();
             return Ok(());
         }
         let (length, looping) = (clip.length, clip.looping);
@@ -639,10 +648,13 @@ fn piece(
     match looping {
         None => {
             if e < 0 {
-                Some((None, at(-e)))
+                Some((None, at(e.saturating_neg())))
             } else if e <= length.0 {
                 // Through the clip's last tick: a note-off at `length` is delivered.
-                Some((Some(Tick(e)), at(length.0 - e + 1)))
+                Some((
+                    Some(Tick(e)),
+                    at(length.0.saturating_sub(e).saturating_add(1)),
+                ))
             } else {
                 None
             }
@@ -655,7 +667,11 @@ fn piece(
                 let span = le - ls;
                 let k = e.saturating_sub(le).rem_euclid(span);
                 // Before the anchor, the piece also ends there: the clip's position 0.
-                let rest = if e < 0 { (span - k).min(-e) } else { span - k };
+                let rest = if e < 0 {
+                    (span - k).min(e.saturating_neg())
+                } else {
+                    span - k
+                };
                 Some((Some(Tick(ls + k)), at(rest)))
             }
         }
@@ -761,5 +777,22 @@ mod tests {
             Some((Some(Tick(200)), Tick(1501)))
         );
         assert_eq!(piece(a, Tick(500), None, Tick(1501), Tick(5000)), None);
+    }
+
+    #[test]
+    fn pieces_saturate_and_always_move_on() {
+        let (lo, hi) = (Tick(i64::MIN), Tick(i64::MAX));
+        let r = LoopRegion::new(Tick(1), hi);
+        for (anchor, length, looping, t) in [
+            (hi, hi, None, lo),
+            (lo, hi, None, Tick(0)),
+            (lo, hi, r, Tick(5)),
+            (hi, hi, r, lo),
+            (Tick(0), Tick(-5), None, Tick(0)),
+        ] {
+            if let Some((_, end)) = piece(anchor, length, looping, t, hi) {
+                assert!(end > t, "{anchor:?} {length:?} {t:?}");
+            }
+        }
     }
 }
