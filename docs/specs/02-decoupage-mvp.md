@@ -316,7 +316,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - **Table des emplacements** (`EngineSlots`) : dans `Context`, comme le générateur d'identifiants, car elle dépend de l'ordre des créations et suppressions et appartient à une connexion moteur ; un hôte garde un seul `Context` par moteur et change l'auteur et le groupe par appel. Plus petit emplacement libre, croissance sans plafond, emplacement d'un device = sa place dans la chaîne. Un groupe annulé qui échoue rend aussi la table. Une entité sans emplacement (un moteur jamais synchronisé) ne reçoit aucun message.
 - **Limites** : le projet avait des limites par piste seulement pour les clips, les placements et les couloirs ; les emplacements du moteur sont globaux. `project::limits` ajoute `MAX_CLIPS`, `MAX_PLACEMENTS`, `MAX_LANES` (ceux du moteur), vérifiés par `validate()` et refusés par `clip.create`, `clip.duplicate`, `clip.restore` et `track.duplicate` (`limit`).
 - **Hôtes** : `Synced` (état, contexte, flux) remplace le mappage sans état de MO-2 dans `project-wasm` (nouveau code `ERR_REFUSED = -101`), le helper et le harnais QA-1 ; la page et le helper tiennent chacun une copie du projet à un synthé jusqu'à PR-4, PR-5 et BO-1. Les commandes `transport.play`, `stop` et `seek` produisent leurs messages : `play` part de la dernière position donnée par `seek` (0 au début), aussi après un arrêt, et n'envoie rien pendant la lecture (le `Play` du moteur positionne toujours, et la tête de lecture n'est pas encore remontée) ; choix à valider par le fondateur.
-- **Flux refusé** : la page le range dans `EngineStore.streamError` ; le message affiché et la reprise par `Synced::resync` sont de PR-5.
+- **Flux refusé** : la page le range dans `EngineStore.streamError`, arrête le moteur Web, affiche le message (PR-5) ; « Démarrer l'audio » relance un moteur neuf qui repart d'un instantané (`Synced::resync`).
 - **Pas encore envoyé** : les clips audio et leurs placements (AU-3), les devices qui ne sont pas des devices intégrés du registre (lecteur de clips, modules) ; le clip du moteur n'a pas de région de boucle (`looped` seulement) et ses notes n'ont ni accord fin, ni chance, ni répétition (CL-2).
 - **Un instantané envoyé d'un bloc** au-delà d'environ 8 192 messages préparés (anneau et file d'attente) est arrêté par `EngineBusy` : l'envoi rythmé d'un gros projet revient à l'hôte (#245).
 
@@ -336,7 +336,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - **Enregistrement en deux temps** : `save()` ne marque rien ; seul `saved()` fixe la référence, avec le texte écrit. Une écriture qui échoue laisse le fichier sale, une modification faite entre `save()` et `saved()` aussi. Un projet chargé est propre.
 - **Fichiers provisoires** jusqu'au format dossier de SV-1 (#93) : `project.json` contient le `Project` sérialisé entier et `.faulk/session.json` la session. Rien ne les écrit encore sur disque (SV-2). Un fichier de session illisible n'empêche pas d'ouvrir le projet : la session par défaut le remplace (`session_reset`) et le fichier reste tel quel tant que la session ne change pas.
 - **Taille** (build release, 2026-10-18) : `project.wasm` pèse 1 748 910 octets, dont 322 159 de section `name`, et 442 877 octets compressé (`gzip -9`).
-- **Pas encore** : le dispatcher passe encore par `WebEngine`, qui tient son propre cœur à un synthé ; le cœur unique de la page, le store projet alimenté par les événements et la bascule de mode par instantané sont de PR-5 ; la copie du projet dans le helper reste jusqu'à BO-1.
+- **Pas encore** : la copie du projet dans le helper reste jusqu'à BO-1 (le cœur unique de la page, le store projet et la bascule par instantané sont de PR-5, ci-dessous).
 
 **PR-5 — Dispatcher web générique et stores**
 - But : remplacer le `switch` de `Dispatcher.run` (`web/src/lib/stores/dispatcher.ts`) par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur (`wasm-ops.ts` est déjà supprimé par MO-2, qui a posé un premier encodeur `project-wasm` provisoire).
@@ -345,6 +345,15 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Dépend de : PR-4, MO-2, UI-1.
 - Phase : 2.
 - Étiquettes : hardware: non, founder: non.
+
+**Mise en œuvre PR-5 (#50, 2026-10-18) : `web/src/lib/stores/dispatcher.ts`.** Ce que le code fait :
+
+- **Un seul cœur, celui du dispatcher** : `ProjectCore` créé au premier `start()` (projet à un synthé, époque 1) et gardé tant que la page vit ; `WebEngine` n'a plus de cœur. `run(commande)` : le cœur applique, le moteur actif reçoit ce que la commande lui veut (`Engine.send(commande, octets)` : le moteur Web prend les octets encodés, le helper prend la commande, sa copie provisoire ignorant les octets), le store projet reçoit les événements. Une commande refusée par le projet ne part nulle part. Sans moteur (audio pas démarré, ou arrêté sur un flux refusé), `run` ne fait rien.
+- **Store projet** : miroir (`view`, drapeaux annuler/rétablir) nourri par les `ProjectEvent` ; `device_param_changed` met à jour le miroir en place, tout autre événement relit le projet du cœur.
+- **Effets propres à la page** (`effects.ts`) : le dispatcher ne nomme aucune commande ; l'entrée MIDI Web et les notes « qui sonnent » du clavier, qui ne sont ni dans le projet ni dans un événement, sont une table commande → effet. Les commandes que la page émet d'elle-même (relâcher les notes, demander les entrées MIDI du helper) sont dans `housekeeping.ts`. La mise à niveau de la copie du helper à l'entrée en Boost est dans `engine/helper-copy.ts` (BO-1 la supprime).
+- **Bascule** : retour au mode Web = instantané du cœur (`Reset` à l'époque suivante) poussé au moteur Web ; entrée en Boost = les octets du cœur ne vont plus nulle part, le helper reçoit les commandes.
+- **Flux refusé** : le moteur Web est arrêté, `streamError` posé et le message affiché (EN « The audio engine stopped taking changes. Restart audio to continue. », FR « Le moteur audio n'accepte plus les changements. Relance l'audio pour continuer. », texte validé dans l'issue) ; le bouton « Démarrer l'audio » relance un moteur neuf depuis un instantané, le projet est conservé. Un événement tardif d'un moteur arrêté est ignoré (génération du moteur Web).
+- **Pas encore** : un contexte audio suspendu par le navigateur en mode Web ne suspend pas l'envoi (voir « file d'attente » ci-dessus) ; la bascule Boost → Web n'est vérifiée dans un vrai navigateur que contre un helper de substitution.
 
 **PR-6 — Commandes de requête pour les agents**
 - But : `project.get`, `track.list`, `track.get`, `clip.get`, `clip.notes.list`, `scene.list`, `device.describe`, `automation.lane.list`, `transport.get` (`x-kind: query`).

@@ -2,19 +2,27 @@ import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
-import type { Command, SynthParam } from '../generated/protocol'
+import { bringHelperCopyUpToDate } from '../engine/helper-copy'
+import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { allNotesOff, setParam } from '../synth-commands'
+import { coreModule, engineStep, ProjectCore } from '../project/core'
+import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
+import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import type { ProjectStore } from './project.svelte'
 import { storage, TOKEN_KEY } from './storage'
 
+/** The epoch of the first engine stream of the page's project core (newer than a fresh engine's 0). */
+const FIRST_EPOCH = 1
+
 /**
  * The only path from the UI to an engine: every user action is a `Command` passed to `run`.
- * It owns the engines and Web MIDI, and is the only writer of the project and engine stores;
- * the views read the stores. It also moves playback between the page (Web) and the helper
- * (Boost) and pairs with the helper.
+ * It owns the page's project core (the page owns the project in both modes), the engines and
+ * Web MIDI, and is the only writer of the project and engine stores; the views read the
+ * stores. `run` is generic: the core applies the command, the active engine gets what it
+ * means for it, the project store gets the events. It also moves playback between the page
+ * (Web) and the helper (Boost) by snapshot, and pairs with the helper.
  */
 export class Dispatcher {
   /** Counts probes, so a late answer from an older probe never overwrites a newer one. */
@@ -23,6 +31,9 @@ export class Dispatcher {
   private linkCodeToRetry: string | null = null
   /** MIDI input chosen in Web mode, reopened when coming back from Boost. */
   private lastWebInput: string | null = null
+  private core: ProjectCore | null = null
+  /** The engines the core has set up so far: the first takes its `Reset` in the first epoch, every later one a snapshot in a newer epoch. */
+  private engineStarts = 0
   private web: WebEngine | null = null
   private native: NativeEngine | null = null
   private midi: WebMidiHost | null = null
@@ -36,8 +47,12 @@ export class Dispatcher {
     return this.native ?? this.web
   }
 
-  private events(kind: 'web' | 'native'): EngineEvents {
-    const current = () => this.engine?.kind === kind
+  /** Counts Web engines, so a late event of a stopped one never reaches the one that replaced it. */
+  private webGeneration = 0
+
+  private events(kind: 'web' | 'native', generation = this.webGeneration): EngineEvents {
+    const current = () =>
+      this.engine?.kind === kind && (kind === 'native' || generation === this.webGeneration)
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -54,7 +69,7 @@ export class Dispatcher {
       },
       onMidiActivity: (note, velocity) => this.markNote(note, velocity),
       onStreamRefused: (code, at) => {
-        if (current()) this.state.streamError = { code, at }
+        if (current()) void this.stopWeb(code, at)
       },
       onError: (code) => {
         if (code === 'session.replaced') this.state.notice = 'helper.replaced'
@@ -76,16 +91,24 @@ export class Dispatcher {
     }
   }
 
-  /** Starts the Web engine and Web MIDI. Call from a click. */
+  /**
+   * Starts the Web engine and Web MIDI. Call from a click; after a stream the engine refused,
+   * this is the "restart audio": a new engine starts from a snapshot of the project.
+   */
   async start() {
     if (this.state.started || this.state.starting) return
     this.state.starting = true
     try {
       this.state.streamError = null
-      this.web = await WebEngine.create(this.events('web'))
+      const core = (this.core ??= ProjectCore.create(await coreModule(), 'single_synth', FIRST_EPOCH))
+      const generation = ++this.webGeneration
+      const web = await WebEngine.create(this.events('web', generation))
+      this.web = web
       this.state.started = true
       this.state.notice = null
-      this.replayParams(this.web)
+      this.state.status = web.status()
+      this.project.show(core.project())
+      if (!this.syncWeb(web)) return
       await this.enableWebMidi()
     } catch (error) {
       console.error(error)
@@ -98,6 +121,40 @@ export class Dispatcher {
     const code = this.state.pendingPairCode
     this.state.pendingPairCode = null
     if (code) await this.pairFromLink(code)
+  }
+
+  /**
+   * Brings an engine up to the project: the first engine gets the core's setup, every later one
+   * a snapshot in a newer epoch (a switch back from Boost, a restart after a refused stream).
+   * False when the snapshot did not encode: the engine was stopped.
+   */
+  private syncWeb(web: WebEngine): boolean {
+    const core = this.core!
+    const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
+    if (report.status === 'failed') {
+      void this.stopWeb(report.stream_error, 0)
+      return false
+    }
+    web.push(engine)
+    return true
+  }
+
+  /**
+   * The Web engine stopped taking changes (the engine refused a stream, or the core could not
+   * encode one): it is behind the project. Stop it and show why; the Start button, which
+   * restarts audio, comes back, and the new engine starts from a snapshot.
+   */
+  private async stopWeb(code: number, at: number) {
+    const web = this.web
+    if (!web) return
+    this.web = null
+    this.state.streamError = { code, at }
+    this.state.started = false
+    this.state.status = null
+    this.state.peak = 0
+    this.state.voices = 0
+    this.state.activeNotes = []
+    await web.close().catch((error: unknown) => console.error(error))
   }
 
   /**
@@ -135,35 +192,59 @@ export class Dispatcher {
     this.state.midiState = (await this.midi.enable()) ? 'ok' : 'denied'
   }
 
-  /** The single entry point for user actions. */
+  /**
+   * The single entry point for user actions. The project core applies the command; the active
+   * engine gets what it means for it; the project store gets the events; the page-local
+   * effects (`effects.ts`) follow. A command the project refuses changes nothing.
+   */
   run(command: Command) {
-    switch (command.type) {
-      case 'device.set_param':
-        if (Object.hasOwn(this.project.params, command.param)) {
-          this.project.params[command.param as SynthParam] = command.value
-          this.engine?.run(command)
-        }
-        break
-      case 'midi.list_inputs':
-      case 'midi.select_input':
-        if (this.native) this.native.run(command)
-        else if (command.type === 'midi.select_input') {
-          this.lastWebInput = command.id ?? null
-          this.midi?.select(this.lastWebInput)
-        } else this.midi?.refresh()
-        break
-      case 'live.note_on':
-        this.engine?.run(command)
-        this.markNote(command.note, command.velocity)
-        break
-      case 'live.note_off':
-        this.engine?.run(command)
-        this.markNote(command.note, 0)
-        break
-      case 'live.all_notes_off':
-        this.engine?.run(command)
-        this.state.activeNotes = []
-        break
+    const core = this.core
+    // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
+    if (!core || !this.engine) return
+    const step = engineStep(() => core.run(command))
+    if ('refused' in step) {
+      // The views only send commands the project takes: a refusal is a page bug.
+      console.warn('the project refused a command', command, step.refused)
+      return
+    }
+    this.mirror(step.events)
+    if ('streamError' in step) {
+      // No report (it was lost): the command may have applied, read the project again.
+      if (step.events.length === 0) this.refresh()
+      // Applied, but its engine messages did not encode: the Web engine is behind the project.
+      // The helper takes the command itself, whatever its mirror of the stream.
+      if (this.native) this.native.send(command)
+      else {
+        console.error(`engine stream: error ${step.streamError}`)
+        void this.stopWeb(step.streamError, 0)
+      }
+    } else this.engine?.send(command, step.push)
+    applyEffects(command, {
+      mode: this.state.mode,
+      midi: this.midi,
+      rememberWebInput: (id) => (this.lastWebInput = id),
+      markNote: (note, velocity) => this.markNote(note, velocity),
+      clearNotes: () => (this.state.activeNotes = []),
+    })
+  }
+
+  /** Feeds the project store with the events of an applied command. */
+  private mirror(events: ProjectEvent[]) {
+    const core = this.core
+    if (!core) return
+    try {
+      this.project.apply(events, () => core.project())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  /** Reads the core's project again, when no report says what changed. */
+  private refresh() {
+    try {
+      if (this.core) this.project.show(this.core.project())
+    } catch (error) {
+      console.error(error)
     }
   }
 
@@ -171,12 +252,6 @@ export class Dispatcher {
   private markNote(note: number, velocity: number) {
     const others = this.state.activeNotes.filter((n) => n !== note)
     this.state.activeNotes = velocity > 0 ? [...others, note] : others
-  }
-
-  private replayParams(engine: Engine) {
-    for (const [param, value] of Object.entries(this.project.params) as [SynthParam, number][]) {
-      engine.run(setParam(param, value))
-    }
   }
 
   /**
@@ -243,7 +318,7 @@ export class Dispatcher {
     if (!token || this.native) return
     this.state.helper = 'connecting'
     this.state.notice = null
-    this.web?.run(allNotesOff())
+    releaseAllNotes((command) => this.run(command))
     this.state.activeNotes = []
     await this.midi?.releaseAll()
     this.state.selectedInput = null
@@ -253,9 +328,9 @@ export class Dispatcher {
       this.state.mode = 'native'
       this.state.status = native.status
       this.state.helper = 'connected'
-      this.replayParams(native)
+      bringHelperCopyUpToDate(native, this.project.params)
       // The helper's first MIDI list may arrive before this engine became current.
-      native.run({ type: 'midi.list_inputs' })
+      requestMidiInputs((command) => this.run(command))
       await this.web?.suspend()
     } catch {
       this.native = null
@@ -282,7 +357,8 @@ export class Dispatcher {
     if (!this.web) return
     await this.web.resume()
     this.state.status = this.web.status()
-    this.replayParams(this.web)
+    // The project moved on while the helper played: the Web engine catches up by snapshot.
+    if (!this.syncWeb(this.web)) return
     // Reopen the input that was playing before Boost (the helper had it meanwhile).
     this.midi?.select(this.lastWebInput)
   }

@@ -51,6 +51,9 @@
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
+  {#if engine.streamError}
+    <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
+  {/if}
   <!-- The instrument view shows pairing state in its own panels; elsewhere, here. -->
   {#if engine.pendingPairCode && !engine.started && ui.view !== 'play'}
     <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>

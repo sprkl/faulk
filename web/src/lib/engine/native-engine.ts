@@ -69,7 +69,8 @@ export class NativeEngine implements Engine {
     })
   }
 
-  run(command: Command) {
+  /** The helper holds its own copy of the project until BO-1: it takes commands, not bytes. */
+  send(command: Command) {
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'command', command } satisfies ClientMessage))
     }
@@ -77,9 +78,9 @@ export class NativeEngine implements Engine {
 
   async close() {
     this.closing = true
-    this.run(allNotesOff())
+    this.send(allNotesOff())
     // Free the MIDI input so Web mode can open it (the helper also does it on close).
-    this.run({ type: 'midi.select_input', id: null })
+    this.send({ type: 'midi.select_input', id: null })
     this.ws.close()
   }
 }

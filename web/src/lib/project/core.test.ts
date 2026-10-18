@@ -135,12 +135,12 @@ describe('ProjectCore', () => {
     const refused = engineStep(() => core.run({ type: 'track.rename', track: '00000000000000000000000009', name: 'x' }))
     expect('refused' in refused && refused.refused.status).toBe('refused')
     const applied = { status: 'applied', output: { type: 'history.undo' }, events: [] } as unknown as RunReport
-    expect(engineStep(() => ({ report: { ...applied, stream_error: -4 }, engine: new Uint8Array() }))).toEqual({ streamError: -4 })
-    expect(engineStep(() => { throw new CoreError('run', -3) })).toEqual({ streamError: -3 })
+    expect(engineStep(() => ({ report: { ...applied, stream_error: -4 }, engine: new Uint8Array() }))).toEqual({ streamError: -4, events: [] })
+    expect(engineStep(() => { throw new CoreError('run', -3) })).toEqual({ streamError: -3, events: [] })
     expect(() => engineStep(() => { throw new TypeError('other') })).toThrow(TypeError)
     core.free()
     // A freed core is a CoreError too: reported, not thrown.
-    expect(engineStep(() => core.run(note))).toEqual({ streamError: 0 })
+    expect(engineStep(() => core.run(note))).toEqual({ streamError: 0, events: [] })
   })
 
   it('takes a snapshot in the next epoch', () => {
