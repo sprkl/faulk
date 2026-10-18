@@ -32,7 +32,7 @@ jobs:
         run: |
           run=true
           if [ "$EVENT" = pull_request ]; then
-            files=$(git diff --name-only HEAD^1 HEAD)
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
             printf '%s\n' "$files"
             grep -Eq "$PATTERN" <<< "$files" || run=false
           fi

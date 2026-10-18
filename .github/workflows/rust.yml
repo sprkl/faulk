@@ -25,11 +25,11 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          PATTERN: '^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|web/src/lib/engine/proto/crate/|\.github/workflows/rust\.yml$)'
+          PATTERN: '^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|web/src/lib/engine/proto/crate/|web/vercel\.json$|web/src/lib/i18n/helper\.ts$|\.github/workflows/rust\.yml$)'
         run: |
           run=true
           if [ "$EVENT" = pull_request ]; then
-            files=$(git diff --name-only HEAD^1 HEAD)
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
             printf '%s\n' "$files"
             grep -Eq "$PATTERN" <<< "$files" || run=false
           fi
@@ -105,7 +105,7 @@ jobs:
         run: |
           run=true
           if [ "$EVENT" = pull_request ]; then
-            files=$(git diff --name-only HEAD^1 HEAD)
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
             printf '%s\n' "$files"
             grep -Eq "$PATTERN" <<< "$files" || run=false
           fi

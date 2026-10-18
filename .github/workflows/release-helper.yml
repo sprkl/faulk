@@ -16,16 +16,23 @@ name: release-helper
 #    `main` or `develop`. `draft` keeps the release as a draft and publishes nothing to Blob;
 #  - workflow_dispatch with `mirror` (a tag such as `helper-v0.1.0`): publishes the files of that
 #    existing release of this repository to Blob, without building (versions released before Blob);
-#  - workflow_dispatch without a version, a push to develop or main, or a pull request that
+#  - workflow_dispatch without a version, a push to develop or main touching the helper, the lockfile or the same files, or a pull request that
 #    touches this workflow, the helper's updater, wiring or manifest, the publication or
 #    web/vercel.json: a trial build. Artifacts only, and a dry run of the Blob
 #    publication on them.
 on:
   push:
     tags: ['helper-v*']
-    # The full trial build on every merge: what a pull request skips (a lockfile or a dependency
-    # moved elsewhere in the workspace) is caught here, before a release.
+    # The full trial build after a merge that touches the same files as a pull request, or the
+    # lockfile: what a pull request skips (a dependency moved elsewhere in the workspace) is
+    # caught here, before a release. Paths are not evaluated for tags.
     branches: [develop, main]
+    paths:
+      - '.github/workflows/release-helper.yml'
+      - 'crates/helper/**'
+      - 'Cargo.lock'
+      - 'scripts/helper-release/**'
+      - 'web/vercel.json'
   pull_request:
     paths:
       - '.github/workflows/release-helper.yml'
