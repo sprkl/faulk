@@ -25,7 +25,7 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 ## ADRs come after the code
 
-An ADR records a decision the code already implements: it is written after the code, never before. A decision taken during a task goes into the plan reviewed by Judge Dredd and the pull request; the ADR follows once that code exists.
+An ADR records a decision the code already implements: it is written after the code, never before. A decision taken during a task goes into the plan (reviewed by Judge Dredd when its review is required) and the pull request; the ADR follows once that code exists.
 
 ## Flag ADR conflicts
 

@@ -9,7 +9,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 3;
+
+// Version 3 (MO-5): the helper reports the engine's state as binary WebSocket frames, about
+// 30 per second: the bytes of an `engine::msg::Feedback` (little-endian layout of that
+// type, version `engine::msg::FEEDBACK_VERSION`), the same bytes the web build's engine
+// writes into its shared memory. Every other message is a JSON text frame. The JSON
+// `meter` message of version 2 is gone.
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -22,6 +28,14 @@ pub mod paths {
     pub const PAIR: &str = "/pair";
     /// Requires `?token=`: the session, which accepts [`super::ClientMessage::Command`].
     pub const SESSION: &str = "/session";
+}
+
+/// The ids of the page's one-synth project, until the project runs in the page (PR-4,
+/// PR-5): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`. The project
+/// itself is `commands::engine_msgs::single_synth`, which the page's module and the helper
+/// both run the commands on.
+pub mod single_synth {
+    pub use commands::engine_msgs::single_synth::{DEVICE, TRACK};
 }
 
 /// A message from the page to the helper.
@@ -77,9 +91,6 @@ pub enum ServerMessage {
     /// A note received from the selected MIDI input (for the activity light).
     #[serde(rename = "midi.activity")]
     MidiActivity { note: u8, velocity: u8 },
-    /// Output level and voice count, about 30 times per second.
-    #[serde(rename = "meter")]
-    Meter { peak: f32, voices: u32 },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
@@ -87,26 +98,52 @@ pub enum ServerMessage {
 
 /// Every schema the web app needs, in one document.
 pub fn schema_bundle() -> serde_json::Value {
-    let param_ids: serde_json::Map<String, serde_json::Value> = commands::param_ids()
+    let param_ids: serde_json::Map<String, serde_json::Value> = commands::device::param_ids()
         .into_iter()
         .map(|(name, id)| (name.to_owned(), id.into()))
         .collect();
-    let param_defaults: serde_json::Map<String, serde_json::Value> = commands::param_defaults()
-        .into_iter()
-        // Rounded so that f32 values print as typed (0.005, not 0.004999999888).
-        .map(|(name, value)| {
-            (
-                name.to_owned(),
-                ((f64::from(value) * 1e6).round() / 1e6).into(),
-            )
-        })
-        .collect();
+    let param_defaults: serde_json::Map<String, serde_json::Value> =
+        commands::device::param_defaults()
+            .into_iter()
+            // Rounded so that f32 values print as typed (0.005, not 0.004999999888).
+            .map(|(name, value)| {
+                (
+                    name.to_owned(),
+                    ((f64::from(value) * 1e6).round() / 1e6).into(),
+                )
+            })
+            .collect();
     serde_json::json!({
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "param_defaults": param_defaults,
-        "command": commands::schema(),
+        "single_synth": {
+            "track": single_synth::TRACK,
+            "device": single_synth::DEVICE,
+            // The kind of the one synth: the page reads its panel from that descriptor.
+            "kind": engine::OSC_SYNTH.kind,
+        },
+        // The command contract: input and output schemas and the MCP tool catalog.
+        "command": {
+            "input": commands::schema(),
+            "output": commands::output_schema(),
+            "catalog": commands::catalog(),
+        },
         "client_message": schemars::schema_for!(ClientMessage),
         "server_message": schemars::schema_for!(ServerMessage),
+        // The page's project core (PR-4, `crates/project-wasm`): what its calls return.
+        "project_core": {
+            "run_report": schemars::schema_for!(commands::host::RunReport),
+            "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
+            "load_report": schemars::schema_for!(commands::host::LoadReport),
+            "project_view": schemars::schema_for!(commands::host::ProjectView),
+            "save_report": schemars::schema_for!(commands::host::SaveReport),
+            "project_changes": schemars::schema_for!(commands::host::ProjectChanges),
+            "project_files": schemars::schema_for!(commands::host::ProjectFiles),
+        },
+        // The device contract (CT-5): the descriptor of every built-in device, from which
+        // the UI generates the panels and agents learn the parameters, and its schema.
+        "devices": engine::device::builtin_descriptors().collect::<Vec<_>>(),
+        "device_descriptor": schemars::schema_for!(engine::device::DeviceDescriptor),
     })
 }

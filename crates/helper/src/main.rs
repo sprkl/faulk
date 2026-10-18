@@ -23,10 +23,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use helper::audio::{EngineEvent, EventSender, Meter, audio_core};
+use helper::audio::{EventSender, Meter, audio_core, spawn_flusher};
 use helper::instance::{self, Startup};
 use helper::log;
 use helper::midi::MidiManager;
+use helper::midi::all_notes_off;
 use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
@@ -150,7 +151,7 @@ fn release_all_voices(sender: &Mutex<EventSender>, meter: &Meter, limit: Duratio
     sender
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .send(EngineEvent::AllNotesOff);
+        .send(&all_notes_off());
     let deadline = Instant::now() + limit;
     loop {
         if meter.take().1 == 0 {
@@ -257,7 +258,8 @@ fn main() {
     let channels = config.channels as usize;
 
     let meter = Arc::new(Meter::default());
-    let (mut core, sender) = audio_core(sample_rate, meter.clone());
+    let (mut core, sender) = audio_core(sample_rate, meter.clone())
+        .unwrap_or_else(|e| fatal(lang, &format!("cannot create the engine: {e:?}")));
     let audio_error = Arc::new(AtomicBool::new(false));
     let stream_error = audio_error.clone();
     let stream = device
@@ -293,6 +295,8 @@ fn main() {
             .unwrap_or_else(|e| fatal(lang, &format!("cannot listen: {e}")))
     };
     let sender = Arc::new(Mutex::new(sender));
+    // The control thread: pushes what waited on the engine's ring and drops its garbage.
+    let _flusher = spawn_flusher(&sender);
     let (activity_tx, activity_rx) = mpsc::channel();
     let mut midi = MidiManager::new(sender.clone(), activity_tx);
     midi.refresh();
@@ -447,11 +451,12 @@ mod tests {
         Arc<Meter>,
     ) {
         let meter = Arc::new(Meter::default());
-        let (mut core, mut sender) = audio_core(48_000.0, meter.clone());
-        sender.send(EngineEvent::NoteOn {
+        let (mut core, mut sender) = audio_core(48_000.0, meter.clone()).unwrap();
+        sender.send(&commands::Command::Live(commands::live::Command::NoteOn {
+            track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
             note: 60,
             velocity: 100,
-        });
+        }));
         let mut block = vec![0.0; 480 * 2];
         core.process(&mut block, 2);
         assert_eq!(meter.take().1, 1);

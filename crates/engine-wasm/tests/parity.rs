@@ -1,10 +1,28 @@
-//! Native/WASM parity: the same scripted performance rendered natively and through
-//! the real `.wasm` build, run by an interpreter, must give the same signal.
+//! Native/WASM parity on a recorded message stream (MO-2): a session of the page (the setup,
+//! notes, chords, every synth parameter, the panic button), encoded by the command layer
+//! (`commands::engine_msgs`), plus a growth of the track table to 64 tracks while notes
+//! sound, recorded in `tests/fixtures/session.stream`. It is replayed natively through
+//! `engine::host` and through the module's `fk_push` / `fk_render` in an interpreter
+//! (`wasm32-unknown-unknown`, one instance holding both halves); the outputs must agree.
+//! The native render is saved as `tests/fixtures/session.native.f32`, the reference the
+//! Node test of the shipped `wasm32-wasip1-threads` module compares against
+//! (`web/src/lib/engine/channel.test.ts`).
+//!
+//! A second recording, `tests/fixtures/growth.stream`, fills the track table to its limit
+//! (4 095 more tracks, each with a synth, pushed 256 at a time): the load of the shared-memory
+//! test in Node. A third, `tests/fixtures/tracks.stream`, fills it with empty tracks (pushes
+//! of 512): the load of the Chromium measurement, whose render must stay real-time. No
+//! message of these tests is ever encoded outside Rust.
+//!
+//! `FAULK_RECORD=1 cargo test -p engine-wasm --test parity` rewrites the fixtures.
 
-use engine::Param;
-use engine_wasm::Instance;
 use std::path::PathBuf;
 use std::process::Command;
+
+use commands::engine_msgs::{EngineStream, Synced, single_synth};
+use commands::{Command as Cmd, device, live};
+use engine::OSC_SYNTH;
+use engine::msg::{ControlMsg, DeviceSlot, TrackKind, TrackSlot};
 use wasmi::{Engine, Linker, Module, Store, TypedFunc};
 
 const SAMPLE_RATE: f32 = 48_000.0;
@@ -12,55 +30,219 @@ const QUANTUM: u32 = 128;
 /// libm differs slightly between the native targets and wasm32 (sin, exp2, tanh).
 const TOLERANCE: f32 = 1e-5;
 
-/// One step of the performance: an event, then `blocks` render quanta.
+/// One step of a recorded session.
+#[derive(Debug, PartialEq)]
 enum Step {
-    NoteOn(u32, u32),
-    NoteOff(u32),
-    SetParam(Param, f32),
+    Push(Vec<u8>),
     Render(u32),
 }
 
-fn script() -> Vec<Step> {
-    use Step::*;
-    vec![
-        SetParam(Param::Waveform, 1.0),
-        NoteOn(60, 100),
-        Render(40),
-        NoteOn(64, 90),
-        NoteOn(67, 80),
-        Render(40),
-        SetParam(Param::Waveform, 2.0),
-        SetParam(Param::Gain, 0.4),
-        Render(40),
-        NoteOff(60),
-        SetParam(Param::Waveform, 3.0),
-        Render(40),
-        SetParam(Param::Waveform, 0.0),
-        SetParam(Param::Release, 0.05),
-        NoteOff(64),
-        NoteOff(67),
-        Render(60),
-    ]
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn render_native() -> Vec<f32> {
-    let mut inst = Instance::new(SAMPLE_RATE);
+/// The session, as the command layer encodes it today.
+fn record() -> Vec<Step> {
+    use Step::*;
+    let track = single_synth::track;
+    let synth = single_synth::device;
+    let on = |n: u8, v: u8| {
+        Cmd::Live(live::Command::NoteOn {
+            track: track(),
+            note: n,
+            velocity: v,
+        })
+    };
+    let off = |n: u8| {
+        Cmd::Live(live::Command::NoteOff {
+            track: track(),
+            note: n,
+        })
+    };
+    let set = |p: &str, v: f64| {
+        Cmd::Device(device::Command::SetParam {
+            device: synth(),
+            param: p.into(),
+            value: v,
+        })
+    };
+    let mut s = Synced::single_synth(1);
+    let mut steps = vec![Push(s.setup().unwrap())];
+    macro_rules! c {
+        ($cmd:expr) => {
+            Push(s.run(&$cmd).unwrap().1)
+        };
+    }
+    steps.push(c!(set("waveform", 1.0)));
+    steps.push(c!(on(60, 100)));
+    steps.push(Render(40));
+    steps.push(c!(on(64, 90)));
+    steps.push(c!(on(67, 80)));
+    steps.push(Render(40));
+    steps.push(c!(set("waveform", 2.0)));
+    steps.push(c!(set("gain", 0.4)));
+    steps.push(c!(set("attack", 0.01)));
+    steps.push(c!(set("decay", 0.1)));
+    steps.push(c!(set("sustain", 0.5)));
+    steps.push(Render(40));
+    steps.push(c!(off(60)));
+    steps.push(c!(set("waveform", 3.0)));
+    steps.push(Render(40));
+    // The track table grows from 16 to 64 slots while the chord sounds.
+    let mut msgs = Vec::new();
+    for slot in 1..48u32 {
+        msgs.push(ControlMsg::TrackCreate {
+            track: TrackSlot(slot),
+            kind: TrackKind::Midi,
+        });
+        msgs.push(ControlMsg::DeviceInsert {
+            track: TrackSlot(slot),
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: Vec::new(),
+        });
+    }
+    steps.push(Push(s.encode(&msgs).unwrap()));
+    steps.push(Render(20));
+    steps.push(c!(set("waveform", 0.0)));
+    steps.push(c!(set("release", 0.05)));
+    steps.push(c!(off(64)));
+    steps.push(c!(Cmd::Live(live::Command::AllNotesOff {})));
+    steps.push(Render(60));
+    steps
+}
+
+/// Tracks of the growth recording, after the session's track 0: up to the limit.
+const GROWTH_TRACKS: u32 = engine::msg::limits::MAX_TRACKS - 1;
+/// Tracks per push of the growth recording.
+const GROWTH_PER_PUSH: u32 = 256;
+
+/// The growth: tracks 1 to 4 095 with a synth each, in pushes of 256 tracks with two blocks
+/// rendered between them, in the session's epoch (it follows the session's setup).
+fn record_growth() -> Vec<Step> {
+    let mut s = EngineStream::new(1);
+    let mut steps = Vec::new();
+    let mut slot = 1;
+    while slot <= GROWTH_TRACKS {
+        let mut msgs = Vec::new();
+        for t in slot..(slot + GROWTH_PER_PUSH).min(GROWTH_TRACKS + 1) {
+            msgs.push(ControlMsg::TrackCreate {
+                track: TrackSlot(t),
+                kind: TrackKind::Midi,
+            });
+            msgs.push(ControlMsg::DeviceInsert {
+                track: TrackSlot(t),
+                device: DeviceSlot(0),
+                kind: OSC_SYNTH.kind_id,
+                state: Vec::new(),
+            });
+        }
+        steps.push(Step::Push(s.encode(&msgs).unwrap()));
+        steps.push(Step::Render(2));
+        slot += GROWTH_PER_PUSH;
+    }
+    steps
+}
+
+/// Tracks 1 to 4 095, empty, in pushes of 512 with two blocks rendered between them.
+fn record_tracks() -> Vec<Step> {
+    let mut s = EngineStream::new(1);
+    let mut steps = Vec::new();
+    let mut slot = 1;
+    while slot <= GROWTH_TRACKS {
+        let msgs: Vec<ControlMsg> = (slot..(slot + 512).min(GROWTH_TRACKS + 1))
+            .map(|t| ControlMsg::TrackCreate {
+                track: TrackSlot(t),
+                kind: TrackKind::Midi,
+            })
+            .collect();
+        steps.push(Step::Push(s.encode(&msgs).unwrap()));
+        steps.push(Step::Render(2));
+        slot += 512;
+    }
+    steps
+}
+
+/// The fixture format: per step a kind byte (0 push, 1 render), a little-endian u32 (the
+/// byte count of a push, the blocks of a render), then a push's bytes.
+fn encode(steps: &[Step]) -> Vec<u8> {
     let mut out = Vec::new();
-    for step in script() {
+    for step in steps {
         match step {
-            Step::NoteOn(n, v) => inst.synth_mut().note_on(n as u8, v as u8),
-            Step::NoteOff(n) => inst.synth_mut().note_off(n as u8),
-            Step::SetParam(p, v) => inst.synth_mut().set_param(p, v),
-            Step::Render(blocks) => {
-                for _ in 0..blocks {
-                    let frames = inst.render(QUANTUM as usize);
-                    out.extend_from_slice(&inst.left()[..frames]);
-                    out.extend_from_slice(&inst.right()[..frames]);
-                }
+            Step::Push(b) => {
+                out.push(0);
+                out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+                out.extend_from_slice(b);
+            }
+            Step::Render(n) => {
+                out.push(1);
+                out.extend_from_slice(&n.to_le_bytes());
             }
         }
     }
     out
+}
+
+fn decode(mut bytes: &[u8]) -> Vec<Step> {
+    let mut steps = Vec::new();
+    while let [kind, a, b, c, d, rest @ ..] = bytes {
+        let n = u32::from_le_bytes([*a, *b, *c, *d]);
+        if *kind == 0 {
+            steps.push(Step::Push(rest[..n as usize].to_vec()));
+            bytes = &rest[n as usize..];
+        } else {
+            steps.push(Step::Render(n));
+            bytes = rest;
+        }
+    }
+    steps
+}
+
+fn fixture(name: &str, record: fn() -> Vec<Step>) -> Vec<Step> {
+    let path = fixtures().join(name);
+    if std::env::var_os("FAULK_RECORD").is_some() {
+        std::fs::create_dir_all(fixtures()).unwrap();
+        std::fs::write(&path, encode(&record())).unwrap();
+    }
+    decode(
+        &std::fs::read(&path).unwrap_or_else(|_| panic!("tests/fixtures/{name} (FAULK_RECORD=1)")),
+    )
+}
+
+fn recorded() -> Vec<Step> {
+    fixture("session.stream", record)
+}
+
+fn render_native(steps: &[Step]) -> Vec<f32> {
+    let (out, _, capacity) = run_native(steps);
+    assert_eq!(capacity, 64);
+    out
+}
+
+/// The render and the report region (its bytes) after the last step.
+fn run_native(steps: &[Step]) -> (Vec<f32>, Vec<u8>, usize) {
+    let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
+    let mut out = Vec::new();
+    for step in steps {
+        match step {
+            Step::Push(bytes) => prepare.submit(bytes).unwrap(),
+            Step::Render(blocks) => {
+                for _ in 0..*blocks {
+                    let n = host.render(QUANTUM as usize);
+                    out.extend_from_slice(&host.left()[..n]);
+                    out.extend_from_slice(&host.right()[..n]);
+                }
+            }
+        }
+    }
+    assert_eq!(prepare.preparer().rejected(), 0);
+    assert_eq!(host.engine().skipped(), 0);
+    let region = host.feedback();
+    let report = region
+        .iter()
+        .flat_map(|w| w.load(std::sync::atomic::Ordering::Relaxed).to_ne_bytes())
+        .collect();
+    (out, report, host.engine().state().tracks.capacity())
 }
 
 /// Builds the wasm module in its own target directory, so the build does not wait on
@@ -79,7 +261,12 @@ fn build_wasm() -> PathBuf {
     target_dir.join("wasm32-unknown-unknown/release/engine_wasm.wasm")
 }
 
-fn render_wasm() -> Vec<f32> {
+fn render_wasm(steps: &[Step]) -> Vec<f32> {
+    run_wasm(steps).0
+}
+
+/// The render and the report region (its bytes) after the last step.
+fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
@@ -96,20 +283,19 @@ fn render_wasm() -> Vec<f32> {
         i.get_typed_func::<P, R>(s, name)
             .unwrap_or_else(|e| panic!("export {name}: {e}"))
     }
-    let new = func::<f32, i32>(&instance, &store, "fk_new");
+    let new = func::<f32, i32>(&instance, &store, "fk_channel_new");
+    let inbox = func::<(i32, i32), i32>(&instance, &store, "fk_inbox");
+    let push = func::<(i32, i32, i32), i32>(&instance, &store, "fk_push");
     let render = func::<(i32, i32), i32>(&instance, &store, "fk_render");
-    let left_ptr = func::<i32, i32>(&instance, &store, "fk_left_ptr");
-    let right_ptr = func::<i32, i32>(&instance, &store, "fk_right_ptr");
-    let note_on = func::<(i32, i32, i32), ()>(&instance, &store, "fk_note_on");
-    let note_off = func::<(i32, i32), ()>(&instance, &store, "fk_note_off");
-    let set_param = func::<(i32, i32, f32), ()>(&instance, &store, "fk_set_param");
+    let left_ptr = func::<i32, i32>(&instance, &store, "fk_left");
+    let right_ptr = func::<i32, i32>(&instance, &store, "fk_right");
+    let prepare_counter = func::<(i32, i32), i32>(&instance, &store, "fk_prepare_counter");
     let memory = instance
         .get_memory(&store, "memory")
         .expect("exported memory");
 
-    let inst = new.call(&mut store, SAMPLE_RATE).unwrap();
-    let left = left_ptr.call(&mut store, inst).unwrap() as usize;
-    let right = right_ptr.call(&mut store, inst).unwrap() as usize;
+    let ch = new.call(&mut store, SAMPLE_RATE).unwrap();
+    assert_ne!(ch, 0);
     let read = |store: &Store<()>, at: usize, frames: usize, out: &mut Vec<f32>| {
         let mut bytes = vec![0u8; frames * 4];
         memory.read(store, at, &mut bytes).unwrap();
@@ -123,35 +309,149 @@ fn render_wasm() -> Vec<f32> {
     };
 
     let mut out = Vec::new();
-    for step in script() {
+    for step in steps {
         match step {
-            Step::NoteOn(n, v) => note_on
-                .call(&mut store, (inst, n as i32, v as i32))
-                .unwrap(),
-            Step::NoteOff(n) => note_off.call(&mut store, (inst, n as i32)).unwrap(),
-            Step::SetParam(p, v) => set_param
-                .call(&mut store, (inst, p.id() as i32, v))
-                .unwrap(),
+            Step::Push(bytes) => {
+                let at = inbox.call(&mut store, (ch, bytes.len() as i32)).unwrap();
+                memory.write(&mut store, at as usize, bytes).unwrap();
+                let code = push.call(&mut store, (ch, at, bytes.len() as i32)).unwrap();
+                assert_eq!(code, 0);
+            }
             Step::Render(blocks) => {
-                for _ in 0..blocks {
-                    let frames = render.call(&mut store, (inst, QUANTUM as i32)).unwrap() as usize;
+                for _ in 0..*blocks {
+                    let frames = render.call(&mut store, (ch, QUANTUM as i32)).unwrap() as usize;
+                    let left = left_ptr.call(&mut store, ch).unwrap() as usize;
+                    let right = right_ptr.call(&mut store, ch).unwrap() as usize;
                     read(&store, left, frames, &mut out);
                     read(&store, right, frames, &mut out);
                 }
             }
         }
     }
-    out
+    assert_eq!(
+        prepare_counter.call(&mut store, (ch, 0)).unwrap(),
+        0,
+        "rejected"
+    );
+    let feedback = func::<i32, i32>(&instance, &store, "fk_feedback");
+    let feedback_len = func::<i32, i32>(&instance, &store, "fk_feedback_len");
+    let at = feedback.call(&mut store, ch).unwrap() as usize;
+    let len = feedback_len.call(&mut store, ch).unwrap() as usize;
+    let mut report = vec![0u8; len];
+    memory.read(&store, at, &mut report).unwrap();
+    (out, report)
 }
 
 #[test]
-fn native_and_wasm_render_the_same_signal() {
-    let native = render_native();
-    let wasm = render_wasm();
+fn the_fixture_is_what_the_command_layer_records() {
+    assert!(
+        recorded() == record(),
+        "the mapping changed: FAULK_RECORD=1 cargo test -p engine-wasm --test parity"
+    );
+}
+
+#[test]
+fn the_growth_fixture_is_recorded_and_fills_the_track_table_natively() {
+    let growth = fixture("growth.stream", record_growth);
+    assert!(
+        growth == record_growth(),
+        "FAULK_RECORD=1 cargo test -p engine-wasm --test parity"
+    );
+    let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
+    let session = recorded();
+    for step in session.iter().take_while(|s| matches!(s, Step::Push(_))) {
+        let Step::Push(bytes) = step else { break };
+        prepare.submit(bytes).unwrap();
+    }
+    for step in &growth {
+        match step {
+            Step::Push(bytes) => prepare.submit(bytes).unwrap(),
+            Step::Render(n) => {
+                for _ in 0..*n {
+                    host.render(QUANTUM as usize);
+                }
+            }
+        }
+    }
+    // The control thread's regular flush pushes what waited behind the full ring.
+    for _ in 0..64 {
+        prepare.flush();
+        host.render(QUANTUM as usize);
+    }
+    assert_eq!(prepare.preparer().rejected(), 0);
+    let state = host.engine().state();
+    assert_eq!(
+        state.tracks.capacity(),
+        engine::msg::limits::MAX_TRACKS as usize
+    );
+    assert_eq!(
+        state.tracks.as_slice().iter().flatten().count(),
+        engine::msg::limits::MAX_TRACKS as usize
+    );
+    assert_eq!(host.engine().skipped(), 0);
+}
+
+#[test]
+fn the_tracks_fixture_is_recorded_and_fills_the_track_table_natively() {
+    let tracks = fixture("tracks.stream", record_tracks);
+    assert!(
+        tracks == record_tracks(),
+        "FAULK_RECORD=1 cargo test -p engine-wasm --test parity"
+    );
+    let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
+    for step in recorded().iter().take_while(|s| matches!(s, Step::Push(_))) {
+        let Step::Push(bytes) = step else { break };
+        prepare.submit(bytes).unwrap();
+    }
+    for step in &tracks {
+        if let Step::Push(bytes) = step {
+            prepare.submit(bytes).unwrap();
+        }
+        for _ in 0..40 {
+            prepare.flush();
+            host.render(QUANTUM as usize);
+        }
+    }
+    assert_eq!(prepare.preparer().rejected(), 0);
+    let state = host.engine().state();
+    assert_eq!(
+        state.tracks.capacity(),
+        engine::msg::limits::MAX_TRACKS as usize
+    );
+    assert_eq!(
+        state.tracks.as_slice().iter().flatten().count(),
+        engine::msg::limits::MAX_TRACKS as usize
+    );
+}
+
+#[test]
+fn native_and_wasm_render_the_recorded_stream_alike() {
+    let steps = recorded();
+    let native = render_native(&steps);
+    let reference = fixtures().join("session.native.f32");
+    if std::env::var_os("FAULK_RECORD").is_some() {
+        let bytes: Vec<u8> = native.iter().flat_map(|s| s.to_le_bytes()).collect();
+        std::fs::write(&reference, bytes).unwrap();
+    }
+    let saved: Vec<f32> = std::fs::read(&reference)
+        .expect("tests/fixtures/session.native.f32 (FAULK_RECORD=1)")
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    let stale = saved.len() != native.len()
+        || saved
+            .iter()
+            .zip(&native)
+            .any(|(a, b)| (a - b).abs() > TOLERANCE);
+    assert!(!stale, "the native reference is stale (FAULK_RECORD=1)");
+
+    let wasm = render_wasm(&steps);
     assert_eq!(native.len(), wasm.len());
     assert!(
         native.iter().any(|s| s.abs() > 0.1),
-        "the script must make sound"
+        "the session must make sound"
     );
     let (index, diff) = native
         .iter()
@@ -166,20 +466,142 @@ fn native_and_wasm_render_the_same_signal() {
 }
 
 #[test]
-fn null_instance_is_ignored() {
+fn null_channel_is_ignored() {
     // SAFETY: a null pointer is part of every export's contract.
     unsafe {
         let null = core::ptr::null_mut();
-        engine_wasm::fk_note_on(null, 60, 100);
-        engine_wasm::fk_set_param(null, 0, 1.0);
+        assert!(engine_wasm::fk_inbox(null, 16).is_null());
+        assert_eq!(engine_wasm::fk_push(null, core::ptr::null(), 0), -12);
+        engine_wasm::fk_flush(null);
         assert_eq!(engine_wasm::fk_render(null, 128), 0);
-        assert!(engine_wasm::fk_left_ptr(null).is_null());
-        engine_wasm::fk_free(null);
+        assert_eq!(engine_wasm::fk_pump(null), 0);
+        assert!(engine_wasm::fk_left(null).is_null());
+        assert!(engine_wasm::fk_feedback(null).is_null());
+        assert_eq!(engine_wasm::fk_host_counter(null, 0), u32::MAX);
     }
 }
 
 #[test]
-fn render_size_is_clamped() {
-    let mut inst = Instance::new(SAMPLE_RATE);
-    assert_eq!(inst.render(100_000), engine_wasm::MAX_FRAMES);
+fn a_push_outside_the_inbox_is_refused_and_sizes_are_clamped() {
+    let ch = engine_wasm::fk_channel_new(SAMPLE_RATE);
+    // SAFETY: a live channel, used from this one thread.
+    unsafe {
+        let inbox = engine_wasm::fk_inbox(ch, 32);
+        assert!(!inbox.is_null());
+        let other = [0u8; 32];
+        assert_eq!(engine_wasm::fk_push(ch, other.as_ptr(), 32), -1);
+        assert_eq!(engine_wasm::fk_push(ch, inbox, 33), -1);
+        assert_eq!(engine_wasm::fk_push(ch, inbox, 0), 0);
+        assert_eq!(
+            engine_wasm::fk_render(ch, 100_000) as usize,
+            engine_wasm::MAX_FRAMES
+        );
+    }
+}
+
+/// A session on four tracks (the page never builds one yet): faders, a master gain, a
+/// muted track, notes on three tracks, the clock running, in pushes between renders.
+fn report_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::Tick;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let mut setup = vec![M::Reset { epoch: 1 }];
+    for t in 0..4u32 {
+        setup.push(M::TrackCreate {
+            track: TrackSlot(t),
+            kind: TrackKind::Midi,
+        });
+        setup.push(M::DeviceInsert {
+            track: TrackSlot(t),
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: Vec::new(),
+        });
+    }
+    let mix = |t: u32, gain: f32, pan: f32, mute: bool| M::TrackSetMix {
+        track: TrackSlot(t),
+        gain,
+        pan,
+        mute,
+    };
+    let note = |t: u32, pitch: u8| M::NoteOn {
+        track: TrackSlot(t),
+        pitch,
+        velocity: 100,
+    };
+    vec![
+        push(&setup),
+        push(&[
+            mix(1, 0.5, -0.5, false),
+            mix(2, 1.0, 0.0, true),
+            mix(3, 0.8, 0.9, false),
+            M::SetMaster {
+                gain: 0.7,
+                mute: false,
+            },
+            note(0, 57),
+            note(1, 64),
+            note(2, 67),
+            note(3, 72),
+            M::Play { from: Tick(0) },
+        ]),
+        // 30 blocks of 128 frames: past two report periods (1 600 frames each); the last
+        // report is the one compared.
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_write_the_same_report() {
+    use engine::host::decode_feedback;
+    let steps = report_session();
+    let (_, native, _) = run_native(&steps);
+    let (_, wasm) = run_wasm(&steps);
+    assert_eq!(native.len(), wasm.len());
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.seq, w.seq);
+    assert!(n.seq >= 2, "a report was written");
+    assert_eq!((n.transport, n.epoch), (w.transport, w.epoch));
+    assert_eq!(n.transport, engine::msg::TransportState::Playing);
+    assert_eq!(
+        (n.playhead_tick, n.playhead_frame),
+        (w.playhead_tick, w.playhead_frame)
+    );
+    assert!(n.playhead_frame.0 > 0);
+    assert_eq!(
+        (n.live_overflows, n.rejected, n.disk_underruns),
+        (w.live_overflows, w.rejected, w.disk_underruns)
+    );
+    assert_eq!(n.cpu_load, engine::host::NOT_MEASURED);
+    assert_eq!(w.cpu_load, engine::host::NOT_MEASURED);
+    assert_eq!(n.voices, 4, "the muted track still has its voice");
+    assert_eq!(n.voices, w.voices);
+    assert_eq!(n.meters.len(), 4);
+    assert_eq!(n.meters.len(), w.meters.len());
+    let close = |a: f32, b: f32| (a - b).abs() <= TOLERANCE;
+    for (slot, (a, b)) in n.meters.iter().zip(&w.meters).enumerate() {
+        assert!(
+            close(a.peak_l, b.peak_l)
+                && close(a.peak_r, b.peak_r)
+                && close(a.rms_l, b.rms_l)
+                && close(a.rms_r, b.rms_r),
+            "track {slot}: {a:?} against {b:?}"
+        );
+    }
+    assert!(n.meters[0].peak_l > 0.05, "track 0 sounds");
+    assert!(n.meters[1].peak_l > n.meters[1].peak_r, "panned left");
+    assert!(n.meters[3].peak_r > n.meters[3].peak_l, "panned right");
+    assert_eq!(n.meters[2], Default::default(), "muted");
+    let (a, b) = (n.master, w.master);
+    assert!(
+        close(a.peak_l, b.peak_l) && close(a.peak_r, b.peak_r) && close(a.rms_l, b.rms_l),
+        "master {a:?} against {b:?}"
+    );
+    assert!(a.peak_l > 0.05);
 }

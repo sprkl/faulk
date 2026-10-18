@@ -1,0 +1,54 @@
+/**
+ * The track list and the track headers (`src/views/tracks/`, `src/lib/components/TrackHeader.svelte`).
+ * A device name (Oscillator, Drums) is not here: it comes from the device's descriptor, one English
+ * name never translated.
+ */
+
+import { defineFeature } from './feature'
+
+export const tracks = defineFeature(
+  {
+    'tracks.title': 'Tracks',
+    'tracks.empty': 'No tracks yet. Add one to start.',
+    'tracks.waiting': 'Start audio to load your project.',
+    'tracks.add': 'Add track',
+    'tracks.addMidi': 'MIDI track with',
+    'tracks.addAudio': 'Audio track',
+    'tracks.defaultName': 'Track {n}',
+    'tracks.kind.midi': 'MIDI',
+    'tracks.kind.audio': 'Audio',
+    'tracks.rename': 'Track name',
+    'tracks.renameHint': 'Double-click or press F2 to rename',
+    'tracks.color': 'Colour of {name}',
+    'tracks.mute': 'Mute {name}',
+    'tracks.solo': 'Solo {name}',
+    'tracks.volume': 'Volume of {name}',
+    'tracks.pan': 'Pan of {name}',
+    'tracks.panShort': 'Pan',
+    'tracks.delete': 'Delete {name}',
+    'tracks.undo': 'Undo',
+    'tracks.redo': 'Redo',
+  },
+  {
+    'tracks.title': 'Pistes',
+    'tracks.empty': 'Aucune piste pour l’instant. Ajoute-en une pour commencer.',
+    'tracks.waiting': 'Lance l’audio pour charger ton projet.',
+    'tracks.add': 'Ajouter une piste',
+    'tracks.addMidi': 'Piste MIDI avec',
+    'tracks.addAudio': 'Piste audio',
+    'tracks.defaultName': 'Piste {n}',
+    'tracks.kind.midi': 'MIDI',
+    'tracks.kind.audio': 'Audio',
+    'tracks.rename': 'Nom de la piste',
+    'tracks.renameHint': 'Double-clic ou F2 pour renommer',
+    'tracks.color': 'Couleur de {name}',
+    'tracks.mute': 'Couper {name}',
+    'tracks.solo': 'Solo {name}',
+    'tracks.volume': 'Volume de {name}',
+    'tracks.pan': 'Panoramique de {name}',
+    'tracks.panShort': 'Pan',
+    'tracks.delete': 'Supprimer {name}',
+    'tracks.undo': 'Annuler',
+    'tracks.redo': 'Rétablir',
+  },
+)

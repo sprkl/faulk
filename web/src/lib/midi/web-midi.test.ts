@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, MidiInput } from '../generated/protocol'
 import { type MidiAccessLike, type MidiInputLike, WebMidiHost } from './web-midi'
+import { allNotesOff, noteOff, noteOn } from '../synth-commands'
 
 class FakeInput implements MidiInputLike {
   state: 'connected' | 'disconnected' = 'connected'
@@ -47,8 +48,8 @@ describe('WebMidiHost', () => {
     map.get('b')!.play(0x90, 61, 100) // not selected: ignored
     map.get('a')!.play(0x80, 60, 0)
     expect(log.commands).toEqual([
-      { type: 'note.on', note: 60, velocity: 100 },
-      { type: 'note.off', note: 60 },
+      noteOn(60, 100),
+      noteOff(60),
     ])
     expect(log.activity).toEqual([
       [60, 100],
@@ -61,7 +62,7 @@ describe('WebMidiHost', () => {
     await host.enable(async () => access)
     host.select('a')
     host.select('b')
-    expect(log.commands).toEqual([{ type: 'note.all_off' }])
+    expect(log.commands).toEqual([allNotesOff()])
   })
 
   it('follows hot-plug and drops an unplugged selected input', async () => {
@@ -71,7 +72,7 @@ describe('WebMidiHost', () => {
     map.get('a')!.state = 'disconnected'
     access.onstatechange?.({})
     expect(log.inputs.at(-1)).toEqual([[{ id: 'b', name: 'Pads B' }], null])
-    expect(log.commands.at(-1)).toEqual({ type: 'note.all_off' })
+    expect(log.commands.at(-1)).toEqual(allNotesOff())
     map.set('c', new FakeInput('c', 'New'))
     access.onstatechange?.({})
     expect(log.inputs.at(-1)?.[0].map((i) => i.id)).toEqual(['b', 'c'])

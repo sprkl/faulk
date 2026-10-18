@@ -1,4 +1,4 @@
-name: CI
+name: Web
 
 on:
   push:
@@ -6,80 +6,10 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  agent-scripts:
-    # The agent guardrails (hooks, Judge Dredd brief, verification records) and the helper's
-    # Blob publication (its logic needs no dependency; @vercel/blob is loaded for real uploads only).
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Test the agent scripts
-        run: node --test "scripts/**/*.test.mjs"
-
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Install audio headers
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Includes the native/WASM parity test, which builds the wasm module itself.
-      - name: Test
-        run: cargo test --workspace
-
-      - name: WASM build of the engine
-        run: cargo build -p engine-wasm --target wasm32-unknown-unknown --release
-
-  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
-  helper-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy
-        run: cargo clippy -p helper --all-targets -- -D warnings
-
-      - name: Test
-        run: cargo test -p helper
-
-      - name: Release build
-        run: cargo build -p helper --release
-
-      # The defaults a published helper ships with (production origins, "Open Faulk" on the
-      # site) depend on the release profile: test them in that profile too.
-      - name: Release defaults
-        run: cargo test -p helper --release --bin faulk-helper
-
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -87,33 +17,74 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      # Pull requests: the heavy steps run only when the changed files can affect this job. The
+      # job always runs, so its check name always reports (a required check never stays pending).
+      # Pushes to develop and main run everything.
+      - name: Changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PATTERN: '^(web/|crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/ci\.yml$)'
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            printf '%s\n' "$files"
+            grep -Eq "$PATTERN" <<< "$files" || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "heavy steps run: $run"
 
       # The web app builds the engine to WebAssembly and generates its types from Rust.
       - name: Setup Rust
+        if: steps.changes.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, wasm32-wasip1-threads
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
 
       - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.run == 'true'
         with:
           package_json_file: web/package.json
 
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+        if: steps.changes.outputs.run == 'true'
 
-      - name: Generated types are up to date
-        run: |
-          pnpm gen:protocol
-          git diff --exit-code src/lib/generated
+      # `pnpm dev`, `build` and `test` regenerate src/lib/generated/ themselves; this fails when the
+      # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`), never merge by hand.
+      - name: Generated files are up to date
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm gen:check
 
       - run: pnpm typecheck
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm lint
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm test
+        if: steps.changes.outputs.run == 'true'
       - run: pnpm build
+        if: steps.changes.outputs.run == 'true'
+
+      # Real browser checks on the dev server and the built site: cross-origin isolation, helper
+      # sockets, simulated Web MIDI, the landing page (tests/e2e/).
+      - name: Install the Playwright browser
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm test:e2e

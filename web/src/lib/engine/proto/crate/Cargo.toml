@@ -1,0 +1,25 @@
+# Prototype of the engine channel for CT-3 (#39): the old engine-wasm exports (frozen in src/old_instance.rs) plus a ring, a
+# growing table and a garbage ring, built twice by `web/scripts/build-proto.mjs`:
+# for `wasm32-unknown-unknown` (way a, plain memory, the worklet prepares between quanta)
+# and for `wasm32-wasip1-threads` (way b, shared memory, a Worker prepares). Not a member
+# of the repository workspace: it is measured by the e2e suite, never shipped.
+[package]
+name = "engine-proto"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+engine = { path = "../../../../../../crates/engine" }
+rtrb = "0.4.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]

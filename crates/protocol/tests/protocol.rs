@@ -1,5 +1,8 @@
-use commands::Command;
-use protocol::{ClientMessage, MidiInput, PROTOCOL_VERSION, ServerMessage, schema_bundle};
+use commands::{Command, live};
+use project::{DeviceId, TrackId};
+use protocol::{
+    ClientMessage, MidiInput, PROTOCOL_VERSION, ServerMessage, schema_bundle, single_synth,
+};
 
 #[test]
 fn messages_round_trip_through_json() {
@@ -8,10 +11,11 @@ fn messages_round_trip_through_json() {
             code: "12345678".into(),
         },
         ClientMessage::Command {
-            command: Command::NoteOn {
+            command: Command::Live(live::Command::NoteOn {
+                track: TrackId::parse(single_synth::TRACK).unwrap(),
                 note: 60,
                 velocity: 1,
-            },
+            }),
         },
     ];
     for m in client {
@@ -46,10 +50,6 @@ fn messages_round_trip_through_json() {
             note: 60,
             velocity: 0,
         },
-        ServerMessage::Meter {
-            peak: 0.5,
-            voices: 2,
-        },
         ServerMessage::Error {
             code: "midi.connect".into(),
             message: "x".into(),
@@ -71,7 +71,7 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        8,
+        7,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
@@ -91,7 +91,110 @@ fn bundle_carries_version_and_param_ids() {
 }
 
 #[test]
+fn bundle_carries_the_command_contract() {
+    let bundle = schema_bundle();
+    let command = &bundle["command"];
+    assert_eq!(command["input"], commands::schema());
+    assert_eq!(command["output"], commands::output_schema());
+    let catalog = command["catalog"].as_array().unwrap();
+    assert_eq!(catalog.len(), commands::catalog().len());
+    assert_eq!(catalog[0]["name"], "project.rename");
+    assert!(bundle.get("command_v2").is_none());
+}
+
+#[test]
+fn the_single_synth_ids_are_valid_and_distinct() {
+    let bundle = schema_bundle();
+    let track = TrackId::parse(single_synth::TRACK).unwrap();
+    let device = DeviceId::parse(single_synth::DEVICE).unwrap();
+    assert_ne!(track.0, device.0);
+    assert_eq!(bundle["single_synth"]["track"], single_synth::TRACK);
+    assert_eq!(bundle["single_synth"]["device"], single_synth::DEVICE);
+}
+
+#[test]
+fn the_single_synth_kind_names_an_exported_descriptor() {
+    let bundle = schema_bundle();
+    let kind = &bundle["single_synth"]["kind"];
+    assert_eq!(kind, "faulk.osc_synth");
+    let devices = bundle["devices"].as_array().unwrap();
+    assert_eq!(devices.iter().filter(|d| &d["kind"] == kind).count(), 1);
+    // One exported descriptor per device of the registry, in its order.
+    let kinds: Vec<_> = devices.iter().map(|d| d["kind"].clone()).collect();
+    let registry: Vec<_> = engine::devices::REGISTRY
+        .iter()
+        .map(|b| serde_json::Value::from(b.descriptor.kind))
+        .collect();
+    assert_eq!(kinds, registry);
+}
+
+#[test]
 fn a_command_cannot_be_smuggled_into_pairing() {
-    let json = r#"{"type":"pair","code":"1","command":{"type":"note.all_off"}}"#;
+    let json = r#"{"type":"pair","code":"1","command":{"type":"live.all_notes_off"}}"#;
     assert!(serde_json::from_str::<ClientMessage>(json).is_err());
+}
+
+#[test]
+fn bundle_exports_the_device_descriptors() {
+    let bundle = schema_bundle();
+    let devices = bundle["devices"].as_array().unwrap();
+    let synth = devices
+        .iter()
+        .find(|d| d["kind"] == "faulk.osc_synth")
+        .expect("the current synth is exported");
+    assert_eq!(synth["name"], "Oscillator");
+    assert_eq!(synth["role"], "instrument");
+    assert_eq!(synth["kind_id"], 1);
+    assert!(synth["midi_output"].is_null());
+    let params = synth["params"].as_array().unwrap();
+    // The same ids and defaults as the v1 export the web app reads today.
+    assert_eq!(params.len(), bundle["param_ids"].as_object().unwrap().len());
+    for p in params {
+        let key = p["key"].as_str().unwrap();
+        assert_eq!(p["id"], bundle["param_ids"][key], "id of {key}");
+        assert_eq!(
+            p["default"], bundle["param_defaults"][key],
+            "default of {key}"
+        );
+        assert!(p["step"].is_number() && p["smoothing_seconds"].is_number());
+    }
+    assert_eq!(params[0]["values"][1], "saw");
+    assert_eq!(params[5]["smoothing_seconds"], 0.01);
+    assert_eq!(params[1]["unit"], "seconds");
+    assert_eq!(params[1]["scale"], "log");
+    // The test devices are not built-in devices.
+    assert!(
+        devices
+            .iter()
+            .all(|d| !d["kind"].as_str().unwrap().contains("test"))
+    );
+    // The descriptor's schema describes what is exported.
+    let schema = &bundle["device_descriptor"];
+    for field in [
+        "kind",
+        "kind_id",
+        "version",
+        "name",
+        "role",
+        "memory_bytes",
+        "midi_output",
+        "params",
+    ] {
+        assert!(schema["properties"][field].is_object(), "schema of {field}");
+    }
+    let param = &schema["$defs"]["ParamDescriptor"]["properties"];
+    for field in [
+        "id",
+        "key",
+        "unit",
+        "min",
+        "max",
+        "default",
+        "scale",
+        "step",
+        "smoothing_seconds",
+        "values",
+    ] {
+        assert!(param[field].is_object(), "schema of param {field}");
+    }
 }

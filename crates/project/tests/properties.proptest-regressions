@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d33490048581bbb0564acf499bd7f72158afbf0ce0adb38e79ec4f2b709679dd # shrinks to seed = 0, name = "0", tracks = [TrackSpec { midi: false, name: "é", gain: None, pan: 0.0, mute: false, effects: [], clips: [], points: [(0, -992.1170920925797, false)] }], scenes = 0

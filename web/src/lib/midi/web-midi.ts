@@ -1,5 +1,6 @@
 import type { Command, MidiInput } from '../generated/protocol'
 import { decodeMidi } from './decode'
+import { allNotesOff } from '../synth-commands'
 
 export interface WebMidiEvents {
   onInputs(inputs: MidiInput[], selected: string | null): void
@@ -56,7 +57,7 @@ export class WebMidiHost {
   refresh() {
     if (this.selected && this.selected.state !== 'connected') {
       this.detach()
-      this.events.onCommand({ type: 'note.all_off' })
+      this.events.onCommand(allNotesOff())
     }
     this.events.onInputs(this.inputs(), this.selected?.id ?? null)
   }
@@ -70,8 +71,8 @@ export class WebMidiHost {
         const command = decodeMidi(event.data)
         if (!command) return
         this.events.onCommand(command)
-        if (command.type === 'note.on') this.events.onActivity(command.note, command.velocity)
-        if (command.type === 'note.off') this.events.onActivity(command.note, 0)
+        if (command.type === 'live.note_on') this.events.onActivity(command.note, command.velocity)
+        if (command.type === 'live.note_off') this.events.onActivity(command.note, 0)
       }
       this.selected = input
     }
@@ -93,7 +94,7 @@ export class WebMidiHost {
     if (this.selected) {
       this.selected.onmidimessage = null
       this.selected = null
-      this.events.onCommand({ type: 'note.all_off' })
+      this.events.onCommand(allNotesOff())
     }
   }
 }

@@ -1,0 +1,2 @@
+2026-10-18
+* **Update** (#50): PR-5, the page's dispatcher is generic: one project core owned by the dispatcher runs every command, the active engine gets the engine bytes it encoded (the helper still gets the command, until BO-1), the project store is fed by the events; a stream the engine refuses stops the Web engine and shows the validated text, and restarting audio starts a new engine from a snapshot; the spec's PR-4/PR-5 notes say what is done.

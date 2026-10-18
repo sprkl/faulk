@@ -1,0 +1,69 @@
+//! `project.*`: the project itself: create, open, save and rename (epic 11, SV).
+//!
+//! `project.rename` is implemented here as the reference command of the contract: an
+//! `edit` with its inverse, its event and its output, exercised by the test rule.
+
+use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
+use crate::macros::domain;
+
+/// Longest project name accepted, in characters: the project's own limit.
+pub use ::project::limits::MAX_NAME_CHARS;
+
+domain! {
+    domain = "project", schema = ("ProjectCommand", "ProjectOutput");
+
+    /// Rename the project. The name is trimmed, not empty, at most 200 characters.
+    /// Undo: rename it back to its previous name.
+    "project.rename" (kind = "edit", undo = "inverse", destructive = false)
+    Rename { name: String } => {
+        /// The name before the command.
+        previous: String,
+    };
+}
+
+/// Applies a command of this domain.
+pub fn apply(
+    command: &Command,
+    state: &mut State,
+    _ctx: &mut Context,
+) -> Result<Outcome<Command, Output>, CommandError> {
+    match command {
+        Command::Rename { name } => {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(CommandError::Invalid {
+                    field: "name".into(),
+                    message: "a project name is not empty".into(),
+                });
+            }
+            if name.chars().count() > MAX_NAME_CHARS {
+                return Err(CommandError::Invalid {
+                    field: "name".into(),
+                    message: format!("a project name has at most {MAX_NAME_CHARS} characters"),
+                });
+            }
+            if state.project.name == name {
+                // Nothing changed: nothing to undo, nothing to tell the interface.
+                return Ok(Outcome {
+                    output: Output::Rename {
+                        previous: name.to_owned(),
+                    },
+                    undo: Undo::None,
+                    events: vec![],
+                    control: vec![],
+                });
+            }
+            let previous = std::mem::replace(&mut state.project.name, name.to_owned());
+            Ok(Outcome {
+                output: Output::Rename {
+                    previous: previous.clone(),
+                },
+                undo: Undo::Inverse(Box::new(Command::Rename { name: previous })),
+                events: vec![ProjectEvent::ProjectRenamed {
+                    name: name.to_owned(),
+                }],
+                control: vec![],
+            })
+        }
+    }
+}

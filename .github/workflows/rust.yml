@@ -1,0 +1,140 @@
+name: Rust
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      # Pull requests: the heavy steps run only when the changed files can affect this job. The
+      # job always runs, so its check name always reports (a required check never stays pending).
+      # Pushes to develop and main run everything.
+      - name: Changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PATTERN: '^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|web/src/lib/engine/proto/crate/|web/vercel\.json$|web/src/lib/i18n/helper\.ts$|\.github/workflows/rust\.yml$)'
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            printf '%s\n' "$files"
+            grep -Eq "$PATTERN" <<< "$files" || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "heavy steps run: $run"
+
+      - name: Setup Rust
+        if: steps.changes.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown, wasm32-wasip1-threads
+
+      - name: Install audio headers
+        if: steps.changes.outputs.run == 'true'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
+
+      - name: Format
+        if: steps.changes.outputs.run == 'true'
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        if: steps.changes.outputs.run == 'true'
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Includes the native/WASM parity test, which builds the wasm module itself.
+      - name: Test
+        if: steps.changes.outputs.run == 'true'
+        run: cargo test --workspace
+
+      # The engine channel prototype (CT-3, web/src/lib/engine/proto/crate) is not a workspace
+      # member: formatted and linted here for both of its targets.
+      - name: Prototype crate (fmt, clippy)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: web/src/lib/engine/proto/crate
+        run: |
+          cargo fmt --check
+          cargo clippy --release --target wasm32-unknown-unknown -- -D warnings
+          cargo clippy --release --target wasm32-wasip1-threads -- -D warnings
+
+      # The shipped engine is the wasm32-wasip1-threads build (MO-2); the parity tests run the
+      # wasm32-unknown-unknown one in an interpreter.
+      - name: WASM build of the engine
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          cargo build -p engine-wasm --target wasm32-wasip1-threads --release
+          cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+
+      - name: WASM build of the project
+        if: steps.changes.outputs.run == 'true'
+        run: cargo build -p project-wasm --target wasm32-unknown-unknown --release
+
+  # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
+  helper-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      # Pull requests: the heavy steps run only when the changed files can affect this job. The
+      # job always runs, so its check name always reports (a required check never stays pending).
+      # Pushes to develop and main run everything.
+      - name: Changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PATTERN: '^(crates/(helper|protocol|commands|engine|project)/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|web/vercel\.json$|web/src/lib/i18n/helper\.ts$|\.github/workflows/rust\.yml$)'
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            printf '%s\n' "$files"
+            grep -Eq "$PATTERN" <<< "$files" || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "heavy steps run: $run"
+
+      - name: Setup Rust
+        if: steps.changes.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
+
+      - name: Clippy
+        if: steps.changes.outputs.run == 'true'
+        run: cargo clippy -p helper --all-targets -- -D warnings
+
+      - name: Test
+        if: steps.changes.outputs.run == 'true'
+        run: cargo test -p helper
+
+      - name: Release build
+        if: steps.changes.outputs.run == 'true'
+        run: cargo build -p helper --release
+
+      # The defaults a published helper ships with (production origins, "Open Faulk" on the
+      # site) depend on the release profile: test them in that profile too.
+      - name: Release defaults
+        if: steps.changes.outputs.run == 'true'
+        run: cargo test -p helper --release --bin faulk-helper

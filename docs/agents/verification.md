@@ -16,26 +16,47 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build -p engine-wasm --target wasm32-unknown-unknown --release
+cargo build -p project-wasm --target wasm32-unknown-unknown --release
 ```
 
 ## Engine and modules
 
 - **Offline render tests**: render a known input through the engine or module without an audio device, and assert on the signal: peak and RMS level, expected spectrum (FFT bins), silence where silence is expected, no NaN, no infinity, no denormals.
+- **Render harness** (`crates/test-support`, QA-1): build the project through commands, render it, assert on the signal. A `Session::single_synth()` (or `Session::from_state(state, ctx)`, which starts with a `Reset` and the snapshot of that project) runs each command (`note_on`, `note_off`, `set_param`, or any `Command` with `run`, or `exec` for its output) on a real project state, so a refused command fails the test, and records the engine messages of each outcome (`commands::engine_msgs::compile`, PR-3) plus the blocks to render (`render_secs`, `render_blocks`) as a `Scenario`; `resync` sends a new snapshot. Raw engine messages go in with `messages`. `EngineView::of_stream(scenario, &ctx.engine)` folds a scenario's messages into the engine's control state named by ids, and `EngineView::of_project` builds the same view from a project without the compiler: live commands and a snapshot must give the project's view (`crates/test-support/tests/compiler.rs`). Then:
+  - `render_native(&scenario)` renders through `engine::host`; both flush the prepare side before each block and panic on a rejected, skipped or still pending message; `render_wasm` through the `wasm32-unknown-unknown` build of `engine-wasm` in an interpreter (built into `target/parity`; not the shipped `wasm32-wasip1-threads` module, which the web tests run); `parity(&scenario)` does both, asserts they agree within `PARITY_TOLERANCE` (1e-5) and returns the native render.
+  - On the `Render`: `peak`, `rms` (whole render or `_in(start..end)` seconds), `assert_finite`, `assert_no_denormals`, `assert_clean` (adds full scale), `assert_silent(window)` (exact zeros), `assert_audible`, `onset(threshold, from)` and `assert_onset_at`, `spectrum(window)` (`dominant_hz`, `peak_in(band)`), `assert_close`, and `write_wav(name)` for `.qa/renders/<name>.wav`.
+  - Reference projects: `test_support::reference::ALL`, built by functions in `reference.rs` and recorded in `crates/test-support/tests/fixtures/<name>.stream`; `reference::load` fails when a fixture is stale. After a change of the command layer's mapping, `FAULK_RECORD=1 cargo test -p test-support` rewrites them. A new reference project (audio, automation: AU-8, AM-6) is a function added to `ALL` plus its recorded fixture.
+  - A crate uses it with `test-support = { path = "../test-support" }` in `[dev-dependencies]`; examples: `crates/engine/tests/project_render.rs`, `crates/engine-wasm/tests/project_parity.rs`.
 - **Real-time safety**: the audio path runs under the allocation detector in debug; a test renders several seconds of audio with parameter changes and MIDI events and must not trigger it.
 - **Parity**: the same render through the native build and the WASM build gives the same output within a stated tolerance.
 - **Listening**: when a change affects the sound, write the render to a WAV file under `.qa/renders/` and tell the user where it is. Never claim something "sounds right": only the user judges by ear.
 
 ## Commands and agents (any change under `crates/commands` or to the MCP and ACP bridges)
 
-- Each new or changed command: schema, description and undo covered by tests.
+- Each new or changed command: schema, description and undo covered by tests. Add one example of the command, with the state it runs from, to `examples()` in `crates/commands/tests/contract.rs` (the catalog test there proves its description and both schemas; the harness `commands::testing::check` proves the metadata rules and the undo: apply, undo restores the state, redo), and one `check_refusal` case per refusal of the command (the state stays intact). A declared command without an example fails the tests.
 - The parity test passes: every command is exposed as an MCP tool, and no MCP tool exists without its command.
 - Drive the change from a real agent: connect Claude Code to the helper's MCP server and run the command, then check the result in the page and in the history (author shown, undo works).
 
 ## Web UI (any change under `web/`)
 
-1. In `web/`: `pnpm gen:protocol` (no diff), `pnpm typecheck`, `pnpm lint`, `pnpm test` (builds the wasm engine and runs it under Node), `pnpm build`.
+1. In `web/`: `pnpm gen:check` (regenerates `src/lib/generated/`, fails on a diff; `dev`, `build` and `test` regenerate it too), `pnpm typecheck`, `pnpm lint`, `pnpm test` (builds the wasm engine and runs it under Node), `pnpm build`, then `pnpm test:e2e` (Playwright, `web/tests/e2e/`: starts its own dev server on 5180 and a fresh build under the preview on 4180, never reuses one; cross-origin isolation, helper sockets against a stand-in helper on 47800, which must be free, simulated Web MIDI, the landing page). `FAULK_E2E_CHANNEL=chrome` or `msedge` runs it in the installed Chrome or Edge; the first run needs `pnpm exec playwright install chromium`.
 2. Start the dev server (`pnpm dev`, port 5173): the landing page is at `/` (`/en`, `/fr`) and the DAW at `/app`. Check the landing page with Playwright at 1440 and 390 px in both languages (no horizontal scroll, keyboard focus, no request to another host, no JavaScript loaded besides the lazily loaded animation chunk `landing/anim.*.js`, no wasm). The sound objects' animation (`web/src/lib/landing/anim/`): six `.is-live` stages, no console error, a still frame under `prefers-reduced-motion: reduce`, no rendering while off screen or in a hidden tab, axe 0 violation, and frame times measured while hovering the hero and the library (`?fk-anim-t=<s>&fk-anim-p=<x>,<y>` gives a reproducible frame for screenshots). Open the DAW (`/app`) with Playwright. Without a real MIDI device, inject a fake `navigator.requestMIDIAccess` with `page.addInitScript` to exercise detection, hot-plug and notes; start the audio context (a user gesture is required), exercise every acceptance criterion and the screens the change touches, read the console (no error) and the screenshots.
 3. Explore beyond the scripted flow: double clicks, reload during playback, helper connected then disconnected, tab in the background.
+
+### Timing budgets of the e2e specs
+
+`engine-mo2.spec.ts` (the shipped worklet) measures the cost of the engine channel on the render thread of a real AudioWorklet: 2 µs per pumped message and 500 µs for the longest pump (the swap of a table at its limit), budgets of CT-3 and MO-2. `engine-channel.spec.ts` is the CT-3 prototype, kept as the evidence of the chosen way (and of way (a), which was not shipped); it holds ceilings only, in every mode (10 times 2 µs and 500 µs, and 500 µs per message for a burst of way (a), whose own bound is 50 µs). Every number is printed, with the mode (`timing: ceiling…` or `timing: STRICT…`); in strict mode each of the five runs is printed and checked, then the asserted medians.
+
+- **CI and default**: the assertions hold a ceiling ten times the budget (20 µs per message, 5 000 µs for the longest pump). A shared runner is slower and noisier than a workstation (in the prototype spec (way (b), which moves 8 192 slots and a million notes in a pump) the longest pump measured 512 µs in CI run 38705342790 of `develop`, 1 049 µs in the report of #220, and up to 1 201 µs in 20 local runs on a Windows workstation that was also running other work; the shipped worklet (`engine-mo2`) measured 15 µs median and 169 µs at most over 40 such runs, and once 2.40 µs per message against a budget of 2: one preempted quantum is enough), so the ceiling only catches a gross regression (about 65 times the measured per-message cost of the shipped worklet, 280 times its longest pump), not an overrun of the budget: that is the strict run's job. The 500 µs swap of 8 192 slots and a million notes (prototype, way (b)) is held by the ceiling only; the strict run measures the shipped worklet's 2 048-entry swap.
+- **Strict, on a reference machine**: `FAULK_E2E_STRICT_TIMING=1` runs the shipped measurement five times and holds the budgets themselves on the **median**. A reference machine is a workstation with nothing else running (no build, no other browser), named with its CPU and OS in the pull request; the strict run is never done in CI. Any value other than `1` or `0` is an error.
+
+  ```bash
+  cd web && FAULK_E2E_STRICT_TIMING=1 pnpm exec playwright test engine-mo2 --project=dev
+  ```
+
+  PowerShell (the variable stays set in the session, remove it afterwards): `cd web; $env:FAULK_E2E_STRICT_TIMING='1'; pnpm exec playwright test engine-mo2 --project=dev; Remove-Item Env:FAULK_E2E_STRICT_TIMING`.
+
+Run it before a release and after any change to `crates/engine`, `crates/engine-wasm` or `web/src/lib/engine/worklet.ts`; report the printed numbers and the machine in the pull request.
 
 ## Helper packaging and updates (changes to `crates/helper/src/updater.rs`, `release-helper.yml`, `web/vercel.json`, `scripts/helper-release/`, the tray's update entries)
 
@@ -54,6 +75,21 @@ Measure the output latency (and the round trip when input is involved) in both m
 ## Agent scripts and hooks (any change under `scripts/` or `.claude/`)
 
 Run `node --test "scripts/**/*.test.mjs"` (CI runs it too), then try the changed hook or script by hand.
+
+## CI (GitHub Actions, `.github/workflows/`)
+
+On a pull request, each job of `rust.yml` (`rust`, `helper-windows`), `ci.yml` (`web`) and `agent-scripts.yml` always starts, so its check name always reports, but its heavy steps run only when a changed file can affect it. A first step, `Changed files`, lists `git diff --name-only --no-renames HEAD^1 HEAD` (the merge commit of the pull request against its base) and matches it with the job's `PATTERN`. Pushes to `develop` and `main` run everything. A pattern that misses a path the job reads lets a broken change through green: add the path to the `PATTERN` of the job in the same change that makes the job read it.
+
+| Job | Heavy steps run when the pull request changes |
+|---|---|
+| `rust` | `crates/`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/src/lib/engine/proto/crate/` (the prototype crate it lints), `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by the helper's updater tests, which `cargo test --workspace` runs), `rust.yml` |
+| `helper-windows` | `crates/helper/` and the crates it depends on by path (`engine`, `commands`, `protocol`, `project`), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by its tests), `rust.yml` |
+| `web` | `web/`, `crates/` (the page embeds the engine and project WASM and the generated types), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `ci.yml` |
+| `agent-scripts` | `scripts/`, `.claude/`, `web/vercel.json` (read by the release script tests), `agent-scripts.yml` |
+
+`release-helper.yml` (Windows, macOS and Linux trial build) runs on a pull request only for the helper's updater, wiring and manifest, `scripts/helper-release/`, `web/vercel.json` and itself (not `Cargo.lock`: it changes for any dependency); it runs in full on a push to `develop` or `main` that touches `crates/helper/`, `Cargo.lock`, `scripts/helper-release/`, `web/vercel.json` or the workflow, on `helper-v*` tags and on dispatch.
+
+After changing a workflow, lint it: `actionlint` with `shellcheck` available. To see the filter work, a pull request that changes only `docs/` shows `Changed files` ending with `heavy steps run: false` in each job, and one that touches `crates/` shows `true`.
 
 ## Recording the verification
 

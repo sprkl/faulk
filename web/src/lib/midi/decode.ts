@@ -1,4 +1,5 @@
 import type { Command } from '../generated/protocol'
+import { allNotesOff, noteOff, noteOn } from '../synth-commands'
 
 /**
  * Decodes a MIDI message into a command, like `decode` in crates/helper/src/midi.rs:
@@ -12,15 +13,15 @@ export function decodeMidi(message: ArrayLike<number>): Command | null {
     const note = byte(1)
     const velocity = byte(2)
     if (note === null || velocity === null) return null
-    return velocity === 0 ? { type: 'note.off', note } : { type: 'note.on', note, velocity }
+    return velocity === 0 ? noteOff(note) : noteOn(note, velocity)
   }
   if (kind === 0x80) {
     const note = byte(1)
-    return note === null ? null : { type: 'note.off', note }
+    return note === null ? null : noteOff(note)
   }
   if (kind === 0xb0) {
     const control = byte(1)
-    if (control === 120 || control === 123) return { type: 'note.all_off' }
+    if (control === 120 || control === 123) return allNotesOff()
   }
   return null
 }

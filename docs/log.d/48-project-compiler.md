@@ -1,0 +1,2 @@
+2026-10-15
+* **Update** (#48): PR-3, the project → engine compiler: every command's outcome carries its engine messages, `snapshot` replays a whole project on an empty engine, the id → slot table (`project::slots`) reuses freed slots and grows; project-wide limits of clips, placements and lanes; spec § PR-3 implementation note, glossary (compiler, snapshot, slot table), verification (the harness's `EngineView`).

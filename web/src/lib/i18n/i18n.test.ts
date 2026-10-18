@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { DEVICE_NAME_KEYS } from './app'
+import { DEVICE_NAME_KEYS, features } from './app'
 import { defaultLang, landingMessages, messages, translate } from './index'
+import { DEVICES } from '../generated/protocol'
 import { LANDING_DEVICE_NAME_KEYS } from './landing'
 
 /** Every catalogue of the app: the DAW and the landing page. */
@@ -24,13 +25,42 @@ describe('i18n', () => {
     })
   }
 
+  describe('features of the DAW', () => {
+    for (const [name, feature] of Object.entries(features)) {
+      it(`${name}: has the same keys in English and French, none empty`, () => {
+        expect(Object.keys(feature.en).length).toBeGreaterThan(0)
+        expect(Object.keys(feature.fr).sort()).toEqual(Object.keys(feature.en).sort())
+        for (const lang of ['en', 'fr'] as const) {
+          for (const [key, text] of Object.entries(feature[lang])) expect(text.trim(), `${lang} ${key}`).not.toBe('')
+        }
+      })
+    }
+
+    it('declares each key in one feature only, and the assembly holds them all', () => {
+      const all = Object.values(features).flatMap((feature) => Object.keys(feature.en))
+      expect(new Set(all).size).toBe(all.length)
+      expect(Object.keys(messages.en).sort()).toEqual([...all].sort())
+    })
+  })
+
+  it('keeps the names of the built-in devices out of the DAW catalogue (they come from the descriptors)', () => {
+    for (const { name } of DEVICES) {
+      for (const lang of ['en', 'fr'] as const) {
+        const keys = Object.entries(messages[lang]).filter(([, text]) => text === name)
+        expect(keys.map(([key]) => key).filter((key) => !DEVICE_NAME_KEYS.includes(key as never)), `${lang} ${name}`).toEqual([])
+      }
+    }
+  })
+
   it('shows each device name as one name, the same in every language', () => {
     const lists = [
       [messages, DEVICE_NAME_KEYS],
       [landingMessages, LANDING_DEVICE_NAME_KEYS],
     ] as const
+    // The landing page names its sound objects; the DAW names none since DV-1 (the panels take
+    // the name from the device's descriptor).
+    expect(LANDING_DEVICE_NAME_KEYS.length).toBeGreaterThan(0)
     for (const [catalogue, keys] of lists) {
-      expect(keys.length).toBeGreaterThan(0)
       const en = catalogue.en as Record<string, string>
       const fr = catalogue.fr as Record<string, string>
       for (const key of keys) {
@@ -43,6 +73,16 @@ describe('i18n', () => {
   it('fills placeholders', () => {
     expect(translate('en', 'engine.latency', { ms: 12 })).toBe('~12 ms (estimated)')
     expect(translate('fr', 'helper.refused', { n: 3 })).toBe('Code incorrect. Encore 3 essais.')
+  })
+
+  it('names the real recheck button in the French blocked-access text', () => {
+    const recheck = translate('fr', 'helper.recheck')
+    expect(translate('fr', 'helper.localAccessBlocked')).toContain(`« ${recheck} »`)
+  })
+
+  it('names the real start button in the stream-refused text, in both languages', () => {
+    expect(translate('en', 'engine.streamError')).toContain(`"${translate('en', 'start.button')}"`)
+    expect(translate('fr', 'engine.streamError')).toContain(`« ${translate('fr', 'start.button')} »`)
   })
 
   it('picks the stored language, else the browser one', () => {

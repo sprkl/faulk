@@ -1,0 +1,2 @@
+2026-10-14
+* **Update** (#56): the track graph (MO-3) is in the code (`crates/engine/src/graph.rs`, `Engine::render`): chains of MIDI effects, instrument and effects per track, gain, balance pan, mute and cumulative solo with 5 ms ramps, master; a track added fades in, a removed or replaced one fades out then comes back through its own retire ring; `specs/02-decoupage-mvp.md` § 2.3 records these choices and the measured cost of an empty track.

@@ -9,8 +9,26 @@ description = "Faulk engine as a WebAssembly module with a plain C ABI, loaded i
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Exports the device contract's test scenario (`fk_contract_scenario`), for the
+# native/WASM parity test only (`tests/device_parity.rs` builds the module with it).
+device-contract = ["engine/testing"]
+# Exports the prepare/apply cycle's test host (`fk_cycle_*`, MO-1), for the native/WASM
+# parity and memory growth tests only (`tests/cycle_parity.rs` builds the module with it).
+engine-cycle = ["engine/testing"]
+# Exports the transport clock's test scenario (`fk_transport_scenario`, TR-1), for the
+# native/WASM parity test only (`tests/transport_parity.rs` builds the module with it).
+transport-scenario = ["engine/testing"]
+# Exports the timed events' test scenario (`fk_events_scenario`, MO-4), for the
+# native/WASM parity test only (`tests/events_parity.rs` builds the module with it).
+events-scenario = ["engine/testing"]
+
 [dependencies]
 engine = { path = "../engine" }
 
 [dev-dependencies]
+engine = { path = "../engine", features = ["testing"] }
 wasmi = "2.0.0"
+commands = { path = "../commands" }
+test-support = { path = "../test-support" }
+project = { path = "../project" }

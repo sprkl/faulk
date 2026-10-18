@@ -1,0 +1,16 @@
+[package]
+name = "project"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Faulk project document: tracks, clips, devices, automation, transport settings. Pure Rust, no I/O."
+
+[dependencies]
+engine = { path = "../engine", features = ["serde", "schema"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1.12.0"
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
