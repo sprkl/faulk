@@ -329,6 +329,16 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Phase : 1.
 - Étiquettes : hardware: non, founder: non.
 
+**Mise en œuvre PR-4 (#49, 2026-10-18) : `crates/project-wasm`, `crates/commands/src/host.rs`, `web/src/lib/project/core.ts`.** Ce que le code ajoute, et ce qu'il laisse :
+
+- **ABI** : exports C simples (`pw_*`), sans `wasm-bindgen` (son outil en ligne de commande serait une dépendance de plus à épingler pour une dizaine d'appels). La page écrit du JSON dans la boîte de réception, appelle un export, lit le JSON rendu et, à part, les octets moteur ; chaque appel remplace ces octets (vides quand il n'en produit pas), jamais ceux d'un appel précédent.
+- **Un cœur** (`Core`) : le projet, sa session et son historique, le contexte des commandes et le flux du moteur (`Synced`), plus ce qui a été écrit en dernier. Création vide ou à un synthé ; les identifiants sont semés par l'horloge et 80 bits d'aléa de la page (`pageSeed`).
+- **Appels** : `run(commande)` → `RunReport` (`applied` avec sortie, événements et `stream_error`, `refused` avec l'erreur typée, `invalid`) et octets moteur ; `setup()` (époque courante) et `snapshot()` (époque suivante) → `SnapshotReport` et octets ; `project()` → `ProjectView` (projet et session, ce que la page relit après `track_created` ou `clip_created`) ; `load(fichiers)` → `LoadReport` (historique vidé, instantané dans l'époque suivante) ; `save()` → `SaveReport` (`ProjectChanges` : fichiers à écrire et à supprimer) ; `saved(changements)` enregistre ce que l'hôte a écrit. Types générés dans `web/src/lib/generated/protocol.ts`.
+- **Enregistrement en deux temps** : `save()` ne marque rien ; seul `saved()` fixe la référence, avec le texte écrit. Une écriture qui échoue laisse le fichier sale, une modification faite entre `save()` et `saved()` aussi. Un projet chargé est propre.
+- **Fichiers provisoires** jusqu'au format dossier de SV-1 (#93) : `project.json` contient le `Project` sérialisé entier et `.faulk/session.json` la session. Rien ne les écrit encore sur disque (SV-2). Un fichier de session illisible n'empêche pas d'ouvrir le projet : la session par défaut le remplace (`session_reset`) et le fichier reste tel quel tant que la session ne change pas.
+- **Taille** (build release, 2026-10-18) : `project.wasm` pèse 1 748 910 octets, dont 322 159 de section `name`, et 442 877 octets compressé (`gzip -9`).
+- **Pas encore** : le dispatcher passe encore par `WebEngine`, qui tient son propre cœur à un synthé ; le cœur unique de la page, le store projet alimenté par les événements et la bascule de mode par instantané sont de PR-5 ; la copie du projet dans le helper reste jusqu'à BO-1.
+
 **PR-5 — Dispatcher web générique et stores**
 - But : remplacer le `switch` de `Dispatcher.run` (`web/src/lib/stores/dispatcher.ts`) par `run(command)` → `project-wasm` → octets moteur vers le moteur actif ; stores projet et moteur (`wasm-ops.ts` est déjà supprimé par MO-2, qui a posé un premier encodeur `project-wasm` provisoire).
 - Critères : aucune référence à un type de commande dans le dispatcher ; l'écran actuel (synthé, clavier, MIDI) fonctionne via les nouvelles commandes ; test Playwright : note jouée, son mesuré non nul, aucune erreur console.

@@ -845,9 +845,221 @@ code: string
 message: string
 type: "error"
 })
+/**
+ * What loading a project did.
+ */
+export type LoadReport = ({
+session_reset: boolean
+snapshot: SnapshotReport
+status: "loaded"
+} | {
+error: LoadError
+status: "refused"
+})
+/**
+ * What encoding a snapshot for the engine did: the bytes are returned beside it.
+ */
+export type SnapshotReport = ({
+epoch: number
+status: "encoded"
+} | {
+status: "failed"
+stream_error: number
+})
+/**
+ * Why project files were refused.
+ */
+export type LoadError = ({
+code: "missing_file"
+file: string
+} | {
+code: "format"
+found: number
+supported: number
+} | {
+code: "parse"
+file: string
+message: string
+} | {
+code: "invalid"
+violations: string[]
+})
+/**
+ * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
+ * 
+ * Constant per project at the MVP. Carries every conversion between ticks, seconds,
+ * samples and frames (see the module documentation for the rounding rules).
+ */
+export type Tempo = number
+/**
+ * What running a command did.
+ */
+export type RunReport = ({
+events: ProjectEvent[]
+output: CommandOutput
+status: "applied"
+stream_error?: (number | null)
+} | {
+error: CommandError
+status: "refused"
+} | {
+message: string
+status: "invalid"
+})
+/**
+ * What the interface learns from an applied command: its mirror of the project is fed
+ * by these events only (spec § 2.6). Each task adds the events its commands emit, next
+ * to them in this enum.
+ */
+export type ProjectEvent = ({
+name: string
+type: "project_renamed"
+} | {
+track?: (string | null)
+type: "track_selected"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+param: string
+type: "device_param_changed"
+value: number
+} | {
+gain_db?: (number | null)
+mute: boolean
+pan: number
+track?: (string | null)
+type: "mixer_changed"
+} | {
+solo: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "solo_changed"
+} | {
+bpm: number
+type: "tempo_changed"
+} | {
+denominator: number
+numerator: number
+type: "time_signature_changed"
+} | {
+enabled: boolean
+region?: (TickLoop | null)
+type: "loop_changed"
+} | {
+count_in_bars: number
+enabled: boolean
+gain_db?: (number | null)
+type: "metronome_changed"
+} | {
+id?: (string | null)
+type: "midi_input_selected"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip_created"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip_deleted"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+part: ClipPart
+type: "clip_changed"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track_created"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track_deleted"
+} | {
+part: TrackPart
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track_changed"
+} | {
+can_redo: boolean
+can_undo: boolean
+type: "history_changed"
+})
+/**
+ * Which part of a clip a [`ProjectEvent::ClipChanged`] reports.
+ */
+export type ClipPart = (("name" | "length" | "loop" | "notes") | "content")
+/**
+ * Which part of a track a [`ProjectEvent::TrackChanged`] reports.
+ */
+export type TrackPart = (("name" | "color") | "order")
+/**
+ * Why a command was refused. `code()` is stable for the interface and the agents;
+ * the message is for developers.
+ */
+export type CommandError = ({
+code: "not_found"
+entity: string
+id: string
+} | {
+code: "invalid"
+field: string
+message: string
+} | {
+code: "limit"
+entity: string
+max: number
+} | {
+code: "unsupported"
+command: string
+})
+/**
+ * What asking for the project's changes gave.
+ */
+export type SaveReport = ({
+changes: ProjectChanges
+status: "changes"
+} | {
+message: string
+status: "failed"
+})
 
 /**
  * A track: its chain of devices, its clips, its arrangement and its automation.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
  */
 export interface Track {
 automation: {
@@ -1210,5 +1422,185 @@ export interface MidiInput {
  */
 id: string
 name: string
+}
+/**
+ * What to change in the project folder: files to write (path → text) and files to
+ * remove. The interim files never remove anything; the folder format of SV-1 removes
+ * the files of a deleted track or clip.
+ */
+export interface ProjectChanges {
+remove: string[]
+write: {
+[k: string]: string | undefined
+}
+}
+export interface ProjectFiles {
+[k: string]: string | undefined
+}
+/**
+ * The page's view of the project: what it reads after an event that names an entity
+ * (`track_created`, `clip_created`), from its own copy of the project.
+ */
+export interface ProjectView {
+project: Project
+session: SessionState
+}
+/**
+ * The project document: what makes the music, saved and versioned.
+ */
+export interface Project {
+/**
+ * On-disk format version, for migrations ([`FORMAT_VERSION`]).
+ */
+format: number
+/**
+ * Stable identity, created once with the project and never changed ("save as"
+ * makes a new one). Required: a project without it is refused on read.
+ */
+id: string
+master: Mixer
+/**
+ * The time-signature map, sorted by tick. Exactly one point at tick 0 in the MVP.
+ */
+meter: MeterPoint[]
+/**
+ * Display name: trimmed, not empty.
+ */
+name: string
+/**
+ * The rows of the launch grid.
+ */
+scenes: {
+[k: string]: Scene | undefined
+}
+/**
+ * The tempo map, sorted by tick. Exactly one point at tick 0 in the MVP (constant
+ * tempo); the map shape keeps the format ready for tempo changes.
+ */
+tempo: TempoPoint[]
+/**
+ * The tracks.
+ */
+tracks: {
+[k: string]: Track | undefined
+}
+transport: TransportSettings
+}
+/**
+ * A time signature from a tick on.
+ */
+export interface MeterPoint {
+signature: TimeSignature
+tick: Tick
+}
+/**
+ * A time signature `numerator / denominator`: the numerator in `1..=32`, the denominator
+ * a power of two in `1..=32`. The beat is the denominator's note value (3/8 has an
+ * eighth-note beat of 480 ticks).
+ */
+export interface TimeSignature {
+/**
+ * The note value of one beat.
+ */
+denominator: number
+/**
+ * Beats per bar.
+ */
+numerator: number
+}
+/**
+ * A row of the launch grid. A tempo per scene comes after the MVP.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface Scene {
+name: string
+order: OrderKey
+}
+/**
+ * A tempo from a tick on.
+ */
+export interface TempoPoint {
+bpm: Tempo
+tick: Tick
+}
+/**
+ * Saved transport settings.
+ */
+export interface TransportSettings {
+/**
+ * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
+ * one bar by default (founder's decision 8).
+ * 
+ * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
+ * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
+ */
+launch_quantize: ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
+/**
+ * Whether the transport loops over `loop_region`.
+ */
+loop_enabled: boolean
+/**
+ * The loop region `[start, end)` in ticks, when one is set.
+ */
+loop_region?: (LoopRegion | null)
+metronome: Metronome
+}
+/**
+ * The transport's loop: a half-open region `[start, end)` in ticks, never empty, and
+ * never longer than `i64::MAX` ticks so that its length is itself a [`Tick`].
+ */
+export interface LoopRegion {
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+end: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+}
+/**
+ * The metronome settings.
+ */
+export interface Metronome {
+/**
+ * Bars counted in before recording.
+ */
+count_in_bars: number
+enabled: boolean
+/**
+ * Level in dB; `-inf` is written `null`.
+ */
+gain_db?: (number | null)
+}
+/**
+ * The session state. Written apart from the project, to `.faulk/session.json` (SV-1),
+ * ignored by git, restored on reopening and never versioned: no field of [`Project`]
+ * holds it, so changing it never changes the project's text. Commands change it like
+ * the project; `live` commands change only it.
+ */
+export interface SessionState {
+/**
+ * The name of the chosen MIDI input port; `None` when none is chosen.
+ */
+midi_input?: (string | null)
+/**
+ * The selected track: where live MIDI goes. `None` when no track is selected.
+ */
+selected_track?: (string | null)
+/**
+ * The soloed tracks. Solo is session state; mute is in the project.
+ * 
+ * Items: Identifier of a track.
+ */
+solo: string[]
 }
 
