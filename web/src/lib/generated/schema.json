@@ -1006,7 +1006,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+            "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
             "properties": {
               "device": {
                 "$ref": "#/$defs/DeviceId"
@@ -3589,7 +3589,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -7393,7 +7393,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -11224,7 +11224,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -15037,7 +15037,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -18838,7 +18838,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -22646,7 +22646,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -26461,7 +26461,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -30273,7 +30273,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -34074,7 +34074,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -37887,7 +37887,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -41696,7 +41696,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -45504,7 +45504,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -49312,7 +49312,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -53122,7 +53122,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -56936,7 +56936,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -60740,7 +60740,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -64545,7 +64545,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -68357,7 +68357,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -72158,7 +72158,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -75010,7 +75010,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+        "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -75966,7 +75966,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -79786,7 +79786,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -83621,7 +83621,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -87427,7 +87427,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -91239,7 +91239,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -95053,7 +95053,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -98861,7 +98861,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -102673,7 +102673,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -106492,7 +106492,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -110319,7 +110319,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -114132,7 +114132,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -117945,7 +117945,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -121758,7 +121758,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -125549,7 +125549,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -129340,7 +129340,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -133137,7 +133137,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -136945,7 +136945,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -140770,7 +140770,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -144584,7 +144584,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -148382,7 +148382,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -152225,7 +152225,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -156044,7 +156044,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -159856,7 +159856,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -163664,7 +163664,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -167479,7 +167479,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -171287,7 +171287,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -175078,7 +175078,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -178884,7 +178884,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -182695,7 +182695,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -186499,7 +186499,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -190316,7 +190316,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -194126,7 +194126,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -197933,7 +197933,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -201724,7 +201724,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -205534,7 +205534,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -209344,7 +209344,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -213142,7 +213142,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -216940,7 +216940,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+                  "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -220748,7 +220748,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nUndo: set the parameter back to its previous value.",
+              "description": "Set a parameter of a device, by the parameter's id, in the unit the device\ndeclares. The parameter must be one the device declares and the value must be\nfinite; it is clamped to the parameter's range and rounded to its step, and the\nvalue stored (and returned) is the result. The built-in synth's parameters:\n`waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and\n`release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).\nEvery device's parameters (key, unit, range, default, and a `description` of what\neach does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -223728,6 +223728,10 @@
             "format": "double",
             "type": "number"
           },
+          "description": {
+            "description": "What the parameter does and what its range means, in English: for agents (the\nschema bundle) and for the tooltips of the UI. One or two sentences.",
+            "type": "string"
+          },
           "id": {
             "description": "Stable numeric id, the one events and `ControlMsg::ParamSet` carry.",
             "format": "uint32",
@@ -223773,6 +223777,7 @@
         "required": [
           "id",
           "key",
+          "description",
           "unit",
           "min",
           "max",
@@ -223899,6 +223904,7 @@
       "params": [
         {
           "default": 1,
+          "description": "Shape of the oscillator: sine, saw, square or triangle.",
           "id": 0,
           "key": "waveform",
           "max": 3,
@@ -223916,6 +223922,7 @@
         },
         {
           "default": 0.005,
+          "description": "Time the note takes to reach full level after it starts, in seconds.",
           "id": 1,
           "key": "attack",
           "max": 30,
@@ -223928,6 +223935,7 @@
         },
         {
           "default": 0.2,
+          "description": "Time the level takes to fall from full to the sustain level, in seconds.",
           "id": 2,
           "key": "decay",
           "max": 30,
@@ -223940,6 +223948,7 @@
         },
         {
           "default": 0.7,
+          "description": "Level held while the note is down, from 0 to 1 of full level.",
           "id": 3,
           "key": "sustain",
           "max": 1,
@@ -223952,6 +223961,7 @@
         },
         {
           "default": 0.3,
+          "description": "Time the level takes to fade out after the note ends, in seconds.",
           "id": 4,
           "key": "release",
           "max": 30,
@@ -223964,6 +223974,7 @@
         },
         {
           "default": 0.8,
+          "description": "Output level of the synth, from 0 to 1 (linear gain).",
           "id": 5,
           "key": "gain",
           "max": 1,
@@ -223987,6 +223998,7 @@
       "params": [
         {
           "default": 52,
+          "description": "Pitch the kick settles on after its fast fall, in hertz.",
           "id": 0,
           "key": "kick_tune",
           "max": 120,
@@ -223999,6 +224011,7 @@
         },
         {
           "default": 0.45,
+          "description": "How long the kick rings, in seconds.",
           "id": 1,
           "key": "kick_decay",
           "max": 1.5,
@@ -224011,6 +224024,7 @@
         },
         {
           "default": 0.6,
+          "description": "Depth of the initial pitch fall of the kick: 0 is soft, 1 is the sharpest attack.",
           "id": 2,
           "key": "kick_punch",
           "max": 1,
@@ -224023,6 +224037,7 @@
         },
         {
           "default": 0.9,
+          "description": "Loudness of the kick, from 0 to 1 (linear gain).",
           "id": 3,
           "key": "kick_level",
           "max": 1,
@@ -224035,6 +224050,7 @@
         },
         {
           "default": 185,
+          "description": "Pitch of the snare tone, in hertz.",
           "id": 4,
           "key": "snare_tune",
           "max": 400,
@@ -224047,6 +224063,7 @@
         },
         {
           "default": 0.2,
+          "description": "How long the snare rings, in seconds.",
           "id": 5,
           "key": "snare_decay",
           "max": 0.8,
@@ -224059,6 +224076,7 @@
         },
         {
           "default": 0.6,
+          "description": "Balance between the tone (0) and the noise (1) of the snare.",
           "id": 6,
           "key": "snare_snap",
           "max": 1,
@@ -224071,6 +224089,7 @@
         },
         {
           "default": 0.8,
+          "description": "Loudness of the snare, from 0 to 1 (linear gain).",
           "id": 7,
           "key": "snare_level",
           "max": 1,
@@ -224083,6 +224102,7 @@
         },
         {
           "default": 1500,
+          "description": "Centre frequency of the clap noise, in hertz.",
           "id": 8,
           "key": "clap_tone",
           "max": 4000,
@@ -224095,6 +224115,7 @@
         },
         {
           "default": 0.3,
+          "description": "How long the clap rings, in seconds.",
           "id": 9,
           "key": "clap_decay",
           "max": 1,
@@ -224107,6 +224128,7 @@
         },
         {
           "default": 0.7,
+          "description": "Loudness of the clap, from 0 to 1 (linear gain).",
           "id": 10,
           "key": "clap_level",
           "max": 1,
@@ -224119,6 +224141,7 @@
         },
         {
           "default": 7000,
+          "description": "Brightness of the hi-hat, as the pitch of its metallic tone in hertz.",
           "id": 11,
           "key": "hat_tone",
           "max": 12000,
@@ -224131,6 +224154,7 @@
         },
         {
           "default": 0.05,
+          "description": "How long the closed hi-hat rings, in seconds.",
           "id": 12,
           "key": "hat_decay",
           "max": 0.4,
@@ -224143,6 +224167,7 @@
         },
         {
           "default": 0.5,
+          "description": "How long the open hi-hat rings, in seconds.",
           "id": 13,
           "key": "hat_open_decay",
           "max": 2,
@@ -224155,6 +224180,7 @@
         },
         {
           "default": 0.6,
+          "description": "Loudness of the hi-hat, from 0 to 1 (linear gain).",
           "id": 14,
           "key": "hat_level",
           "max": 1,
@@ -224167,6 +224193,7 @@
         },
         {
           "default": 0.8,
+          "description": "Output level of the whole kit, from 0 to 1 (linear gain).",
           "id": 15,
           "key": "gain",
           "max": 1,

@@ -1,0 +1,2 @@
+2026-10-21
+* **Update** (#70): the device panel (DV-9): the bottom panel shows the selected track's instrument and effects as cards generated from the device descriptors, with an instrument and effect browser, bypass, reorder and remove, all through the DV-8 commands. `ParamDescriptor` gains an English `description` (checked by `validate`, exported in the schema bundle, shown as a tooltip through the `<device>.<param>.hint` catalogue keys). The Oscillator-only panel of the Instrument view is gone: the Drums track has its generated panel too.

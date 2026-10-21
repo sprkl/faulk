@@ -8,8 +8,8 @@ use engine::device::testing::{
 };
 use engine::device::{
     AudioIo, BlockCtx, DescriptorError, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event,
-    EventBuffer, Factory, MAX_KEY_LEN, MAX_PARAMS_PER_DEVICE, MidiOutput, ParamDescriptor, Scale,
-    Transport, Unit, VoiceId, builtin, builtin_descriptors,
+    EventBuffer, Factory, MAX_DESCRIPTION_LEN, MAX_KEY_LEN, MAX_PARAMS_PER_DEVICE, MidiOutput,
+    ParamDescriptor, Scale, Transport, Unit, VoiceId, builtin, builtin_descriptors,
 };
 use engine::msg::{DeviceKind, ParamId};
 use engine::{OSC_SYNTH, Param, Synth};
@@ -151,6 +151,7 @@ fn validate_rejects_each_broken_rule() {
     let base_param = ParamDescriptor {
         id: ParamId(0),
         key: "cutoff",
+        description: "Test parameter cutoff.",
         unit: Unit::Hertz,
         min: 20.0,
         max: 20_000.0,
@@ -300,6 +301,27 @@ fn validate_rejects_each_broken_rule() {
                 ..base_param
             }),
             DescriptorError::BadKey(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: "",
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: " padded ",
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: Box::leak("x".repeat(MAX_DESCRIPTION_LEN + 1).into_boxed_str()),
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
         ),
         (
             one(ParamDescriptor {
