@@ -172,6 +172,12 @@ pub enum Output {
     Master,
 }
 
+/// The lowest finite gain of a track or of the master, in dB (MX-2). Below it, the gain is
+/// silence (`null`). Shared by the document ([`crate::Project::validate`]) and the commands.
+pub const MIN_GAIN_DB: f64 = -96.0;
+/// The highest gain of a track or of the master, in dB (MX-2).
+pub const MAX_GAIN_DB: f64 = 6.0;
+
 /// Gain, pan and mute of a track or of the master. Solo is not here: it is session state
 /// (founder's decision 10). Sends come after the MVP.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
