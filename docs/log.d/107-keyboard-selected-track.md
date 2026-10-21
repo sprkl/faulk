@@ -1,0 +1,2 @@
+2026-10-21
+* **Update** (#107): UI-3, the computer keyboard plays through the live input commands (`live.input_note_on`, `live.input_note_off`): the selected MIDI track and the armed ones sound, and a note ends where it started when the selection changes. The Drums track starts the keyboard at octave 2 (A kick, S snare, E clap, T closed hat, U open hat). The rule "no shortcut fires while playing" is written in `web/src/lib/keyboard.ts` and enumerated by `keyboard.test.ts`.

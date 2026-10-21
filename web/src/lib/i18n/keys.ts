@@ -9,6 +9,8 @@ export const keys = defineFeature(
     'keys.octave': 'Octave {n}',
     'keys.target': 'Playing {name}.',
     'keys.noTarget': 'Select a MIDI track to play.',
+    'keys.targetArmed': 'Playing {name} and the armed tracks.',
+    'keys.armedOnly': 'Playing the armed tracks.',
   },
   {
     'keys.title': 'Clavier de l’ordinateur',
@@ -16,5 +18,7 @@ export const keys = defineFeature(
     'keys.octave': 'Octave {n}',
     'keys.target': 'Tu joues sur {name}.',
     'keys.noTarget': 'Sélectionne une piste MIDI pour jouer.',
+    'keys.targetArmed': 'Tu joues sur {name} et sur les pistes armées.',
+    'keys.armedOnly': 'Tu joues sur les pistes armées.',
   },
 )
