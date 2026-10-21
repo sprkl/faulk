@@ -224207,6 +224207,96 @@
       ],
       "role": "instrument",
       "version": 1
+    },
+    {
+      "kind": "faulk.echo",
+      "kind_id": 3,
+      "memory_bytes": 6144176,
+      "midi_output": null,
+      "name": "Echo",
+      "params": [
+        {
+          "default": 1,
+          "description": "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.3,
+          "description": "Delay time in free mode, from 1 millisecond to 4 seconds.",
+          "id": 1,
+          "key": "time",
+          "max": 4,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 5,
+          "description": "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.",
+          "id": 2,
+          "key": "division",
+          "max": 9,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole"
+          ]
+        },
+        {
+          "default": 0.4,
+          "description": "Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.",
+          "id": 3,
+          "key": "feedback",
+          "max": 0.949999988079071,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0.3,
+          "description": "Balance between the dry sound (0) and the echoes (1).",
+          "id": 4,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "param_defaults": {

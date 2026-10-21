@@ -127,6 +127,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MODE),
             key: "mode",
+            description: "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -139,6 +140,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(TIME),
             key: "time",
+            description: "Delay time in free mode, from 1 millisecond to 4 seconds.",
             unit: Unit::Seconds,
             min: 0.001,
             max: 4.0,
@@ -151,6 +153,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(DIVISION),
             key: "division",
+            description: "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.",
             unit: Unit::None,
             min: 0.0,
             max: 9.0,
@@ -163,6 +166,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(FEEDBACK),
             key: "feedback",
+            description: "Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.",
             unit: Unit::None,
             min: 0.0,
             max: FEEDBACK_MAX as f64,
@@ -175,6 +179,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MIX),
             key: "mix",
+            description: "Balance between the dry sound (0) and the echoes (1).",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,

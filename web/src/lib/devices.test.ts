@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICES, PARAM_IDS } from './generated/protocol'
-import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from './devices'
+import { choiceParams, choices, descriptorOf, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from './devices'
 import { messages } from './i18n/app'
 import { DEFAULT_PARAMS } from './params'
 
@@ -46,6 +46,9 @@ describe('device panels from the descriptors', () => {
     expect(formatValue(gain, 1)).toBe('0.0 dB')
     expect(formatValue(gain, 0.8)).toBe('-1.9 dB')
     expect(formatValue(gain, 0)).toBe('−∞ dB')
+    // A plain level that stops short of 1 (the echo's feedback) is a percentage too.
+    const feedback = descriptorOf('faulk.echo').params.find((p) => p.key === 'feedback')!
+    expect(formatValue(feedback, 0.4)).toBe('40 %')
   })
 
   it('places the engine defaults inside the knob ranges', () => {

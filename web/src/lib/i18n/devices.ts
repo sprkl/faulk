@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts` and `drums.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts` and `echo.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -47,6 +47,11 @@ export const devices = defineFeature(
     'drums.hat_open_decay.hint': 'How long the open hi-hat rings, in seconds.',
     'drums.hat_level.hint': 'Loudness of the hi-hat, from 0 to 1 (linear gain).',
     'drums.gain.hint': 'Output level of the whole kit, from 0 to 1 (linear gain).',
+    'echo.mode.hint': 'Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).',
+    'echo.time.hint': 'Delay time in free mode, from 1 millisecond to 4 seconds.',
+    'echo.division.hint': 'Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.',
+    'echo.feedback.hint': 'Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.',
+    'echo.mix.hint': 'Balance between the dry sound (0) and the echoes (1).',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -86,5 +91,10 @@ export const devices = defineFeature(
     'drums.hat_open_decay.hint': 'Durée de résonance du charleston ouvert, en secondes.',
     'drums.hat_level.hint': 'Volume du charleston, de 0 à 1 (gain linéaire).',
     'drums.gain.hint': 'Niveau de sortie de toute la batterie, de 0 à 1 (gain linéaire).',
+    'echo.mode.hint': 'Durée libre (réglage de durée, en secondes) ou calée sur le tempo du projet (réglage de valeur de note).',
+    'echo.time.hint': 'Durée du retard en mode libre, de 1 milliseconde à 4 secondes.',
+    'echo.division.hint': 'Durée du retard en mode au tempo, en valeur de note du tempo du projet : du 1/32 à la ronde, avec triolets (T) et valeurs pointées (.). Au-delà de 4 secondes, la durée est ramenée à 4 secondes.',
+    'echo.feedback.hint': 'Part de l’écho renvoyée dans le retard, de 0 à 0,95 : plus de répétitions, chacune plus faible.',
+    'echo.mix.hint': 'Équilibre entre le son direct (0) et les échos (1).',
   },
 )
