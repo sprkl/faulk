@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc d33490048581bbb0564acf499bd7f72158afbf0ce0adb38e79ec4f2b709679dd # shrinks to seed = 0, name = "0", tracks = [TrackSpec { midi: false, name: "é", gain: None, pan: 0.0, mute: false, effects: [], clips: [], points: [(0, -992.1170920925797, false)] }], scenes = 0
 cc 1878a59708618db62fa306feec6fe86a142cfaf753df723905f5ed4cb76f9d6b # shrinks to seed = 0, name = "a", tracks = [TrackSpec { midi: false, name: "a", gain: Some(-114.08642956215697), pan: 0.0, mute: false, effects: [], clips: [], points: [] }], scenes = 0
+cc ab4e88fe2bd60c5797e84aa5f6b7cccdba66ea66a816ccaab1ca4e3edadb3040 # shrinks to seed = 0, name = "à", tracks = [TrackSpec { midi: false, name: "à", gain: None, pan: 0.0, mute: false, effects: [], clips: [], points: [(0, -313.3261146671883, false)] }], scenes = 0

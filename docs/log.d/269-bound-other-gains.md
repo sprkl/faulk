@@ -1,0 +1,2 @@
+2026-10-21
+* **Update** (#269): `validate()` also refuses a metronome gain and a gain automation point (`MixerParam::Gain`) outside `MIN_GAIN_DB`, `MAX_GAIN_DB` (-96..+6 dB), with its path, as `GainOutOfRange`; silence stays valid on the track, master and metronome, and an automation point stays a finite level. The metronome command uses the shared bounds from `project` instead of its own. No `automation.*` command exists yet: the empty `automation` domain must apply the same bounds when its commands land.
