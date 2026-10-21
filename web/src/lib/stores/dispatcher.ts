@@ -333,6 +333,7 @@ export class Dispatcher {
     try {
       const native = await NativeEngine.connect(token, this.events('native'))
       this.native = native
+      this.boosts++
       this.state.mode = 'native'
       this.state.status = native.status
       this.state.helper = 'connected'
@@ -352,22 +353,46 @@ export class Dispatcher {
     }
   }
 
-  /** Back to the Web engine: release the helper's notes, then catch the Web engine up by snapshot. */
-  async enterWeb() {
-    if (this.native) {
-      const native = this.native
-      this.native = null
-      this.state.mode = 'web'
+  /** The switch to the Web engine under way, so a second request (button, device error, lost socket) joins it. */
+  private switching: { done: Promise<void>; boosts: number } | null = null
+  /** Counts the helper sessions that became current. */
+  private boosts = 0
+
+  /**
+   * Back to the Web engine: catch it up by snapshot, then release the helper. The switch and the
+   * snapshot come first, with no await before them: the Web engine is the current engine only once
+   * it has its snapshot, so no command ever reaches it before (a snapshot's new epoch wipes what
+   * came earlier, #262). Resuming the audio context and closing the helper follow.
+   */
+  enterWeb(): Promise<void> {
+    // A helper session that began since (Boost entered again during the switch) is a new reason to switch.
+    if (this.switching && this.switching.boosts === this.boosts) return this.switching.done
+    const done: Promise<void> = this.switchToWeb().finally(() => {
+      if (this.switching?.done === done) this.switching = null
+    })
+    this.switching = { done, boosts: this.boosts }
+    return done
+  }
+
+  private async switchToWeb() {
+    const native = this.native
+    const web = this.web
+    this.native = null
+    this.state.mode = 'web'
+    this.state.activeNotes = []
+    // The project moved on while the helper played: the Web engine catches up by snapshot.
+    const ready = web ? this.syncWeb(web) : false
+    if (native) {
       await native.close()
       this.state.helper = 'available'
     }
-    this.state.activeNotes = []
-    if (!this.web) return
-    await this.web.resume()
-    this.state.status = this.web.status()
-    // The project moved on while the helper played: the Web engine catches up by snapshot.
-    if (!this.syncWeb(this.web)) return
+    // A Web engine that was stopped (refused stream, snapshot that did not encode) is closed.
+    if (!web || this.web !== web) return
+    await web.resume()
+    // Boost was entered again meanwhile: the helper plays, and the Web side stays as it is.
+    if (this.native) return
+    this.state.status = web.status()
     // Reopen the input that was playing before Boost (the helper had it meanwhile).
-    this.midi?.select(this.lastWebInput)
+    if (ready) this.midi?.select(this.lastWebInput)
   }
 }
