@@ -5,6 +5,8 @@
  */
 
 import { DEVICES, SINGLE_SYNTH } from './generated/protocol'
+import { messages } from './i18n/app'
+import type { Lang } from './i18n/lang'
 
 export type DeviceDescriptor = (typeof DEVICES)[number]
 export type ParamDescriptor = DeviceDescriptor['params'][number]
@@ -15,6 +17,19 @@ export function descriptorOf(kind: string): DeviceDescriptor {
   if (!found) throw new Error(`no descriptor for the device kind ${kind}`)
   return found
 }
+
+/** The descriptors of the devices that can be the instrument of a track, in registry order. */
+export const instrumentDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] => devices.filter((d) => d.role === 'instrument')
+
+/** The descriptors of the devices that can be inserted in a track's chain as effects, in registry order. */
+export const effectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] => devices.filter((d) => (d.role as string) === 'effect')
+
+/**
+ * A text of the catalogue, or `undefined` when it has none: a device registered without its
+ * translations still gets a panel (the parameter's key and the descriptor's description stand in);
+ * the completeness test (`i18n.test.ts`) is what asks for the text.
+ */
+export const deviceText = (lang: Lang, key: string): string | undefined => (messages[lang] as Record<string, string | undefined>)[key]
 
 /** The oscillator synth's descriptor, narrowed: its parameter keys are the `SynthParam`s, not those of every device. */
 export type SynthDescriptor = Extract<DeviceDescriptor, { kind: 'faulk.osc_synth' }>

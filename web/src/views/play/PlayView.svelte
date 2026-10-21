@@ -1,16 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import Knob from '../../lib/components/Knob.svelte'
   import Meter from '../../lib/components/Meter.svelte'
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
-  import type { MessageKey } from '../../lib/i18n/index'
   import { clampOctave, defaultOctave, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
-  import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from '../../lib/devices'
   import { instrumentKind, isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { allNotesOff, inputNoteOff, inputNoteOn, setParam } from '../../lib/synth-commands'
+  import { allNotesOff, inputNoteOff, inputNoteOn } from '../../lib/synth-commands'
 
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
@@ -21,14 +18,6 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const held = new Map<string, number>()
 
-  /** Icons of the waveform values, by the value's key in the synth's descriptor (none for a key without one). */
-  const ICONS: Record<string, string> = {
-    sine: 'M2 10 C 6 0, 10 0, 12 10 S 18 20, 22 10',
-    saw: 'M2 16 L 12 4 L 12 16 L 22 4',
-    square: 'M2 16 L 2 4 L 12 4 L 12 16 L 22 16 L 22 4',
-    triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
-  }
-  const synth = $derived(project.synth)
   /** The selected track, when it is a MIDI track: the live input goes to it and to the armed tracks. */
   const target = $derived(project.selected && isMidi(project.selected.track) ? project.selected : null)
   /** An armed MIDI track other than the target: the command layer plays only MIDI tracks, whatever a command armed. */
@@ -41,7 +30,6 @@
   const targetKind = $derived(target ? instrumentKind(target.track) : null)
   /** Changes with the kind only: switching between tracks of the same kind keeps the octave the user chose. */
   let octave = $derived(defaultOctave(targetKind))
-  const label = (key: string) => t(labelKey(SYNTH, key) as MessageKey)
 
   function releaseAllKeys() {
     for (const note of held.values()) dispatcher.run(inputNoteOff(note))
@@ -164,52 +152,11 @@
       {/if}
     </section>
 
-    <section class="panel synth">
-      {#if synth}
-      <h2 class="label">{SYNTH.name}</h2>
-      {#each choiceParams(SYNTH) as param (param.key)}
-        <div class="row">
-          <div role="radiogroup" aria-label={label(param.key)} class="segmented">
-            {#each choices(param) as choice (choice.value)}
-              <button
-                role="radio"
-                aria-checked={synth.params[param.key] === choice.value}
-                aria-label={label(choice.key)}
-                title={label(choice.key)}
-                onclick={() => dispatcher.run(setParam(param.key, choice.value, synth.device))}
-              >
-                {#if ICONS[choice.key]}
-                  <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
-                {:else}
-                  {label(choice.key)}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/each}
-      <div class="synth-body">
-      <div class="knobs">
-        {#each knobParams(SYNTH) as param (param.key)}
-          <Knob
-            label={label(param.key)}
-            position={positionOf(param, synth.params[param.key])}
-            display={formatValue(param, synth.params[param.key])}
-            onchange={(p) => dispatcher.run(setParam(param.key, valueAt(param, p), synth.device))}
-          />
-        {/each}
-      </div>
+    <section class="panel level">
+      <h2 class="label">{t('meter.label')}</h2>
       <div class="meter-box">
         <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
       </div>
-      </div>
-      {:else}
-        <h2 class="label">{t('play.instrument')}</h2>
-        <p class="muted" data-testid="no-synth">{t(!project.selected ? 'play.noTrack' : project.selected.track.kind === 'audio' ? 'play.audioTrack' : 'play.noSynth')}</p>
-        <div class="meter-box">
-          <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
-        </div>
-      {/if}
     </section>
 
     <section class="panel keys">
@@ -249,8 +196,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     grid-template-areas:
-      'helper synth'
-      'midi synth'
+      'helper level'
+      'midi level'
       'keys keys';
     gap: var(--fk-space-4);
     padding: var(--fk-space-6);
@@ -258,7 +205,7 @@
   @media (max-width: 760px) {
     .grid {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: 'helper' 'midi' 'synth' 'keys';
+      grid-template-areas: 'helper' 'midi' 'level' 'keys';
       padding: var(--fk-space-4);
     }
   }
@@ -280,16 +227,11 @@
   .midi {
     grid-area: midi;
   }
-  .synth {
-    grid-area: synth;
+  .level {
+    grid-area: level;
   }
   .keys {
     grid-area: keys;
-  }
-  .synth-body {
-    display: flex;
-    gap: var(--fk-space-6);
-    align-items: flex-end;
   }
   .keys-head {
     display: flex;
@@ -373,29 +315,6 @@
     height: 8px;
     border-radius: 50%;
     background: var(--fk-play);
-  }
-  .segmented {
-    display: inline-flex;
-    gap: 2px;
-    padding: 2px;
-    border-radius: var(--fk-radius-pill);
-    background: var(--fk-bg);
-    border: 1px solid var(--fk-line);
-  }
-  .segmented button {
-    border: 0;
-    padding: 0 var(--fk-space-3);
-    color: var(--fk-text-muted);
-  }
-  .segmented button[aria-checked='true'] {
-    background: var(--fk-accent-tint);
-    color: var(--fk-accent-fg);
-  }
-  .knobs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--fk-space-4);
-    align-items: flex-end;
   }
   .meter-box {
     display: flex;

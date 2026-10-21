@@ -19,7 +19,7 @@ test('a played key makes sound and a synth change reaches the project store', as
   const square = page.getByRole('radio', { name: 'Square' })
   await square.click()
   await expect(square).toHaveAttribute('aria-checked', 'true')
-  const knob = page.getByTestId('view').locator('input[type=range]').first()
+  const knob = page.getByTestId('bottom-panel').locator('input[type=range]').first()
   const before = await knob.getAttribute('aria-valuetext')
   await knob.fill('0.9')
   await expect.poll(() => knob.getAttribute('aria-valuetext')).not.toBe(before)
@@ -76,6 +76,8 @@ test('a stream the engine refuses stops audio with a message, and restarting kee
   await startAudio(page)
   await expect(message).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Sine' })).toHaveAttribute('aria-checked', 'true')
+  // The panel shows the project before the engine is up (it used to appear only once started): wait for the engine.
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
   await page.keyboard.down('KeyA')
   await expect.poll(() => meterDb(page), { timeout: 10_000 }).toBeGreaterThan(SILENCE_DB)
   await page.keyboard.up('KeyA')

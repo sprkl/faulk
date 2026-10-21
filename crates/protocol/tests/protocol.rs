@@ -186,6 +186,7 @@ fn bundle_exports_the_device_descriptors() {
     for field in [
         "id",
         "key",
+        "description",
         "unit",
         "min",
         "max",

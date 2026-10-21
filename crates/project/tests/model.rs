@@ -976,6 +976,31 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "GainOutOfRange",
         ),
         (
+            "metronome gain 6.5 dB",
+            Box::new(|fx| fx.project.transport.metronome.gain_db = 6.5),
+            "GainOutOfRange",
+        ),
+        (
+            "metronome gain -96.5 dB",
+            Box::new(|fx| fx.project.transport.metronome.gain_db = -96.5),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at 6.5 dB",
+            Box::new(|fx| insert_gain_point(fx, 6.5)),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at -96.5 dB",
+            Box::new(|fx| insert_gain_point(fx, -96.5)),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at -inf",
+            Box::new(|fx| insert_gain_point(fx, f64::NEG_INFINITY)),
+            "NotFinite",
+        ),
+        (
             "+inf clip gain",
             Box::new(|fx| {
                 if let ClipContent::Audio { gain_db, .. } = audio_content(fx) {
@@ -1231,12 +1256,77 @@ fn gain_above_the_maximum_is_refused_with_its_path() {
     assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
 }
 
+/// Adds a gain automation lane on the MIDI track with one point at tick 0.
+fn insert_gain_point(fx: &mut Fx, value: f64) {
+    let lane = AutomationLane {
+        target: AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        points: BTreeMap::from([(
+            Tick(0),
+            AutomationPoint {
+                value,
+                shape: Shape::Step,
+            },
+        )]),
+    };
+    midi_track(fx)
+        .automation
+        .insert(LaneId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(), lane);
+}
+
+#[test]
+fn metronome_gain_bounds_are_checked_with_their_path() {
+    let mut fx = fixture();
+    fx.project.transport.metronome.gain_db = MIN_GAIN_DB;
+    fx.project.validate().expect("the minimum is a valid level");
+    fx.project.transport.metronome.gain_db = MIN_GAIN_DB - 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "transport/metronome");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+
+    fx.project.transport.metronome.gain_db = MAX_GAIN_DB;
+    fx.project.validate().expect("the maximum is a valid level");
+    fx.project.transport.metronome.gain_db = MAX_GAIN_DB + 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "transport/metronome");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
+#[test]
+fn gain_automation_bounds_are_checked_with_their_path() {
+    let mut fx = fixture();
+    let lane_path = format!("tracks/{}/automation/01ARZ3NDEKTSV4RRFFQ69G5FAV", fx.midi);
+    insert_gain_point(&mut fx, MIN_GAIN_DB);
+    fx.project
+        .validate()
+        .expect("the minimum is a valid gain point");
+    insert_gain_point(&mut fx, MIN_GAIN_DB - 0.5);
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, lane_path);
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+
+    insert_gain_point(&mut fx, MAX_GAIN_DB);
+    fx.project
+        .validate()
+        .expect("the maximum is a valid gain point");
+    insert_gain_point(&mut fx, MAX_GAIN_DB + 0.5);
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, lane_path);
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
 #[test]
 fn silence_is_a_valid_gain_on_a_track_and_on_the_master() {
     // `null` in the file reads as -inf: silence, outside the finite range.
     let mut fx = fixture();
     fx.project.master.gain_db = f64::NEG_INFINITY;
     midi_track(&mut fx).mixer.gain_db = f64::NEG_INFINITY;
+    fx.project.transport.metronome.gain_db = f64::NEG_INFINITY;
     fx.project.validate().expect("silence is valid");
 }
 
