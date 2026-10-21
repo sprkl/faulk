@@ -470,7 +470,7 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
 }
 
 #[test]
-fn a_huge_parameter_value_saturates_and_still_encodes() {
+fn a_huge_parameter_value_is_clamped_by_the_command_and_a_huge_stored_one_still_encodes() {
     let (mut s, synth, _) = synced();
     let device = s.state.project.tracks[&synth]
         .devices
@@ -478,18 +478,29 @@ fn a_huge_parameter_value_saturates_and_still_encodes() {
         .next()
         .unwrap()
         .clone();
-    let (_, bytes) = s
+    // The command clamps to the descriptor's range (DV-8): the engine gets the bound.
+    let (outcome, bytes) = s
         .run(&cmd(
             json!({"type": "device.set_param", "device": device, "param": "gain", "value": 1e39}),
         ))
         .expect("the command and its message encode");
     assert!(!bytes.is_empty());
+    assert!(matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == 1.0));
     let (outcome, _) = s
         .run(&cmd(json!({"type": "device.set_param", "device": device, "param": "attack", "value": -1e300})))
         .unwrap();
-    assert!(
-        matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == f32::MIN)
-    );
-    // The project keeps 1e39; its snapshot still encodes.
+    assert!(matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == 0.002));
+    // A project from outside may still hold a value past f32: its snapshot saturates and
+    // still encodes.
+    s.state
+        .project
+        .tracks
+        .get_mut(&synth)
+        .unwrap()
+        .devices
+        .get_mut(&device)
+        .unwrap()
+        .params
+        .insert("gain".into(), 1e39);
     s.resync().expect("the snapshot encodes");
 }

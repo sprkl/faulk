@@ -75,6 +75,28 @@ order: OrderKey
 track: string
 type: "track.restore_order"
 } | {
+instrument: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.set_instrument"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+current: string
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+snapshot: Device
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.restore_instrument"
+} | {
 name?: (string | null)
 /**
  * Identifier of a track.
@@ -198,7 +220,53 @@ offset: number
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type DeviceCommand = {
+export type DeviceCommand = ({
+index: number
+kind: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.insert"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.remove"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+snapshot: Device
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.restore"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+index: number
+type: "device.move"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+order: OrderKey
+type: "device.restore_order"
+} | {
+bypass: boolean
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.set_bypass"
+} | {
 /**
  * Identifier of a device in a track's chain.
  */
@@ -206,7 +274,7 @@ device: string
 param: string
 type: "device.set_param"
 value: number
-}
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -519,6 +587,18 @@ type: "track.move"
 type: "track.restore_order"
 } | {
 /**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+/**
+ * Identifier of a device in a track's chain.
+ */
+previous: string
+type: "track.set_instrument"
+} | {
+type: "track.restore_instrument"
+} | {
+/**
  * Identifier of a track.
  */
 track: string
@@ -527,13 +607,45 @@ type: "track.duplicate"
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type DeviceOutput = {
+export type DeviceOutput = ({
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.insert"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.remove"
+} | {
+type: "device.restore"
+} | {
+/**
+ * The effect's index before the command.
+ */
+previous_index: number
+type: "device.move"
+} | {
+type: "device.restore_order"
+} | {
+/**
+ * Whether the device was bypassed before the command.
+ */
+previous: boolean
+type: "device.set_bypass"
+} | {
 /**
  * The value before the command.
  */
 previous: number
 type: "device.set_param"
-}
+/**
+ * The value now: the one asked for, clamped and rounded.
+ */
+value: number
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -921,6 +1033,19 @@ device: string
 param: string
 type: "device_param_changed"
 value: number
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device_chain_changed"
+} | {
+bypass: boolean
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device_bypass_changed"
 } | {
 gain_db?: (number | null)
 mute: boolean

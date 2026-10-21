@@ -29,7 +29,6 @@
 
 use std::collections::BTreeSet;
 
-use engine::devices::REGISTRY;
 use engine::msg::{
     AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
     DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
@@ -200,6 +199,27 @@ fn compile_event(
                 value: finite_f32(*value),
             });
         }
+        ProjectEvent::DeviceChainChanged { track } => {
+            sync_chain(track, project, sync, out, &device_insert);
+        }
+        ProjectEvent::DeviceBypassChanged { device, bypass } => {
+            let Some(track) = project
+                .tracks
+                .iter()
+                .find_map(|(id, t)| t.devices.contains_key(device).then_some(id))
+            else {
+                return;
+            };
+            if let (Some(slot), Some(dev)) =
+                (track_slot(sync, track), device_slot(sync, track, device))
+            {
+                out.push(ControlMsg::DeviceSetEnabled {
+                    track: slot,
+                    device: dev,
+                    enabled: !bypass,
+                });
+            }
+        }
         ProjectEvent::MixerChanged { track: None, .. } => out.push(master(project)),
         ProjectEvent::MixerChanged {
             track: Some(track), ..
@@ -283,6 +303,92 @@ fn track_slot(sync: &EngineSlots, track: &TrackId) -> Option<TrackSlot> {
 fn device_slot(sync: &EngineSlots, track: &TrackId, device: &DeviceId) -> Option<DeviceSlot> {
     let slot = sync.track.get(track)?.devices.get(device)?;
     Some(DeviceSlot(slot as u16))
+}
+
+/// What the engine needs after a track's chain changed (a device inserted, removed, moved,
+/// brought back, or the instrument replaced): the engine runs the chain in slot order and a
+/// device's slot is its index in the chain, as in the snapshot. So a device whose index
+/// changed leaves its slot and is built again at the new one (from its project settings:
+/// its tail and voices restart), a freed slot nobody takes is emptied, and a device that
+/// keeps its index is not touched. A `DeviceInsert` on an occupied slot replaces the
+/// device there. The automation lanes that target a device built again are uploaded again,
+/// since a lane names a slot. A track the engine was never told about gets nothing.
+/// `insert_of` says what the engine can build (the registry's devices).
+fn sync_chain(
+    track_id: &TrackId,
+    project: &Project,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+    insert_of: &dyn Fn(&Device) -> Option<DeviceBuild>,
+) {
+    let (Some(track), Some(slot)) = (project.tracks.get(track_id), track_slot(sync, track_id))
+    else {
+        return;
+    };
+    let Some(mut entry) = sync.track.remove(track_id) else {
+        return;
+    };
+    // The devices the engine builds, with the slot each belongs in.
+    let wanted: Vec<(u32, &DeviceId, &Device, DeviceKind, Vec<u8>)> = track
+        .devices_in_order()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, (id, device))| {
+            let (kind, state) = insert_of(device)?;
+            Some((u32::try_from(index).ok()?, id, device, kind, state))
+        })
+        .collect();
+    let belongs = |id: &DeviceId| wanted.iter().find(|w| w.1 == id).map(|w| w.0);
+    // Devices out of place: gone from the chain, or at another index than their slot.
+    let stale: Vec<(u32, DeviceId)> = entry
+        .devices
+        .iter()
+        .filter(|(at, id)| belongs(id) != Some(*at))
+        .map(|(at, id)| (at, id.clone()))
+        .collect();
+    for (at, id) in &stale {
+        entry.devices.release(id);
+        if !wanted.iter().any(|w| w.0 == *at) {
+            out.push(ControlMsg::DeviceRemove {
+                track: slot,
+                device: DeviceSlot(*at as u16),
+            });
+        }
+    }
+    let mut built = BTreeSet::new();
+    for (index, id, device, kind, state) in wanted {
+        if entry.devices.get(id) == Some(index) {
+            continue;
+        }
+        let Some(at) = entry
+            .devices
+            .insert_at(id, index, limits::MAX_DEVICES_PER_TRACK)
+        else {
+            sync.overflow += 1;
+            continue;
+        };
+        out.push(ControlMsg::DeviceInsert {
+            track: slot,
+            device: DeviceSlot(at as u16),
+            kind,
+            state,
+        });
+        if !device.enabled {
+            out.push(ControlMsg::DeviceSetEnabled {
+                track: slot,
+                device: DeviceSlot(at as u16),
+                enabled: false,
+            });
+        }
+        built.insert(id.clone());
+    }
+    sync.track.insert(track_id.clone(), entry);
+    for (lane_id, lane) in &track.automation {
+        if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
+        {
+            lane_msgs(track_id, slot, track, lane_id, lane, sync, out);
+        }
+    }
 }
 
 /// A whole track, given a slot: its mix, solo, chain, clips, arrangement and lanes.
@@ -399,13 +505,16 @@ fn mix(slot: TrackSlot, track: &Track) -> ControlMsg {
 
 // ---------------------------------------------------------------- devices
 
+/// What a `DeviceInsert` carries: the engine kind and the initial state of a device.
+type DeviceBuild = (DeviceKind, Vec<u8>);
+
 /// The engine kind and the initial state of a device, when the engine can build it (a
 /// built-in device of the registry).
-fn device_insert(device: &Device) -> Option<(DeviceKind, Vec<u8>)> {
+fn device_insert(device: &Device) -> Option<DeviceBuild> {
     let DeviceSource::Builtin { id, .. } = &device.source else {
         return None;
     };
-    let descriptor = REGISTRY
+    let descriptor = crate::device::registry()
         .iter()
         .find(|b| b.descriptor.kind == id)?
         .descriptor;
@@ -422,7 +531,7 @@ fn param_id(device: &Device, key: &str) -> Option<ParamId> {
     let DeviceSource::Builtin { id, .. } = &device.source else {
         return None;
     };
-    REGISTRY
+    crate::device::registry()
         .iter()
         .find(|b| b.descriptor.kind == id)?
         .descriptor

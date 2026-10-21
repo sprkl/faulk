@@ -6,6 +6,12 @@ license.workspace = true
 publish.workspace = true
 description = "Every Faulk user action as a typed command, the single source for the UI, MCP tools and TypeScript types."
 
+[features]
+# Adds the engine's test effect to the devices the commands can build (`device::registry`),
+# so that the tests exercise effects before the registry holds one. Never on in a shipped
+# build.
+testing = ["engine/testing"]
+
 [dependencies]
 engine = { path = "../engine" }
 schemars = "1.2.3"
@@ -13,3 +19,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 # float_roundtrip: f64 values (gains, parameters, automation) read back exactly.
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 project = { path = "../project" }
+
+[dev-dependencies]
+# The crate itself with `testing` on, so that its tests have an effect to insert.
+commands = { path = ".", features = ["testing"] }

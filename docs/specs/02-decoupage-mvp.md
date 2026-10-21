@@ -513,12 +513,18 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Étiquettes : hardware: non, founder: non.
 
 **DV-8 — Commandes de devices**
-- But : `device.insert { track, kind, index }`, `device.remove` (destructive), `device.move`, `device.set_param`, `device.set_bypass`, `track.set_instrument`. L'index de la commande est traduit en clé d'ordre fractionnaire.
+- But : `device.insert { track, kind, index }`, `device.remove` (destructive, voir « Réalisé » ci-dessous), `device.move`, `device.set_param`, `device.set_bypass`, `track.set_instrument`. L'index de la commande est traduit en clé d'ordre fractionnaire.
 - Critères : `device.set_param` valide l'identifiant contre le descripteur et arrondit au pas déclaré ; l'undo de `device.remove` restaure les réglages.
 - Touche : `crates/commands/src/device.rs`.
 - Dépend de : PR-2, DV-1.
 - Phase : 2.
 - Étiquettes : hardware: non, founder: non.
+- **Réalisé (#69, 2026-10-21)** : les commandes sont dans `crates/commands/src/device.rs` (`device.insert`, `device.remove`, `device.move`, `device.set_bypass`, `device.set_param`, et les inverses `device.restore` et `device.restore_order`) et, pour `track.set_instrument` et son inverse `track.restore_instrument`, dans `track.rs` (le domaine est celui du nom). Ce que le code fait :
+  - **Index** : l'index d'`insert` et de `move` compte les effets de la piste, de 0 (juste après l'instrument) ; au-delà de la fin, le dernier. L'instrument reste premier : il ne se retire, ne se déplace et ne s'insère pas par ces commandes (`track.set_instrument` le remplace). Un index devient une clé d'ordre fractionnaire ; l'annulation d'un déplacement remet la clé exacte.
+  - **`device.remove` n'est pas marquée destructive** : le contrat réserve ce drapeau aux éditions sans inverse, et celle-ci s'annule (`device.restore` rend l'identifiant, la clé d'ordre, les réglages et le contournement), comme `track.delete`. Un device qu'une courbe d'automatisation vise ne se retire pas (ni l'instrument qu'elle vise ne se remplace) tant que les commandes d'automatisation (AM) n'existent pas.
+  - **`device.set_param`** valide l'identifiant contre le descripteur du device, borne la valeur à la plage et l'arrondit au pas (`ParamDescriptor::sanitize_f64`) ; la valeur stockée, l'événement et la sortie portent le résultat. Un device sans descripteur (un module) garde l'ancien contrôle.
+  - **Moteur** : la place d'un device dans le moteur est son index dans la chaîne ; un changement de chaîne (`DeviceChainChanged`) reconstruit les devices dont l'index change (leur queue et leurs voix repartent de leurs réglages du projet), vide les places libérées et laisse intacts ceux qui gardent leur place ; ajouter en fin de chaîne ne touche rien. Les courbes d'automatisation d'un device reconstruit sont renvoyées à sa nouvelle place.
+  - **Tests** : le registre n'a pas encore d'effet (DV-3 à DV-5) ; avec la fonctionnalité `testing` de `commands`, que ses propres tests activent, les commandes construisent aussi l'effet de test du moteur (`faulk.test_gain`).
 
 **DV-9 — Panneau de chaîne de devices**
 - But : panneau du bas avec l'instrument et les effets de la piste sélectionnée, réglages générés (`ParamControl`), ajout depuis un navigateur d'instruments et d'effets, suppression, réordonnancement, contournement.
