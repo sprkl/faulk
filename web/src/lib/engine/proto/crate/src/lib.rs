@@ -413,6 +413,7 @@ pub unsafe extern "C" fn fk_proto_prepare_notes(ptr: *mut Proto, n: u32) -> u32 
             length: Tick(240),
             pitch: (i % 128) as u8,
             velocity: 100,
+            ..Note::default()
         });
     }
     send(

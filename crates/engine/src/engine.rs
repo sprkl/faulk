@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
+use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
@@ -115,12 +116,15 @@ pub struct Track {
     pub launch: Option<LaunchRequest>,
     /// The graph's levels of the track, and its link while it retires.
     pub graph: TrackGraph,
+    /// The clip player (CL-2): the launched clip and its read state.
+    pub player: ClipPlayer,
 }
 
 /// What a clip plays.
 #[derive(Debug)]
 pub enum ClipContent {
-    Notes(Table<Note>),
+    /// A MIDI clip's notes, in their delivery order ([`crate::clip_player`]).
+    Notes(ClipNotes),
     Audio {
         source: SourceSlot,
         start: Frame,
@@ -128,11 +132,15 @@ pub enum ClipContent {
     },
 }
 
-/// A clip: its content, its length and whether it loops (ticks, MIDI clips).
+/// A clip: its content, its length and its loop (ticks, MIDI clips).
 #[derive(Debug)]
 pub struct Clip {
     pub length: Tick,
-    pub looped: bool,
+    /// The loop `[start, end)` within `[0, length]`; `None`: played once (CL-2).
+    pub looping: Option<LoopRegion>,
+    /// The track whose clip player plays it, written by the audio side (CL-2): a clip
+    /// plays on one track at a time.
+    pub on_track: Option<TrackSlot>,
     pub content: ClipContent,
 }
 
@@ -239,6 +247,18 @@ impl<T> Paged<T> {
             .as_slice()
             .get(slot % PAGE_SLOTS)?
             .as_ref()
+    }
+
+    /// The value in `slot`, to change, if any.
+    pub fn get_mut(&mut self, slot: u32) -> Option<&mut T> {
+        let slot = slot as usize;
+        self.pages
+            .as_mut_slice()
+            .get_mut(slot / PAGE_SLOTS)?
+            .as_mut()?
+            .as_mut_slice()
+            .get_mut(slot % PAGE_SLOTS)?
+            .as_mut()
     }
 
     /// The values held, in slot order.
@@ -909,7 +929,7 @@ impl Preparer {
             ControlMsg::ClipNotesUpload {
                 clip,
                 length,
-                looped,
+                looping,
                 first,
                 total,
                 notes,
@@ -927,12 +947,15 @@ impl Preparer {
                 }
                 // The last chunk: everything allocated before it is staged, so that a
                 // refusal leaves the staging as it was.
+                // The table is allocated now and filled once the notes are staged.
+                let table = ClipNotes::try_with_capacity(total as usize)?;
                 let (mut value, growth) = self.prepare_clip(
                     clip,
                     Clip {
                         length,
-                        looped,
-                        content: ClipContent::Notes(Table::from_vec(Vec::new())),
+                        looping,
+                        on_track: None,
+                        content: ClipContent::Notes(ClipNotes::default()),
                     },
                 )?;
                 let staged = stage(
@@ -946,7 +969,9 @@ impl Preparer {
                 let Some(notes) = staged else {
                     return Ok(None);
                 };
-                value.content = ClipContent::Notes(Table::from_vec(notes));
+                let mut table = table;
+                table.fill(&notes);
+                value.content = ClipContent::Notes(table);
                 self.finish_clip(clip, value, growth)
             }
             ControlMsg::ClipRemove { clip } => {
@@ -998,7 +1023,8 @@ impl Preparer {
                     clip,
                     Clip {
                         length: Tick::ZERO,
-                        looped: false,
+                        looping: None,
+                        on_track: None,
                         content: ClipContent::Audio {
                             source,
                             start,
@@ -1164,6 +1190,7 @@ impl Preparer {
             placements: Table::from_vec(Vec::new()),
             launch: None,
             graph: TrackGraph::new(),
+            player: ClipPlayer::default(),
         })?;
         let shadow = TrackShadow::try_new()?;
         let grown = grow_for(self.shadow.tracks.len(), slot, limits::MAX_TRACKS)?;
@@ -1277,6 +1304,25 @@ impl Preparer {
             value,
             growth,
         })
+    }
+}
+
+/// The track whose player plays the clip in `slot`, when its `on_track` says so and the
+/// track agrees (a slot reused by another track is never named).
+fn playing_track(state: &State, slot: ClipSlot) -> Option<TrackSlot> {
+    let t = state.clips.get(slot.0)?.on_track?;
+    let track = state.tracks.as_slice().get(t.0 as usize)?.as_deref()?;
+    (track.player.playing_clip() == Some(slot)).then_some(t)
+}
+
+/// A track that leaves its slot gives back the clip its player was playing (CL-2), so that
+/// another track may launch it. No allocation.
+fn give_back_clip(clips: &mut Paged<Box<Clip>>, slot: TrackSlot, track: &Track) {
+    if let Some(c) = track.player.playing_clip()
+        && let Some(clip) = clips.get_mut(c.0)
+        && clip.on_track == Some(slot)
+    {
+        clip.on_track = None;
     }
 }
 
@@ -1704,6 +1750,7 @@ impl Engine {
                 if slot < state.tracks.capacity()
                     && let Some(old) = spare.item.take()
                 {
+                    give_back_clip(&mut state.clips, TrackSlot(slot as u32), &old);
                     self.graph.retire(old);
                 }
                 Some(Garbage::Tracks(spare))
@@ -1717,6 +1764,7 @@ impl Engine {
                     }
                     // It fades out, then comes back through the retire ring.
                     if let Some(old) = old {
+                        give_back_clip(&mut state.clips, track, &old);
                         self.graph.retire(old);
                     }
                     None
@@ -1835,16 +1883,34 @@ impl Engine {
                 }
                 None
             }
-            RtMsg::ClipPut(put) => {
+            RtMsg::ClipPut(mut put) => {
+                let slot = ClipSlot(put.slot);
+                // A clip replaced while it plays: the player goes on in the new table.
+                let player = playing_track(state, slot);
+                put.value.on_track = player;
                 let (spare, out) = state.clips.put(put);
                 skipped = out;
+                if !out
+                    && let Some(t) = player.and_then(|t| state.track_mut(t))
+                    && t.player.clip_changed(slot, false)
+                {
+                    t.graph.release_notes();
+                }
                 Some(Garbage::Clips(spare))
             }
             RtMsg::ClipRemove(clip) => match state.clips.take(clip.0) {
-                Ok(old) => Some(Garbage::Clips(PagedSpare {
-                    growth: None,
-                    item: old,
-                })),
+                Ok(old) => {
+                    if let Some(c) = &old
+                        && let Some(t) = c.on_track.and_then(|t| state.track_mut(t))
+                        && t.player.clip_changed(clip, true)
+                    {
+                        t.graph.release_notes();
+                    }
+                    Some(Garbage::Clips(PagedSpare {
+                        growth: None,
+                        item: old,
+                    }))
+                }
                 Err(()) => {
                     skipped = true;
                     None

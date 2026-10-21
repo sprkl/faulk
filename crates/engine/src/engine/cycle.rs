@@ -222,13 +222,14 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
                 length: Tick(120),
                 pitch: (i % 128) as u8,
                 velocity: 90,
+                ..Note::default()
             })
             .collect();
         submit(
             &[M::ClipNotesUpload {
                 clip: ClipSlot(SCENARIO_CLIP),
                 length: Tick(i64::from(SCENARIO_NOTES) * 120),
-                looped: true,
+                looping: None,
                 first,
                 total: SCENARIO_NOTES,
                 notes,

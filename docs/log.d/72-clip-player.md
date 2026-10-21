@@ -1,0 +1,2 @@
+2026-10-18
+* **Update** (#72): CL-2, the MIDI clip player in `crates/engine/src/clip_player.rs`: a compact note table per clip read by MO-4's generalised cursor, launch at the global quantization boundary, looped or one-shot playback in step with the transport, no stuck note at stop, wrap, seek, removal or replacement; the clip upload carries its loop region and the notes' cents, chance and repeat (#225). Spec § CL-2 implementation note, MO-4 and PR-3 notes, glossary (launch, clip).

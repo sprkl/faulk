@@ -289,7 +289,7 @@ fn a_refused_memory_growth_is_a_typed_error_and_the_instance_plays_on() {
         &[ControlMsg::ClipNotesUpload {
             clip: ClipSlot(0),
             length: Tick(960),
-            looped: false,
+            looping: None,
             first: 0,
             total: 1 << 20,
             notes: vec![Note::default(); 1000],
