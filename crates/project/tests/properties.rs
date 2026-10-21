@@ -55,7 +55,7 @@ fn track_spec() -> impl Strategy<Value = TrackSpec> {
     (
         any::<bool>(),
         name(),
-        prop::option::of(-120.0f64..12.0),
+        prop::option::of(MIN_GAIN_DB..=MAX_GAIN_DB),
         -1.0f64..=1.0,
         any::<bool>(),
         prop::collection::vec(("[a-z][a-z0-9_]{0,10}", -1e6f64..1e6), 0..4),

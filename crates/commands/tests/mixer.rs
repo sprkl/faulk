@@ -227,9 +227,9 @@ fn undo_restores_silence_and_the_master() {
 
 #[test]
 fn a_gain_beyond_the_range_is_refused_before_it_is_edited() {
-    // A document edited by hand: +20 dB or -120 dB, which `validate` accepts. A command
-    // cannot write that gain back, so it could not undo the edit exactly: it is refused
-    // and the state stays intact.
+    // A state built in memory with +20 dB or -120 dB, which `validate` refuses too. A
+    // command cannot write that gain back, so it could not undo the edit exactly: it is
+    // refused and the state stays intact.
     let f = fixture();
     let mut s = f.state.clone();
     s.project.tracks.get_mut(&f.track).unwrap().mixer.gain_db = 20.0;

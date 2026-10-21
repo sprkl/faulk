@@ -71,6 +71,9 @@ pub enum ViolationKind {
     MeterMap,
     /// NaN or an infinity where a finite number is required (a gain may be `-inf`).
     NotFinite,
+    /// A track or master gain that is finite but outside [`MIN_GAIN_DB`], [`MAX_GAIN_DB`]
+    /// (silence is `null`, never a value below the minimum).
+    GainOutOfRange,
     /// A pan outside `[-1, 1]`, on a mixer or on a pan automation point.
     PanOutOfRange,
     /// More than one instrument in a chain.
@@ -157,8 +160,25 @@ impl<'p> Checker<'p> {
         );
     }
 
+    /// A track or master gain: silence (`-inf`) or a finite level from [`MIN_GAIN_DB`] to
+    /// [`MAX_GAIN_DB`]. Other values are refused, never clamped.
+    fn mixer_gain(&mut self, g: f64, path: &str) {
+        if g == f64::NEG_INFINITY {
+            return;
+        }
+        if g.is_finite() {
+            self.check(
+                (MIN_GAIN_DB..=MAX_GAIN_DB).contains(&g),
+                path,
+                ViolationKind::GainOutOfRange,
+            );
+        } else {
+            self.push(path, ViolationKind::NotFinite);
+        }
+    }
+
     fn mixer(&mut self, m: &Mixer, path: &str) {
-        self.gain(m.gain_db, path);
+        self.mixer_gain(m.gain_db, path);
         if m.pan.is_finite() {
             self.check(
                 (-1.0..=1.0).contains(&m.pan),
