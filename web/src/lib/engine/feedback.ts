@@ -7,6 +7,8 @@
 export const FEEDBACK_HEADER_BYTES = 56
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 16
+/** Size of one active clip (track u32, scene u16, state u8, one padding byte). */
+export const ACTIVE_CLIP_BYTES = 8
 /** The layout version this page reads. */
 export const FEEDBACK_VERSION = 2
 
@@ -19,6 +21,22 @@ export interface Meter {
 }
 
 export type TransportState = 'stopped' | 'playing' | 'recording'
+
+/**
+ * What a cell of the launch grid is doing (GR-1); idle cells are not reported. `queued`: a launch
+ * waits for its boundary; `playing`; `stopping`: the clip plays and a stop (or a launch that leaves
+ * the track silent) waits for its boundary; `armed`: a launch waits for the transport to run.
+ */
+export type ClipState = 'queued' | 'playing' | 'stopping' | 'armed'
+
+/** A grid cell that is not idle: at most two per track (the clip that plays, the one that waits). */
+export interface ActiveClip {
+  /** Track slot. */
+  track: number
+  /** Scene slot of the cell. */
+  scene: number
+  state: ClipState
+}
 
 export interface FeedbackReport {
   seq: number
@@ -39,9 +57,13 @@ export interface FeedbackReport {
   tracks: Meter[]
   /** The output, after the master and the metronome. */
   master: Meter
+  /** The launch grid's cells that are not idle. */
+  clips: ActiveClip[]
 }
 
 const TRANSPORT: TransportState[] = ['stopped', 'playing', 'recording']
+/** Indexed by the wire value; 0 and values above 4 are unknown. */
+const CLIP_STATES: (ClipState | undefined)[] = [undefined, 'queued', 'playing', 'stopping', 'armed']
 
 function meterAt(view: DataView, at: number): Meter {
   return {
@@ -68,6 +90,17 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
   const tracks = view.getUint32(40, true)
   // `tracks` track meters, then the output's: all must be inside the bytes.
   if (tracks > Math.floor((len - FEEDBACK_HEADER_BYTES) / TRACK_METER_BYTES) - 1) return null
+  // Then the active clips, at most two per track, all inside the bytes.
+  const count = view.getUint32(44, true)
+  const clipsAt = FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES
+  if (count > 2 * tracks || clipsAt + count * ACTIVE_CLIP_BYTES > len) return null
+  const clips: ActiveClip[] = []
+  for (let i = 0; i < count; i++) {
+    const at = clipsAt + i * ACTIVE_CLIP_BYTES
+    const state = CLIP_STATES[view.getUint8(at + 6)]
+    if (state === undefined) return null
+    clips.push({ track: view.getUint32(at, true), scene: view.getUint16(at + 4, true), state })
+  }
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))
   const load = view.getFloat32(24, true)
@@ -84,6 +117,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     voices: view.getUint32(52, true),
     tracks: meters,
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),
+    clips,
   }
 }
 
@@ -98,8 +132,11 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
   const seq = Atomics.load(words, 1) >>> 0
   if (seq === 0 || seq % 2 === 1) return null
   // Only the used part is copied out of the shared memory, then decoded from the copy.
-  const tracks = new DataView(buffer, at, len).getUint32(40, true)
-  const used = Math.min(len, FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES)
+  const header = new DataView(buffer, at, len)
+  const tracks = header.getUint32(40, true)
+  // The meters, then the active clips (at most two per track: a larger count is refused by the decoder).
+  const clips = Math.min(header.getUint32(44, true), 2 * tracks)
+  const used = Math.min(len, FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES)
   const copy = new Uint8Array(used)
   copy.set(new Uint8Array(buffer, at, used))
   const report = decodeFeedback(copy.buffer)

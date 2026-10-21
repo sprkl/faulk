@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES, decodeFeedback, peakOf, readFeedback } from './feedback'
+import { ACTIVE_CLIP_BYTES, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES, decodeFeedback, peakOf, readFeedback } from './feedback'
 
-/** A report as the engine lays it out (crates/engine/src/msg.rs), for `tracks` track meters. */
-function report(tracks: number, edit?: (view: DataView) => void): ArrayBuffer {
-  const buffer = new ArrayBuffer(FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES)
+/** An active clip as the engine writes it: track u32, scene u16, state u8, padding. */
+type Cell = [track: number, scene: number, state: number]
+
+/** A report as the engine lays it out (crates/engine/src/msg.rs), for `tracks` track meters and the grid `cells`. */
+function report(tracks: number, edit?: (view: DataView) => void, cells: Cell[] = []): ArrayBuffer {
+  const clipsAt = FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES
+  const buffer = new ArrayBuffer(clipsAt + cells.length * ACTIVE_CLIP_BYTES)
   const view = new DataView(buffer)
   view.setUint8(0, FEEDBACK_VERSION)
   view.setUint32(4, 8, true) // seq
   view.setUint32(40, tracks, true)
+  view.setUint32(44, cells.length, true)
+  cells.forEach(([track, scene, state], i) => {
+    const at = clipsAt + i * ACTIVE_CLIP_BYTES
+    view.setUint32(at, track, true)
+    view.setUint16(at + 4, scene, true)
+    view.setUint8(at + 6, state)
+  })
   for (let i = 0; i <= tracks; i++) {
     const at = FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES
     view.setFloat32(at, 0.1 * (i + 1), true)
@@ -90,6 +101,38 @@ describe('decodeFeedback', () => {
   })
 })
 
+describe('decodeFeedback, the launch grid', () => {
+  it('reads every cell that is not idle, with its state', () => {
+    const r = decodeFeedback(
+      report(2, undefined, [
+        [0, 3, 2],
+        [0, 4, 1],
+        [1, 300, 3],
+        [1, 0, 4],
+      ]),
+    )!
+    expect(r.clips).toEqual([
+      { track: 0, scene: 3, state: 'playing' },
+      { track: 0, scene: 4, state: 'queued' },
+      { track: 1, scene: 300, state: 'stopping' },
+      { track: 1, scene: 0, state: 'armed' },
+    ])
+  })
+
+  it('reads a report without cells (an older engine writes none) as an idle grid', () => {
+    expect(decodeFeedback(report(2))!.clips).toEqual([])
+  })
+
+  it('refuses a state it does not know, more cells than two per track, and cells cut short', () => {
+    for (const state of [0, 5, 255]) expect(decodeFeedback(report(1, undefined, [[0, 0, state]]))).toBeNull()
+    const three: Cell[] = [[0, 0, 2], [0, 1, 1], [0, 2, 1]]
+    expect(decodeFeedback(report(1, undefined, three))).toBeNull()
+    expect(decodeFeedback(report(1, undefined, [[0, 0, 2]]).slice(0, -1))).toBeNull()
+    // A count that announces more cells than the bytes hold.
+    expect(decodeFeedback(report(1, (v) => v.setUint32(44, 2, true), [[0, 0, 2]]))).toBeNull()
+  })
+})
+
 describe('readFeedback', () => {
   const shared = (r: ArrayBuffer, seq: number) => {
     const memory = new SharedArrayBuffer(r.byteLength + 8)
@@ -100,6 +143,18 @@ describe('readFeedback', () => {
 
   it('reads a whole report', () => {
     expect(readFeedback(shared(report(2), 10), 8, report(2).byteLength)!.seq).toBe(10)
+  })
+
+  it('reads the cells of the grid too, from a region larger than the report', () => {
+    const r = report(2, undefined, [[1, 2, 2]])
+    // The region is sized for the most cells (two per track): the report is copied up to its own.
+    const region = new SharedArrayBuffer(r.byteLength + 8 + 4 * ACTIVE_CLIP_BYTES)
+    new Uint8Array(region, 8).set(new Uint8Array(r))
+    new DataView(region, 8).setUint32(4, 10, true)
+    expect(readFeedback(region, 8, region.byteLength - 8)!.clips).toEqual([{ track: 1, scene: 2, state: 'playing' }])
+    // A count above the room (two per track) is refused, never read past the region.
+    new DataView(region, 8).setUint32(44, 4_000_000_000, true)
+    expect(readFeedback(region, 8, region.byteLength - 8)).toBeNull()
   })
 
   it('reads nothing while a write is in progress (odd seq), before the first (0) or past the region', () => {

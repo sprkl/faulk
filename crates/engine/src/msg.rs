@@ -1492,13 +1492,33 @@ pub enum TransportState {
 }
 
 /// State of a clip slot of the launch grid in [`Feedback`]; only the slots that are not
-/// stopped are reported.
+/// stopped are reported (GR-1, `crate::launcher`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ClipState {
+    /// A launch waits for its quantization boundary, the transport runs.
     Queued = 1,
+    /// The clip plays.
     Playing = 2,
+    /// The clip plays and a stop (or a launch that leaves the track silent) waits for its
+    /// boundary.
     Stopping = 3,
+    /// A launch is armed: the transport is stopped, the clip starts at the first
+    /// boundary once it plays.
+    Armed = 4,
+}
+
+impl ClipState {
+    /// The state of a wire byte (`None` for a value this build does not know).
+    pub fn from_byte(byte: u8) -> Option<ClipState> {
+        match byte {
+            1 => Some(ClipState::Queued),
+            2 => Some(ClipState::Playing),
+            3 => Some(ClipState::Stopping),
+            4 => Some(ClipState::Armed),
+            _ => None,
+        }
+    }
 }
 
 /// A grid slot that is queued, playing or stopping.

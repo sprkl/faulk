@@ -13,8 +13,8 @@
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
 use project::{
-    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, SessionState, TickLoop,
-    TrackId,
+    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SessionState,
+    TickLoop, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,8 @@ pub enum ProjectEvent {
     TempoChanged { bpm: f64 },
     /// The time signature changed (the project's one signature).
     TimeSignatureChanged { numerator: u8, denominator: u8 },
+    /// The launch quantization changed (the project's one value).
+    LaunchQuantizeChanged { quantize: Quantize },
     /// The loop region or whether the transport loops changed; `region` is `null` when
     /// none is set.
     LoopChanged {

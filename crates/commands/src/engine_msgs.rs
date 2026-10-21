@@ -295,7 +295,9 @@ fn compile_event(
         ProjectEvent::TrackSelected { track } => out.push(ControlMsg::SelectTrack {
             track: track.as_ref().and_then(|t| track_slot(sync, t)),
         }),
-        ProjectEvent::TempoChanged { .. } | ProjectEvent::TimeSignatureChanged { .. } => {
+        ProjectEvent::TempoChanged { .. }
+        | ProjectEvent::TimeSignatureChanged { .. }
+        | ProjectEvent::LaunchQuantizeChanged { .. } => {
             out.push(set_transport(project));
         }
         ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),

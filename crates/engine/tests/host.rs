@@ -527,3 +527,105 @@ fn a_fader_ramp_is_metered_as_it_plays_not_at_its_target() {
         0.0
     );
 }
+
+/// The cells of the launch grid that are not idle (GR-1) travel in the report after the
+/// meters: written, copied as bytes and decoded alike, without any allocation on the audio
+/// side; a report that is cut short, claims more cells than the room or names an unknown
+/// state does not decode.
+#[test]
+fn the_launch_grid_states_travel_in_the_report() {
+    use engine::msg::{ActiveClip, ClipSlot, ClipState, Note, SceneSlot};
+    use engine::time::LoopRegion;
+    let mut session = Session::new();
+    session.send(&[
+        M::ClipNotesUpload {
+            clip: ClipSlot(0),
+            length: Tick(3840),
+            looping: LoopRegion::new(Tick(0), Tick(3840)),
+            first: 0,
+            total: 1,
+            notes: vec![Note {
+                start: Tick(0),
+                length: Tick(960),
+                pitch: 60,
+                velocity: 100,
+                ..Note::default()
+            }],
+        },
+        M::SceneSetSlot {
+            track: TrackSlot(0),
+            scene: SceneSlot(3),
+            clip: Some(ClipSlot(0)),
+        },
+        M::LaunchClip {
+            track: TrackSlot(0),
+            scene: SceneSlot(3),
+        },
+    ]);
+    for _ in 0..13 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    let cell = |state| ActiveClip {
+        track: TrackSlot(0),
+        scene: SceneSlot(3),
+        state,
+    };
+    let armed = read_feedback(session.host.feedback()).unwrap();
+    assert_eq!(armed.active_clips, vec![cell(ClipState::Armed)]);
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    assert_eq!(
+        bytes.len(),
+        56 + 2 * 16 + 8,
+        "header, a track and the output, a cell"
+    );
+    assert_eq!(&bytes[44..48], &1u32.to_le_bytes());
+    assert_eq!(engine::host::decode_feedback(&bytes).unwrap(), armed);
+
+    // Playing (the first boundary is the start): rendered and reported under the detector.
+    session.send(&[M::Play { from: Tick(0) }]);
+    session.host.render(128);
+    let mut bytes = Vec::with_capacity(4096);
+    assert_no_alloc(|| {
+        for _ in 0..40 {
+            session.host.render(128);
+        }
+        session.host.write_feedback();
+        assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    });
+    assert_eq!(
+        engine::host::decode_feedback(&bytes).unwrap().active_clips,
+        vec![cell(ClipState::Playing)]
+    );
+    session.send(&[M::StopAll]);
+    session.host.render(128);
+    session.host.write_feedback();
+    // A stop waits for its boundary (the next bar).
+    assert_eq!(
+        read_feedback(session.host.feedback()).unwrap().active_clips,
+        vec![cell(ClipState::Stopping)]
+    );
+
+    // Refused: cut short, more cells than two per track, an unknown state.
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
+    let mut many = bytes.clone();
+    many[44..48].copy_from_slice(&3u32.to_le_bytes());
+    assert!(engine::host::decode_feedback(&many).is_none());
+    let mut unknown = bytes.clone();
+    let state_at = 56 + 2 * 16 + 6;
+    for state in [0u8, 5, 255] {
+        unknown[state_at] = state;
+        assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
+    }
+    // A report with no cell (what an older engine writes) decodes with none.
+    let mut none = bytes[..56 + 2 * 16].to_vec();
+    none[44..48].copy_from_slice(&0u32.to_le_bytes());
+    assert!(
+        engine::host::decode_feedback(&none)
+            .unwrap()
+            .active_clips
+            .is_empty()
+    );
+}

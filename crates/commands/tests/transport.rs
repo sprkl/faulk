@@ -3,7 +3,7 @@
 
 mod transport_examples;
 
-use ::project::{Tick, TickLoop};
+use ::project::{Quantize, Tick, TickLoop};
 use commands::testing::{check, check_refusal, context, fixture};
 use commands::transport::Command as T;
 use commands::{Command, CommandError, Output, ProjectEvent, State, Undo, history, run};
@@ -23,6 +23,14 @@ fn metronome(
         gain_db,
         count_in_bars,
     })
+}
+
+/// The command an outcome's inverse holds.
+fn undo_of(undo: Undo<Command>) -> Command {
+    match undo {
+        Undo::Inverse(c) => *c,
+        other => panic!("no inverse: {other:?}"),
+    }
 }
 
 fn undo() -> Command {
@@ -120,6 +128,62 @@ fn tempo_reports_the_previous_value_and_an_unchanged_one_records_nothing() {
         .unwrap();
     assert_eq!(same.undo, Undo::None);
     assert!(same.events.is_empty());
+}
+
+#[test]
+fn launch_quantize_sets_each_value_reports_the_previous_one_and_undoes() {
+    let f = fixture();
+    assert_eq!(f.state.project.transport.launch_quantize, Quantize::Bar);
+    let mut s = f.state.clone();
+    let mut previous = Quantize::Bar;
+    for q in Quantize::ALL {
+        let set = tr(T::SetLaunchQuantize { quantize: q });
+        let before = s.clone();
+        let out = set.apply(&mut s, &mut context()).unwrap();
+        assert_eq!(s.project.transport.launch_quantize, q);
+        assert_eq!(
+            out.output,
+            Output::Transport(commands::transport::Output::SetLaunchQuantize { previous })
+        );
+        if q == previous {
+            // Already in place: no inverse, no event, nothing to sync.
+            assert_eq!(out.undo, Undo::None);
+            assert!(out.events.is_empty());
+        } else {
+            assert_eq!(out.events, vec![ProjectEvent::LaunchQuantizeChanged { quantize: q }]);
+            let mut undone = s.clone();
+            run(&undo_of(out.undo), &mut undone, &mut context()).unwrap();
+            assert_eq!(undone.project, before.project, "{q:?}");
+        }
+        previous = q;
+    }
+}
+
+#[test]
+fn launch_quantize_goes_through_the_history() {
+    let mut s = fixture().state;
+    let depth = s.history.undo.len();
+    run(
+        &tr(T::SetLaunchQuantize {
+            quantize: Quantize::Beat,
+        }),
+        &mut s,
+        &mut context(),
+    )
+    .unwrap();
+    assert_eq!(s.history.undo.len(), depth + 1);
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.transport.launch_quantize, Quantize::Bar);
+}
+
+#[test]
+fn a_launch_quantize_outside_the_list_is_refused_by_the_schema() {
+    for bad in ["bars_3", "", "Bar", "1/16"] {
+        let json = serde_json::json!({"type": "transport.set_launch_quantize", "quantize": bad});
+        assert!(serde_json::from_value::<Command>(json).is_err(), "{bad:?}");
+    }
+    let missing = serde_json::json!({"type": "transport.set_launch_quantize"});
+    assert!(serde_json::from_value::<Command>(missing).is_err());
 }
 
 #[test]
