@@ -17,6 +17,10 @@
       ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) })
       : t('engine.latencyUnknown'),
   )
+  // The engine's load, when the host measures it (neither the worklet nor the helper does yet: it stays hidden until it is).
+  const load = $derived(
+    engine.feedback?.cpuLoad != null ? t('transport.load', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null,
+  )
 </script>
 
 <header class="top">
@@ -51,6 +55,7 @@
         <span class="value" data-testid="latency">{latency}</span>
       </span>
       <span class="value muted" data-testid="voices">{t('engine.voices', { n: engine.voices })}</span>
+      {#if load}<span class="value muted" data-testid="engine-load">{load}</span>{/if}
       <!-- The engine's report as data, for the browser checks: the mixer and the transport (MX-3, TR-4) will draw it. -->
       <span
         hidden
@@ -75,7 +80,7 @@
     min-height: 52px;
     display: flex;
     align-items: center;
-    gap: var(--fk-space-3);
+    gap: var(--fk-space-2);
     padding: var(--fk-space-2) var(--fk-space-3);
     border-bottom: 1px solid var(--fk-line);
     flex-wrap: wrap;
@@ -103,7 +108,7 @@
   }
   .views button {
     height: 26px;
-    padding: 0 var(--fk-space-3);
+    padding: 0 var(--fk-space-2);
     border: 0;
     border-radius: var(--fk-radius-pill);
     background: transparent;
@@ -126,14 +131,14 @@
   .engine {
     display: flex;
     align-items: center;
-    gap: var(--fk-space-3);
+    gap: var(--fk-space-2);
   }
   .mode {
     display: inline-flex;
     align-items: center;
     gap: var(--fk-space-2);
     height: 30px;
-    padding: 0 var(--fk-space-3);
+    padding: 0 var(--fk-space-2);
     border-radius: var(--fk-radius-pill);
     background: var(--fk-surface-2);
     font-weight: 600;
