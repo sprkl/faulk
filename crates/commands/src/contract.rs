@@ -206,6 +206,12 @@ pub enum ProjectEvent {
         param: String,
         value: f64,
     },
+    /// A track's chain of devices changed: a device was inserted, removed, moved or
+    /// brought back, or the instrument was replaced. The page reads the chain from its own
+    /// copy of the project, to which the same command applies.
+    DeviceChainChanged { track: TrackId },
+    /// A device was bypassed or put back in the chain.
+    DeviceBypassChanged { device: DeviceId, bypass: bool },
     /// A track's or the master's mixer changed: its whole state, so the interface needs
     /// no merge. `track` is `null` for the master; `gain_db` is `null` for silence.
     MixerChanged {

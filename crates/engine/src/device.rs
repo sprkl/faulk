@@ -531,14 +531,20 @@ impl ParamDescriptor {
     /// A value as the device applies it: `None` when not finite, else clamped to the range
     /// and rounded to the step.
     pub fn sanitize(&self, value: f32) -> Option<f32> {
+        self.sanitize_f64(f64::from(value)).map(|v| v as f32)
+    }
+
+    /// [`Self::sanitize`] in the project's precision: the value the project stores for a
+    /// parameter (`device.set_param`), `None` when not finite.
+    pub fn sanitize_f64(&self, value: f64) -> Option<f64> {
         if !value.is_finite() {
             return None;
         }
-        let mut v = f64::from(value).clamp(self.min, self.max);
+        let mut v = value.clamp(self.min, self.max);
         if self.step > 0.0 {
             v = (self.min + ((v - self.min) / self.step).round() * self.step).min(self.max);
         }
-        Some(v as f32)
+        Some(v)
     }
 
     /// Frames a smoothed value takes to reach its target at `sample_rate`.
