@@ -20,6 +20,14 @@ pub struct SessionState {
     pub solo: BTreeSet<TrackId>,
     /// The name of the chosen MIDI input port; `None` when none is chosen.
     pub midi_input: Option<String>,
+    /// The armed tracks (RE-1): live input reaches them besides the selected track, and
+    /// recording (RE-2) captures them. A session saved before arming existed has none.
+    #[serde(default)]
+    pub armed: BTreeSet<TrackId>,
+    /// The tracks that monitor the live input through their chain (RE-1). Kept for the
+    /// audio input; a MIDI track's instrument always sounds what is played.
+    #[serde(default)]
+    pub monitor: BTreeSet<TrackId>,
 }
 
 impl SessionState {
@@ -27,9 +35,11 @@ impl SessionState {
     /// against a project edited elsewhere, or a track deleted). Returns whether anything
     /// was dropped.
     pub fn forget_missing_tracks(&mut self, project: &Project) -> bool {
-        let before = self.solo.len();
+        let before = self.solo.len() + self.armed.len() + self.monitor.len();
         self.solo.retain(|t| project.tracks.contains_key(t));
-        let mut changed = self.solo.len() != before;
+        self.armed.retain(|t| project.tracks.contains_key(t));
+        self.monitor.retain(|t| project.tracks.contains_key(t));
+        let mut changed = self.solo.len() + self.armed.len() + self.monitor.len() != before;
         if self
             .selected_track
             .as_ref()

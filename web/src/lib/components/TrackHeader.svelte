@@ -1,9 +1,10 @@
 <script lang="ts">
   /**
    * A track's header: colour, name (renamed from the keyboard with F2, Enter to confirm), kind and
-   * instrument, mute, solo, volume, pan and delete. Shared by the track list, and later the grid,
+   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid,
    * the timeline and the mixer. It holds no project state: it reads the stores and every action
-   * is a command (`track-commands.ts`) through the dispatcher. Arming comes with recording (RE).
+   * is a command (`track-commands.ts`) through the dispatcher. An armed track receives the live
+   * input (MIDI controller) besides the selected one; recording itself comes with RE-2.
    */
   import { onDestroy, tick } from 'svelte'
   import { createGesture } from '../gesture'
@@ -21,9 +22,15 @@
     type TrackEntry,
   } from '../project/tracks'
   import { useStores } from '../stores'
-  import { deleteTrack, renameTrack, selectTrack, setMute, setPan, setSolo, setTrackColor, setVolume } from '../track-commands'
+  import { armTrack, deleteTrack, renameTrack, selectTrack, setMute, setPan, setSolo, setTrackColor, setVolume } from '../track-commands'
 
-  let { entry, selected = false, soloed = false, compact = false }: { entry: TrackEntry; selected?: boolean; soloed?: boolean; compact?: boolean } = $props()
+  let {
+    entry,
+    selected = false,
+    soloed = false,
+    armed = false,
+    compact = false,
+  }: { entry: TrackEntry; selected?: boolean; soloed?: boolean; armed?: boolean; compact?: boolean } = $props()
 
   const { ui, dispatcher } = useStores()
   const t = ui.t
@@ -156,6 +163,18 @@
         title={t('tracks.solo', { name: label })}
         onclick={() => dispatcher.run(setSolo(entry.id, !soloed))}>S</button
       >
+      <!-- Only a MIDI track has an instrument to play: arming an audio track comes with audio recording. -->
+      {#if track.kind === 'midi'}
+        <button
+          class="toggle arm"
+          type="button"
+          aria-pressed={armed}
+          aria-label={t('tracks.arm', { name: label })}
+          title={t('tracks.armHint', { name: label })}
+          data-testid="track-arm"
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
+        >
+      {/if}
       <input
         class="fader"
         type="range"
@@ -325,6 +344,11 @@
   .solo[aria-pressed='true'] {
     background: var(--fk-solo);
     border-color: var(--fk-solo);
+    color: #131211;
+  }
+  .arm[aria-pressed='true'] {
+    background: var(--fk-rec);
+    border-color: var(--fk-rec);
     color: #131211;
   }
   .fader {

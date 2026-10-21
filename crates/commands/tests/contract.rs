@@ -67,6 +67,15 @@ fn examples() -> Vec<(Command, State)> {
             note: 60,
         })),
         on(Command::Live(live::Command::AllNotesOff {})),
+        on(Command::Live(live::Command::InputNoteOn {
+            note: 60,
+            velocity: 100,
+        })),
+        on(Command::Live(live::Command::InputNoteOff { note: 60 })),
+        on(Command::Live(live::Command::ControlChange {
+            controller: 1,
+            value: 64,
+        })),
         on(Command::Mixer(mixer::Command::SetVolume {
             track: f.track.clone(),
             gain_db: Some(-6.0),

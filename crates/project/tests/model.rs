@@ -384,6 +384,8 @@ fn the_session_is_kept_apart_from_the_project() {
     session.solo.insert(fx.midi.clone());
     session.selected_track = Some(fx.audio.clone());
     session.midi_input = Some("Keystation 49".into());
+    session.armed.insert(fx.midi.clone());
+    session.monitor.insert(fx.midi.clone());
     // The project's text does not move; the session has its own.
     assert_eq!(serde_json::to_string(&fx.project).unwrap(), before);
     let s = serde_json::to_string(&session).unwrap();
@@ -394,12 +396,19 @@ fn the_session_is_kept_apart_from_the_project() {
     other.tracks.clear();
     assert!(session.forget_missing_tracks(&other));
     assert!(session.solo.is_empty() && session.selected_track.is_none());
+    assert!(session.armed.is_empty() && session.monitor.is_empty());
     assert_eq!(session.midi_input.as_deref(), Some("Keystation 49"));
     assert!(!session.forget_missing_tracks(&other));
     let mut kept = SessionState::default();
     kept.solo.insert(fx.midi.clone());
     assert!(!kept.forget_missing_tracks(&fx.project));
     assert_eq!(kept.solo.len(), 1);
+    // A session saved before arming existed still loads, with nothing armed.
+    let old = r#"{"selected_track":null,"solo":[],"midi_input":null}"#;
+    assert_eq!(
+        serde_json::from_str::<SessionState>(old).unwrap(),
+        SessionState::default()
+    );
 }
 
 #[test]

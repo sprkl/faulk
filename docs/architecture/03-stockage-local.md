@@ -184,7 +184,7 @@ Le dossier `.faulk/` (ignoré par git) complète l'arborescence du [modèle de p
 .faulk/
   cache/       # binary snapshot of the whole project, waveform peaks, decoded PCM: regenerable
   tmp/         # temp files for atomic writes, takes being recorded
-  session.json # session state: solo per track, chosen MIDI input (restored on reopen, never versioned)
+  session.json # session state: solo, arming and monitoring per track, chosen MIDI input (restored on reopen, never versioned)
   view.json    # view state (zoom, scroll, selection)
   lock         # open lock (session, timestamp)
 ```

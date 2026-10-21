@@ -33,7 +33,7 @@ Le stockage du dossier (dossier réel, OPFS, helper) et la mémoire audio sont t
 | Paramètres | Identifiés par un **ID stable sous forme de chaîne** (`"cutoff"`), jamais par un index. Valeur en **unité naturelle** (s, Hz, dB) déclarée par le device. | Le diff se lit (`cutoff: 800 → 1200`) ; un device qui ajoute un paramètre ne décale pas les autres. |
 | Projet et session | Ce qui fait la musique va dans le projet ; ce qui relève de l'écran ou de la machine (zoom, sélection, défilement, entrée MIDI choisie, pistes repliées, caches) va dans `.faulk/`, **ignoré par git**. | Ouvrir un projet et faire défiler l'écran ne produit aucun diff. |
 
-Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Décidé le 2026-10-14** : le solo est un état de session, écrit dans `.faulk/session.json` (ignoré par git) et restauré à la réouverture, jamais versionné ; le mute est dans le projet. La commande `mixer.set_solo` est donc `live`, hors historique.
+Le solo est un cas limite (un état d'écoute plutôt qu'un choix de mix). **Décidé le 2026-10-14** : le solo est un état de session, écrit dans `.faulk/session.json` (ignoré par git) et restauré à la réouverture, jamais versionné ; le mute est dans le projet. La commande `mixer.set_solo` est donc `live`, hors historique. Il en va de même de l'armement et du monitoring (RE-1) : `track.arm` et `track.set_monitor` écrivent `armed` et `monitor` dans la session, hors historique, et supprimer une piste les efface.
 
 ### 1.2 Les types (`crates/project`)
 
@@ -130,7 +130,7 @@ pub struct AutomationLane {
 }
 
 // Session state, never a field of Project, written to .faulk/session.json (decision 10).
-pub struct SessionState { pub selected_track: Option<TrackId>, pub solo: BTreeSet<TrackId>, pub midi_input: Option<String> }
+pub struct SessionState { pub selected_track: Option<TrackId>, pub solo: BTreeSet<TrackId>, pub midi_input: Option<String>, pub armed: BTreeSet<TrackId>, pub monitor: BTreeSet<TrackId> }
 ```
 
 `Project::validate()` rend toutes les violations, chacune avec son chemin (`tracks/<id>/clips/<id>`) : format, noms, identifiants uniques dans tout le projet, références (case de scène, clip d'un placement, device d'un couloir), accord des types (clip et piste, étendue et clip), notes dans la longueur du clip, boucles et plages, positions dans `[0, 2^40]`, nombres finis (un gain peut valoir `-inf`), règles de la chaîne (un instrument au plus, en tête ; le lecteur de clips exigé sur une piste audio et refusé ailleurs ; une piste MIDI peut n'avoir aucun instrument), fréquence d'échantillonnage de 8 à 768 kHz, fin en ticks d'un placement audio calculée au tempo du projet et limites de sûreté (`project::limits`). Deux invariants tiennent par construction et sont refusés à la lecture : une clé en double dans une table (identifiant ou tick) fait échouer la désérialisation, au lieu de garder silencieusement la dernière valeur.
