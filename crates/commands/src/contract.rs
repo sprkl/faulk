@@ -216,6 +216,13 @@ pub enum ProjectEvent {
     },
     /// A track was soloed or unsoloed (session state).
     SoloChanged { track: TrackId, solo: bool },
+    /// A track was armed or disarmed (session state).
+    ArmChanged { track: TrackId, armed: bool },
+    /// A track's monitoring was switched on or off (session state).
+    MonitorChanged { track: TrackId, monitor: bool },
+    /// A control change (CC) came in on the live input: `controller` 0 to 127, `value`
+    /// 0 to 127, channels merged. For the automation (AM-5); it changes no state.
+    ControlChange { controller: u8, value: u8 },
     /// The tempo changed (the project's one tempo, in BPM).
     TempoChanged { bpm: f64 },
     /// The time signature changed (the project's one signature).

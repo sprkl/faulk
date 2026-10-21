@@ -1,5 +1,5 @@
-//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8;
-//! arming comes with RE). Selecting a track is `view.select_track`.
+//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8),
+//! and arm or monitor them (RE-1). Selecting a track is `view.select_track`.
 //!
 //! The contract of the track commands, written once here and repeated in their
 //! descriptions for agents:
@@ -18,6 +18,10 @@
 //!   identifiers and order key, so deleting then undoing leaves the project as it was.
 //!   It is undoable, hence not flagged destructive. The track's selection and solo are
 //!   session state: deleting clears them, undoing does not bring them back.
+//! - **Arming and monitoring** are session state like solo (`live`, not undoable, never in
+//!   the project nor the history): `track.arm` and `track.set_monitor` write the session's
+//!   `armed` and `monitor` sets, and the engine gets them as `TrackArm` and
+//!   `TrackSetMonitor`. Deleting a track clears both.
 //! - `track.duplicate` copies the track next to the source with new identifiers
 //!   everywhere. Its clips are new, independent clips (founder's decision 11).
 //! - A command that changes nothing returns no inverse and no event.
@@ -64,8 +68,9 @@ domain! {
         device: DeviceId,
     };
 
-    /// Delete a track with its devices, clips, placements and automation. The selection
-    /// and the solo of the track are cleared (session state, not restored by undo). Undo:
+    /// Delete a track with its devices, clips, placements and automation. The selection,
+    /// the solo, the arming and the monitoring of the track are cleared (session state,
+    /// not restored by undo: an undone delete brings the track back unarmed). Undo:
     /// `track.restore` brings the whole track back with its identifiers and position.
     "track.delete" (kind = "edit", undo = "inverse", destructive = false)
     Delete { track: TrackId } => {
@@ -123,6 +128,28 @@ domain! {
     "track.restore_order" (kind = "edit", undo = "inverse", destructive = false)
     RestoreOrder { track: TrackId, order: OrderKey } => {};
 
+    /// Arm or disarm a track: live input (`live.input_note_on`, the keyboard and MIDI
+    /// controllers) reaches the armed tracks as well as the selected one, and recording
+    /// captures them. Session state: not undoable, not in the history, not saved with
+    /// the project. Refused with `not_found` for a track that does not exist, except to
+    /// disarm a track deleted since.
+    "track.arm" (kind = "live", undo = "none", destructive = false)
+    Arm { track: TrackId, armed: bool } => {
+        /// Whether the track was armed before the command.
+        previous: bool,
+    };
+
+    /// Monitor or stop monitoring a track's live input through its chain. Session
+    /// state: not undoable, not in the history, not saved with the project. A MIDI
+    /// track's instrument sounds what is played whatever this says; it matters for the
+    /// audio input. Refused with `not_found` for a track that does not exist, except to
+    /// stop monitoring a track deleted since.
+    "track.set_monitor" (kind = "live", undo = "none", destructive = false)
+    SetMonitor { track: TrackId, monitor: bool } => {
+        /// Whether the track was monitored before the command.
+        previous: bool,
+    };
+
     /// Duplicate a track right after the source (after any track that shares its order
     /// key), with new identifiers for the track, its
     /// devices, clips, placements and automation lanes. The clips are new, independent
@@ -162,6 +189,60 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
         Command::Move { track, index } => move_track(state, track, *index),
         Command::RestoreOrder { track, order } => restore_order(state, track, order),
         Command::Duplicate { track, name } => duplicate(state, ctx, track, name.as_deref()),
+        Command::Arm { track, armed } => {
+            let previous = set_flag(state, track, *armed, |s| &mut s.armed)?;
+            Ok(session_outcome(
+                Output::Arm { previous },
+                previous != *armed,
+                ProjectEvent::ArmChanged {
+                    track: track.clone(),
+                    armed: *armed,
+                },
+            ))
+        }
+        Command::SetMonitor { track, monitor } => {
+            let previous = set_flag(state, track, *monitor, |s| &mut s.monitor)?;
+            Ok(session_outcome(
+                Output::SetMonitor { previous },
+                previous != *monitor,
+                ProjectEvent::MonitorChanged {
+                    track: track.clone(),
+                    monitor: *monitor,
+                },
+            ))
+        }
+    }
+}
+
+/// Sets or clears `track` in one of the session's track sets and returns whether it was
+/// in it. A track that is gone can be cleared (a stale id) but not set.
+fn set_flag(
+    state: &mut State,
+    track: &TrackId,
+    on: bool,
+    set: impl FnOnce(&mut project::SessionState) -> &mut std::collections::BTreeSet<TrackId>,
+) -> Result<bool, CommandError> {
+    let exists = state.project.tracks.contains_key(track);
+    let set = set(&mut state.session);
+    let previous = set.contains(track);
+    if !exists && (on || !previous) {
+        return Err(not_found(track));
+    }
+    if on {
+        set.insert(track.clone());
+    } else {
+        set.remove(track);
+    }
+    Ok(previous)
+}
+
+/// The outcome of a session-state command: no inverse, and the event only when it changed.
+fn session_outcome(output: Output, changed: bool, event: ProjectEvent) -> Out {
+    Outcome {
+        output,
+        undo: Undo::None,
+        events: if changed { vec![event] } else { vec![] },
+        control: vec![],
     }
 }
 
@@ -327,6 +408,18 @@ fn delete(state: &mut State, track_id: &TrackId) -> Result<Out, CommandError> {
         events.push(ProjectEvent::SoloChanged {
             track: track_id.clone(),
             solo: false,
+        });
+    }
+    if state.session.armed.remove(track_id) {
+        events.push(ProjectEvent::ArmChanged {
+            track: track_id.clone(),
+            armed: false,
+        });
+    }
+    if state.session.monitor.remove(track_id) {
+        events.push(ProjectEvent::MonitorChanged {
+            track: track_id.clone(),
+            monitor: false,
         });
     }
     Ok(Outcome {

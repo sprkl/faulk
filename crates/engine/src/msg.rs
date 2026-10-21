@@ -437,7 +437,8 @@ pub enum ControlMsg {
         track: TrackSlot,
         monitor: bool,
     },
-    /// The track the live input goes to when no track is armed (RE-1).
+    /// The selected track (RE-1): the commands layer routes the live input to it and to the
+    /// armed tracks, so the engine only stores it.
     SelectTrack {
         track: Option<TrackSlot>,
     },

@@ -143,10 +143,11 @@ pub fn audio_core(
     meter: Arc<Meter>,
 ) -> Result<(AudioCore, EventSender), MsgError> {
     let (prepare, host) = engine::host::channel(sample_rate)?;
-    let mut sender = EventSender {
-        prepare,
-        stream: Synced::single_synth(EPOCH),
-    };
+    let mut stream = Synced::single_synth(EPOCH);
+    // The helper holds only the one synth's track until BO-1, so its live input (MIDI)
+    // has that track selected: the page's selection names tracks the helper does not have.
+    stream.state.session.selected_track = Some(commands::engine_msgs::single_synth::track());
+    let mut sender = EventSender { prepare, stream };
     if let Ok(mut report) = meter.report.lock() {
         *report = Some(host.feedback_shared());
     }
@@ -332,6 +333,55 @@ mod tests {
             core.process(&mut out, 2);
         }
         assert!(out.iter().all(|s| *s == 0.0));
+    }
+
+    /// MIDI bytes as the helper's MIDI callback gets them, sent as it sends them.
+    fn midi(sender: &mut EventSender, bytes: &[u8]) {
+        sender.send(&crate::midi::decode(bytes).expect("a live command"));
+    }
+
+    #[test]
+    fn simulated_midi_plays_the_selected_track_and_a_held_note_survives_a_deselect() {
+        let (mut core, mut sender, meter) = core();
+        let mut out = vec![0.0; 4_800 * 2];
+        midi(&mut sender, &[0x90, 69, 100]);
+        core.process(&mut out, 2);
+        assert!(
+            out.iter().any(|s| s.abs() > 0.01),
+            "the selected track plays"
+        );
+        assert_eq!(meter.take().1, 1);
+        // The selection goes away while the key is held: the note off still ends the note.
+        sender.send(&Command::View(commands::view::Command::SelectTrack {
+            track: None,
+        }));
+        midi(&mut sender, &[0x80, 69, 0]);
+        for _ in 0..200 {
+            core.process(&mut out, 2);
+        }
+        assert!(out.iter().all(|s| *s == 0.0), "no note is stuck");
+        // With nothing selected nor armed, the input plays nowhere.
+        midi(&mut sender, &[0x90, 69, 100]);
+        core.process(&mut out, 2);
+        assert!(out.iter().all(|s| *s == 0.0));
+        assert_eq!(sender.rejected(), 0);
+    }
+
+    #[test]
+    fn an_armed_track_plays_without_being_selected() {
+        let (mut core, mut sender, _) = core();
+        sender.send(&Command::View(commands::view::Command::SelectTrack {
+            track: None,
+        }));
+        sender.send(&Command::Track(commands::track::Command::Arm {
+            track: track(),
+            armed: true,
+        }));
+        let mut out = vec![0.0; 4_800 * 2];
+        midi(&mut sender, &[0x90, 60, 100]);
+        core.process(&mut out, 2);
+        assert!(out.iter().any(|s| s.abs() > 0.01));
+        assert_eq!(sender.rejected(), 0);
     }
 
     #[test]

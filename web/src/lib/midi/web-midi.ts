@@ -71,8 +71,8 @@ export class WebMidiHost {
         const command = decodeMidi(event.data)
         if (!command) return
         this.events.onCommand(command)
-        if (command.type === 'live.note_on') this.events.onActivity(command.note, command.velocity)
-        if (command.type === 'live.note_off') this.events.onActivity(command.note, 0)
+        if (command.type === 'live.input_note_on') this.events.onActivity(command.note, command.velocity)
+        if (command.type === 'live.input_note_off') this.events.onActivity(command.note, 0)
       }
       this.selected = input
     }

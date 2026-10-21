@@ -29,9 +29,11 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       if (ports.mode === 'web') ports.midi?.refresh()
       return
     case 'live.note_on':
+    case 'live.input_note_on':
       ports.markNote(command.note, command.velocity)
       return
     case 'live.note_off':
+    case 'live.input_note_off':
       ports.markNote(command.note, 0)
       return
     case 'live.all_notes_off':

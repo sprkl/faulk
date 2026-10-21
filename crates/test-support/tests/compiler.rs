@@ -160,6 +160,18 @@ fn edit(s: &mut Session, synth_track: &TrackId, scenes: &[SceneId; 2]) -> Vec<Tr
     s.run(cmd(
         json!({"type": "mixer.set_solo", "track": d, "solo": false}),
     ));
+    // Arming and monitoring: set, cleared, and on an audio track.
+    for (kind, field, track, on) in [
+        ("track.arm", "armed", &a, true),
+        ("track.arm", "armed", &audio, true),
+        ("track.arm", "armed", synth_track, true),
+        ("track.arm", "armed", synth_track, false),
+        ("track.set_monitor", "monitor", &d, true),
+        ("track.set_monitor", "monitor", &a, true),
+        ("track.set_monitor", "monitor", &a, false),
+    ] {
+        s.run(cmd(json!({"type": kind, "track": track, field: on})));
+    }
     s.run(cmd(json!({"type": "view.select_track", "track": a})));
     s.run(cmd(json!({"type": "transport.set_tempo", "bpm": 132.5})));
     s.run(cmd(
@@ -218,6 +230,9 @@ fn live_edits_and_the_snapshot_of_the_final_project_leave_the_same_engine() {
     assert!(expected.tracks.values().any(|t| !t.scenes.is_empty()));
     assert!(expected.tracks.values().any(|t| !t.placements.is_empty()));
     assert!(expected.loop_region.is_some() && expected.selected.is_some());
+    assert!(
+        expected.tracks.values().any(|t| t.armed) && expected.tracks.values().any(|t| t.monitor)
+    );
     // Both streams are accepted whole by the engine, natively and in WASM.
     let mut l = live;
     l.render_blocks(4);

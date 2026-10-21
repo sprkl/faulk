@@ -88,7 +88,7 @@
     {:else}
       <ul class="list" aria-labelledby="fk-tracks-title">
         {#each project.tracks as entry (entry.id)}
-          <TrackHeader {entry} selected={project.selected?.id === entry.id} soloed={project.soloed.includes(entry.id)} />
+          <TrackHeader {entry} selected={project.selected?.id === entry.id} soloed={project.soloed.includes(entry.id)} armed={project.armed.includes(entry.id)} />
         {/each}
       </ul>
     {/if}
