@@ -433,6 +433,89 @@ describe('running commands through the project core', () => {
     expect(webs[0].push.mock.calls.length).toBe(pushesBefore + 1)
   })
 
+  describe('Boost failure paths (#272)', () => {
+    const boostEngine = () =>
+      (nativeEngine = {
+        kind: 'native',
+        status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+        send: vi.fn(),
+        close: vi.fn(() => Promise.resolve()),
+      })
+
+    it('leaves the Web engine alone when the helper cannot be reached: no snapshot, a held note goes on', async () => {
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      const pushes = webs[0].push.mock.calls.length
+      await session.dispatcher.enterBoost()
+      expect(webs[0].push.mock.calls.length).toBe(pushes)
+      expect(webs[0].suspend).not.toHaveBeenCalled()
+      expect(session.engine.mode).toBe('web')
+      session.dispatcher.run(noteOn(60))
+      expect(webs[0].send.mock.calls.at(-1)![0].type).toBe('live.note_on')
+    })
+
+    it('closes the helper session when a step after the connection fails', async () => {
+      const native = boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      webs[0].suspend.mockImplementation(() => Promise.reject(new Error('suspend failed')))
+      await session.dispatcher.enterBoost()
+      expect(native.close).toHaveBeenCalledTimes(1)
+      expect(session.engine.mode).toBe('web')
+      // The helper accepted the session: the pairing stays.
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+      // The page plays again in the Web engine.
+      session.dispatcher.run(noteOn(60))
+      expect(native.send.mock.calls.some(([c]) => c.type === 'live.note_on')).toBe(false)
+      expect(webs[0].send.mock.calls.at(-1)![0].type).toBe('live.note_on')
+    })
+
+    it('ignores an audio.stream error of a helper session that is already closed', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      await session.dispatcher.enterBoost()
+      const closed = nativeEvents!
+      await session.dispatcher.enterWeb()
+      const pushes = webs[0].push.mock.calls.length
+      closed.onError?.('audio.stream')
+      expect(webs[0].push.mock.calls.length).toBe(pushes)
+      expect(session.engine.notice).toBeNull()
+    })
+
+    it('ignores a message of an older helper session while a newer one is current', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      await session.dispatcher.enterBoost()
+      const older = nativeEvents!
+      await session.dispatcher.enterWeb()
+      await session.dispatcher.enterBoost()
+      expect(session.engine.mode).toBe('native')
+      const pushes = webs[0].push.mock.calls.length
+      older.onError?.('audio.stream')
+      older.onClosed?.()
+      expect(session.engine.mode).toBe('native')
+      expect(webs[0].push.mock.calls.length).toBe(pushes)
+    })
+
+    it('still goes back to Web on an audio.stream error of the current helper session', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      await session.dispatcher.enterBoost()
+      const pushes = webs[0].push.mock.calls.length
+      nativeEvents!.onError?.('audio.stream')
+      expect(session.engine.mode).toBe('web')
+      expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    })
+  })
+
   it('stops the engine when the core cannot encode the command it applied', async () => {
     const session = newSession()
     await session.dispatcher.start()

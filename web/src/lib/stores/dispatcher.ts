@@ -52,8 +52,9 @@ export class Dispatcher {
   private webGeneration = 0
 
   private events(kind: 'web' | 'native', generation = this.webGeneration): EngineEvents {
+    // A Web engine is told apart by its generation, a helper session by the count of sessions that became current.
     const current = () =>
-      this.engine?.kind === kind && (kind === 'native' || generation === this.webGeneration)
+      this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -74,6 +75,8 @@ export class Dispatcher {
         if (current()) void this.stopWeb(code, at)
       },
       onError: (code) => {
+        // A helper session that was closed (or replaced by a newer one) says nothing any more.
+        if (kind === 'native' && !current()) return
         if (code === 'session.replaced') this.state.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.state.notice = 'midi.connectError'
         else if (code === 'audio.stream' && kind === 'native') {
@@ -83,7 +86,7 @@ export class Dispatcher {
         }
       },
       onClosed: () => {
-        if (kind !== 'native' || !this.native) return
+        if (kind !== 'native' || !current()) return
         this.native = null
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
@@ -331,7 +334,7 @@ export class Dispatcher {
     await this.midi?.releaseAll()
     this.state.selectedInput = null
     try {
-      const native = await NativeEngine.connect(token, this.events('native'))
+      const native = await NativeEngine.connect(token, this.events('native', this.boosts + 1))
       this.native = native
       this.boosts++
       this.state.mode = 'native'
@@ -342,8 +345,14 @@ export class Dispatcher {
       requestMidiInputs((command) => this.run(command))
       await this.web?.suspend()
     } catch {
-      this.native = null
-      await this.enterWeb()
+      if (this.native) {
+        // The helper accepted the session and a later step failed: the switch to Web closes that session.
+        await this.enterWeb()
+        await this.checkHelper()
+        return
+      }
+      // The helper never became current: the Web engine still plays and needs no snapshot (one would cut a held note).
+      this.midi?.select(this.lastWebInput)
       // Forget the token only when the helper answers but refused the session (new
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
       if ((await this.checkHelper()) === 'available') {
@@ -383,7 +392,7 @@ export class Dispatcher {
     // The project moved on while the helper played: the Web engine catches up by snapshot.
     const ready = web ? this.syncWeb(web) : false
     if (native) {
-      await native.close()
+      await native.close().catch((error: unknown) => console.error(error))
       this.state.helper = 'available'
     }
     // A Web engine that was stopped (refused stream, snapshot that did not encode) is closed.
