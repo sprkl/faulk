@@ -1861,7 +1861,13 @@ impl Engine {
                 let mut release = false;
                 match device_mut(state, track, device) {
                     Some(entry) => {
-                        release = entry.enabled != enabled && takes_notes(entry);
+                        let changed = entry.enabled != enabled;
+                        release = changed && takes_notes(entry);
+                        if changed && !takes_notes(entry) {
+                            // An audio effect that is switched on or off starts clean: a
+                            // tail (an echo) never comes back from before the switch.
+                            entry.device.reset();
+                        }
                         entry.enabled = enabled;
                     }
                     None => skipped = true,

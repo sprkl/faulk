@@ -20,7 +20,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Instrument** : le device qui produit le son d'une piste à partir de notes. Code : `DeviceRole::Instrument` ; le synthétiseur actuel est le device `faulk.osc_synth`, affiché « Oscillator » : `Synth` (`crates/engine/src/devices/osc_synth.rs`, DV-1) ; la batterie est le device `faulk.drums`, affiché « Drums » : `Drums` (`crates/engine/src/devices/drums.rs`, DV-6).
 
-**Effet** : un device qui transforme un signal (effet audio), après l'instrument. Code : `DeviceRole::Effect`.
+**Effet** : un device qui transforme un signal (effet audio), après l'instrument. Code : `DeviceRole::Effect` ; le premier effet est le delay `faulk.echo`, affiché « Echo » : `Echo` (`crates/engine/src/devices/echo.rs`, DV-3).
 
 **Effet MIDI** : un device qui reçoit des notes et en produit d'autres (transposition, accord, arpège), placé avant l'instrument d'une piste MIDI. Code : `engine::device::DeviceRole::MidiEffect` (contrat CT-5) ; le modèle de projet **(prévu)**.
 
