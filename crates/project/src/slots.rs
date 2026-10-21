@@ -163,6 +163,11 @@ pub struct EngineSlots {
     pub cue: Tick,
     /// Whether the last playback order was play.
     pub playing: bool,
+    /// The live input notes the engine holds, as `(note, track)`: where each
+    /// `live.input_note_on` went, so its note off reaches the same tracks even when the
+    /// selection or the arming changed meanwhile (RE-1). The engine forgets them with a
+    /// `Reset`, as this table is rebuilt by it.
+    pub held: BTreeSet<(u8, TrackId)>,
     /// Entities left out because the engine's table of their kind was full: the project
     /// has more clips, placements or lanes than the engine takes (the project limits
     /// those per track only).

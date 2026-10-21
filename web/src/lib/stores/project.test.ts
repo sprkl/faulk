@@ -39,9 +39,17 @@ describe('the tracks in the project store', () => {
     expect(store.soloed).toEqual([a.id])
     run(commands.setMute(a.id, true))
     expect(store.tracks[0].track.mixer.mute).toBe(true)
+    run(commands.armTrack(a.id, true))
+    run(commands.setMonitor(b.id, true))
+    expect([store.armed, store.monitored]).toEqual([[a.id], [b.id]])
+    run(commands.armTrack(a.id, false))
+    expect(store.armed).toEqual([])
+    run(commands.armTrack(a.id, true))
     run(commands.deleteTrack(b.id))
     expect(store.tracks.map((e) => e.id)).toEqual([a.id])
     expect(store.selected).toBeNull()
+    expect(store.monitored).toEqual([])
+    expect(store.armed).toEqual([a.id])
   })
 
   it('follows a rename, a colour, a volume and a pan', () => {
@@ -77,6 +85,6 @@ describe('the tracks in the project store', () => {
 
   it('has no tracks before a project is shown', () => {
     const store = new ProjectStore()
-    expect([store.tracks, store.selected, store.synth, store.soloed]).toEqual([[], null, null, []])
+    expect([store.tracks, store.selected, store.synth, store.soloed, store.armed, store.monitored]).toEqual([[], null, null, [], [], []])
   })
 })

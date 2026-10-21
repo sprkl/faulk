@@ -13,12 +13,6 @@ use protocol::MidiInput as InputInfo;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-/// The track the MIDI input plays: the one synth's (`protocol::single_synth`), until RE-1
-/// routes the live input to the selected and armed tracks.
-fn track() -> project::TrackId {
-    project::TrackId::parse(protocol::single_synth::TRACK).expect("a valid track id")
-}
-
 /// The command that releases every note.
 pub fn all_notes_off() -> Command {
     Command::Live(live::Command::AllNotesOff {})
@@ -27,28 +21,28 @@ pub fn all_notes_off() -> Command {
 /// The note and velocity a command plays, for the MIDI activity light (0: released).
 pub fn light(command: &Command) -> Option<(u8, u8)> {
     match command {
-        Command::Live(live::Command::NoteOn { note, velocity, .. }) => Some((*note, *velocity)),
-        Command::Live(live::Command::NoteOff { note, .. }) => Some((*note, 0)),
+        Command::Live(live::Command::InputNoteOn { note, velocity }) => Some((*note, *velocity)),
+        Command::Live(live::Command::InputNoteOff { note }) => Some((*note, 0)),
         _ => None,
     }
 }
 
+/// The live input's note on: the command layer routes it to the selected and the armed
+/// tracks (RE-1), so the helper knows no track.
 fn note_on(note: u8, velocity: u8) -> Command {
-    Command::Live(live::Command::NoteOn {
-        track: track(),
-        note,
-        velocity,
-    })
+    Command::Live(live::Command::InputNoteOn { note, velocity })
 }
 
 fn note_off(note: u8) -> Command {
-    Command::Live(live::Command::NoteOff {
-        track: track(),
-        note,
-    })
+    Command::Live(live::Command::InputNoteOff { note })
 }
 
-/// Decodes a MIDI message into a live command. Channels are merged (omni).
+fn control_change(controller: u8, value: u8) -> Command {
+    Command::Live(live::Command::ControlChange { controller, value })
+}
+
+/// Decodes a MIDI message into a live command. Channels are merged (omni). Control
+/// changes other than 120 and 123 become `live.control_change`, for the automation.
 pub fn decode(message: &[u8]) -> Option<Command> {
     let (&status, data) = message.split_first()?;
     let kind = status & 0xF0;
@@ -63,7 +57,10 @@ pub fn decode(message: &[u8]) -> Option<Command> {
         }
         0x80 => Some(note_off(byte(0)?)),
         // Control change 120 (all sound off) and 123 (all notes off).
-        0xB0 if matches!(byte(0)?, 120 | 123) => Some(all_notes_off()),
+        0xB0 => match byte(0)? {
+            120 | 123 => Some(all_notes_off()),
+            controller => Some(control_change(controller, byte(1)?)),
+        },
         _ => None,
     }
 }
@@ -194,11 +191,18 @@ mod tests {
     }
 
     #[test]
+    fn decodes_control_changes_on_any_channel() {
+        assert_eq!(decode(&[0xB0, 7, 100]), Some(control_change(7, 100)));
+        assert_eq!(decode(&[0xB5, 1, 0xFF]), Some(control_change(1, 127)));
+        assert_eq!(decode(&[0xB0, 7]), None, "a value is missing");
+        assert_eq!(decode(&[0xB0]), None);
+    }
+
+    #[test]
     fn ignores_other_and_malformed_messages() {
         assert_eq!(decode(&[]), None);
         assert_eq!(decode(&[0x90]), None);
         assert_eq!(decode(&[0x90, 60]), None);
-        assert_eq!(decode(&[0xB0, 7, 100]), None);
         assert_eq!(decode(&[0xF8]), None); // clock
         assert_eq!(decode(&[0x90, 0xFF, 0xFF]), Some(note_on(127, 127)));
     }

@@ -75,15 +75,38 @@ pub fn compile(
                 });
             }
         }
-        Command::Live(live::Command::NoteOff { track, note }) => {
-            if let Some(track) = track_slot(sync, track) {
+        Command::Live(live::Command::NoteOff { track: id, note }) => {
+            sync.held.remove(&(*note, id.clone()));
+            if let Some(track) = track_slot(sync, id) {
                 out.push(ControlMsg::NoteOff {
                     track,
                     pitch: *note,
                 });
             }
         }
+        Command::Live(live::Command::InputNoteOn { note, velocity }) => {
+            if *velocity == 0 {
+                release_input(sync, *note, &mut out);
+            } else {
+                // Where the note goes is the session as it stands; where it is held is
+                // remembered, so its note off reaches the same tracks.
+                for track in live::input_targets(state) {
+                    if let Some(slot) = track_slot(sync, &track) {
+                        out.push(ControlMsg::NoteOn {
+                            track: slot,
+                            pitch: *note,
+                            velocity: *velocity,
+                        });
+                        sync.held.insert((*note, track));
+                    }
+                }
+            }
+        }
+        Command::Live(live::Command::InputNoteOff { note }) => {
+            release_input(sync, *note, &mut out);
+        }
         Command::Live(live::Command::AllNotesOff {}) => {
+            sync.held.clear();
             out.extend(sync.tracks.iter().map(|(slot, _)| ControlMsg::AllNotesOff {
                 track: TrackSlot(slot),
             }));
@@ -110,6 +133,25 @@ pub fn compile(
         compile_event(event, state, sync, &mut out);
     }
     out
+}
+
+/// Releases a live input note on the tracks that hold it.
+fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
+    let tracks: Vec<TrackId> = sync
+        .held
+        .iter()
+        .filter(|(n, _)| *n == note)
+        .map(|(_, t)| t.clone())
+        .collect();
+    for track in tracks {
+        sync.held.remove(&(note, track.clone()));
+        if let Some(slot) = track_slot(sync, &track) {
+            out.push(ControlMsg::NoteOff {
+                track: slot,
+                pitch: note,
+            });
+        }
+    }
 }
 
 fn compile_event(
@@ -233,6 +275,22 @@ fn compile_event(
                 out.push(ControlMsg::TrackSetSolo { track, solo: *solo });
             }
         }
+        ProjectEvent::ArmChanged { track, armed } => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::TrackArm {
+                    track,
+                    armed: *armed,
+                });
+            }
+        }
+        ProjectEvent::MonitorChanged { track, monitor } => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::TrackSetMonitor {
+                    track,
+                    monitor: *monitor,
+                });
+            }
+        }
         ProjectEvent::TrackSelected { track } => out.push(ControlMsg::SelectTrack {
             track: track.as_ref().and_then(|t| track_slot(sync, t)),
         }),
@@ -242,6 +300,7 @@ fn compile_event(
         ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),
         ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
         ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::ControlChange { .. }
         | ProjectEvent::TrackChanged { .. }
         | ProjectEvent::MidiInputSelected { .. }
         | ProjectEvent::HistoryChanged { .. } => {}
@@ -418,6 +477,18 @@ fn track_msgs(
             solo: true,
         });
     }
+    if session.armed.contains(id) {
+        out.push(ControlMsg::TrackArm {
+            track: slot,
+            armed: true,
+        });
+    }
+    if session.monitor.contains(id) {
+        out.push(ControlMsg::TrackSetMonitor {
+            track: slot,
+            monitor: true,
+        });
+    }
     let mut entry = TrackSlots::default();
     for (index, (device_id, device)) in track.devices_in_order().into_iter().enumerate() {
         let Some((kind, state)) = device_insert(device) else {
@@ -466,6 +537,8 @@ fn track_msgs(
 
 /// Removes a track from the engine with everything it holds there, and frees its slots.
 fn remove_track(id: &TrackId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    // The notes it held went with it: nothing to release on a slot that may be reused.
+    sync.held.retain(|(_, track)| track != id);
     let Some(slot) = sync.tracks.release(id) else {
         return;
     };

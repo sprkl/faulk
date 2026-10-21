@@ -268,6 +268,8 @@ proptest! {
         let all: Vec<TrackId> = solo.iter().map(|_| TrackId::generate(&mut ids)).collect();
         let session = SessionState {
             selected_track: all.first().cloned(),
+            armed: all.iter().step_by(2).cloned().collect(),
+            monitor: all.iter().skip(1).step_by(2).cloned().collect(),
             solo: all.into_iter().collect(),
             midi_input: input,
         };

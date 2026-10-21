@@ -97,6 +97,20 @@ snapshot: Device
 track: string
 type: "track.restore_instrument"
 } | {
+armed: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.arm"
+} | {
+monitor: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.set_monitor"
+} | {
 name?: (string | null)
 /**
  * Identifier of a track.
@@ -502,6 +516,17 @@ note: number
 track: string
 type: "live.note_off"
 } | {
+note: number
+type: "live.input_note_on"
+velocity: number
+} | {
+note: number
+type: "live.input_note_off"
+} | {
+controller: number
+type: "live.control_change"
+value: number
+} | {
 type: "live.all_notes_off"
 })
 /**
@@ -597,6 +622,18 @@ previous: string
 type: "track.set_instrument"
 } | {
 type: "track.restore_instrument"
+} | {
+/**
+ * Whether the track was armed before the command.
+ */
+previous: boolean
+type: "track.arm"
+} | {
+/**
+ * Whether the track was monitored before the command.
+ */
+previous: boolean
+type: "track.set_monitor"
 } | {
 /**
  * Identifier of a track.
@@ -849,6 +886,25 @@ type: "live.note_on"
 } | {
 type: "live.note_off"
 } | {
+/**
+ * The tracks the note is routed to; empty when no MIDI track is selected or armed.
+ * A track the engine has no room for is listed but plays nothing.
+ * 
+ * Items: Identifier of a track.
+ */
+tracks: string[]
+type: "live.input_note_on"
+} | {
+/**
+ * The tracks the note was released on; empty when it was not held.
+ * 
+ * Items: Identifier of a track.
+ */
+tracks: string[]
+type: "live.input_note_off"
+} | {
+type: "live.control_change"
+} | {
 type: "live.all_notes_off"
 })
 /**
@@ -1059,6 +1115,24 @@ solo: boolean
  */
 track: string
 type: "solo_changed"
+} | {
+armed: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "arm_changed"
+} | {
+monitor: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "monitor_changed"
+} | {
+controller: number
+type: "control_change"
+value: number
 } | {
 bpm: number
 type: "tempo_changed"
@@ -1710,9 +1784,23 @@ gain_db?: (number | null)
  */
 export interface SessionState {
 /**
+ * The armed tracks (RE-1): live input reaches them besides the selected track, and
+ * recording (RE-2) captures them. A session saved before arming existed has none.
+ * 
+ * Items: Identifier of a track.
+ */
+armed?: string[]
+/**
  * The name of the chosen MIDI input port; `None` when none is chosen.
  */
 midi_input?: (string | null)
+/**
+ * The tracks that monitor the live input through their chain (RE-1). Kept for the
+ * audio input; a MIDI track's instrument always sounds what is played.
+ * 
+ * Items: Identifier of a track.
+ */
+monitor?: string[]
 /**
  * The selected track: where live MIDI goes. `None` when no track is selected.
  */

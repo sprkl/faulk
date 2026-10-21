@@ -18,6 +18,9 @@ export const setVolume = (track: string, gainDb: number | null): Command => ({ t
 export const setPan = (track: string, pan: number): Command => ({ type: 'mixer.set_pan', track, pan })
 export const setMute = (track: string, mute: boolean): Command => ({ type: 'mixer.set_mute', track, mute })
 export const setSolo = (track: string, solo: boolean): Command => ({ type: 'mixer.set_solo', track, solo })
+/** Arming and monitoring are session state: live input reaches the armed tracks, never undone. */
+export const armTrack = (track: string, armed: boolean): Command => ({ type: 'track.arm', track, armed })
+export const setMonitor = (track: string, monitor: boolean): Command => ({ type: 'track.set_monitor', track, monitor })
 export const undo = (): Command => ({ type: 'history.undo' })
 export const redo = (): Command => ({ type: 'history.redo' })
 /** A fader or pan gesture is one history group: one undo takes the whole drag back. */
