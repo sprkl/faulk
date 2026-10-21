@@ -323,42 +323,54 @@ export class Dispatcher {
     }
   }
 
-  /** Moves playback to the helper: silence and release the Web side, then bring the helper's copy to the page's settings. */
+  /** A connection to the helper is under way, so a second request (button, pairing link) does not open a second session. */
+  private connecting = false
+
+  /**
+   * Moves playback to the helper: connect first, so a helper that cannot be reached leaves the Web
+   * engine and its held notes alone; then silence and release the Web side, and bring the helper's
+   * copy to the page's settings.
+   */
   async enterBoost() {
     const token = storage()?.getItem(TOKEN_KEY)
-    if (!token || this.native) return
+    if (!token || this.native || this.connecting) return
+    this.connecting = true
     this.state.helper = 'connecting'
     this.state.notice = null
-    releaseAllNotes((command) => this.run(command))
-    this.state.activeNotes = []
-    await this.midi?.releaseAll()
-    this.state.selectedInput = null
+    let native: NativeEngine | null = null
     try {
-      const native = await NativeEngine.connect(token, this.events('native', this.boosts + 1))
-      this.native = native
+      const session = await NativeEngine.connect(token, this.events('native', this.boosts + 1))
+      // The Web engine plays until now: it gets its notes released before the helper takes over.
+      releaseAllNotes((command) => this.run(command))
+      this.state.activeNotes = []
+      native = this.native = session
       this.boosts++
       this.state.mode = 'native'
-      this.state.status = native.status
+      this.state.status = session.status
       this.state.helper = 'connected'
-      bringHelperCopyUpToDate(native, this.project.params)
+      this.state.selectedInput = null
+      await this.midi?.releaseAll()
+      bringHelperCopyUpToDate(session, this.project.params)
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
       await this.web?.suspend()
     } catch {
-      if (this.native) {
-        // The helper accepted the session and a later step failed: the switch to Web closes that session.
-        await this.enterWeb()
+      if (native) {
+        // The helper accepted the session and a later step failed: the switch to Web closes that
+        // session, unless the helper was lost meanwhile and that switch is already done.
+        if (this.native === native) await this.enterWeb()
         await this.checkHelper()
         return
       }
       // The helper never became current: the Web engine still plays and needs no snapshot (one would cut a held note).
-      this.midi?.select(this.lastWebInput)
       // Forget the token only when the helper answers but refused the session (new
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
       if ((await this.checkHelper()) === 'available') {
         storage()?.removeItem(TOKEN_KEY)
         this.state.paired = false
       }
+    } finally {
+      this.connecting = false
     }
   }
 

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NativeEngine } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
 import type { Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
@@ -442,17 +443,45 @@ describe('running commands through the project core', () => {
         close: vi.fn(() => Promise.resolve()),
       })
 
-    it('leaves the Web engine alone when the helper cannot be reached: no snapshot, a held note goes on', async () => {
+    it('leaves the Web engine alone when the helper cannot be reached: a held note is neither released nor re-sent as a snapshot', async () => {
       localStorage.setItem(TOKEN_KEY, 'x')
       const session = newSession()
       await session.dispatcher.start()
+      session.dispatcher.run(noteOn(60))
       const pushes = webs[0].push.mock.calls.length
+      const sends = webs[0].send.mock.calls.length
       await session.dispatcher.enterBoost()
       expect(webs[0].push.mock.calls.length).toBe(pushes)
+      expect(webs[0].send.mock.calls.length).toBe(sends)
       expect(webs[0].suspend).not.toHaveBeenCalled()
       expect(session.engine.mode).toBe('web')
-      session.dispatcher.run(noteOn(60))
-      expect(webs[0].send.mock.calls.at(-1)![0].type).toBe('live.note_on')
+      expect(session.engine.activeNotes).toEqual([60])
+    })
+
+    it('opens one helper session when Boost is asked twice while connecting', async () => {
+      const native = boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      const connect = vi.spyOn(NativeEngine, 'connect')
+      await Promise.all([session.dispatcher.enterBoost(), session.dispatcher.enterBoost()])
+      expect(connect).toHaveBeenCalledTimes(1)
+      expect(native.close).not.toHaveBeenCalled()
+      expect(session.engine.mode).toBe('native')
+    })
+
+    it('keeps the pairing when the helper is lost while the Web engine suspends and that step then fails', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      webs[0].suspend.mockImplementation(() => {
+        nativeEvents!.onClosed?.()
+        return Promise.reject(new Error('suspend failed'))
+      })
+      await session.dispatcher.enterBoost()
+      expect(session.engine.mode).toBe('web')
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
     })
 
     it('closes the helper session when a step after the connection fails', async () => {
