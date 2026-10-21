@@ -337,13 +337,15 @@ export class Dispatcher {
     this.connecting = true
     this.state.helper = 'connecting'
     this.state.notice = null
-    let native: NativeEngine | null = null
+    // The session as soon as it is open, and whether it became the current engine.
+    const generation = this.boosts
+    let opened: NativeEngine | null = null
     try {
-      const session = await NativeEngine.connect(token, this.events('native', this.boosts + 1))
+      const session = (opened = await NativeEngine.connect(token, this.events('native', this.boosts + 1)))
       // The Web engine plays until now: it gets its notes released before the helper takes over.
       releaseAllNotes((command) => this.run(command))
       this.state.activeNotes = []
-      native = this.native = session
+      this.native = session
       this.boosts++
       this.state.mode = 'native'
       this.state.status = session.status
@@ -355,17 +357,20 @@ export class Dispatcher {
       requestMidiInputs((command) => this.run(command))
       await this.web?.suspend()
     } catch {
-      if (native) {
+      if (opened) {
         // The helper accepted the session and a later step failed: the switch to Web closes that
-        // session, unless the helper was lost meanwhile and that switch is already done.
-        if (this.native === native) await this.enterWeb()
+        // session, unless the helper was lost meanwhile and that switch is already done. A session
+        // that never became current is closed here.
+        if (this.native === opened) await this.enterWeb()
+        else if (this.boosts === generation) await opened.close().catch((error: unknown) => console.error(error))
         await this.checkHelper()
         return
       }
       // The helper never became current: the Web engine still plays and needs no snapshot (one would cut a held note).
       // Forget the token only when the helper answers but refused the session (new
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
-      if ((await this.checkHelper()) === 'available') {
+      // A pairing that happened meanwhile stored a newer token: that one stays.
+      if ((await this.checkHelper()) === 'available' && storage()?.getItem(TOKEN_KEY) === token) {
         storage()?.removeItem(TOKEN_KEY)
         this.state.paired = false
       }

@@ -470,6 +470,33 @@ describe('running commands through the project core', () => {
       expect(session.engine.mode).toBe('native')
     })
 
+    it('closes a helper session that never became current when releasing the Web side fails', async () => {
+      const native = boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      webs[0].send.mockImplementation(() => {
+        throw new Error('trap')
+      })
+      await session.dispatcher.enterBoost()
+      expect(native.close).toHaveBeenCalledTimes(1)
+      expect(session.engine.mode).toBe('web')
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+    })
+
+    it('keeps a token stored by a pairing that happened while a refused connection was under way', async () => {
+      localStorage.setItem(TOKEN_KEY, 'old')
+      const session = newSession()
+      await session.dispatcher.start()
+      let refuse: (error: Error) => void = () => {}
+      vi.spyOn(NativeEngine, 'connect').mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
+      const boost = session.dispatcher.enterBoost()
+      localStorage.setItem(TOKEN_KEY, 'new')
+      refuse(new Error('refused'))
+      await boost
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('new')
+    })
+
     it('keeps the pairing when the helper is lost while the Web engine suspends and that step then fails', async () => {
       boostEngine()
       localStorage.setItem(TOKEN_KEY, 'x')
