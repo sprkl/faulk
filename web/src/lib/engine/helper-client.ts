@@ -1,6 +1,8 @@
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../generated/protocol'
 
-export const HELPER_URL = 'ws://127.0.0.1:47800'
+/** The helper's default port. The e2e tests build the page with `VITE_FAULK_HELPER_PORT` to reach a stand-in helper elsewhere, when an installed helper holds this one. */
+export const HELPER_PORT = Number(import.meta.env.VITE_FAULK_HELPER_PORT) || 47800
+export const HELPER_URL = `ws://127.0.0.1:${HELPER_PORT}`
 
 export type ProbeResult =
   | { status: 'absent' }

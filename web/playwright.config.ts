@@ -14,6 +14,8 @@ import { defineConfig } from '@playwright/test'
  * another checkout, and the run then fails on the busy port instead of testing other code.
  */
 const channel = process.env.FAULK_E2E_CHANNEL || undefined
+// The page and the stand-in helper of the helper test agree on this port (`tests/e2e/support.ts`).
+if (process.env.FAULK_E2E_HELPER_PORT) process.env.VITE_FAULK_HELPER_PORT = process.env.FAULK_E2E_HELPER_PORT
 
 export default defineConfig({
   testDir: 'tests/e2e',

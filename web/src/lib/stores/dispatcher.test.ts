@@ -50,10 +50,14 @@ vi.mock('../project/core', async (original) => ({
       WebAssembly.compile(fs.readFileSync(`${process.cwd()}/src/lib/project/wasm/project.wasm`)),
     ),
 }))
+let nativeEvents: EngineEvents | null = null
 let nativeEngine: { kind: 'native'; status: object; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
 vi.mock('../engine/native-engine', () => ({
   NativeEngine: {
-    connect: () => (nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))),
+    connect: (_token: string, events: EngineEvents) => {
+      nativeEvents = events
+      return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
+    },
   },
 }))
 vi.mock('../midi/web-midi', () => ({
@@ -358,6 +362,75 @@ describe('running commands through the project core', () => {
     expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
     expect(session.engine.mode).toBe('web')
     expect(session.project.params[firstParam]).toBe(0.5)
+  })
+
+  describe.each([
+    ['the button', false],
+    ['the helper being lost', true],
+  ])('a note played while the page goes back to Web, by %s (#262)', (_, lost) => {
+    it('reaches the Web engine after its snapshot, which would otherwise wipe it', async () => {
+      let finishClose: () => void = () => {}
+      let finishResume: () => void = () => {}
+      nativeEngine = {
+        kind: 'native',
+        status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+        send: vi.fn(),
+        close: vi.fn(() => new Promise<void>((resolve) => (finishClose = resolve))),
+      }
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      await session.dispatcher.enterBoost()
+      webs[0].resume.mockImplementation(() => new Promise<void>((resolve) => (finishResume = resolve)))
+      const pushesBefore = webs[0].push.mock.calls.length
+      if (lost) nativeEvents!.onClosed?.()
+      const back = lost ? Promise.resolve() : session.dispatcher.enterWeb()
+      // The key goes down while the switch is under way: the audio context is still resuming.
+      session.dispatcher.run(noteOn(60))
+      expect(session.engine.mode).toBe('web')
+      expect(nativeEngine.send.mock.calls.some(([c]) => c.type === 'live.note_on')).toBe(false)
+      const snapshot = webs[0].push.mock.invocationCallOrder[pushesBefore]
+      const note = webs[0].send.mock.invocationCallOrder.at(-1)!
+      expect(snapshot).toBeDefined()
+      expect(note).toBeGreaterThan(snapshot)
+      expect(webs[0].send.mock.calls.at(-1)![0].type).toBe('live.note_on')
+      // The switch still finishes: the helper closes, the audio context resumes.
+      finishClose()
+      await vi.waitFor(() => expect(webs[0].resume).toHaveBeenCalled())
+      finishResume()
+      await back
+      expect(webs[0].push.mock.calls.length).toBe(pushesBefore + 1)
+    })
+  })
+
+  it('takes a new snapshot when the helper is lost after Boost was entered again during the switch', async () => {
+    const resumes: (() => void)[] = []
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    webs[0].resume.mockImplementation(() => new Promise<void>((resolve) => resumes.push(resolve)))
+    const first = session.dispatcher.enterWeb()
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    const pushes = webs[0].push.mock.calls.length
+    nativeEvents!.onClosed?.()
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    expect(session.engine.mode).toBe('web')
+    resumes.forEach((resume) => resume())
+    await first
+  })
+
+  it('joins a switch to Web already under way instead of taking a second snapshot', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    const pushesBefore = webs[0].push.mock.calls.length
+    await Promise.all([session.dispatcher.enterWeb(), session.dispatcher.enterWeb()])
+    expect(webs[0].push.mock.calls.length).toBe(pushesBefore + 1)
   })
 
   it('stops the engine when the core cannot encode the command it applied', async () => {
