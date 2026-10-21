@@ -63,6 +63,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(0),
             key: "waveform",
+            description: "Shape of the oscillator: sine, saw, square or triangle.",
             unit: Unit::None,
             min: 0.0,
             max: 3.0,
@@ -72,11 +73,22 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             smoothing_seconds: 0.0,
             values: &["sine", "saw", "square", "triangle"],
         },
-        envelope_time(1, "attack", 0.005),
-        envelope_time(2, "decay", 0.2),
+        envelope_time(
+            1,
+            "attack",
+            "Time the note takes to reach full level after it starts, in seconds.",
+            0.005,
+        ),
+        envelope_time(
+            2,
+            "decay",
+            "Time the level takes to fall from full to the sustain level, in seconds.",
+            0.2,
+        ),
         ParamDescriptor {
             id: ParamId(3),
             key: "sustain",
+            description: "Level held while the note is down, from 0 to 1 of full level.",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -86,10 +98,16 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             smoothing_seconds: 0.005,
             values: &[],
         },
-        envelope_time(4, "release", 0.3),
+        envelope_time(
+            4,
+            "release",
+            "Time the level takes to fade out after the note ends, in seconds.",
+            0.3,
+        ),
         ParamDescriptor {
             id: ParamId(5),
             key: "gain",
+            description: "Output level of the synth, from 0 to 1 (linear gain).",
             unit: Unit::Gain,
             min: 0.0,
             max: 1.0,
@@ -114,10 +132,16 @@ pub fn factory(setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
 }
 
 /// An envelope time: read when a stage starts, so never smoothed.
-const fn envelope_time(id: u32, key: &'static str, default: f64) -> ParamDescriptor {
+const fn envelope_time(
+    id: u32,
+    key: &'static str,
+    description: &'static str,
+    default: f64,
+) -> ParamDescriptor {
     ParamDescriptor {
         id: ParamId(id),
         key,
+        description,
         unit: Unit::Seconds,
         min: 0.002,
         max: 30.0,

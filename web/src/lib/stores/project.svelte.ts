@@ -1,6 +1,6 @@
 import { SINGLE_SYNTH, type ProjectEvent, type ProjectView, type SynthParam } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
-import { deviceOfKind, sortedTracks } from '../project/tracks'
+import { sortedTracks } from '../project/tracks'
 
 /**
  * The project as the page sees it: a reactive mirror of the page's project core (§ 2.6 of the
@@ -32,19 +32,6 @@ export class ProjectStore {
   armed = $derived(this.view?.session.armed ?? [])
   /** The tracks that monitor their live input (session state). */
   monitored = $derived(this.view?.session.monitor ?? [])
-
-  /**
-   * The oscillator of the selected track with its settings (the engine defaults overlaid with
-   * what the project holds), or null when the selection has none: what the Instrument view edits.
-   */
-  synth = $derived.by<{ track: string; device: string; params: Record<SynthParam, number> } | null>(() => {
-    const selected = this.selected
-    const device = selected && deviceOfKind(selected.track, SINGLE_SYNTH.kind)
-    if (!selected || !device) return null
-    const params = { ...DEFAULT_PARAMS }
-    for (const key of Object.keys(params) as SynthParam[]) params[key] = device.params[key] ?? params[key]
-    return { track: selected.id, device: device.id, params }
-  })
 
   /** Mirrors a freshly created core, or the project after a refresh. */
   show(view: ProjectView) {

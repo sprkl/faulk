@@ -8,11 +8,19 @@
     position,
     display,
     onchange,
+    hint,
+    onbegin,
+    onend,
   }: {
     label: string
     position: number
     display: string
     onchange: (position: number) => void
+    /** Tooltip: what the knob does. */
+    hint?: string
+    /** A drag starts and ends: the owner groups it as one history entry. */
+    onbegin?: () => void
+    onend?: () => void
   } = $props()
 
   const START = -135
@@ -30,7 +38,7 @@
   }
 </script>
 
-<label class="knob">
+<label class="knob" title={hint}>
   <span class="label">{label}</span>
   <span class="dial">
     <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
@@ -47,6 +55,11 @@
       step="0.001"
       value={position}
       aria-valuetext={display}
+      onpointerdown={() => onbegin?.()}
+      onpointerup={() => onend?.()}
+      onpointercancel={() => onend?.()}
+      onchange={() => onend?.()}
+      onblur={() => onend?.()}
       oninput={(e) => onchange(Number(e.currentTarget.value))}
     />
   </span>

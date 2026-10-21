@@ -129,6 +129,7 @@ pub static TONE: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: tone::GAIN,
             key: "gain",
+            description: "Test parameter gain.",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -141,6 +142,7 @@ pub static TONE: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: tone::OCTAVE,
             key: "octave",
+            description: "Test parameter octave.",
             unit: Unit::None,
             min: -2.0,
             max: 2.0,
@@ -331,6 +333,7 @@ pub static GAIN: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: gain::GAIN,
             key: "gain",
+            description: "Test parameter gain.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -343,6 +346,7 @@ pub static GAIN: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: gain::MUTE,
             key: "mute",
+            description: "Test parameter mute.",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -461,6 +465,7 @@ pub static TRANSPOSE: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: transpose::SEMITONES,
             key: "semitones",
+            description: "Test parameter semitones.",
             unit: Unit::Semitones,
             min: -24.0,
             max: 24.0,
@@ -473,6 +478,7 @@ pub static TRANSPOSE: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: transpose::CENTS,
             key: "cents",
+            description: "Test parameter cents.",
             unit: Unit::Cents,
             min: -100.0,
             max: 100.0,
