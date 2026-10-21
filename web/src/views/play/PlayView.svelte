@@ -6,21 +6,20 @@
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
   import type { MessageKey } from '../../lib/i18n/index'
-  import { clampOctave, DEFAULT_OCTAVE, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
+  import { clampOctave, defaultOctave, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
   import { choiceParams, choices, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from '../../lib/devices'
-  import { trackLabel } from '../../lib/project/tracks'
+  import { instrumentKind, isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { allNotesOff, noteOff, noteOn, setParam } from '../../lib/synth-commands'
+  import { allNotesOff, inputNoteOff, inputNoteOn, setParam } from '../../lib/synth-commands'
 
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
 
-  let octave = $state(DEFAULT_OCTAVE)
   let code = $state('')
-  /** Notes held on the computer keyboard, by physical key, with the track that plays each, so a change of octave or of selected track releases the right note. */
+  /** Notes held on the computer keyboard, by physical key, so a change of octave releases the right note. */
   // Not reactive on purpose: nothing renders from it.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const held = new Map<string, { note: number; track: string }>()
+  const held = new Map<string, number>()
 
   /** Icons of the waveform values, by the value's key in the synth's descriptor (none for a key without one). */
   const ICONS: Record<string, string> = {
@@ -30,12 +29,22 @@
     triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
   }
   const synth = $derived(project.synth)
-  /** The track the computer keyboard plays: the selected one, when it is a MIDI track. */
-  const target = $derived(project.selected?.track.kind === 'midi' ? project.selected : null)
+  /** The selected track, when it is a MIDI track: the live input goes to it and to the armed tracks. */
+  const target = $derived(project.selected && isMidi(project.selected.track) ? project.selected : null)
+  /** An armed MIDI track other than the target: the command layer plays only MIDI tracks, whatever a command armed. */
+  const armedMidi = $derived(project.armed.filter((id) => project.tracks.some((entry) => entry.id === id && isMidi(entry.track))))
+  const armedElsewhere = $derived(armedMidi.some((id) => id !== target?.id))
+  const targetHint = $derived(
+    target ? t(armedElsewhere ? 'keys.targetArmed' : 'keys.target', { name: trackLabel(target, t) }) : t(armedElsewhere ? 'keys.armedOnly' : 'keys.noTarget'),
+  )
+  /** The kind of the target's instrument; the octave starts where its sounds are when it changes (drums or not). */
+  const targetKind = $derived(target ? instrumentKind(target.track) : null)
+  /** Changes with the kind only: switching between tracks of the same kind keeps the octave the user chose. */
+  let octave = $derived(defaultOctave(targetKind))
   const label = (key: string) => t(labelKey(SYNTH, key) as MessageKey)
 
   function releaseAllKeys() {
-    for (const { note, track } of held.values()) dispatcher.run(noteOff(note, track))
+    for (const note of held.values()) dispatcher.run(inputNoteOff(note))
     held.clear()
   }
 
@@ -49,25 +58,19 @@
     }
     const note = noteForKey(event.code, octave)
     if (note === null || held.has(event.code)) return
-    // The selected MIDI track plays; an audio track or no selection plays nothing.
-    if (!target) return
-    held.set(event.code, { note, track: target.id })
-    dispatcher.run(noteOn(note, 100, target.id))
+    // The command layer routes the note: the selected MIDI track and the armed ones (none: nothing plays).
+    // It sends the note off where the note on went, so a track change while the key is held ends it.
+    if (!target && armedMidi.length === 0) return
+    held.set(event.code, note)
+    dispatcher.run(inputNoteOn(note, 100))
   }
 
   function onKeyUp(event: KeyboardEvent) {
-    const key = held.get(event.code)
-    if (!key) return
+    const note = held.get(event.code)
+    if (note === undefined) return
     held.delete(event.code)
-    dispatcher.run(noteOff(key.note, key.track))
+    dispatcher.run(inputNoteOff(note))
   }
-
-  // Selecting another track (or deleting the selected one) ends the notes of the previous one.
-  const selectedId = $derived(project.selected?.id)
-  $effect(() => {
-    void selectedId
-    releaseAllKeys()
-  })
 
   onMount(() => {
     const release = () => releaseAllKeys()
@@ -213,7 +216,7 @@
       <div class="keys-head">
         <h2 class="label">{t('keys.title')}</h2>
         <span class="value">{t('keys.octave', { n: octave })}</span>
-        <span class="muted target" data-testid="keys-target">{target ? t('keys.target', { name: trackLabel(target, t) }) : t('keys.noTarget')}</span>
+        <span class="muted target" data-testid="keys-target">{targetHint}</span>
         <button class="ghost" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
       </div>
       <PianoStrip low={(octave + 1) * 12} active={engine.activeNotes} />
