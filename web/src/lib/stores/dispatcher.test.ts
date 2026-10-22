@@ -61,8 +61,17 @@ vi.mock('../engine/native-engine', () => ({
     },
   },
 }))
+// Web MIDI is off, except in the tests that turn it on: then `releaseAll` is what the test controls.
+let midiOn = false
+let midiReleaseAll: () => Promise<void> = () => Promise.resolve()
 vi.mock('../midi/web-midi', () => ({
-  WebMidiHost: { supported: () => false },
+  WebMidiHost: class {
+    static supported = () => midiOn
+    enable = () => Promise.resolve(true)
+    releaseAll = () => midiReleaseAll()
+    select = vi.fn()
+    refresh = vi.fn()
+  },
 }))
 
 const { createStores } = await import('./index')
@@ -266,6 +275,8 @@ describe('running commands through the project core', () => {
   beforeEach(() => {
     webs = []
     nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
     localStorage.clear()
   })
 
@@ -484,17 +495,53 @@ describe('running commands through the project core', () => {
       expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
     })
 
-    it('keeps a token stored by a pairing that happened while a refused connection was under way', async () => {
+    it('connects with the token of a pairing that happened while a refused connection was under way', async () => {
+      boostEngine()
       localStorage.setItem(TOKEN_KEY, 'old')
       const session = newSession()
       await session.dispatcher.start()
       let refuse: (error: Error) => void = () => {}
-      vi.spyOn(NativeEngine, 'connect').mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
-      const boost = session.dispatcher.enterBoost()
+      const connect = vi
+        .spyOn(NativeEngine, 'connect')
+        .mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
+      const stale = session.dispatcher.enterBoost()
+      // The pairing stores the new token and asks for Boost: it waits for the refused attempt.
       localStorage.setItem(TOKEN_KEY, 'new')
+      const paired = session.dispatcher.enterBoost()
       refuse(new Error('refused'))
-      await boost
+      await Promise.all([stale, paired])
+      expect(connect.mock.calls.map(([token]) => token)).toEqual(['old', 'new'])
       expect(localStorage.getItem(TOKEN_KEY)).toBe('new')
+      expect(session.engine.mode).toBe('native')
+    })
+
+    it('does not suspend the Web engine when the page went back to Web while the MIDI inputs were closing', async () => {
+      midiOn = true
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      let finishRelease: () => void = () => {}
+      midiReleaseAll = () => new Promise<void>((resolve) => (finishRelease = resolve))
+      const boost = session.dispatcher.enterBoost()
+      await vi.waitFor(() => expect(session.engine.mode).toBe('native'))
+      const back = session.dispatcher.enterWeb()
+      finishRelease()
+      await Promise.all([boost, back])
+      expect(session.engine.mode).toBe('web')
+      expect(webs[0].suspend).not.toHaveBeenCalled()
+    })
+
+    it('ignores the MIDI activity of a helper session that is already closed', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      await session.dispatcher.enterBoost()
+      const closed = nativeEvents!
+      await session.dispatcher.enterWeb()
+      closed.onMidiActivity?.(60, 100)
+      expect(session.engine.activeNotes).toEqual([])
     })
 
     it('keeps the pairing when the helper is lost while the Web engine suspends and that step then fails', async () => {

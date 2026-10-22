@@ -70,7 +70,9 @@ export class Dispatcher {
         this.state.inputs = inputs
         this.state.selectedInput = selected
       },
-      onMidiActivity: (note, velocity) => this.markNote(note, velocity),
+      onMidiActivity: (note, velocity) => {
+        if (kind === 'web' || current()) this.markNote(note, velocity)
+      },
       onStreamRefused: (code, at) => {
         if (current()) void this.stopWeb(code, at)
       },
@@ -323,8 +325,8 @@ export class Dispatcher {
     }
   }
 
-  /** A connection to the helper is under way, so a second request (button, pairing link) does not open a second session. */
-  private connecting = false
+  /** The connection to the helper under way: a second request (button, pairing link) waits for it, so two sessions never overlap. */
+  private pendingBoost: Promise<void> | null = null
 
   /**
    * Moves playback to the helper: connect first, so a helper that cannot be reached leaves the Web
@@ -332,9 +334,18 @@ export class Dispatcher {
    * copy to the page's settings.
    */
   async enterBoost() {
+    while (this.pendingBoost) await this.pendingBoost
+    // Read after the wait: a pairing that finished meanwhile stored a newer token.
     const token = storage()?.getItem(TOKEN_KEY)
-    if (!token || this.native || this.connecting) return
-    this.connecting = true
+    if (!token || this.native) return
+    const pending: Promise<void> = this.connect(token).finally(() => {
+      if (this.pendingBoost === pending) this.pendingBoost = null
+    })
+    this.pendingBoost = pending
+    await pending
+  }
+
+  private async connect(token: string) {
     this.state.helper = 'connecting'
     this.state.notice = null
     // The session as soon as it is open, and whether it became the current engine.
@@ -352,6 +363,8 @@ export class Dispatcher {
       this.state.helper = 'connected'
       this.state.selectedInput = null
       await this.midi?.releaseAll()
+      // Back to Web meanwhile (the button, a lost helper): nothing left to do for this session.
+      if (this.native !== session) return
       bringHelperCopyUpToDate(session, this.project.params)
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
@@ -374,8 +387,6 @@ export class Dispatcher {
         storage()?.removeItem(TOKEN_KEY)
         this.state.paired = false
       }
-    } finally {
-      this.connecting = false
     }
   }
 
