@@ -75,3 +75,13 @@ fn a_launched_clip_takes_the_track_at_the_bar_line_and_the_tracks_go_back() {
     );
     taken.assert_silent(5.0..END_SECS);
 }
+
+#[test]
+fn a_note_in_the_second_bar_of_a_lengthened_clip_sounds_on_play() {
+    let r = render_native(&test_support::arrangement::lengthened());
+    r.assert_clean();
+    // The clip was created with one bar and lengthened to two before the note was drawn:
+    // the first bar is silent, the note of the second bar (2 s) sounds.
+    r.assert_silent(0.0..1.9);
+    r.assert_audible(2.05..3.4, 0.05);
+}

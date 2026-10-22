@@ -199,3 +199,36 @@ pub fn song(play: Play) -> Scenario {
     s.render_secs(END_SECS - rendered);
     s.into_scenario()
 }
+
+/// #280: a clip created in the arrangement with the default length (one bar), lengthened to
+/// two bars with `clip.set_length`, one note in its second bar (2 s to 3.4 s at 120 BPM),
+/// played for six seconds. The placement made with the clip follows the length, so the
+/// note sounds.
+pub fn lengthened() -> Scenario {
+    let fixture = testing::fixture();
+    let mut s = Session::from_state(fixture.state.clone(), testing::context());
+    let Output::Clip(clip::Output::Create { clip, placement }) =
+        s.exec(Command::Clip(clip::Command::Create {
+            track: fixture.track.clone(),
+            at: clip::ClipTarget::Arrangement { start: Tick(0) },
+            length: None,
+            name: None,
+        }))
+    else {
+        panic!("a clip")
+    };
+    assert!(placement.is_some());
+    s.run(Command::Clip(clip::Command::SetLength {
+        clip: clip.clone(),
+        length: Tick(7680),
+        trim: false,
+        placements: None,
+    }));
+    s.run(Command::Clip(clip::Command::NotesAdd {
+        clip,
+        notes: vec![n(3840, 60, 3000, 100)],
+    }));
+    s.run(Command::Transport(transport::Command::Play {}));
+    s.render_secs(6.0);
+    s.into_scenario()
+}

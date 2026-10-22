@@ -339,6 +339,7 @@ type: "clip.rename"
  */
 clip: string
 length: Tick
+placements?: (PlacementLength[] | null)
 trim?: boolean
 type: "clip.set_length"
 } | {
@@ -356,6 +357,7 @@ clip: string
 length: Tick
 looping?: (TickLoop | null)
 notes: Note[]
+placements?: (PlacementLength[] | null)
 type: "clip.set_content"
 } | {
 /**
@@ -1649,6 +1651,16 @@ notes: Note[]
  * The scene of its launch-grid slot, when it sits in one.
  */
 slot?: (string | null)
+}
+/**
+ * The length of one placement of a clip, in ticks.
+ */
+export interface PlacementLength {
+length: Tick
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
 }
 /**
  * A note to replace by another: `clip.notes.update` addresses a note by its whole value.

@@ -74,3 +74,47 @@ test('arrangement: a clip drawn in the piano roll sounds on Play, is silent on S
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/arrangement.png` })
   expect(seen.errors).toEqual([])
 })
+
+// #280: the clip's length field lengthens the placement made with the clip, so a note drawn in bar 2 sounds.
+test('arrangement: a note drawn in bar 2 after lengthening the clip sounds when the playhead reaches it', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await page.getByTestId('roll-length').fill('2')
+  await page.getByTestId('roll-length').press('Tab')
+  await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-clip-length', '7680')
+
+  // One note, in bar 2 only.
+  const g = await spot(page)
+  await page.mouse.click(g.x(3850), g.y(60))
+  await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '1')
+  await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)
+
+  // Play from the start: silent through bar 1, sounding once the playhead is inside the note.
+  const tick = async () => Number(await page.getByTestId('feedback').getAttribute('data-tick'))
+  await transport(page, 'Play').click()
+  await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'playing')
+  const early: number[] = []
+  await expect
+    .poll(
+      async () => {
+        const t = await tick()
+        const db = await meterDb(page)
+        if (t < 3000) early.push(db)
+        return t >= 3900 && t < 4700 && db > SILENCE_DB
+      },
+      { timeout: 15_000, intervals: [30] },
+    )
+    .toBe(true)
+  expect(early.every((db) => db === SILENCE_DB)).toBe(true)
+  await transport(page, 'Stop').click()
+  await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)
+  expect(seen.errors).toEqual([])
+})
