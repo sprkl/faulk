@@ -24,7 +24,7 @@
     type SnapSetting,
     type View,
   } from './grid'
-  import { RULER_HEIGHT, drawGrid, readColors, type Colors } from './render'
+  import { RULER_HEIGHT, drawGrid, readColors, type BodyFrame, type Colors } from './render'
 
   let {
     signature,
@@ -35,6 +35,7 @@
     label,
     onseek,
     onhover,
+    drawBody,
   }: {
     signature: Signature
     totalBars?: number
@@ -47,6 +48,11 @@
     onseek?: (tick: number) => void
     /** The snapped tick under the pointer, `null` when it leaves. */
     onhover?: (tick: number | null) => void
+    /**
+     * Draws the host's content over the grid, in the same frame (the piano roll's notes). The context is in CSS
+     * pixels; the frame is the view actually drawn. Call `invalidate` when what it draws has changed.
+     */
+    drawBody?: (ctx: CanvasRenderingContext2D, frame: BodyFrame) => void
   } = $props()
 
   const WHEEL_ZOOM_RATE = 0.002
@@ -76,6 +82,11 @@
   $effect(() => onhover?.(hover))
   const localX = (event: { clientX: number }) => event.clientX - root.getBoundingClientRect().left
 
+  /** Draws again on the next frame: for a host whose `drawBody` depends on state the grid cannot see. */
+  export function invalidate() {
+    if (!pending) pending = requestAnimationFrame(draw)
+  }
+
   function set(next: View) {
     view = clampView(next, width, totalTicks)
   }
@@ -95,12 +106,18 @@
     // The cost of the last frame and the count of frames, for the frame-time measurement of the e2e spec.
     drawCount++
     root.dataset.drawMs = String(performance.now() - start)
+    // The host's content is timed apart, so that the grid's own cost keeps its meaning.
+    if (drawBody) {
+      const bodyStart = performance.now()
+      drawBody(ctx, { width, height, view: clamped, totalTicks, colors, dpr })
+      root.dataset.bodyMs = String(performance.now() - bodyStart)
+    }
     root.dataset.drawCount = String(drawCount)
   }
 
   // One frame per change: wheel bursts and playhead updates coalesce into the next animation frame.
   $effect(() => {
-    void [clamped, signature, totalTicks, playhead, hover, width, height, epoch]
+    void [clamped, signature, totalTicks, playhead, hover, width, height, epoch, drawBody]
     if (!pending) pending = requestAnimationFrame(draw)
   })
 
