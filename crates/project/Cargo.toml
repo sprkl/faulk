@@ -4,20 +4,21 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Faulk project document: tracks, clips, devices, automation, transport settings. Pure Rust, no I/O."
+description = "Faulk project document and its folder format: tracks, clips, devices, automation, transport settings. Pure Rust, I/O only through an abstract file system."
 
 [dependencies]
 engine = { path = "../engine", features = ["serde", "schema"] }
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+sha2 = "0.11.1"
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 proptest = "1.12.0"
-serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 # The load bench (QA-7, `benches/load`): the engine swaps go through the command layer's
 # snapshot. A dev-dependency cycle is legal for benches and tests.
 commands = { path = "../commands", features = ["testing"] }
-sha2 = "0.11.1"
 
 [[bench]]
 name = "load"

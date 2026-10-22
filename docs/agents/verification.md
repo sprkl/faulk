@@ -19,6 +19,8 @@ cargo build -p engine-wasm --target wasm32-unknown-unknown --release
 cargo build -p project-wasm --target wasm32-unknown-unknown --release
 ```
 
+The folder format of the project (`crates/project/src/file/`, SV-1): `cargo test -p project` runs its tests (reference folders `tests/reference/`, the documented examples, generated projects, errors, migrations, pack). The reference folders are rewritten with `FAULK_BLESS=1 cargo test -p project --test folder_reference` (review the diff against `docs/architecture/02-modele-projet.md` § 2.3 to § 2.5 before committing it). The time-bounded fuzz of the files, the snapshot and the pack (`folder_errors`) prints its seed; `FAULK_FUZZ_SEED=<n>` replays a run and `FAULK_FUZZ_SECS=<s>` lengthens it (1.5 s by default). The cost on the QA-7 profile: `cargo test -p project --release --test folder_load -- --ignored --nocapture`.
+
 ## Engine and modules
 
 - **Offline render tests**: render a known input through the engine or module without an audio device, and assert on the signal: peak and RMS level, expected spectrum (FFT bins), silence where silence is expected, no NaN, no infinity, no denormals.

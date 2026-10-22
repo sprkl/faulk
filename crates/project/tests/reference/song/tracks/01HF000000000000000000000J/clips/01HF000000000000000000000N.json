@@ -1,0 +1,14 @@
+{
+  "color": "#ff0080",
+  "content": {
+    "midi": {
+      "length": 1920,
+      "looping": {
+        "end": 1920,
+        "start": 480
+      }
+    }
+  },
+  "name": "Fill",
+  "slot": "01HF0000000000000000000003"
+}

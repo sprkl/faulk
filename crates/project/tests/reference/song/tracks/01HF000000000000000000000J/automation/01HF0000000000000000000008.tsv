@@ -1,0 +1,4 @@
+# faulk-automation 1	target=device:01HF000000000000000000000B/cutoff
+0	800	linear
+3840	2400	linear
+7680	2400	step
