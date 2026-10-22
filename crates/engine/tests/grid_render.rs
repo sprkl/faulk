@@ -2,7 +2,10 @@
 //! commands, whose scenes are launched, switched and stopped at bar lines, rendered with the
 //! built-in synth. The native/WASM comparison is `crates/engine-wasm/tests/grid_parity.rs`.
 
-use test_support::clips::{GRID_END_SECS, SCENE_SWITCH_SECS, STOP_ALL_SECS, scene_grid};
+use test_support::clips::{
+    GRID_END_SECS, SCENE_SWITCH_SECS, STOP_ALL_SECS, STOPPED_LAUNCH_END_SECS, StoppedLaunch,
+    launch_from_stop, scene_grid,
+};
 use test_support::{SAMPLE_RATE, render_native};
 
 fn first_difference(a: &[f32], b: &[f32]) -> Option<usize> {
@@ -43,4 +46,28 @@ fn a_scene_switches_and_stops_every_track_at_its_bar_line() {
     switched.assert_audible(STOP_ALL_SECS + 0.6..GRID_END_SECS, 0.05);
     let path = stopped.write_wav("launch-grid-scenes");
     assert!(std::fs::metadata(path).unwrap().len() > 44);
+}
+
+/// GR-2: a clip launched by `launch.clip` while the transport is stopped starts it, and the
+/// clip sounds from the first sample (the cue is on a bar line). The command's order, the
+/// launch before the play, holds when the audio thread takes the two in different blocks;
+/// the other order would leave the cue before the launch arrives, a bar late.
+#[test]
+fn a_launch_from_a_stopped_transport_sounds_at_the_first_boundary() {
+    let command = render_native(&launch_from_stop(StoppedLaunch::Command));
+    command.assert_clean();
+    command.assert_onset_at(0.0, 0.01, 1e-3, 0.0);
+    command.assert_audible(0.0..STOPPED_LAUNCH_END_SECS, 0.05);
+
+    let split = render_native(&launch_from_stop(StoppedLaunch::LaunchThenPlay));
+    split.assert_clean();
+    // Nothing plays between the launch and the play; the clip then starts at the play.
+    let at = split.onset(1e-3, 0.0).expect("the clip sounds");
+    assert!(at <= 0.01 + 128.0 / 48_000.0, "the clip starts at {at} s");
+
+    let late = render_native(&launch_from_stop(StoppedLaunch::PlayThenLaunch));
+    late.assert_clean();
+    late.assert_onset_at(2.0, 0.01, 1e-3, 0.0);
+    let wav = command.write_wav("launch-from-stop");
+    assert!(std::fs::metadata(wav).unwrap().len() > 44);
 }

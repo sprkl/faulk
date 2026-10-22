@@ -399,13 +399,71 @@ export type NoteCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type SceneCommand = never
+export type SceneCommand = ({
+name?: (string | null)
+type: "scene.create"
+} | {
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene.delete"
+} | {
+clips: SceneClip[]
+/**
+ * Identifier of a scene.
+ */
+scene: string
+snapshot: SceneSnapshot
+type: "scene.restore"
+} | {
+name: string
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene.rename"
+} | {
+index: number
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene.move"
+} | {
+order: OrderKey
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene.restore_order"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type LaunchCommand = {
+export type LaunchCommand = ({
+/**
+ * Identifier of a clip.
+ */
+clip: string
+type: "launch.clip"
+} | {
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "launch.scene"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "launch.stop_track"
+} | {
+type: "launch.stop_all"
+} | {
 type: "launch.back_to_arrangement"
-}
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -768,13 +826,49 @@ export type NoteOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type SceneOutput = never
+export type SceneOutput = ({
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene.create"
+} | {
+/**
+ * How many clips were deleted with the scene.
+ */
+clips: number
+type: "scene.delete"
+} | {
+type: "scene.restore"
+} | {
+/**
+ * The name before the command.
+ */
+previous: string
+type: "scene.rename"
+} | {
+/**
+ * The scene's index before the command.
+ */
+previous_index: number
+type: "scene.move"
+} | {
+type: "scene.restore_order"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type LaunchOutput = {
+export type LaunchOutput = ({
+type: "launch.clip"
+} | {
+type: "launch.scene"
+} | {
+type: "launch.stop_track"
+} | {
+type: "launch.stop_all"
+} | {
 type: "launch.back_to_arrangement"
-}
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -1227,6 +1321,25 @@ part: TrackPart
 track: string
 type: "track_changed"
 } | {
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene_created"
+} | {
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene_deleted"
+} | {
+part: ScenePart
+/**
+ * Identifier of a scene.
+ */
+scene: string
+type: "scene_changed"
+} | {
 can_redo: boolean
 can_undo: boolean
 type: "history_changed"
@@ -1239,6 +1352,10 @@ export type ClipPart = (("name" | "length" | "loop" | "notes") | "content")
  * Which part of a track a [`ProjectEvent::TrackChanged`] reports.
  */
 export type TrackPart = (("name" | "color") | "order")
+/**
+ * Which part of a scene a [`ProjectEvent::SceneChanged`] reports.
+ */
+export type ScenePart = ("name" | "order")
 /**
  * Why a command was refused. `code()` is stable for the interface and the agents;
  * the message is for developers.
@@ -1627,6 +1744,62 @@ start: number
  * Velocity, 1 to 127.
  */
 velocity: number
+}
+/**
+ * A clip of a deleted scene, with its identifier, its track and its placements in the
+ * arrangement, as `scene.restore` brings it back. MIDI or audio: it is the clip as the
+ * project holds it.
+ */
+export interface SceneClip {
+clip: Clip1
+/**
+ * Identifier of a clip.
+ */
+id: string
+/**
+ * Its placements, by identifier.
+ */
+placements: ScenePlacement[]
+/**
+ * Identifier of a track.
+ */
+track: string
+}
+/**
+ * A clip: the content. A slot puts it in the launch grid, a [`Placement`] in the
+ * arrangement. Copying a clip makes a new, independent clip (founder's decision 11); two
+ * placements of the same clip are linked clips.
+ */
+export interface Clip1 {
+color?: (Rgb | null)
+content: ClipContent
+/**
+ * Reserved for a per-clip launch quantization after the MVP: absent means the
+ * project setting. The MVP never writes it.
+ */
+launch_quantize?: (Quantize | null)
+name: string
+/**
+ * The scene of the launch-grid slot the clip sits in.
+ */
+slot?: (string | null)
+}
+/**
+ * A placement of a clip of a deleted scene, with its identifier.
+ */
+export interface ScenePlacement {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+placement: Placement
+}
+/**
+ * A scene as `scene.restore` brings it back (everything but its identifier).
+ */
+export interface SceneSnapshot {
+name: string
+order: OrderKey
 }
 /**
  * A MIDI input as the helper sees it.
