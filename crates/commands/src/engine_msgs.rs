@@ -43,7 +43,7 @@ use project::{
 };
 
 use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State};
-use crate::{Author, Command, live, transport};
+use crate::{Author, Command, launch, live, transport};
 
 /// Items (notes, placements, points) per upload message: at most 2.2 MB of payload, well
 /// under the 16 MiB a message may carry.
@@ -105,6 +105,9 @@ pub fn compile(
         }
         Command::Live(live::Command::InputNoteOff { note }) => {
             release_input(sync, *note, &mut out);
+        }
+        Command::Launch(launch::Command::BackToArrangement {}) => {
+            out.push(ControlMsg::BackToArrangement);
         }
         Command::Live(live::Command::AllNotesOff {}) => {
             sync.held.clear();

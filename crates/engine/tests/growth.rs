@@ -14,12 +14,23 @@ use engine::engine::{ClipContent, Engine, LaunchRequest, Preparer, channel, chan
 use engine::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg as M, Curve, DeviceKind, DeviceSlot,
     LaneSlot, LiveEvent, MsgError, Note, PAGE_SLOTS, ParamId, Placement, Put, RtMsg, SceneSlot,
-    SourceSlot, Table, TrackKind, TrackSlot, encode_state, encode_stream, limits,
+    SourceSlot, Span, Table, TrackKind, TrackSlot, encode_state, encode_stream, limits,
 };
 use engine::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 
 #[global_allocator]
 static ALLOCATOR: AllocDisabler = AllocDisabler;
+
+/// A placement the arrangement keeps (one with no length is dropped by `prepare`).
+fn placement() -> Placement {
+    Placement {
+        span: Span::Ticks {
+            offset: Tick(0),
+            length: Tick(960),
+        },
+        ..Placement::default()
+    }
+}
 
 fn sides() -> (Preparer, Engine) {
     channel(DeviceSetup::default(), factory).unwrap()
@@ -219,7 +230,7 @@ fn every_rt_message_applies_without_allocating() {
             track: T0,
             first: 0,
             total: 1,
-            placements: vec![Placement::default()],
+            placements: vec![placement()],
         },
         M::AutomationLaneUpload {
             lane: LaneSlot(0),
@@ -776,7 +787,7 @@ fn a_chunked_upload_reaches_the_engine_whole_or_not_at_all() {
         track: T0,
         first,
         total,
-        placements: vec![Placement::default()],
+        placements: vec![placement()],
     };
     assert!(p.prepare(placements(0, 2)).unwrap().is_none());
     cycle(&mut p, &mut e, M::TrackRemove { track: T0 });

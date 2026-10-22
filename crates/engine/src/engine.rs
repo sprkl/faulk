@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
+use crate::arrangement;
 use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
@@ -1043,9 +1044,11 @@ impl Preparer {
                     placements,
                     &mut self.rejected,
                 )?;
-                let Some(placements) = staged else {
+                let Some(mut placements) = staged else {
                     return Ok(None);
                 };
+                // Sorted and sane for the arrangement player; in place, no allocation.
+                arrangement::prepare_table(&mut placements);
                 RtMsg::PlacementsSet {
                     track,
                     placements: Table::from_vec(placements),
@@ -1306,13 +1309,13 @@ impl Preparer {
 fn playing_track(state: &State, slot: ClipSlot) -> Option<TrackSlot> {
     let t = state.clips.get(slot.0)?.on_track?;
     let track = state.tracks.as_slice().get(t.0 as usize)?.as_deref()?;
-    (track.player.playing_clip() == Some(slot)).then_some(t)
+    (track.player.holding_clip() == Some(slot)).then_some(t)
 }
 
 /// A track that leaves its slot gives back the clip its player was playing (CL-2), so that
 /// another track may launch it. No allocation.
 fn give_back_clip(clips: &mut Paged<Box<Clip>>, slot: TrackSlot, track: &Track) {
-    if let Some(c) = track.player.playing_clip()
+    if let Some(c) = track.player.holding_clip()
         && let Some(clip) = clips.get_mut(c.0)
         && clip.on_track == Some(slot)
     {

@@ -73,18 +73,32 @@
 //! track at a boundary can be taken at that boundary only by a track of a higher slot
 //! (a clip sits in one track's grid slot: only raw messages, or linked clips later, meet
 //! this). A clip removed or replaced while it plays is handled by `apply`
-//! ([`ClipPlayer::clip_changed`]). While the player plays or waits for a boundary, the
-//! track's schedule is silent: a launched clip takes the track (AR-2 settles the
-//! arrangement against the grid).
+//! ([`ClipPlayer::clip_changed`]).
+//!
+//! # The grid and the arrangement (AR-2)
+//!
+//! A track plays its arrangement ([`crate::arrangement`]) until the grid takes it. A launch
+//! order, or a stop, waits for its boundary like any order, and **the arrangement plays
+//! until then**: at the boundary the arrangement's notes are released at the sample of the
+//! boundary (and the clip's, if one plays), then the order runs and the grid **holds** the
+//! track ([`ClipPlayer::taken`]): the clip plays, or, after a stop or when the clip ends or
+//! is missing, the track is silent. The hold lasts across a stop of the transport, until
+//! `BackToArrangement`, which releases the clip at once as before and gives the track to its
+//! arrangement again, from the transport position of that read ([`crate::arrangement`]'s
+//! rule for a read that starts inside a note). The release of the old content always
+//! completes before the new clip starts: a sink that fills in between cuts the read, and the
+//! boundary is retried from the cut. This matters when the clip is in the grid and in a
+//! placement of the same track: both read the one table of notes and its held bits.
 //!
 //! Nothing here allocates, locks or panics on the audio path.
 
+use crate::arrangement::ArrangementPlayer;
 use crate::device::{VoiceId, clamp_tune_cents};
 use crate::engine::{Clip, ClipContent, LaunchRequest, Paged};
 use crate::events::{
     Cursor, Events, Read, SCHEDULE_FIRST_VOICE, Sink, Timed, TimedKind, check_voices, try_boxed,
 };
-use crate::msg::{ClipSlot, MsgError, Note, SceneSlot, Slots, TrackSlot};
+use crate::msg::{ClipSlot, MsgError, Note, Placement, SceneSlot, Slots, TrackSlot};
 use crate::time::{LoopRegion, Quantize, Tick, TimeSignature};
 use crate::transport::Segment;
 
@@ -383,6 +397,8 @@ pub struct Env<'a> {
     pub track: TrackSlot,
     pub clips: &'a mut Paged<Box<Clip>>,
     pub scenes: &'a Slots<ClipSlot>,
+    /// The track's arrangement: sorted by start ([`crate::arrangement`]).
+    pub placements: &'a [Placement],
     pub launch: &'a mut Option<LaunchRequest>,
     /// `BackToArrangement` asked for this track and not taken yet.
     pub back: &'a mut bool,
@@ -391,9 +407,9 @@ pub struct Env<'a> {
 }
 
 /// A cut piece: the frames the sub-block keeps, and the transport tick to read again from.
-struct Cut {
-    frames: usize,
-    from: Tick,
+pub(crate) struct Cut {
+    pub(crate) frames: usize,
+    pub(crate) from: Tick,
 }
 
 /// The clip player of a track (module doc).
@@ -404,6 +420,11 @@ pub struct ClipPlayer {
     /// `BackToArrangement`: the playing clip is released at once; set until the release
     /// is complete (a full sink finishes it at the next read).
     back_pending: bool,
+    /// The grid holds the track: an order (a launch or a stop) ran at its boundary and
+    /// `BackToArrangement` has not come since. The arrangement plays while this is false.
+    taken: bool,
+    /// The track's own timeline (AR-2).
+    arrangement: ArrangementPlayer,
     cursor: Cursor,
     /// The segment `(from, to)` left unfinished by a `Read::Full`, and the transport tick
     /// of the piece to read again.
@@ -434,6 +455,18 @@ impl ClipPlayer {
         self.playing.is_some() || self.queued.is_some() || self.back_pending
     }
 
+    /// Whether the grid holds the track (an order ran, `BackToArrangement` has not come
+    /// since), whether or not a clip plays: the arrangement is silent.
+    pub fn taken(&self) -> bool {
+        self.taken
+    }
+
+    /// Whether the track's arrangement still has notes or a clip to give back: the player
+    /// must run (at the next block) to release them.
+    pub fn arrangement_busy(&self) -> bool {
+        self.arrangement.busy()
+    }
+
     /// The clip `clip` sits in cell `scene` of the grid now (`apply` of `SceneSetSlot`):
     /// when this player plays it, it is reported there.
     pub fn moved(&mut self, clip: ClipSlot, scene: SceneSlot) {
@@ -445,26 +478,34 @@ impl ClipPlayer {
     }
 
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When this
-    /// player plays it, its cursor starts over (the next read is a jump into the new
-    /// table) and, when removed, the clip stops. Returns whether notes of the old table
-    /// were held: their note-offs are gone with it, the caller releases the track.
+    /// player plays it (from the grid or from the arrangement), its cursor starts over (the
+    /// next read is a jump into the new table) and, when removed, the clip stops. Returns
+    /// whether notes of the old table were held: their note-offs are gone with it, the
+    /// caller releases the track.
     pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool) -> bool {
-        if self.playing.is_none_or(|p| p.clip != slot) {
-            return false;
+        let mut held = false;
+        if self.playing.is_some_and(|p| p.clip == slot) {
+            held = self.cursor.held() > 0;
+            self.cursor = Cursor::default();
+            self.cut = None;
+            if removed {
+                self.playing = None;
+            }
         }
-        let held = self.cursor.held() > 0;
-        self.cursor = Cursor::default();
-        self.cut = None;
-        if removed {
-            self.playing = None;
+        if self.arrangement.clip_changed(slot, removed) {
+            held = true;
+            self.cut = None;
         }
         held
     }
 
-    /// The clip this player plays, as `on_track` must say (a track that leaves its slot
-    /// gives its clip back: `apply`).
-    pub fn playing_clip(&self) -> Option<ClipSlot> {
-        self.playing.map(|p| p.clip)
+    /// The clip this player holds, as `on_track` must say: the one it plays from the grid,
+    /// else the one its arrangement reads (a track that leaves its slot gives its clip
+    /// back: `apply`).
+    pub fn holding_clip(&self) -> Option<ClipSlot> {
+        self.playing
+            .map(|p| p.clip)
+            .or_else(|| self.arrangement.clip())
     }
 
     /// Takes a new launch order from the track.
@@ -490,9 +531,16 @@ impl ClipPlayer {
             q.at = None;
         }
         // What does not fit is released at the next block.
-        if self.halt(env, 0, sink) {
+        if self.halt_all(env, 0, sink) && self.back_pending {
             self.back_pending = false;
+            self.taken = false;
         }
+    }
+
+    /// Releases what the track plays, whichever side plays it, at `at`; `false` when the
+    /// sink filled first (call again).
+    fn halt_all(&mut self, env: &mut Env<'_>, at: u32, sink: &mut Sink) -> bool {
+        self.arrangement.halt(env, at, sink) && self.halt(env, at, sink)
     }
 
     /// Stops the playing clip with its notes released at `at`; `false` when the sink
@@ -552,7 +600,9 @@ impl ClipPlayer {
                 self.cut = Some((segment.from, segment.to, from));
                 return Read::Full(1);
             }
+            // The grid lets go: the arrangement plays again from this read on.
             self.back_pending = false;
+            self.taken = false;
         }
         if let Some(q) = &mut self.queued {
             q.at = match q.at {
@@ -572,7 +622,12 @@ impl ClipPlayer {
         loop {
             let switch = self.queued.and_then(|q| q.at).filter(|&b| b < segment.to);
             let end = switch.map_or(segment.to, |b| b.max(p));
-            if let Err(cut) = self.read_clip(env, p, end, segment, start, sink) {
+            let read = if self.taken {
+                self.read_clip(env, p, end, segment, start, sink)
+            } else {
+                self.arrangement.read(env, p, end, segment, start, sink)
+            };
+            if let Err(cut) = read {
                 self.cut = Some((segment.from, segment.to, cut.from));
                 return Read::Full(cut.frames);
             }
@@ -582,15 +637,17 @@ impl ClipPlayer {
             }
             // The boundary: the old clip's notes end here, the new clip starts here.
             let at = rel(p);
-            if !self.halt(env, at, sink) {
+            if !self.halt_all(env, at, sink) {
                 self.cut = Some((segment.from, segment.to, p));
                 // The note-offs pushed sit at `at`: the sub-block keeps that frame.
                 return Read::Full(at as usize + 1);
             }
-            if let Some(q) = self.queued.take()
-                && let LaunchRequest::Clip(scene) = q.order
-            {
-                self.start(env, scene, p);
+            if let Some(q) = self.queued.take() {
+                // The order takes the track from the arrangement, a stop included.
+                self.taken = true;
+                if let LaunchRequest::Clip(scene) = q.order {
+                    self.start(env, scene, p);
+                }
             }
         }
         self.last = Some(segment.to);
@@ -668,22 +725,46 @@ impl ClipPlayer {
         let ClipContent::Notes(notes) = &mut clip.content else {
             return Ok(());
         };
-        let mut t = p;
-        while t < end {
-            let Some((local, piece_end)) = piece(pl.anchor, length, looping, t, end) else {
-                break;
-            };
-            if let Some(local) = local {
-                let base = t.0.saturating_sub(local.0);
-                let shifted = segment.shifted(base, t, piece_end);
-                if let Read::Full(frames) = self.cursor.read(notes, &shifted, start, sink) {
-                    return Err(Cut { frames, from: t });
-                }
-            }
-            t = piece_end;
-        }
-        Ok(())
+        read_pieces(
+            &mut self.cursor,
+            notes,
+            (pl.anchor, length, looping),
+            (p, end),
+            segment,
+            start,
+            sink,
+        )
     }
+}
+
+/// Reads the transport ticks `[p, end)` of `segment` from the notes of a clip placed at
+/// `anchor` (its position 0, the transport tick), piece by piece (module doc): the clip's
+/// `length` and `looping` give the pieces. The shared reading of the grid's clip and of an
+/// arrangement's placement ([`crate::arrangement`]). `Err` when the sink filled.
+pub(crate) fn read_pieces(
+    cursor: &mut Cursor,
+    notes: &mut ClipNotes,
+    (anchor, length, looping): (Tick, Tick, Option<LoopRegion>),
+    (p, end): (Tick, Tick),
+    segment: &Segment,
+    start: usize,
+    sink: &mut Sink,
+) -> Result<(), Cut> {
+    let mut t = p;
+    while t < end {
+        let Some((local, piece_end)) = piece(anchor, length, looping, t, end) else {
+            break;
+        };
+        if let Some(local) = local {
+            let base = t.0.saturating_sub(local.0);
+            let shifted = segment.shifted(base, t, piece_end);
+            if let Read::Full(frames) = cursor.read(notes, &shifted, start, sink) {
+                return Err(Cut { frames, from: t });
+            }
+        }
+        t = piece_end;
+    }
+    Ok(())
 }
 
 /// The piece of the clip that starts at transport tick `t` (module doc): the clip-local

@@ -482,6 +482,19 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
 }
 
 #[test]
+fn back_to_arrangement_is_one_engine_message_and_changes_nothing_else() {
+    let (mut s, _, _) = synced();
+    let before = s.state.project.clone();
+    let (output, control) = run(&mut s, json!({"type": "launch.back_to_arrangement"}));
+    assert_eq!(control, [ControlMsg::BackToArrangement]);
+    assert!(matches!(output, Output::Launch(_)));
+    assert_eq!(
+        s.state.project, before,
+        "a live command: the project is untouched"
+    );
+}
+
+#[test]
 fn a_huge_parameter_value_is_clamped_by_the_command_and_a_huge_stored_one_still_encodes() {
     let (mut s, synth, _) = synced();
     let device = s.state.project.tracks[&synth]

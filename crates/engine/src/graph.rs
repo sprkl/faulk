@@ -225,9 +225,10 @@ pub struct TrackGraph {
     /// first.
     release: bool,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
-    /// message fills it yet: the arrangement (AR-2) and the automation (AM-2) will; tests
-    /// set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the
-    /// track's clip player plays or waits to launch ([`crate::clip_player`], CL-2).
+    /// message fills it yet: the automation (AM-2) will; tests set it off the audio path
+    /// ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
+    /// plays the track's arrangement, a launched clip or has a launch to take
+    /// ([`crate::clip_player`], CL-2, [`crate::arrangement`], AR-2).
     schedule: Option<Box<Schedule>>,
     /// The track's meter since the last report, after its fader (MO-5).
     meter: MeterAcc,
@@ -701,24 +702,31 @@ fn render_track(
     let Track {
         devices,
         scenes,
+        placements,
         launch,
         back,
         graph,
         player,
         ..
     } = track;
-    // A launched clip takes the track: its schedule is silent meanwhile (module doc of
-    // `crate::clip_player`).
+    // The player plays the track's arrangement, or its launched clip once the grid holds
+    // it ([`crate::arrangement`], [`crate::clip_player`]): the schedule is silent
+    // meanwhile.
     let mut env = clips.map(|c| Env {
         track: slot,
         clips: c.clips,
         scenes,
+        placements: placements.as_slice(),
         launch,
         back,
         quantize: c.quantize,
         signature: c.signature,
     });
-    let engaged = env.is_some() && (player.engaged() || launch_pending(&env));
+    let engaged = env.is_some()
+        && (player.engaged()
+            || player.arrangement_busy()
+            || launch_pending(&env)
+            || env.as_ref().is_some_and(|e| !e.placements.is_empty()));
     let mut schedule = if reads {
         graph.schedule.as_deref_mut()
     } else {

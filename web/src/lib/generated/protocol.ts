@@ -403,7 +403,9 @@ export type SceneCommand = never
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type LaunchCommand = never
+export type LaunchCommand = {
+type: "launch.back_to_arrangement"
+}
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -770,7 +772,9 @@ export type SceneOutput = never
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type LaunchOutput = never
+export type LaunchOutput = {
+type: "launch.back_to_arrangement"
+}
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
