@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "order": "a0",
+  "params": {
+    "attack": 0.01,
+    "wave": 2.0
+  },
+  "role": "instrument",
+  "source": {
+    "builtin": {
+      "id": "faulk.osc_synth",
+      "version": 1
+    }
+  },
+  "state": null
+}

@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "order": "a1",
+  "params": {
+    "cutoff": 800.0
+  },
+  "role": "effect",
+  "source": {
+    "builtin": {
+      "id": "faulk.filter",
+      "version": 1
+    }
+  },
+  "state": null
+}

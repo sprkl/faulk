@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "id": "01HF0000000000000000000001",
+  "master": {
+    "gain_db": 0.0,
+    "mute": false,
+    "pan": 0.0
+  },
+  "meter": [
+    {
+      "signature": {
+        "denominator": 4,
+        "numerator": 4
+      },
+      "tick": 0
+    }
+  ],
+  "name": "Minimal",
+  "scenes": {},
+  "tempo": [
+    {
+      "bpm": 120.0,
+      "tick": 0
+    }
+  ],
+  "transport": {
+    "launch_quantize": "bar",
+    "loop_enabled": false,
+    "loop_region": null,
+    "metronome": {
+      "count_in_bars": 1,
+      "enabled": false,
+      "gain_db": 0.0
+    }
+  }
+}
