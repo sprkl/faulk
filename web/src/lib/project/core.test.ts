@@ -103,13 +103,17 @@ describe('ProjectCore', () => {
     const loaded = target.load(first.write)
     expect(loaded.report).toEqual({ status: 'loaded', snapshot: { status: 'encoded', epoch: 2 }, session_reset: false })
     expect(loaded.engine.length).toBeGreaterThan(0)
-    expect(target.project()).toEqual(source.project())
+    // The project and the session are the source's; the slots are the engine's, in the epoch the load moved to.
+    expect(target.project().project).toEqual(source.project().project)
+    expect(target.project().session).toEqual(source.project().session)
+    expect(target.project().slots.epoch).toBe(2)
     expect(changes(target)).toEqual({ write: {}, remove: [] })
 
     const refused = target.load({})
     expect(refused.report).toEqual({ status: 'refused', error: { code: 'missing_file', file: 'project.json' } })
     expect(refused.engine.length).toBe(0)
-    expect(target.project()).toEqual(source.project())
+    expect(target.project().project).toEqual(source.project().project)
+    expect(target.project().slots.epoch).toBe(2)
 
     expect(() => target.saved([] as unknown as ProjectChanges)).toThrow(CoreError)
 

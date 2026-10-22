@@ -142,6 +142,7 @@ impl Core {
         ProjectView {
             project: self.synced.state.project.clone(),
             session: self.synced.state.session.clone(),
+            slots: commands::host::ViewSlots::of(&self.synced.ctx.engine, self.synced.epoch()),
         }
     }
 

@@ -14,6 +14,7 @@
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { isMidi } from '../../lib/project/tracks'
+  import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks, beatTicks } from '../transport/time'
   import { clipLabel, editedClip, midiClips } from './clips'
@@ -68,8 +69,7 @@
   // What is edited: the selected MIDI track's clip.
   const track = $derived(project.selected && isMidi(project.selected.track) ? project.selected : null)
   const clips = $derived(track ? midiClips(track.track) : [])
-  let chosen = $state<string | null>(null)
-  const edited = $derived(editedClip(clips, chosen))
+  const edited = $derived(editedClip(clips, ui.editedClip))
   const notes = $derived<readonly Note[]>(edited?.notes ?? [])
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
@@ -384,7 +384,15 @@
   function setBars(bars: number) {
     if (!edited) return
     const clamped = Math.min(MAX_BARS, Math.max(1, Math.round(bars)))
-    if (clamped * bar !== clipLength) run(setClipLength(edited.id, clamped * bar))
+    const length = clamped * bar
+    if (length === clipLength) return
+    // A loop over the whole clip stays over the whole clip when the clip grows (a shorter clip trims it itself): one history entry.
+    const whole = edited.looping?.start === 0 && edited.looping.end === clipLength
+    if (!whole || length < clipLength) return run(setClipLength(edited.id, length))
+    run(beginGroup())
+    run(setClipLength(edited.id, length))
+    run(setClipLoop(edited.id, { start: 0, end: length }))
+    run(endGroup())
   }
 
   function onLengthChange(event: Event & { currentTarget: HTMLInputElement }) {
@@ -423,7 +431,7 @@
   >
     <div class="toolbar">
       {#if clips.length > 1}
-        <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (chosen = e.currentTarget.value)}>
+        <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (ui.editedClip = e.currentTarget.value)}>
           {#each clips as entry, i (entry.id)}
             <option value={entry.id}>{clipLabel(entry, i, (n) => t('pianoRoll.clipDefault', { n }))}</option>
           {/each}
