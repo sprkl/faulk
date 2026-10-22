@@ -36,16 +36,18 @@ use std::sync::Arc;
 
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
+use crate::arrangement;
 use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::launcher;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
-    AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Feedback,
-    Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note,
-    PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg, SceneSlot, Slots,
-    SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg, limits, state_pairs,
-    try_box,
+    ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
+    Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
+    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg,
+    SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
+    TransportState, limits, state_pairs, try_box,
 };
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use crate::transport::{Segment, Transport};
@@ -112,8 +114,10 @@ pub struct Track {
     pub devices: Slots<Box<DeviceEntry>>,
     pub scenes: Slots<ClipSlot>,
     pub placements: Table<Placement>,
-    /// The last launch asked for this track, not yet executed.
+    /// The last launch asked for this track, not yet taken by its player.
     pub launch: Option<LaunchRequest>,
+    /// `BackToArrangement` asked for this track, not yet taken by its player (GR-1).
+    pub back: bool,
     /// The graph's levels of the track, and its link while it retires.
     pub graph: TrackGraph,
     /// The clip player (CL-2): the launched clip and its read state.
@@ -200,14 +204,6 @@ pub struct Playback {
     pub loop_region: Option<LoopRegion>,
     /// The position the last `Play` or `Seek` asked for, not yet taken by the clock.
     pub cue: Option<Tick>,
-}
-
-/// The launches asked for the whole grid, not yet executed (LA's).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct GridRequests {
-    pub scene: Option<SceneSlot>,
-    pub stop_all: bool,
-    pub back_to_arrangement: bool,
 }
 
 /// A runtime table too large to move slot by slot (clips, lanes): a directory of pages of
@@ -339,7 +335,6 @@ pub struct State {
     pub metronome: Metronome,
     pub master: Master,
     pub playback: Playback,
-    pub grid: GridRequests,
     pub selected: Option<TrackSlot>,
     pub tracks: Slots<Box<Track>>,
     pub clips: Paged<Box<Clip>>,
@@ -355,7 +350,6 @@ impl State {
             metronome: Metronome::default(),
             master: Master::default(),
             playback: Playback::default(),
-            grid: GridRequests::default(),
             selected: None,
             tracks: Table::try_filled(initial::TRACKS)?,
             clips: Paged::try_new(initial::CLIP_PAGES)?,
@@ -1050,9 +1044,11 @@ impl Preparer {
                     placements,
                     &mut self.rejected,
                 )?;
-                let Some(placements) = staged else {
+                let Some(mut placements) = staged else {
                     return Ok(None);
                 };
+                // Sorted and sane for the arrangement player; in place, no allocation.
+                arrangement::prepare_table(&mut placements);
                 RtMsg::PlacementsSet {
                     track,
                     placements: Table::from_vec(placements),
@@ -1189,6 +1185,7 @@ impl Preparer {
             scenes: Table::try_filled(initial::SCENES_PER_TRACK)?,
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            back: false,
             graph: TrackGraph::new(),
             player: ClipPlayer::default(),
         })?;
@@ -1312,13 +1309,13 @@ impl Preparer {
 fn playing_track(state: &State, slot: ClipSlot) -> Option<TrackSlot> {
     let t = state.clips.get(slot.0)?.on_track?;
     let track = state.tracks.as_slice().get(t.0 as usize)?.as_deref()?;
-    (track.player.playing_clip() == Some(slot)).then_some(t)
+    (track.player.holding_clip() == Some(slot)).then_some(t)
 }
 
 /// A track that leaves its slot gives back the clip its player was playing (CL-2), so that
 /// another track may launch it. No allocation.
 fn give_back_clip(clips: &mut Paged<Box<Clip>>, slot: TrackSlot, track: &Track) {
-    if let Some(c) = track.player.playing_clip()
+    if let Some(c) = track.player.holding_clip()
         && let Some(clip) = clips.get_mut(c.0)
         && clip.on_track == Some(slot)
     {
@@ -1579,6 +1576,13 @@ impl Engine {
         feedback.transport = self.transport.state();
         feedback.playhead_tick = self.transport.playhead_tick();
         feedback.playhead_frame = self.transport.playhead_frame();
+    }
+
+    /// The grid cells that are not idle, for the report ([`crate::launcher::active_clips`]):
+    /// at most two per track. No allocation.
+    pub fn active_clips(&self, push: impl FnMut(ActiveClip)) {
+        let running = self.transport.state() != TransportState::Stopped;
+        launcher::active_clips(&self.state, running, push);
     }
 
     /// Voices sounding in the tracks' devices after the last rendered block (MO-5).
@@ -1974,7 +1978,13 @@ impl Engine {
                         }
                     }
                     match t.scenes.as_mut_slice().get_mut(scene.0 as usize) {
-                        Some(entry) => *entry = clip,
+                        Some(entry) => {
+                            *entry = clip;
+                            if let Some(clip) = clip {
+                                // A clip that plays is reported in the cell it sits in now.
+                                t.player.moved(clip, scene);
+                            }
+                        }
                         None => skipped = true,
                     }
                     old.map(Garbage::Scenes)
@@ -2008,9 +2018,9 @@ impl Engine {
                         Some(t) => t.launch = Some(LaunchRequest::Stop),
                         None => skipped = true,
                     },
-                    LaunchMsg::Scene { scene } => state.grid.scene = Some(scene),
-                    LaunchMsg::StopAll => state.grid.stop_all = true,
-                    LaunchMsg::BackToArrangement => state.grid.back_to_arrangement = true,
+                    LaunchMsg::Scene { scene } => launcher::launch_scene(state, scene),
+                    LaunchMsg::StopAll => launcher::stop_all(state),
+                    LaunchMsg::BackToArrangement => launcher::back_to_arrangement(state),
                 }
                 None
             }

@@ -43,7 +43,7 @@ use project::{
 };
 
 use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State};
-use crate::{Author, Command, live, transport};
+use crate::{Author, Command, launch, live, transport};
 
 /// Items (notes, placements, points) per upload message: at most 2.2 MB of payload, well
 /// under the 16 MiB a message may carry.
@@ -106,20 +106,16 @@ pub fn compile(
         Command::Live(live::Command::InputNoteOff { note }) => {
             release_input(sync, *note, &mut out);
         }
+        Command::Launch(launch::Command::BackToArrangement {}) => {
+            out.push(ControlMsg::BackToArrangement);
+        }
         Command::Live(live::Command::AllNotesOff {}) => {
             sync.held.clear();
             out.extend(sync.tracks.iter().map(|(slot, _)| ControlMsg::AllNotesOff {
                 track: TrackSlot(slot),
             }));
         }
-        Command::Transport(transport::Command::Play {}) => {
-            // The engine's play always starts at a position: a second play would jump
-            // back to the cue while playing.
-            if !sync.playing {
-                sync.playing = true;
-                out.push(ControlMsg::Play { from: sync.cue });
-            }
-        }
+        Command::Transport(transport::Command::Play {}) => start_playback(sync, &mut out),
         Command::Transport(transport::Command::Stop {}) => {
             sync.playing = false;
             out.push(ControlMsg::Stop);
@@ -128,6 +124,40 @@ pub fn compile(
             sync.cue = *tick;
             out.push(ControlMsg::Seek { tick: *tick });
         }
+        Command::Launch(launch::Command::Clip { clip }) => {
+            // The slot the engine holds the clip in: a clip it was never told about (an
+            // audio clip) launches nothing.
+            let launched = state
+                .project
+                .tracks
+                .iter()
+                .find(|(_, t)| t.clips.contains_key(clip))
+                .and_then(|(id, _)| {
+                    let scene = sync.track.get(id)?.clips.get(clip)?.as_ref()?;
+                    Some(ControlMsg::LaunchClip {
+                        track: track_slot(sync, id)?,
+                        scene: SceneSlot(sync.scenes.get(scene)? as u16),
+                    })
+                });
+            if let Some(launch) = launched {
+                out.push(launch);
+                start_playback(sync, &mut out);
+            }
+        }
+        Command::Launch(launch::Command::Scene { scene }) => {
+            if let Some(slot) = sync.scenes.get(scene) {
+                out.push(ControlMsg::LaunchScene {
+                    scene: SceneSlot(slot as u16),
+                });
+                start_playback(sync, &mut out);
+            }
+        }
+        Command::Launch(launch::Command::StopTrack { track }) => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::StopTrack { track });
+            }
+        }
+        Command::Launch(launch::Command::StopAll {}) => out.push(ControlMsg::StopAll),
         _ => {}
     }
     for event in events {
@@ -152,6 +182,19 @@ fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
                 pitch: note,
             });
         }
+    }
+}
+
+/// Plays from the cue unless the engine already plays: its play always starts at a
+/// position, so a second play would jump back to the cue. A launch while stopped ends
+/// with it (GR-2): the engine arms the launch while stopped and takes its boundary from the
+/// first segment played, whichever block the two messages land in. Play first would let
+/// the playhead leave the cue before the launch arrives, and a clip launched from a bar
+/// line would then start a bar late.
+fn start_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    if !sync.playing {
+        sync.playing = true;
+        out.push(ControlMsg::Play { from: sync.cue });
     }
 }
 
@@ -205,15 +248,40 @@ fn compile_event(
                 });
             }
         }
+        ProjectEvent::SceneCreated { scene } => {
+            // `assign` returns the slot a scene already holds (a clip restored into it
+            // before this event, or a snapshot).
+            if sync.scenes.assign(scene, limits::MAX_SCENES).is_none() {
+                sync.overflow += 1;
+            }
+        }
+        ProjectEvent::SceneDeleted { scene } => {
+            // The clips of its slots were deleted before (their rows emptied), so the
+            // slot is free for the next scene.
+            sync.scenes.release(scene);
+        }
         ProjectEvent::ClipChanged { clip, part } => {
             if *part == ClipPart::Name {
                 return;
             }
-            let Some(c) = project.tracks.values().find_map(|t| t.clips.get(clip)) else {
+            let Some((track, c)) = project
+                .tracks
+                .iter()
+                .find_map(|(id, t)| t.clips.get(clip).map(|c| (id, c)))
+            else {
                 return;
             };
             if let Some(slot) = sync.clips.get(clip) {
                 upload_clip(ClipSlot(slot), &c.content, out);
+            }
+            // The placements that play the clip whole follow its length.
+            if matches!(part, ClipPart::Length | ClipPart::Content)
+                && let Some(t) = project
+                    .tracks
+                    .get(track)
+                    .filter(|t| !t.placements.is_empty())
+            {
+                placements_msgs(track, t, sync, out);
             }
         }
         ProjectEvent::DeviceParamChanged {
@@ -295,7 +363,9 @@ fn compile_event(
         ProjectEvent::TrackSelected { track } => out.push(ControlMsg::SelectTrack {
             track: track.as_ref().and_then(|t| track_slot(sync, t)),
         }),
-        ProjectEvent::TempoChanged { .. } | ProjectEvent::TimeSignatureChanged { .. } => {
+        ProjectEvent::TempoChanged { .. }
+        | ProjectEvent::TimeSignatureChanged { .. }
+        | ProjectEvent::LaunchQuantizeChanged { .. } => {
             out.push(set_transport(project));
         }
         ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),
@@ -303,6 +373,7 @@ fn compile_event(
         ProjectEvent::ProjectRenamed { .. }
         | ProjectEvent::ControlChange { .. }
         | ProjectEvent::TrackChanged { .. }
+        | ProjectEvent::SceneChanged { .. }
         | ProjectEvent::MidiInputSelected { .. }
         | ProjectEvent::HistoryChanged { .. } => {}
     }

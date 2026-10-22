@@ -72,7 +72,7 @@
   {#if engine.pairingMessage && ui.view !== 'play'}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
-  <div class="body">
+  <div class="body" data-panel={ui.panel}>
     <TrackList />
     <main class="main" aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       <current.component />
@@ -105,6 +105,11 @@
     grid-template-areas:
       'tracks main'
       'tracks panel';
+  }
+  /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
+  .body[data-panel='piano-roll'] {
+    /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
+    grid-template-rows: minmax(0, 1fr) minmax(240px, 1.2fr);
   }
   .main {
     grid-area: main;

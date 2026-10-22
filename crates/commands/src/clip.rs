@@ -57,6 +57,14 @@ pub struct NoteChange {
     pub to: Note,
 }
 
+/// The length of one placement of a clip, in ticks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlacementLength {
+    pub placement: PlacementId,
+    pub length: Tick,
+}
+
 /// A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
 /// belongs to the clip restored: a snapshot cannot place another clip.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -161,14 +169,24 @@ domain! {
     /// start at or after the new end are removed, notes that cross it are shortened
     /// (two notes that become identical merge into one), and the loop is cut at it
     /// (removed when nothing is left of it). Refused too when a placement of the clip
-    /// starts inside it past the new length. Undo: set the length back, restoring what
-    /// `trim` cut.
+    /// starts inside it past the new length. Every placement of the clip that plays it
+    /// whole (offset 0, length equal to the old length of the clip) takes the new length
+    /// in the same command, so notes added past the old end are heard in the
+    /// arrangement; a growing placement stops at the start of the next placement of its
+    /// track, and a placement that shows only part of the clip, or repeats it, is left
+    /// alone. Undo: set the length back, restoring what `trim` cut and the lengths of the
+    /// placements.
     "clip.set_length" (kind = "edit", undo = "inverse", destructive = false)
     SetLength {
         clip: ClipId,
         length: Tick,
         #[serde(default)]
         trim: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact lengths an undo gives back, not in the schema (agents never
+        // see it; it is not a placement resize, AR-1 owns that).
+        #[schemars(skip)]
+        placements: Option<Vec<PlacementLength>>,
     } => {
         /// The length before the command.
         previous: Tick,
@@ -189,13 +207,20 @@ domain! {
     /// Replace the length, the loop and all the notes of a MIDI clip at once: one
     /// history entry for a whole clip written in one go. The same rules as
     /// `clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside
-    /// `[0, length]` is refused). Undo: set the previous content back.
+    /// `[0, length]` is refused), and the placements follow the length in the same way
+    /// as `clip.set_length`. Undo: set the previous content and the previous placement
+    /// lengths back.
     "clip.set_content" (kind = "edit", undo = "inverse", destructive = false)
     SetContent {
         clip: ClipId,
         length: Tick,
         looping: Option<TickLoop>,
         notes: Vec<Note>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact lengths an undo gives back, not in the schema (agents never
+        // see it; it is not a placement resize, AR-1 owns that).
+        #[schemars(skip)]
+        placements: Option<Vec<PlacementLength>>,
     } => {
         /// How many notes the clip has now.
         notes: u32,
@@ -512,6 +537,114 @@ fn check_offsets(track: &Track, clip: &ClipId, length: Tick) -> Result<(), Comma
     }
 }
 
+/// The placements of `clip` in the track whose length changes with the clip, as
+/// `(id, length before, length after)`. Without `explicit`: those that play the clip whole
+/// (offset 0, length equal to `old`) take `new`; a growing one stops at the start of the
+/// next placement of the track, and is left as it is when that next one already starts
+/// inside it (a note edit never makes an overlap: that rule is the arrangement's). With
+/// `explicit` (undo): exactly those lengths, refused when one is listed twice, is not a
+/// placement of the clip or leaves the timeline.
+fn placement_changes(
+    track: &Track,
+    clip: &ClipId,
+    old: Tick,
+    new: Tick,
+    explicit: Option<&[PlacementLength]>,
+) -> Result<Vec<(PlacementId, Tick, Tick)>, CommandError> {
+    if let Some(list) = explicit {
+        return explicit_changes(track, clip, list);
+    }
+    let mut out = Vec::new();
+    if old == new {
+        return Ok(out);
+    }
+    // The starts in order, for the next placement of each one in O(log n).
+    let mut starts: Vec<i64> = track.placements.values().map(|q| q.start.get()).collect();
+    starts.sort_unstable();
+    for (id, p) in &track.placements {
+        let Span::Ticks { length, offset } = p.span else {
+            continue;
+        };
+        if p.clip != *clip || offset.get() != 0 || length != old {
+            continue;
+        }
+        let start = p.start.get();
+        let mut target = new.get().min(MAX_TICK.saturating_sub(start));
+        if new > old {
+            let after = starts.partition_point(|s| *s <= start);
+            if let Some(next) = starts.get(after) {
+                target = target.min(next - start);
+            }
+            if target <= length.get() {
+                // Already blocked (or overlapping) there: it does not shrink on a grow.
+                continue;
+            }
+        }
+        if target >= 1 && target != length.get() {
+            out.push((id.clone(), length, Tick(target)));
+        }
+    }
+    Ok(out)
+}
+
+/// The exact lengths of `list`, for undo: what [`placement_changes`] checks about them.
+fn explicit_changes(
+    track: &Track,
+    clip: &ClipId,
+    list: &[PlacementLength],
+) -> Result<Vec<(PlacementId, Tick, Tick)>, CommandError> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for item in list {
+        if !seen.insert(&item.placement) {
+            return Err(invalid("placements", "a placement is listed twice"));
+        }
+        let p = track
+            .placements
+            .get(&item.placement)
+            .filter(|p| p.clip == *clip)
+            .ok_or_else(|| not_found("placement", &item.placement))?;
+        let Span::Ticks { length, .. } = p.span else {
+            return Err(invalid("placements", "an audio placement has no ticks"));
+        };
+        let end = p.start.get().checked_add(item.length.get());
+        if item.length.get() < 1 || end.is_none_or(|e| e > MAX_TICK) {
+            return Err(invalid(
+                "placements",
+                format!("a placement lies in [0, {MAX_TICK}] ticks, with a length of at least 1"),
+            ));
+        }
+        if length != item.length {
+            out.push((item.placement.clone(), length, item.length));
+        }
+    }
+    // No overlap check: the lengths are those of a state the project already held (the
+    // inverse of a length change), which may hold overlaps the model allows.
+    Ok(out)
+}
+
+fn apply_placement_changes(
+    placements: &mut std::collections::BTreeMap<PlacementId, Placement>,
+    changes: &[(PlacementId, Tick, Tick)],
+) {
+    for (id, _, new) in changes {
+        if let Some(Span::Ticks { length, .. }) = placements.get_mut(id).map(|p| &mut p.span) {
+            *length = *new;
+        }
+    }
+}
+
+/// The exact lengths that put the placements back as they were.
+fn previous_lengths(changes: &[(PlacementId, Tick, Tick)]) -> Vec<PlacementLength> {
+    changes
+        .iter()
+        .map(|(id, before, _)| PlacementLength {
+            placement: id.clone(),
+            length: *before,
+        })
+        .collect()
+}
+
 /// A launch-grid slot must name an existing scene and be free in the track.
 fn check_slot(
     project: &Project,
@@ -621,14 +754,20 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
         } => restore(state, track, clip, snapshot, placements),
         Command::Duplicate { clip, slot } => duplicate(state, ctx, clip, slot.as_ref()),
         Command::Rename { clip, name } => rename(state, clip, name),
-        Command::SetLength { clip, length, trim } => set_length(state, clip, *length, *trim),
+        Command::SetLength {
+            clip,
+            length,
+            trim,
+            placements,
+        } => set_length(state, clip, *length, *trim, placements.as_deref()),
         Command::SetLoop { clip, looping } => set_loop(state, clip, *looping),
         Command::SetContent {
             clip,
             length,
             looping,
             notes,
-        } => set_content(state, clip, *length, *looping, notes),
+            placements,
+        } => set_content(state, clip, *length, *looping, notes, placements.as_deref()),
         Command::NotesAdd { clip, notes } => notes_add(state, clip, notes),
         Command::NotesRemove { clip, notes } => notes_remove(state, clip, notes),
         Command::NotesUpdate { clip, changes } => notes_update(state, clip, changes),
@@ -966,6 +1105,7 @@ fn set_length(
     clip_id: &ClipId,
     length: Tick,
     trim: bool,
+    placements: Option<&[PlacementLength]>,
 ) -> Result<Out, CommandError> {
     check_length(length, "length")?;
     let track_id = locate(&state.project, clip_id)?;
@@ -975,13 +1115,21 @@ fn set_length(
         .get_mut(&track_id)
         .ok_or_else(|| not_found("track", &track_id))?;
     check_offsets(track, clip_id, length)?;
+    let old = midi_ref(
+        track
+            .clips
+            .get(clip_id)
+            .ok_or_else(|| not_found("clip", clip_id))?,
+    )?
+    .0;
+    let follow = placement_changes(track, clip_id, old, length, placements)?;
     let clip = track
         .clips
         .get_mut(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
     let (len, looping, notes) = midi_mut(clip)?;
     let previous = *len;
-    if previous == length {
+    if previous == length && follow.is_empty() {
         return Ok(unchanged(Output::SetLength { previous }));
     }
     let past_notes = notes
@@ -999,6 +1147,7 @@ fn set_length(
             ),
         ));
     }
+    let restore = Some(previous_lengths(&follow));
     let inverse = if cut {
         let (new_notes, new_loop) = trimmed(notes, *looping, length);
         let inverse = Command::SetContent {
@@ -1006,6 +1155,7 @@ fn set_length(
             length: previous,
             looping: *looping,
             notes: notes.iter().copied().collect(),
+            placements: restore,
         };
         *notes = new_notes;
         *looping = new_loop;
@@ -1015,9 +1165,11 @@ fn set_length(
             clip: clip_id.clone(),
             length: previous,
             trim: false,
+            placements: restore,
         }
     };
     *len = length;
+    apply_placement_changes(&mut track.placements, &follow);
     Ok(edited(
         Output::SetLength { previous },
         inverse,
@@ -1054,6 +1206,7 @@ fn set_content(
     length: Tick,
     new_loop: Option<TickLoop>,
     new_notes: &[Note],
+    placements: Option<&[PlacementLength]>,
 ) -> Result<Out, CommandError> {
     check_length(length, "length")?;
     check_loop(&new_loop, length, "looping")?;
@@ -1067,6 +1220,14 @@ fn set_content(
         .get_mut(&track_id)
         .ok_or_else(|| not_found("track", &track_id))?;
     check_offsets(track, clip_id, length)?;
+    let old = midi_ref(
+        track
+            .clips
+            .get(clip_id)
+            .ok_or_else(|| not_found("clip", clip_id))?,
+    )?
+    .0;
+    let follow = placement_changes(track, clip_id, old, length, placements)?;
     let clip = track
         .clips
         .get_mut(clip_id)
@@ -1078,7 +1239,7 @@ fn set_content(
             .saturating_sub(notes.len())
             .saturating_add(new_notes.len()),
     )?;
-    if *len == length && *looping == new_loop && *notes == new_notes {
+    if *len == length && *looping == new_loop && *notes == new_notes && follow.is_empty() {
         return Ok(unchanged(Output::SetContent {
             notes: count(notes.len()),
         }));
@@ -1088,9 +1249,11 @@ fn set_content(
         length: *len,
         looping: *looping,
         notes: notes.iter().copied().collect(),
+        placements: Some(previous_lengths(&follow)),
     };
     let n = new_notes.len();
     *len = length;
+    apply_placement_changes(&mut track.placements, &follow);
     *looping = new_loop;
     *notes = new_notes;
     Ok(edited(

@@ -8,11 +8,12 @@ use ::project::TrackId;
 use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
 use commands::{
     Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
-    device, history, live, midi, mixer, project, view,
+    device, history, launch, live, midi, mixer, project, view,
 };
 
 mod clip_examples;
 mod device_examples;
+mod grid_examples;
 mod track_examples;
 mod transport_examples;
 
@@ -68,6 +69,7 @@ fn examples() -> Vec<(Command, State)> {
             note: 60,
         })),
         on(Command::Live(live::Command::AllNotesOff {})),
+        on(Command::Launch(launch::Command::BackToArrangement {})),
         on(Command::Live(live::Command::InputNoteOn {
             note: 60,
             velocity: 100,
@@ -112,6 +114,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(grid_examples::examples())
     .chain(transport_examples::examples())
     .chain(track_examples::examples())
     .chain(device_examples::examples())

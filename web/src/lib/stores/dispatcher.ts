@@ -52,8 +52,9 @@ export class Dispatcher {
   private webGeneration = 0
 
   private events(kind: 'web' | 'native', generation = this.webGeneration): EngineEvents {
+    // A Web engine is told apart by its generation, a helper session by the count of sessions that became current.
     const current = () =>
-      this.engine?.kind === kind && (kind === 'native' || generation === this.webGeneration)
+      this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -69,11 +70,15 @@ export class Dispatcher {
         this.state.inputs = inputs
         this.state.selectedInput = selected
       },
-      onMidiActivity: (note, velocity) => this.markNote(note, velocity),
+      onMidiActivity: (note, velocity) => {
+        if (kind === 'web' || current()) this.markNote(note, velocity)
+      },
       onStreamRefused: (code, at) => {
         if (current()) void this.stopWeb(code, at)
       },
       onError: (code) => {
+        // A helper session that was closed (or replaced by a newer one) says nothing any more.
+        if (kind === 'native' && !current()) return
         if (code === 'session.replaced') this.state.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.state.notice = 'midi.connectError'
         else if (code === 'audio.stream' && kind === 'native') {
@@ -83,7 +88,7 @@ export class Dispatcher {
         }
       },
       onClosed: () => {
-        if (kind !== 'native' || !this.native) return
+        if (kind !== 'native' || !current()) return
         this.native = null
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
@@ -136,6 +141,8 @@ export class Dispatcher {
       const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
       if (report.status === 'encoded') {
         web.push(engine)
+        // The snapshot gave the engine its slots again (a new epoch): the view carries them for the launch grid.
+        this.refresh()
         return true
       }
       void this.stopWeb(report.stream_error, 0)
@@ -320,33 +327,67 @@ export class Dispatcher {
     }
   }
 
-  /** Moves playback to the helper: silence and release the Web side, then bring the helper's copy to the page's settings. */
+  /** The connection to the helper under way: a second request (button, pairing link) waits for it, so two sessions never overlap. */
+  private pendingBoost: Promise<void> | null = null
+
+  /**
+   * Moves playback to the helper: connect first, so a helper that cannot be reached leaves the Web
+   * engine and its held notes alone; then silence and release the Web side, and bring the helper's
+   * copy to the page's settings.
+   */
   async enterBoost() {
+    // A failed attempt of another caller is not this caller's failure: it tries on its own.
+    while (this.pendingBoost) await this.pendingBoost.catch(() => undefined)
+    // Read after the wait: a pairing that finished meanwhile stored a newer token.
     const token = storage()?.getItem(TOKEN_KEY)
     if (!token || this.native) return
+    const pending: Promise<void> = this.connect(token).finally(() => {
+      if (this.pendingBoost === pending) this.pendingBoost = null
+    })
+    this.pendingBoost = pending
+    await pending
+  }
+
+  private async connect(token: string) {
     this.state.helper = 'connecting'
     this.state.notice = null
-    releaseAllNotes((command) => this.run(command))
-    this.state.activeNotes = []
-    await this.midi?.releaseAll()
-    this.state.selectedInput = null
+    // The session as soon as it is open, and whether it became the current engine.
+    const generation = this.boosts
+    let opened: NativeEngine | null = null
     try {
-      const native = await NativeEngine.connect(token, this.events('native'))
-      this.native = native
+      const session = (opened = await NativeEngine.connect(token, this.events('native', this.boosts + 1)))
+      // The Web engine plays until now: it gets its notes released before the helper takes over.
+      releaseAllNotes((command) => this.run(command))
+      this.state.activeNotes = []
+      this.native = session
       this.boosts++
       this.state.mode = 'native'
-      this.state.status = native.status
+      this.state.status = session.status
       this.state.helper = 'connected'
-      bringHelperCopyUpToDate(native, this.project.params)
+      this.state.selectedInput = null
+      // The helper gets the page's settings before anything is awaited: no note reaches it at its defaults.
+      bringHelperCopyUpToDate(session, this.project.params)
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
+      await this.midi?.releaseAll()
+      // Back to Web meanwhile (the button, a lost helper): nothing left to do for this session.
+      if (this.native !== session) return
       await this.web?.suspend()
     } catch {
-      this.native = null
-      await this.enterWeb()
+      if (opened) {
+        // The helper accepted the session and a later step failed: the switch to Web closes that
+        // session, unless the helper was lost meanwhile and that switch is already done. A session
+        // that never became current is closed here.
+        if (this.native === opened) await this.enterWeb()
+        else if (this.boosts === generation) await opened.close().catch((error: unknown) => console.error(error))
+        await this.checkHelper()
+        return
+      }
+      // The helper never became current: the Web engine still plays and needs no snapshot (one would cut a held note).
       // Forget the token only when the helper answers but refused the session (new
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
-      if ((await this.checkHelper()) === 'available') {
+      // A pairing that happened meanwhile stored a newer token: that one stays.
+      if ((await this.checkHelper()) === 'available' && storage()?.getItem(TOKEN_KEY) === token) {
         storage()?.removeItem(TOKEN_KEY)
         this.state.paired = false
       }
@@ -383,7 +424,7 @@ export class Dispatcher {
     // The project moved on while the helper played: the Web engine catches up by snapshot.
     const ready = web ? this.syncWeb(web) : false
     if (native) {
-      await native.close()
+      await native.close().catch((error: unknown) => console.error(error))
       this.state.helper = 'available'
     }
     // A Web engine that was stopped (refused stream, snapshot that did not encode) is closed.

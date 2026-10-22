@@ -323,7 +323,12 @@ fn load_replaces_the_project_or_changes_nothing() {
         !bytes.is_empty(),
         "the engine is reset to the loaded project"
     );
-    assert_eq!(h.view(), source.view());
+    assert_eq!(h.view()["project"], source.view()["project"]);
+    assert_eq!(
+        h.view()["slots"]["epoch"],
+        2,
+        "the load moved the engine to the next epoch"
+    );
     assert_eq!(
         h.core().undo_depth(),
         0,
@@ -331,7 +336,7 @@ fn load_replaces_the_project_or_changes_nothing() {
     );
     let (undo, _) = h.run(json!({"type": "history.undo"}));
     assert_eq!(undo["events"], json!([]), "nothing to undo: {undo}");
-    assert_eq!(h.view(), source.view());
+    assert_eq!(h.view()["project"], source.view()["project"]);
     assert_eq!(h.save(), json!({}), "a loaded project is clean");
     // Its ids keep coming from the page's generator.
     let next = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
@@ -397,7 +402,9 @@ fn an_unreadable_session_loads_the_project_with_the_default_session() {
     let (report, _) = h.call(&files.to_string(), pw_load);
     assert_eq!(report["status"], "loaded", "{report}");
     assert_eq!(report["session_reset"], true);
-    assert_eq!(h.view(), source.view());
+    // The slots belong to the engine the load snapshotted, not to the project.
+    assert_eq!(h.view()["project"], source.view()["project"]);
+    assert_eq!(h.view()["session"], source.view()["session"]);
     // The unreadable file is left as it is until the session changes.
     assert_eq!(h.save(), json!({}));
     h.apply(json!({"type": "view.select_track", "track": SYNTH_TRACK}));
@@ -421,4 +428,45 @@ fn a_project_that_does_not_serialize_is_reported_not_a_trap() {
     unsafe { (*h.0).synced.state.project.master.pan = 0.0 };
     h.apply(json!({"type": "project.rename", "name": "Kept"}));
     assert_eq!(h.view()["project"]["name"], "Kept");
+}
+
+#[test]
+fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    assert_eq!(
+        h.view()["slots"],
+        json!({"epoch": 1, "tracks": {}, "scenes": {}})
+    );
+
+    let first = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let second = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let scene = h.apply(json!({"type": "scene.create"}))["scene"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        h.view()["slots"],
+        json!({"epoch": 1, "tracks": {first: 0, second: 1}, "scenes": {scene.clone(): 0}})
+    );
+
+    // A deleted scene gives its slot back, and the next one takes it.
+    h.apply(json!({"type": "scene.delete", "scene": scene}));
+    assert_eq!(h.view()["slots"]["scenes"], json!({}));
+    let next = h.apply(json!({"type": "scene.create"}))["scene"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(h.view()["slots"]["scenes"], json!({next: 0}));
+
+    // A snapshot moves to the next epoch and gives the slots again, in the same view.
+    h.call0(pw_snapshot);
+    assert_eq!(h.view()["slots"]["epoch"], 2);
+    assert_eq!(h.view()["slots"]["tracks"].as_object().unwrap().len(), 2);
 }

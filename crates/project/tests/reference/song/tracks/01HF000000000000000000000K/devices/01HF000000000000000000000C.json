@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "order": "a0",
+  "params": {},
+  "role": "instrument",
+  "source": {
+    "builtin": {
+      "id": "faulk.clip_player",
+      "version": 1
+    }
+  },
+  "state": null
+}

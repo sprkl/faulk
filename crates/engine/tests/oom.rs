@@ -13,7 +13,8 @@ use engine::device::testing::{GAIN, TONE, factory, tone};
 use engine::engine::{ClipContent, Engine, Preparer, channel};
 use engine::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg as M, DeviceSlot, LaneSlot, MsgError,
-    Note, Placement, SceneSlot, SourceSlot, TrackKind, TrackSlot, encode_state, encode_stream,
+    Note, Placement, SceneSlot, SourceSlot, Span, TrackKind, TrackSlot, encode_state,
+    encode_stream,
 };
 use engine::time::{Frame, Tick};
 
@@ -247,7 +248,16 @@ fn the_other_puts() {
             track: TrackSlot(0),
             first: 0,
             total: 2,
-            placements: vec![Placement::default(); 2],
+            placements: vec![
+                Placement {
+                    span: Span::Ticks {
+                        offset: Tick(0),
+                        length: Tick(960),
+                    },
+                    ..Placement::default()
+                };
+                2
+            ],
         },
         |e| assert_eq!(e.state().track(TrackSlot(0)).unwrap().placements.len(), 2),
     );

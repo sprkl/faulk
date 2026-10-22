@@ -32,9 +32,12 @@ export function defaultOctave(instrumentKind: string | null): number {
 /**
  * The application shortcuts that need no modifier, by `KeyboardEvent.key` (Space by `code`): F2 renames
  * a track, Escape cancels (a rename, the add-track menu, a tempo edit), Enter confirms a rename or a
- * tempo, the arrows step the tempo field, Space plays and stops the transport. None of them plays a note.
+ * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
+ * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
+ * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track). With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
+ * selection, and Ctrl or Cmd + A selects all. None of them plays a note: the playing keys are letters and Semicolon.
  */
-export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space']
+export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace']
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)

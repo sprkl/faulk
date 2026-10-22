@@ -14,6 +14,7 @@ mod wasm;
 
 pub mod view;
 
+pub mod arrangement;
 pub mod clips;
 pub mod reference;
 
