@@ -16,5 +16,6 @@ pub mod graph;
 pub mod host;
 pub mod launcher;
 pub mod metronome;
+pub mod mixer;
 pub mod msg;
 pub mod transport;

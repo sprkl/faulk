@@ -326,7 +326,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     assert!((peak(&l) - TONE_LEVEL).abs() < 1e-3);
     assert_eq!(peak(&r), 0.0);
     let (l, r) = steady(&[mix(0, 1.0, 0.5, false)], 40);
-    assert!((peak(&l) - 0.5 * TONE_LEVEL).abs() < 1e-3);
+    assert!((peak(&l) - std::f32::consts::FRAC_1_SQRT_2 * TONE_LEVEL).abs() < 1e-3);
     assert!((peak(&r) - TONE_LEVEL).abs() < 1e-3);
 
     let (l, r) = steady(&[mix(0, 1.0, 0.0, true)], 40);
@@ -335,6 +335,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     let (l, _) = steady(
         &[M::SetMaster {
             gain: 0.5,
+            pan: 0.0,
             mute: false,
         }],
         40,
@@ -343,6 +344,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     let (l, _) = steady(
         &[M::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: true,
         }],
         40,
@@ -427,10 +429,12 @@ fn every_change_of_a_level_ramps() {
         },
         M::SetMaster {
             gain: 0.0,
+            pan: 0.0,
             mute: false,
         },
         M::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: false,
         },
     ] {
@@ -903,6 +907,7 @@ fn nan_and_infinities_from_a_device_never_reach_the_output() {
     assert!(peak(&l) <= 1.0 && peak(&rr) <= 1.0);
     r.send(&[M::SetMaster {
         gain: 1.0,
+        pan: 0.0,
         mute: true,
     }]);
     let (l, rr) = r.run(8);

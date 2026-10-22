@@ -327,6 +327,7 @@ fn the_metronome_is_after_the_master_and_beside_the_tracks() {
             },
             M::SetMaster {
                 gain: 0.5,
+                pan: 0.0,
                 mute: master_mute,
             },
             M::TrackCreate {

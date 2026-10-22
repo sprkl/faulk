@@ -411,8 +411,9 @@ impl ControlMsg {
                 w.f32(*volume);
                 w.u8(*count_in_bars);
             }
-            ControlMsg::SetMaster { gain, mute } => {
+            ControlMsg::SetMaster { gain, pan, mute } => {
                 w.f32(*gain);
+                w.f32(*pan);
                 w.bool(*mute);
             }
             ControlMsg::TrackCreate { track, kind } => {
@@ -621,6 +622,7 @@ impl ControlMsg {
             },
             Tag::SetMaster => ControlMsg::SetMaster {
                 gain: r.f32()?,
+                pan: r.f32()?,
                 mute: r.bool()?,
             },
             Tag::TrackCreate => ControlMsg::TrackCreate {

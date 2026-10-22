@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#90): MX-1, the engine's mixer (`crates/engine/src/mixer.rs`): pan law (unity at the centre, quarter cosine on the far side), mute and solo on a gate separate from the levels, timed gain, pan and mute addressed like device parameters (`MIXER_SLOT`), a master with its own pan (`SetMaster` carries it) and its own schedule; `docs/specs/02-decoupage-mvp.md` gets "Mise en œuvre MX-1".

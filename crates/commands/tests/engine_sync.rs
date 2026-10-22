@@ -54,6 +54,7 @@ fn the_snapshot_starts_with_the_settings_then_each_track() {
         msgs[2],
         ControlMsg::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: false
         }
     ));
@@ -137,7 +138,7 @@ fn each_edit_compiles_to_its_messages() {
         json!({"type": "mixer.set_master_volume", "gain_db": -20.0}),
     );
     assert!(
-        matches!(msgs[..], [ControlMsg::SetMaster { gain, mute: false }] if (gain - 0.1).abs() < 1e-6)
+        matches!(msgs[..], [ControlMsg::SetMaster { gain, mute: false, .. }] if (gain - 0.1).abs() < 1e-6)
     );
     let (_, msgs) = run(
         &mut s,

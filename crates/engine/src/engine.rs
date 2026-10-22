@@ -184,6 +184,7 @@ pub struct Metronome {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Master {
     pub gain: f32,
+    pub pan: f32,
     pub mute: bool,
 }
 
@@ -191,6 +192,7 @@ impl Default for Master {
     fn default() -> Self {
         Master {
             gain: 1.0,
+            pan: 0.0,
             mute: false,
         }
     }
@@ -334,6 +336,12 @@ pub struct State {
     pub transport: TransportSettings,
     pub metronome: Metronome,
     pub master: Master,
+    /// The master's timed gain, pan and mute ([`crate::mixer`], MX-1): set off the audio
+    /// path with [`State::set_master_schedule`]; a `Reset` brings the new state's, none.
+    pub(crate) master_schedule: Option<Box<crate::events::Schedule>>,
+    /// Counts the replacements of `master_schedule`: the graph's master strip goes back to
+    /// the faders when it changes.
+    pub(crate) master_schedule_gen: u32,
     pub playback: Playback,
     pub selected: Option<TrackSlot>,
     pub tracks: Slots<Box<Track>>,
@@ -343,12 +351,30 @@ pub struct State {
 }
 
 impl State {
+    /// Puts `schedule` on the master (its timed gain, pan and mute, [`crate::mixer`]) and
+    /// returns the one it replaces, to be freed off the audio path. No message fills it
+    /// yet: the automation (AM-2) will.
+    pub fn set_master_schedule(
+        &mut self,
+        schedule: Option<Box<crate::events::Schedule>>,
+    ) -> Option<Box<crate::events::Schedule>> {
+        self.master_schedule_gen = self.master_schedule_gen.wrapping_add(1);
+        core::mem::replace(&mut self.master_schedule, schedule)
+    }
+
+    /// The master's schedule, if any.
+    pub fn master_schedule(&self) -> Option<&crate::events::Schedule> {
+        self.master_schedule.as_deref()
+    }
+
     /// An empty state with the initial capacities, through fallible allocations.
     pub fn try_new() -> Result<Self, MsgError> {
         Ok(State {
             transport: TransportSettings::default(),
             metronome: Metronome::default(),
             master: Master::default(),
+            master_schedule: None,
+            master_schedule_gen: 0,
             playback: Playback::default(),
             selected: None,
             tracks: Table::try_filled(initial::TRACKS)?,
@@ -843,7 +869,7 @@ impl Preparer {
                 volume,
                 count_in_bars,
             },
-            ControlMsg::SetMaster { gain, mute } => RtMsg::SetMaster { gain, mute },
+            ControlMsg::SetMaster { gain, pan, mute } => RtMsg::SetMaster { gain, pan, mute },
             ControlMsg::TrackCreate { track, kind } => self.prepare_track(track, kind)?,
             ControlMsg::TrackRemove { track } => {
                 self.existing_track(track)?;
@@ -1714,6 +1740,8 @@ impl Engine {
                         self.graph.retire(track);
                     }
                 }
+                // The master's strip takes the new state's faders back.
+                self.graph.reset_master();
                 Some(Garbage::State(old))
             }
             RtMsg::SetTransport {
@@ -1740,8 +1768,8 @@ impl Engine {
                 };
                 None
             }
-            RtMsg::SetMaster { gain, mute } => {
-                state.master = Master { gain, mute };
+            RtMsg::SetMaster { gain, pan, mute } => {
+                state.master = Master { gain, pan, mute };
                 None
             }
             RtMsg::TrackPut(put) => {
