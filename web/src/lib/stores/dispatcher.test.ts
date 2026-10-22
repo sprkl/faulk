@@ -544,6 +544,20 @@ describe('running commands through the project core', () => {
       expect(session.engine.activeNotes).toEqual([])
     })
 
+    it('does not pass the failure of another attempt on to a Boost request that waited for it', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      webs[0].suspend.mockImplementationOnce(() => Promise.reject(new Error('suspend failed')))
+      webs[0].resume.mockImplementationOnce(() => Promise.reject(new Error('resume failed')))
+      const first = session.dispatcher.enterBoost()
+      const second = session.dispatcher.enterBoost()
+      await expect(first).rejects.toThrow('resume failed')
+      await second
+      expect(session.engine.mode).toBe('native')
+    })
+
     it('keeps the pairing when the helper is lost while the Web engine suspends and that step then fails', async () => {
       boostEngine()
       localStorage.setItem(TOKEN_KEY, 'x')

@@ -334,7 +334,8 @@ export class Dispatcher {
    * copy to the page's settings.
    */
   async enterBoost() {
-    while (this.pendingBoost) await this.pendingBoost
+    // A failed attempt of another caller is not this caller's failure: it tries on its own.
+    while (this.pendingBoost) await this.pendingBoost.catch(() => undefined)
     // Read after the wait: a pairing that finished meanwhile stored a newer token.
     const token = storage()?.getItem(TOKEN_KEY)
     if (!token || this.native) return
@@ -362,12 +363,13 @@ export class Dispatcher {
       this.state.status = session.status
       this.state.helper = 'connected'
       this.state.selectedInput = null
-      await this.midi?.releaseAll()
-      // Back to Web meanwhile (the button, a lost helper): nothing left to do for this session.
-      if (this.native !== session) return
+      // The helper gets the page's settings before anything is awaited: no note reaches it at its defaults.
       bringHelperCopyUpToDate(session, this.project.params)
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
+      await this.midi?.releaseAll()
+      // Back to Web meanwhile (the button, a lost helper): nothing left to do for this session.
+      if (this.native !== session) return
       await this.web?.suspend()
     } catch {
       if (opened) {
