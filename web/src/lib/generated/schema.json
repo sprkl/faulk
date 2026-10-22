@@ -313746,6 +313746,47 @@
             "metronome"
           ],
           "type": "object"
+        },
+        "ViewSlots": {
+          "additionalProperties": false,
+          "description": "The engine slots of the tracks and scenes that have one. The engine reports the state of\na launch-grid cell by slots (its track slot, its scene slot), never by identifier; the\nlaunch grid reads this table to find the cell of a report. An entity the engine was never\ntold about is absent.",
+          "properties": {
+            "epoch": {
+              "description": "The epoch of the engine stream these slots belong to: a report of another epoch (an\nengine behind a snapshot) names other slots and is not read against this table.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scenes": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "tracks": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "epoch",
+            "tracks",
+            "scenes"
+          ],
+          "type": "object"
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -313757,11 +313798,16 @@
         },
         "session": {
           "$ref": "#/$defs/SessionState"
+        },
+        "slots": {
+          "$ref": "#/$defs/ViewSlots",
+          "description": "Where the engine holds the tracks and the scenes: the key of the engine's feedback."
         }
       },
       "required": [
         "project",
-        "session"
+        "session",
+        "slots"
       ],
       "title": "ProjectView",
       "type": "object"

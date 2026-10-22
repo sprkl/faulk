@@ -1844,6 +1844,7 @@ export interface ProjectFiles {
 export interface ProjectView {
 project: Project
 session: SessionState
+slots: ViewSlots
 }
 /**
  * The project document: what makes the music, saved and versioned.
@@ -2016,5 +2017,29 @@ selected_track?: (string | null)
  * Items: Identifier of a track.
  */
 solo: string[]
+}
+/**
+ * Where the engine holds the tracks and the scenes: the key of the engine's feedback.
+ */
+export interface ViewSlots {
+/**
+ * The epoch of the engine stream these slots belong to: a report of another epoch (an
+ * engine behind a snapshot) names other slots and is not read against this table.
+ */
+epoch: number
+scenes: {
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+[k: string]: number | undefined
+}
+tracks: {
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+[k: string]: number | undefined
+}
 }
 

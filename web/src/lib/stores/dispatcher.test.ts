@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NativeEngine } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import type { Command } from '../generated/protocol'
+import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore } from '../project/core'
 import { TOKEN_KEY } from './storage'
@@ -297,6 +297,16 @@ describe('running commands through the project core', () => {
     const [command, bytes] = webs[0].send.mock.calls.at(-1)!
     expect(command.type).toBe('device.set_param')
     expect(bytes.length).toBeGreaterThan(0)
+  })
+
+  it('shows the slots the engine holds the tracks in, again after each snapshot (the launch grid reads the engine by them)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.project.view?.slots).toEqual({ epoch: 1, tracks: { [SINGLE_SYNTH.track]: 0 }, scenes: {} })
+    webEvents?.onStreamRefused?.(-3, 128)
+    await session.dispatcher.start()
+    expect(session.project.view?.slots.epoch).toBe(2)
+    expect(session.project.view?.slots.tracks).toEqual({ [SINGLE_SYNTH.track]: 0 })
   })
 
   it('sends a played note as engine bytes and shows it sounding', async () => {

@@ -1388,11 +1388,13 @@ dependencies = [
 name = "project"
 version = "0.1.0"
 dependencies = [
+ "commands",
  "engine",
  "proptest",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

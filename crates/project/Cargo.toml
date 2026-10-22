@@ -14,3 +14,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 [dev-dependencies]
 proptest = "1.12.0"
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+# The load bench (QA-7, `benches/load`): the engine swaps go through the command layer's
+# snapshot. A dev-dependency cycle is legal for benches and tests.
+commands = { path = "../commands", features = ["testing"] }
+sha2 = "0.11.1"
+
+[[bench]]
+name = "load"
+path = "benches/load/main.rs"
+harness = false
