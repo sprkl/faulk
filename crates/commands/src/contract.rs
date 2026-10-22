@@ -13,8 +13,8 @@
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
 use project::{
-    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SessionState,
-    TickLoop, TrackId,
+    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SceneId,
+    SessionState, TickLoop, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -271,6 +271,13 @@ pub enum ProjectEvent {
     TrackDeleted { track: TrackId },
     /// Part of a track changed.
     TrackChanged { track: TrackId, part: TrackPart },
+    /// A scene was created or brought back, with the clips of its slots. The page reads
+    /// them from its own copy of the project, to which the same command applies.
+    SceneCreated { scene: SceneId },
+    /// A scene was deleted; the clips of its slots were deleted before (`ClipDeleted`).
+    SceneDeleted { scene: SceneId },
+    /// Part of a scene changed.
+    SceneChanged { scene: SceneId, part: ScenePart },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
@@ -283,6 +290,15 @@ pub enum TrackPart {
     Name,
     Color,
     /// The track's position in the list changed.
+    Order,
+}
+
+/// Which part of a scene a [`ProjectEvent::SceneChanged`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScenePart {
+    Name,
+    /// The scene's position in the list changed.
     Order,
 }
 

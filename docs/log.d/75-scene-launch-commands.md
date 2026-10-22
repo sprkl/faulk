@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#75): spec § GR-2 records the scene and launch commands: `scene.create`, `scene.delete` (undoable, not destructive, takes the clips of its slots), `scene.restore`, `scene.rename`, `scene.move`, `scene.restore_order`, and the live `launch.clip`, `launch.scene`, `launch.stop_track`, `launch.stop_all`. A launch while the transport is stopped launches then plays, in that order, and why.

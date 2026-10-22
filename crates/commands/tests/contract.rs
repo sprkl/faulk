@@ -13,6 +13,7 @@ use commands::{
 
 mod clip_examples;
 mod device_examples;
+mod grid_examples;
 mod track_examples;
 mod transport_examples;
 
@@ -112,6 +113,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(grid_examples::examples())
     .chain(transport_examples::examples())
     .chain(track_examples::examples())
     .chain(device_examples::examples())
