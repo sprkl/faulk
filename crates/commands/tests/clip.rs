@@ -59,12 +59,14 @@ fn the_inverses_are_the_documented_commands() {
     );
     // Nothing cut: the plain `set_length`; something cut: `set_content`.
     let grow = inverse(clip::Command::SetLength {
+        placements: None,
         clip: f.clip.clone(),
         length: Tick(7680),
         trim: false,
     });
     assert_eq!(name(&grow), "clip.set_length");
     let cut = inverse(clip::Command::SetLength {
+        placements: None,
         clip: f.clip.clone(),
         length: Tick(1200),
         trim: true,
@@ -427,6 +429,7 @@ fn rename_trims_clears_and_refuses_a_long_name() {
 fn set_length_refuses_a_cut_without_trim_and_a_placement_past_the_end() {
     let f = fx();
     let set = |clip: &::project::ClipId, length: i64, trim: bool| clip::Command::SetLength {
+        placements: None,
         clip: clip.clone(),
         length: Tick(length),
         trim,
@@ -456,6 +459,7 @@ fn trim_cuts_notes_and_the_loop_exactly_and_merges_notes_that_become_equal() {
     // starts at the new end disappears.
     run(
         &c(clip::Command::SetContent {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(3840),
             looping: Some(TickLoop {
@@ -476,6 +480,7 @@ fn trim_cuts_notes_and_the_loop_exactly_and_merges_notes_that_become_equal() {
     let before = state.clone();
     let out = run(
         &c(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(100),
             trim: true,
@@ -503,6 +508,7 @@ fn trim_cuts_notes_and_the_loop_exactly_and_merges_notes_that_become_equal() {
     let mut state = f.state.clone();
     run(
         &c(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(1500),
             trim: true,
@@ -558,6 +564,7 @@ fn set_loop_refuses_what_is_outside_the_clip() {
 fn set_content_refuses_what_the_note_commands_refuse() {
     let f = fx();
     let set = |length: i64, notes: Vec<Note>| clip::Command::SetContent {
+        placements: None,
         clip: f.clip.clone(),
         length: Tick(length),
         looping: None,
@@ -570,6 +577,7 @@ fn set_content_refuses_what_the_note_commands_refuse() {
         set(100, vec![n(0, 128, 10, 100)]),
         // The placement of `placed` starts at offset 480.
         clip::Command::SetContent {
+            placements: None,
             clip: f.placed.clone(),
             length: Tick(480),
             looping: None,
@@ -582,6 +590,7 @@ fn set_content_refuses_what_the_note_commands_refuse() {
     let mut state = f.state.clone();
     let empty = c(set(3840, vec![]));
     let loop_clear = c(clip::Command::SetContent {
+        placements: None,
         clip: f.clip.clone(),
         length: Tick(3840),
         looping: None,
@@ -809,6 +818,7 @@ fn a_hundred_thousand_notes_in_one_command_undo_and_redo() {
     let mut ctx = context();
     run(
         &c(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(100_000 * 10),
             trim: false,
@@ -894,6 +904,7 @@ fn the_notes_per_clip_and_project_limits_refuse_with_a_limit_error() {
         .collect();
     run(
         &c(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(length),
             trim: false,
@@ -904,6 +915,7 @@ fn the_notes_per_clip_and_project_limits_refuse_with_a_limit_error() {
     .unwrap();
     run(
         &c(clip::Command::SetContent {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(length),
             looping: None,
@@ -927,6 +939,7 @@ fn the_notes_per_clip_and_project_limits_refuse_with_a_limit_error() {
     let same: Vec<Note> = notes.iter().copied().collect();
     let out = run(
         &c(clip::Command::SetContent {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(length),
             looping: None,
@@ -1053,6 +1066,7 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
             name: "x".into(),
         },
         clip::Command::SetLength {
+            placements: None,
             clip: ghost.clone(),
             length: Tick(10),
             trim: true,
@@ -1062,6 +1076,7 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
             looping: None,
         },
         clip::Command::SetContent {
+            placements: None,
             clip: ghost.clone(),
             length: Tick(10),
             looping: None,
@@ -1085,11 +1100,13 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
     // An audio clip, for the commands that need a MIDI one.
     for command in [
         clip::Command::SetLength {
+            placements: None,
             clip: f.audio_clip.clone(),
             length: Tick(10),
             trim: true,
         },
         clip::Command::SetContent {
+            placements: None,
             clip: f.audio_clip.clone(),
             length: Tick(10),
             looping: None,

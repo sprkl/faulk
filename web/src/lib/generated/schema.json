@@ -350,7 +350,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+            "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -410,7 +410,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+            "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -3323,7 +3323,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -3383,7 +3383,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -7695,7 +7695,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -7755,7 +7755,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -12094,7 +12094,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -12154,7 +12154,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -16475,7 +16475,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -16535,7 +16535,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -20844,7 +20844,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -20904,7 +20904,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -25220,7 +25220,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -25280,7 +25280,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -29603,7 +29603,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -29663,7 +29663,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -33983,7 +33983,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -34043,7 +34043,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -38352,7 +38352,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -38412,7 +38412,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -42733,7 +42733,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -42793,7 +42793,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -47110,7 +47110,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -47170,7 +47170,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -51486,7 +51486,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -51546,7 +51546,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -55862,7 +55862,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -55922,7 +55922,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -60240,7 +60240,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -60300,7 +60300,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -64622,7 +64622,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -64682,7 +64682,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -68994,7 +68994,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -69054,7 +69054,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -73367,7 +73367,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -73427,7 +73427,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -77747,7 +77747,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -77807,7 +77807,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -82116,7 +82116,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -82176,7 +82176,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -86492,7 +86492,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -86552,7 +86552,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -90880,7 +90880,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -90940,7 +90940,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -95283,7 +95283,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -95343,7 +95343,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -99657,7 +99657,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -99717,7 +99717,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -104037,7 +104037,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -104097,7 +104097,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -108419,7 +108419,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -108479,7 +108479,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -112442,7 +112442,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+        "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -112795,7 +112795,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -112855,7 +112855,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -117175,7 +117175,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -117235,7 +117235,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -121209,7 +121209,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+        "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -121562,7 +121562,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -121622,7 +121622,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -125957,7 +125957,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -126017,7 +126017,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -130338,7 +130338,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -130398,7 +130398,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -134719,7 +134719,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -134779,7 +134779,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -139100,7 +139100,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -139160,7 +139160,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -143473,7 +143473,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -143533,7 +143533,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -147847,7 +147847,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -147907,7 +147907,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -152223,7 +152223,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -152283,7 +152283,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -156599,7 +156599,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -156659,7 +156659,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -160979,7 +160979,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -161039,7 +161039,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -165348,7 +165348,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -165408,7 +165408,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -169713,7 +169713,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -169773,7 +169773,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -174078,7 +174078,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -174138,7 +174138,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -178443,7 +178443,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -178503,7 +178503,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -182802,7 +182802,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -182862,7 +182862,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -187161,7 +187161,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -187221,7 +187221,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -191520,7 +191520,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -191580,7 +191580,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -195879,7 +195879,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -195939,7 +195939,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -200244,7 +200244,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -200304,7 +200304,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -204620,7 +204620,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -204680,7 +204680,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -209013,7 +209013,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -209073,7 +209073,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -213385,7 +213385,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -213445,7 +213445,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -217767,7 +217767,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -217827,7 +217827,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -222133,7 +222133,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -222193,7 +222193,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -226544,7 +226544,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -226604,7 +226604,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -230931,7 +230931,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -230991,7 +230991,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -235311,7 +235311,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -235371,7 +235371,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -239687,7 +239687,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -239747,7 +239747,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -244070,7 +244070,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -244130,7 +244130,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -248446,7 +248446,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -248506,7 +248506,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -252805,7 +252805,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -252865,7 +252865,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -257179,7 +257179,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -257239,7 +257239,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -261558,7 +261558,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -261618,7 +261618,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -265930,7 +265930,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -265990,7 +265990,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -270315,7 +270315,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -270375,7 +270375,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -274693,7 +274693,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -274753,7 +274753,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -279068,7 +279068,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -279128,7 +279128,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -283427,7 +283427,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -283487,7 +283487,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -287805,7 +287805,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -287865,7 +287865,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -292183,7 +292183,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -292243,7 +292243,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -296549,7 +296549,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -296609,7 +296609,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -300915,7 +300915,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+                  "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -300975,7 +300975,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+                  "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -305291,7 +305291,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Undo: set the length back, restoring what\n`trim` cut.",
+              "description": "Set the length of a MIDI clip, in ticks (1 to 2^40). Making it shorter than a\nnote's end or the loop's end is refused, unless `trim` is true: then notes that\nstart at or after the new end are removed, notes that cross it are shortened\n(two notes that become identical merge into one), and the loop is cut at it\n(removed when nothing is left of it). Refused too when a placement of the clip\nstarts inside it past the new length. Every placement of the clip that plays it\nwhole (offset 0, length equal to the old length of the clip) takes the new length\nin the same command, so notes added past the old end are heard in the\narrangement; a growing placement stops at the start of the next placement of its\ntrack, and a placement that shows only part of the clip, or repeats it, is left\nalone. Undo: set the length back, restoring what `trim` cut and the lengths of the\nplacements.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -305351,7 +305351,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused). Undo: set the previous content back.",
+              "description": "Replace the length, the loop and all the notes of a MIDI clip at once: one\nhistory entry for a whole clip written in one go. The same rules as\n`clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside\n`[0, length]` is refused), and the placements follow the length in the same way\nas `clip.set_length`. Undo: set the previous content and the previous placement\nlengths back.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
