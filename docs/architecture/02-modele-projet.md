@@ -157,7 +157,7 @@ Choix et limites pour le MVP :
 ### 2.1 La règle de format
 
 - **Données à l'échelle humaine : du texte.** JSON canonique (clés triées, une valeur par ligne) pour les structures ; TSV pour les longues listes homogènes (notes, points d'automation, placements), une ligne par élément.
-- **Données à l'échelle de la machine : du binaire adressé par contenu** sous `blobs/<sha256>` : audio, automation très dense (au-delà d'environ 1 000 points par couloir, seuil à fixer par le banc de charge), état opaque d'un instrument. Un blob n'est jamais modifié ; il est compatible Git LFS.
+- **Données à l'échelle de la machine : du binaire adressé par contenu** sous `blobs/<sha256>` : audio, automation très dense (**proposé par QA-7** : au-delà de 100 000 points par couloir, avec hystérésis, retour au texte sous 50 000 ; voir [QA-7](../spikes/QA-7-banc-de-charge-format-projet.md), SV-1 confirme), état opaque d'un instrument. Un blob n'est jamais modifié ; il est compatible Git LFS.
 - Un fichier unique binaire `.faulkpack` peut exister **pour l'export et le partage seulement** ; ce n'est jamais le format de travail.
 
 Pourquoi un dossier plutôt qu'un fichier : le chemin dit déjà *quoi* a changé, et la plupart des éditions parallèles touchent des fichiers différents, donc git fusionne sans conflit. Aucun fichier unique, si bien formaté soit-il, n'empêche qu'un ajout de piste et un ajout de scène tombent dans des lignes voisines. Le prix : l'atomicité de l'enregistrement est à traiter fichier par fichier (voir [stockage](03-stockage-local.md)), et le partage hors git passe par `.faulkpack`.
@@ -429,9 +429,14 @@ Le format doit tenir un projet très lourd sans que l'ouverture ou l'enregistrem
 - **Risque 1 : le nombre de fichiers dans le navigateur.** Ouvrir des milliers de petits fichiers par les API asynchrones du navigateur coûte cher. Parade : un **instantané binaire de tout le projet dans `.faulk/cache/`**, écrit à l'enregistrement ; à l'ouverture, Faulk charge l'instantané puis ne relit que les fichiers modifiés depuis (date et taille, ou empreinte). Le cache est régénérable : s'il manque ou ne correspond plus, on relit tout.
 - **Risque 2 : l'enregistrement.** Suivi des fichiers sales : éditer une note réécrit un seul petit fichier (le `.notes.tsv` du clip), jamais tout le projet.
 - **Annulation** : avec le modèle mutable retenu par CT-4 (§ 5.2), chaque entrée garde seulement son inverse ; l'inverse d'une suppression porte l'entité supprimée, ce qui est le seul coût proportionnel à la taille.
-- **Automation dense** : au-delà d'environ 1 000 points, un couloir passe en blob pour ne pas produire des fichiers texte énormes et des diffs illisibles.
+- **Automation dense** : au-delà de 100 000 points (proposition de QA-7, avec hystérésis : retour au texte sous 50 000), un couloir passe en blob pour ne pas produire des fichiers texte énormes et des diffs illisibles. En dessous, le blob coûte un fichier de plus, des diffs binaires et une copie complète par version sous LFS, pour un gain d'analyse de l'ordre de 2 fois.
 
-**Banc de charge** (tâche QA-7 du [découpage du MVP](../specs/02-decoupage-mvp.md), phase 1) : générer un projet synthétique très lourd (100 pistes, 200 000 notes, 6 millions de points d'automation, quelques Go d'audio) et mesurer l'ouverture, l'enregistrement, la mémoire et les opérations git, dans le navigateur et en natif. Ses chiffres fixent les seuils du format (densité d'automation qui bascule en blob, utilité de l'instantané de cache, éventuelle subdivision de `blobs/`).
+**Banc de charge** (tâche QA-7, #130, phase 1 ; méthode, machine et chiffres dans [QA-7](../spikes/QA-7-banc-de-charge-format-projet.md)) : un projet synthétique de 100 pistes, 200 000 notes, 6 millions de points d'automation et de l'audio, mesuré sur l'ouverture, l'enregistrement, la mémoire, les échanges de structures du moteur et git, en natif et dans le navigateur (OPFS ; le dossier réel du navigateur n'est pas automatisable). Seuils **proposés** pour SV-1, à confirmer :
+
+- **Blob d'automation** : au-delà de 100 000 points par couloir (texte jusque-là : 1,9 Mio, relu en 9 ms, un point réécrit en 15 ms, `git diff` en 49 ms ; à 1 000 000 de points : 124 ms et 430 ms), hystérésis à 50 000.
+- **Instantané de cache** : utile dans le navigateur (ouverture de 2,45 s à 1,56 s pour 3 001 fichiers, de 3,93 s à 2,09 s en vérifiant la taille et la date de chaque fichier), sans gain en natif (lecture sur 8 threads : 144 à 223 ms contre 185 à 256 ms). Il se vérifie par la liste (chemin, taille, date) de tous les fichiers, ajouts et suppressions compris. Le coût restant est la construction du modèle (1,3 à 1,45 s en wasm pour 6 millions de points).
+- **`blobs/`** : pas de sous-division en phase 1 (aucun écart net à plat ou en 256 dossiers jusqu'à 100 000 fichiers en natif et 10 000 en OPFS) ; à reconsidérer au-delà de 10 000 blobs.
+- **Nombre de fichiers** : il domine l'écriture (3 001 fichiers : 4,3 à 12 s en natif, 2,5 s en OPFS, 10,8 s de `git add`, pour 0,6 s de sérialisation) : le suivi des fichiers sales est indispensable et le format gagne à ne pas multiplier les fichiers.
 
 ## 8. Proposition de MVP
 

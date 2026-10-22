@@ -18,7 +18,8 @@
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "test": "node scripts/build-wasm.mjs && vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "bench:project": "playwright test -c playwright.bench.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
