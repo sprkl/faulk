@@ -30,7 +30,7 @@ pub const SESSION_FILE: &str = ".faulk/session.json";
 pub type ProjectFiles = BTreeMap<String, String>;
 
 /// What to change in the project folder: files to write (path → text) and files to
-/// remove. The interim files never remove anything; the folder format (`project::file`, wired by SV-2) removes
+/// remove. The interim files never remove anything; the folder format of SV-1 removes
 /// the files of a deleted track or clip.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
