@@ -309925,7 +309925,7 @@
     {
       "kind": "faulk.echo",
       "kind_id": 3,
-      "memory_bytes": 6144176,
+      "memory_bytes": 6144184,
       "midi_output": null,
       "name": "Echo",
       "params": [
