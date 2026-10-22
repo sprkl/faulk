@@ -4,7 +4,7 @@
 
 #![allow(dead_code)]
 
-use ::project::{LoopRegion, Tick, TickLoop};
+use ::project::{LoopRegion, Quantize, Tick, TickLoop};
 use commands::testing::fixture;
 use commands::transport::Command as T;
 use commands::{Command, State};
@@ -51,6 +51,18 @@ pub fn examples() -> Vec<(Command, State)> {
             tr(T::SetTimeSignature {
                 numerator: 7,
                 denominator: 8,
+            }),
+            base.clone(),
+        ),
+        (
+            tr(T::SetLaunchQuantize {
+                quantize: Quantize::Bars8,
+            }),
+            base.clone(),
+        ),
+        (
+            tr(T::SetLaunchQuantize {
+                quantize: Quantize::None,
             }),
             base.clone(),
         ),

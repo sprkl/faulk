@@ -14,12 +14,23 @@ use engine::engine::{ClipContent, Engine, LaunchRequest, Preparer, channel, chan
 use engine::msg::{
     AutomationPoint, AutomationTarget, ClipSlot, ControlMsg as M, Curve, DeviceKind, DeviceSlot,
     LaneSlot, LiveEvent, MsgError, Note, PAGE_SLOTS, ParamId, Placement, Put, RtMsg, SceneSlot,
-    SourceSlot, Table, TrackKind, TrackSlot, encode_state, encode_stream, limits,
+    SourceSlot, Span, Table, TrackKind, TrackSlot, encode_state, encode_stream, limits,
 };
 use engine::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 
 #[global_allocator]
 static ALLOCATOR: AllocDisabler = AllocDisabler;
+
+/// A placement the arrangement keeps (one with no length is dropped by `prepare`).
+fn placement() -> Placement {
+    Placement {
+        span: Span::Ticks {
+            offset: Tick(0),
+            length: Tick(960),
+        },
+        ..Placement::default()
+    }
+}
 
 fn sides() -> (Preparer, Engine) {
     channel(DeviceSetup::default(), factory).unwrap()
@@ -219,7 +230,7 @@ fn every_rt_message_applies_without_allocating() {
             track: T0,
             first: 0,
             total: 1,
-            placements: vec![Placement::default()],
+            placements: vec![placement()],
         },
         M::AutomationLaneUpload {
             lane: LaneSlot(0),
@@ -281,7 +292,6 @@ fn every_rt_message_applies_without_allocating() {
     assert!(s.lane(LaneSlot(0)).is_none());
     assert_eq!(t.scenes.as_slice()[1], Some(ClipSlot(3)));
     assert_eq!(t.launch, Some(LaunchRequest::Clip(SceneSlot(1))));
-    assert_eq!(s.grid.scene, Some(SceneSlot(1)));
     assert!(s.playback.playing);
     assert_eq!(s.playback.cue, Some(Tick(960)));
     assert_eq!(e.skipped(), 0);
@@ -375,8 +385,9 @@ fn the_transport_and_launch_orders_land_in_the_state() {
     assert!(!s.playback.playing && s.playback.recording);
     assert_eq!(s.playback.cue, Some(Tick(20)));
     assert_eq!(s.playback.loop_region, region);
-    assert_eq!(s.track(T0).unwrap().launch, Some(LaunchRequest::Stop));
-    assert!(s.grid.stop_all && s.grid.back_to_arrangement);
+    // `BackToArrangement` found the track engaged (its stop was pending) and released it.
+    assert!(s.track(T0).unwrap().back);
+    assert_eq!(s.track(T0).unwrap().launch, None);
 }
 
 #[test]
@@ -600,6 +611,7 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             scenes: Table::try_filled(1).unwrap(),
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            back: false,
             graph: Default::default(),
             player: Default::default(),
         }),
@@ -775,7 +787,7 @@ fn a_chunked_upload_reaches_the_engine_whole_or_not_at_all() {
         track: T0,
         first,
         total,
-        placements: vec![Placement::default()],
+        placements: vec![placement()],
     };
     assert!(p.prepare(placements(0, 2)).unwrap().is_none());
     cycle(&mut p, &mut e, M::TrackRemove { track: T0 });

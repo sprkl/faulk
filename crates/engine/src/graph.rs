@@ -225,9 +225,10 @@ pub struct TrackGraph {
     /// first.
     release: bool,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
-    /// message fills it yet: the arrangement (AR-2) and the automation (AM-2) will; tests
-    /// set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the
-    /// track's clip player plays or waits to launch ([`crate::clip_player`], CL-2).
+    /// message fills it yet: the automation (AM-2) will; tests set it off the audio path
+    /// ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
+    /// plays the track's arrangement, a launched clip or has a launch to take
+    /// ([`crate::clip_player`], CL-2, [`crate::arrangement`], AR-2).
     schedule: Option<Box<Schedule>>,
     /// The track's meter since the last report, after its fader (MO-5).
     meter: MeterAcc,
@@ -667,7 +668,11 @@ fn render_track(
     out_left: &mut [f32],
     out_right: &mut [f32],
 ) -> bool {
-    if !has_enabled_device(track) {
+    // A track without a device renders nothing, but its clip player still runs when a clip
+    // plays or a launch waits (GR-1): the grid state must not wait for an instrument.
+    let player_runs = input.as_ref().is_some_and(|i| i.clips.is_some())
+        && (track.player.engaged() || track.launch.is_some() || track.back);
+    if !has_enabled_device(track) && !player_runs {
         return false;
     }
     let frames = ctx.frames as usize;
@@ -697,22 +702,31 @@ fn render_track(
     let Track {
         devices,
         scenes,
+        placements,
         launch,
+        back,
         graph,
         player,
         ..
     } = track;
-    // A launched clip takes the track: its schedule is silent meanwhile (module doc of
-    // `crate::clip_player`).
+    // The player plays the track's arrangement, or its launched clip once the grid holds
+    // it ([`crate::arrangement`], [`crate::clip_player`]): the schedule is silent
+    // meanwhile.
     let mut env = clips.map(|c| Env {
         track: slot,
         clips: c.clips,
         scenes,
+        placements: placements.as_slice(),
         launch,
+        back,
         quantize: c.quantize,
         signature: c.signature,
     });
-    let engaged = env.is_some() && (player.engaged() || launch_pending(&env));
+    let engaged = env.is_some()
+        && (player.engaged()
+            || player.arrangement_busy()
+            || launch_pending(&env)
+            || env.as_ref().is_some_and(|e| !e.placements.is_empty()));
     let mut schedule = if reads {
         graph.schedule.as_deref_mut()
     } else {
@@ -829,9 +843,9 @@ fn render_track(
     true
 }
 
-/// Whether the track has a launch order its player has not taken yet.
+/// Whether the track has a launch order or a `BackToArrangement` its player has not taken yet.
 fn launch_pending(env: &Option<Env<'_>>) -> bool {
-    env.as_ref().is_some_and(|e| e.launch.is_some())
+    env.as_ref().is_some_and(|e| e.launch.is_some() || *e.back)
 }
 
 /// The live notes of the track at offset 0, then a release when live events were lost.

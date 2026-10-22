@@ -2,7 +2,7 @@
   /**
    * The transport bar: play, stop, back to start, record (off until recording exists), loop,
    * metronome, position in bars.beats.ticks and minutes:seconds, tempo and time signature, and the
-   * launch quantization (read-only until the clip player sets it). It holds no state of its own
+   * launch quantization (`transport.set_launch_quantize`). It holds no state of its own
    * but the text being typed: it reads the stores and every control is a command (`transport-commands.ts`)
    * through the dispatcher.
    */
@@ -10,7 +10,7 @@
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup } from '../../lib/track-commands'
-  import { play, seek, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
+  import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
   import {
     barTicks,
     DEFAULT_LOOP_BARS,
@@ -94,6 +94,12 @@
   function onDenominator(event: Event) {
     const value = Number((event.currentTarget as HTMLSelectElement).value)
     if (meter && value !== meter.denominator) run(setTimeSignature(meter.numerator, value))
+  }
+
+  function onQuantize(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value
+    const quantize = QUANTIZE_ORDER.find((q) => q === value)
+    if (quantize && quantize !== settings?.launch_quantize) run(setLaunchQuantize(quantize))
   }
 
   /** The loop needs a region: a project without one gets the first bars, in the same history group. */
@@ -248,11 +254,12 @@
     <span class="sr-only">{t('transport.launchQuantize')}</span>
     <select
       class="value quant"
-      disabled
+      disabled={!ready}
       aria-label={t('transport.launchQuantize')}
-      title={t('transport.launchQuantizeSoon')}
+      title={t('transport.launchQuantizeHint')}
       data-testid="transport-quantize"
       value={settings?.launch_quantize ?? 'bar'}
+      onchange={onQuantize}
     >
       {#each QUANTIZE_ORDER as q (q)}<option value={q}>{t(`transport.quantize.${q}` satisfies MessageKey)}</option>{/each}
     </select>

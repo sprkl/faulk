@@ -1,7 +1,8 @@
 //! Faulk project document (project model, `docs/architecture/02-modele-projet.md`).
 //!
 //! The page owns the project in both modes (web and Boost); the helper relays and never
-//! owns it. This crate is pure Rust with no I/O: it holds the document ([`Project`] and
+//! owns it. This crate is pure Rust with no I/O of its own but the native [`file::StdFs`] adapter (the folder format reads and
+//! writes through an abstract [`file::FileSystem`]): it holds the document ([`Project`] and
 //! what it contains), the musical time contract (re-exported from `engine::time`, CT-2),
 //! the stable identifiers ([`ids`], CT-4), the fractional order keys ([`order`]), the
 //! blob references ([`Hash`]), the safety limits ([`limits`]), the invariants
@@ -9,10 +10,12 @@
 //! from the document and never serialized with it (founder's decision 10).
 //!
 //! The canonical folder format (one file per track, device and clip, TSV for notes,
-//! points and placements) is SV-1's; the serde derives here are the in-memory JSON shape
-//! the round-trip tests and the later tasks build on.
+//! points and placements, blobs, cache snapshot, `.faulkpack`) is in [`file`] (SV-1); the
+//! serde derives of the model are the in-memory JSON shape the commands and the schema
+//! build on, not the file format.
 
 pub mod blob;
+pub mod file;
 pub mod ids;
 pub mod limits;
 pub mod model;

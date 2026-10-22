@@ -3,6 +3,7 @@
 //! Pure DSP: no I/O, no allocation after construction, no panic on any input.
 //! The same code runs natively in the helper and as WebAssembly in an `AudioWorklet`.
 
+pub mod arrangement;
 pub mod clip_player;
 pub mod device;
 pub mod devices;
@@ -13,6 +14,7 @@ pub mod engine;
 pub mod events;
 pub mod graph;
 pub mod host;
+pub mod launcher;
 pub mod metronome;
 pub mod msg;
 pub mod transport;

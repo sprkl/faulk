@@ -181,6 +181,17 @@ fn each_edit_compiles_to_its_messages() {
     assert!(matches!(msgs[..], [ControlMsg::SetTransport { tempo, .. }] if tempo.bpm() == 100.0));
     let (_, msgs) = run(
         &mut s,
+        json!({"type": "transport.set_launch_quantize", "quantize": "bars_4"}),
+    );
+    assert!(matches!(
+        msgs[..],
+        [ControlMsg::SetTransport {
+            launch_quantize: engine::time::Quantize::Bars4,
+            ..
+        }]
+    ));
+    let (_, msgs) = run(
+        &mut s,
         json!({"type": "transport.set_loop", "loop_region": {"start": 0, "end": 960}}),
     );
     assert_eq!(
@@ -471,6 +482,19 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
 }
 
 #[test]
+fn back_to_arrangement_is_one_engine_message_and_changes_nothing_else() {
+    let (mut s, _, _) = synced();
+    let before = s.state.project.clone();
+    let (output, control) = run(&mut s, json!({"type": "launch.back_to_arrangement"}));
+    assert_eq!(control, [ControlMsg::BackToArrangement]);
+    assert!(matches!(output, Output::Launch(_)));
+    assert_eq!(
+        s.state.project, before,
+        "a live command: the project is untouched"
+    );
+}
+
+#[test]
 fn a_huge_parameter_value_is_clamped_by_the_command_and_a_huge_stored_one_still_encodes() {
     let (mut s, synth, _) = synced();
     let device = s.state.project.tracks[&synth]
@@ -546,4 +570,169 @@ fn a_clip_upload_carries_its_loop_and_every_field_of_its_notes() {
         msgs[..],
         [ControlMsg::ClipNotesUpload { looping: None, .. }]
     ));
+}
+
+/// The id of a created clip.
+fn clip_of(out: &Output) -> project::ClipId {
+    match out {
+        Output::Clip(commands::clip::Output::Create { clip, .. }) => clip.clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_launch_while_stopped_arms_then_plays_once_and_never_while_playing() {
+    let (mut s, synth, scene) = synced();
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "slot", "scene": scene}}),
+    );
+    let clip = clip_of(&out);
+    let launch = ControlMsg::LaunchClip {
+        track: TrackSlot(0),
+        scene: SceneSlot(0),
+    };
+    let scene_launch = ControlMsg::LaunchScene {
+        scene: SceneSlot(0),
+    };
+    // Stopped: the engine arms the launch, then the transport plays from the cue. The
+    // launch is first, so it never arrives after the playhead left the cue.
+    let (_, msgs) = run(&mut s, json!({"type": "launch.clip", "clip": clip}));
+    assert_eq!(msgs, [launch.clone(), ControlMsg::Play { from: Tick(0) }]);
+    // Playing: only the launch; a second launch does not jump back to the cue.
+    let (_, msgs) = run(&mut s, json!({"type": "launch.clip", "clip": clip}));
+    assert_eq!(msgs, std::slice::from_ref(&launch));
+    let (_, msgs) = run(&mut s, json!({"type": "launch.scene", "scene": scene}));
+    assert_eq!(msgs, std::slice::from_ref(&scene_launch));
+    // The stops never start the transport, playing or not.
+    let (_, msgs) = run(&mut s, json!({"type": "launch.stop_track", "track": synth}));
+    assert_eq!(
+        msgs,
+        [ControlMsg::StopTrack {
+            track: TrackSlot(0)
+        }]
+    );
+    let (_, msgs) = run(&mut s, json!({"type": "launch.stop_all"}));
+    assert_eq!(msgs, [ControlMsg::StopAll]);
+    run(&mut s, json!({"type": "transport.stop"}));
+    let (_, msgs) = run(&mut s, json!({"type": "launch.stop_all"}));
+    assert_eq!(msgs, [ControlMsg::StopAll], "stopped: no play");
+    let (_, msgs) = run(&mut s, json!({"type": "launch.stop_track", "track": synth}));
+    assert_eq!(
+        msgs,
+        [ControlMsg::StopTrack {
+            track: TrackSlot(0)
+        }]
+    );
+    // Stopped again, with the cue moved: the scene launch plays from it.
+    run(&mut s, json!({"type": "transport.seek", "tick": 3840}));
+    let (_, msgs) = run(&mut s, json!({"type": "launch.scene", "scene": scene}));
+    assert_eq!(msgs, [scene_launch, ControlMsg::Play { from: Tick(3840) }]);
+    // A resync forgets the playback, as the fresh engine does.
+    s.resync().unwrap();
+    let (_, msgs) = run(&mut s, json!({"type": "launch.clip", "clip": clip}));
+    assert_eq!(msgs, [launch, ControlMsg::Play { from: Tick(0) }]);
+}
+
+#[test]
+fn a_launch_of_what_the_engine_was_never_told_about_sends_nothing_and_starts_nothing() {
+    let (mut s, synth, _) = synced();
+    // A clip in the arrangement only has no slot: the command refuses it. An audio clip
+    // is refused too. A track and a scene the engine holds launch normally.
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": 0}}),
+    );
+    let clip = clip_of(&out);
+    assert!(
+        s.run(&cmd(json!({"type": "launch.clip", "clip": clip})))
+            .is_err()
+    );
+    // After a resync that gave the clip no engine slot (a context that never sent it),
+    // nothing is sent and the transport stays stopped.
+    s.ctx.engine.track.get_mut(&synth).unwrap().clips.clear();
+    let slotted = {
+        let (out, _) = run(
+            &mut s,
+            json!({"type": "clip.create", "track": synth, "at": {"at": "slot", "scene": "0000000000000000000000005A"}}),
+        );
+        clip_of(&out)
+    };
+    s.ctx.engine.track.get_mut(&synth).unwrap().clips.clear();
+    let (_, msgs) = run(&mut s, json!({"type": "launch.clip", "clip": slotted}));
+    assert_eq!(
+        msgs,
+        [],
+        "the engine holds no such clip: no launch, no play"
+    );
+}
+
+#[test]
+fn scenes_take_an_engine_slot_when_created_and_give_it_back_when_deleted() {
+    let (mut s, synth, first) = synced();
+    // The fixture's scene holds slot 0 from the snapshot; a created scene takes slot 1 and
+    // sends nothing (the engine has no scene of its own, only rows of clip slots).
+    let (out, msgs) = run(&mut s, json!({"type": "scene.create", "name": "B"}));
+    assert_eq!(msgs, []);
+    let Output::Scene(commands::scene::Output::Create { scene: second }) = out else {
+        panic!()
+    };
+    assert_eq!(s.ctx.engine.scenes.get(&second), Some(1));
+    // Its clip goes in row 1; deleting the scene empties the row, frees the slot, and the
+    // next scene takes it again. Renaming and moving send nothing.
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "slot", "scene": second}}),
+    );
+    let clip = clip_of(&out);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "scene.rename", "scene": second, "name": "C"}),
+    );
+    assert_eq!(msgs, []);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "scene.move", "scene": second, "index": 0}),
+    );
+    assert_eq!(msgs, []);
+    let (_, msgs) = run(&mut s, json!({"type": "scene.delete", "scene": second}));
+    assert!(
+        matches!(
+            msgs[..],
+            [
+                ControlMsg::SceneSetSlot {
+                    track: TrackSlot(0),
+                    scene: SceneSlot(1),
+                    clip: None
+                },
+                ControlMsg::TrackPlacementsUpload { .. },
+                ControlMsg::ClipRemove { clip: ClipSlot(0) },
+            ]
+        ),
+        "{msgs:?}"
+    );
+    assert_eq!(s.ctx.engine.scenes.get(&second), None);
+    // The undo brings the scene back into a slot and re-sends its clip into that row.
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(s.ctx.engine.scenes.get(&second), Some(1));
+    assert!(
+        msgs.iter().any(|m| matches!(
+            m,
+            ControlMsg::SceneSetSlot {
+                scene: SceneSlot(1),
+                clip: Some(_),
+                ..
+            }
+        )),
+        "{msgs:?}"
+    );
+    run(&mut s, json!({"type": "history.redo"}));
+    assert_eq!(s.ctx.engine.scenes.get(&second), None);
+    let (out, _) = run(&mut s, json!({"type": "scene.create"}));
+    let Output::Scene(commands::scene::Output::Create { scene: third }) = out else {
+        panic!()
+    };
+    assert_eq!(s.ctx.engine.scenes.get(&third), Some(1), "the freed slot");
+    assert_eq!(s.ctx.engine.scenes.get(&first), Some(0));
+    let _ = clip;
 }

@@ -685,6 +685,7 @@ fn a_track_put_beyond_the_table_is_garbage_not_a_retiring_track() {
             scenes: Table::try_filled(1).unwrap(),
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            back: false,
             graph: Default::default(),
             player: Default::default(),
         }),

@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#76): the launch grid view (GR-3) is built; the breakdown of the MVP (`specs/02-decoupage-mvp.md`, GR-3) records what was decided: the engine reports a cell by slots, so `ProjectView` now carries the slot table and its epoch; a cell reported twice means a playing clip launched again; six glyphs of distinct shapes; a clip made by the grid loops over its whole length; deleting a scene with clips is confirmed in the interface, the command stays undoable; the grid draws only the cells in view.

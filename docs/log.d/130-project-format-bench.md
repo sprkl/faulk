@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#130): load bench of the project folder format (QA-7): `crates/project/benches/load` (generator with a recorded seed, prototype folder writer and reader, measures), `web/tests/bench/` (OPFS and the Rust reader in the page), the numbers with method and machine in `docs/spikes/QA-7-banc-de-charge-format-projet.md`, the format thresholds proposed in `docs/architecture/02-modele-projet.md` and CT-3's safety limits confronted with the measures.

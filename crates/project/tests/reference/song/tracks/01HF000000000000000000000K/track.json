@@ -1,0 +1,12 @@
+{
+  "color": null,
+  "kind": "audio",
+  "mixer": {
+    "gain_db": null,
+    "mute": false,
+    "pan": 0.0
+  },
+  "name": "Drums",
+  "order": "a1",
+  "output": "master"
+}
