@@ -1,0 +1,26 @@
+[package]
+name = "load-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+description = "The load bench's prototype folder reader and writer compiled to wasm32 (QA-7), driven by web/tests/bench. Not part of the workspace, not a product crate."
+
+# Its own workspace root: the workspace of the repository does not build it, and its
+# dependencies are the ones the project crate already uses (its Cargo.lock starts from the
+# repository's).
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+project = { path = "../.." }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+sha2 = "0.11.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
