@@ -485,8 +485,8 @@ fn the_last_order_before_the_boundary_wins() {
 }
 
 #[test]
-fn a_scene_leaves_the_tracks_with_an_empty_cell_playing() {
-    let mut r = Rig::new(48_000, 2, Quantize::Bar);
+fn a_scene_stops_the_tracks_with_an_empty_cell_at_the_same_boundary() {
+    let mut r = Rig::new(48_000, 3, Quantize::Bar);
     r.send(&[
         drone(0, LONG, 60),
         drone(1, LONG, 61),
@@ -499,20 +499,37 @@ fn a_scene_leaves_the_tracks_with_an_empty_cell_playing() {
     ]);
     r.run_to(r.frame(0, 0, 4000), 128);
     r.send(&[launch_scene(1)]);
+    r.run(128, 128);
+    // Track 1 has no clip in scene 1: it is reported as stopping until the boundary; track 2
+    // (idle, no clip either) is not touched.
+    assert_eq!(
+        grid(&r),
+        vec![
+            (0, 0, ClipState::Playing),
+            (0, 1, ClipState::Queued),
+            (1, 0, ClipState::Stopping)
+        ]
+    );
     r.run_to(r.frame(0, 0, 3 * 3840), 128);
     let b = r.frame(0, 0, 2 * 3840);
     assert!(ons(0).contains(&(b, 70)), "track 0 follows the scene");
-    // Track 1 has no clip in scene 1: its drone went on, untouched.
     assert_eq!(ons(1), vec![(0, 61)]);
-    assert!(offs(1).is_empty());
     assert_eq!(
-        grid(&r),
-        vec![(0, 1, ClipState::Playing), (1, 0, ClipState::Playing)]
+        offs(1),
+        vec![(b, 61)],
+        "track 1 stops on the boundary sample"
     );
+    assert!(events(2).is_empty());
+    assert_eq!(grid(&r), vec![(0, 1, ClipState::Playing)]);
+    r.send(&[M::Stop]);
+    r.run(256, 128);
+    for t in 0..3 {
+        assert_nothing_held(t);
+    }
 }
 
 #[test]
-fn a_scene_without_a_clip_anywhere_does_nothing() {
+fn a_scene_without_any_clip_stops_what_plays_and_an_idle_engine_stays_idle() {
     let mut r = Rig::new(48_000, 2, Quantize::None);
     r.send(&[
         drone(0, LONG, 60),
@@ -521,11 +538,26 @@ fn a_scene_without_a_clip_anywhere_does_nothing() {
         M::Play { from: Tick(0) },
     ]);
     r.run(128 * 20, 128);
-    let before = events(0);
+    // Scenes past the track's table are empty too: the track stops, without quantization
+    // at once, its note released.
+    let at = r.frames;
     r.send(&[launch_scene(5), launch_scene(4095)]);
     r.run(128 * 20, 128);
-    assert_eq!(events(0), before, "nothing changed");
-    assert_eq!(grid(&r), vec![(0, 0, ClipState::Playing)]);
+    // At the first tick of the block (a tick is 25 frames at 48 kHz, 120 BPM).
+    let off = offs(0);
+    assert_eq!(off.len(), 1);
+    assert!(
+        (at..at + 25).contains(&off[0].0) && off[0].1 == 60,
+        "{off:?}"
+    );
+    assert!(grid(&r).is_empty());
+    assert_nothing_held(0);
+    // Nothing plays any more: another empty scene changes nothing.
+    let before = events(0);
+    r.send(&[launch_scene(5)]);
+    r.run(128 * 20, 128);
+    assert_eq!(events(0), before);
+    assert!(grid(&r).is_empty());
     assert_eq!(r.e.skipped(), 0);
 }
 

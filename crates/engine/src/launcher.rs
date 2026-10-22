@@ -11,10 +11,10 @@
 //!
 //! - [`launch_scene`]: each track whose row holds a clip in the scene gets the launch of
 //!   that clip, all at the same boundary (every player reads the same first segment of the
-//!   block). A track whose cell is empty is **left alone**: it keeps playing what it plays.
-//!   A single launch of an empty cell stops the track (CL-2); a scene is a row of launches
-//!   that skips the cells without a clip, so that a half-filled scene does not silence the
-//!   tracks it does not name.
+//!   block). A track whose cell is empty is **stopped** at that same boundary when it plays
+//!   or waits for a launch (a scene is a song section: afterwards exactly its clips play, and
+//!   the model has no per-slot "keep playing" marker); a track that does nothing is left
+//!   alone.
 //! - [`stop_all`]: every track that plays, waits for a launch or has an order not yet taken
 //!   gets a stop, at the boundary: it replaces a pending launch. Tracks that do nothing are
 //!   left alone (they are not reported as stopping).
@@ -56,6 +56,8 @@ pub fn launch_scene(state: &mut State, scene: SceneSlot) {
             .is_some_and(Option::is_some);
         if has_clip {
             track.launch = Some(LaunchRequest::Clip(scene));
+        } else if engaged(track) {
+            track.launch = Some(LaunchRequest::Stop);
         }
     }
 }
