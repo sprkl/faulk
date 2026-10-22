@@ -1,5 +1,5 @@
-//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8;
-//! arming comes with RE). Selecting a track is `view.select_track`.
+//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8),
+//! and arm or monitor them (RE-1). Selecting a track is `view.select_track`.
 //!
 //! The contract of the track commands, written once here and repeated in their
 //! descriptions for agents:
@@ -18,6 +18,10 @@
 //!   identifiers and order key, so deleting then undoing leaves the project as it was.
 //!   It is undoable, hence not flagged destructive. The track's selection and solo are
 //!   session state: deleting clears them, undoing does not bring them back.
+//! - **Arming and monitoring** are session state like solo (`live`, not undoable, never in
+//!   the project nor the history): `track.arm` and `track.set_monitor` write the session's
+//!   `armed` and `monitor` sets, and the engine gets them as `TrackArm` and
+//!   `TrackSetMonitor`. Deleting a track clears both.
 //! - `track.duplicate` copies the track next to the source with new identifiers
 //!   everywhere. Its clips are new, independent clips (founder's decision 11).
 //! - A command that changes nothing returns no inverse and no event.
@@ -28,7 +32,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, TrackPart, Undo};
 use crate::macros::domain;
-use engine::devices::{Builtin, REGISTRY};
+use engine::devices::Builtin;
 use project::limits::{
     MAX_CLIPS, MAX_LANES, MAX_NAME_CHARS, MAX_NOTES, MAX_PLACEMENTS, MAX_POINTS, MAX_TRACKS,
 };
@@ -64,8 +68,9 @@ domain! {
         device: DeviceId,
     };
 
-    /// Delete a track with its devices, clips, placements and automation. The selection
-    /// and the solo of the track are cleared (session state, not restored by undo). Undo:
+    /// Delete a track with its devices, clips, placements and automation. The selection,
+    /// the solo, the arming and the monitoring of the track are cleared (session state,
+    /// not restored by undo: an undone delete brings the track back unarmed). Undo:
     /// `track.restore` brings the whole track back with its identifiers and position.
     "track.delete" (kind = "edit", undo = "inverse", destructive = false)
     Delete { track: TrackId } => {
@@ -123,6 +128,60 @@ domain! {
     "track.restore_order" (kind = "edit", undo = "inverse", destructive = false)
     RestoreOrder { track: TrackId, order: OrderKey } => {};
 
+    /// Replace a MIDI track's instrument by another instrument of the registry: `instrument`
+    /// is the type id of a built-in instrument (`faulk.osc_synth`, `faulk.drums`). The new
+    /// device starts at its default settings under a new identifier and takes the old
+    /// one's place first in the chain; the effects stay. The old instrument's settings are
+    /// lost unless undone. Choosing the instrument the track already plays changes
+    /// nothing. Refused on an audio track (it plays the clip player), for a type that is
+    /// not an instrument, and when an automation lane targets the old instrument. Undo:
+    /// `track.restore_instrument` brings the old instrument back with its identifier and
+    /// settings.
+    "track.set_instrument" (kind = "edit", undo = "inverse", destructive = false)
+    SetInstrument { track: TrackId, instrument: String } => {
+        /// The track's instrument after the command.
+        device: DeviceId,
+        /// Its instrument before the command.
+        previous: DeviceId,
+    };
+
+    /// Swap a track's instrument for a device taken out earlier: the inverse of
+    /// `track.set_instrument`. `current` is the instrument in the track now, replaced by
+    /// `snapshot` under the identifier `device`. Refused when `device` is already in use,
+    /// when `current` is not the track's instrument, when an automation lane targets it,
+    /// or when the snapshot is not an instrument that fits the track (a built-in device
+    /// must be one of the registry; a module device is taken as it is). Undo: the same
+    /// swap the other way.
+    "track.restore_instrument" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreInstrument {
+        track: TrackId,
+        current: DeviceId,
+        device: DeviceId,
+        snapshot: Device,
+    } => {};
+
+    /// Arm or disarm a track: live input (`live.input_note_on`, the keyboard and MIDI
+    /// controllers) reaches the armed tracks as well as the selected one, and recording
+    /// captures them. Session state: not undoable, not in the history, not saved with
+    /// the project. Refused with `not_found` for a track that does not exist, except to
+    /// disarm a track deleted since.
+    "track.arm" (kind = "live", undo = "none", destructive = false)
+    Arm { track: TrackId, armed: bool } => {
+        /// Whether the track was armed before the command.
+        previous: bool,
+    };
+
+    /// Monitor or stop monitoring a track's live input through its chain. Session
+    /// state: not undoable, not in the history, not saved with the project. A MIDI
+    /// track's instrument sounds what is played whatever this says; it matters for the
+    /// audio input. Refused with `not_found` for a track that does not exist, except to
+    /// stop monitoring a track deleted since.
+    "track.set_monitor" (kind = "live", undo = "none", destructive = false)
+    SetMonitor { track: TrackId, monitor: bool } => {
+        /// Whether the track was monitored before the command.
+        previous: bool,
+    };
+
     /// Duplicate a track right after the source (after any track that shares its order
     /// key), with new identifiers for the track, its
     /// devices, clips, placements and automation lanes. The clips are new, independent
@@ -161,7 +220,70 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
         Command::SetColor { track, color } => set_color(state, track, *color),
         Command::Move { track, index } => move_track(state, track, *index),
         Command::RestoreOrder { track, order } => restore_order(state, track, order),
+        Command::SetInstrument { track, instrument } => {
+            set_instrument(state, ctx, track, instrument)
+        }
+        Command::RestoreInstrument {
+            track,
+            current,
+            device,
+            snapshot,
+        } => restore_instrument(state, track, current, device, snapshot),
         Command::Duplicate { track, name } => duplicate(state, ctx, track, name.as_deref()),
+        Command::Arm { track, armed } => {
+            let previous = set_flag(state, track, *armed, |s| &mut s.armed)?;
+            Ok(session_outcome(
+                Output::Arm { previous },
+                previous != *armed,
+                ProjectEvent::ArmChanged {
+                    track: track.clone(),
+                    armed: *armed,
+                },
+            ))
+        }
+        Command::SetMonitor { track, monitor } => {
+            let previous = set_flag(state, track, *monitor, |s| &mut s.monitor)?;
+            Ok(session_outcome(
+                Output::SetMonitor { previous },
+                previous != *monitor,
+                ProjectEvent::MonitorChanged {
+                    track: track.clone(),
+                    monitor: *monitor,
+                },
+            ))
+        }
+    }
+}
+
+/// Sets or clears `track` in one of the session's track sets and returns whether it was
+/// in it. A track that is gone can be cleared (a stale id) but not set.
+fn set_flag(
+    state: &mut State,
+    track: &TrackId,
+    on: bool,
+    set: impl FnOnce(&mut project::SessionState) -> &mut std::collections::BTreeSet<TrackId>,
+) -> Result<bool, CommandError> {
+    let exists = state.project.tracks.contains_key(track);
+    let set = set(&mut state.session);
+    let previous = set.contains(track);
+    if !exists && (on || !previous) {
+        return Err(not_found(track));
+    }
+    if on {
+        set.insert(track.clone());
+    } else {
+        set.remove(track);
+    }
+    Ok(previous)
+}
+
+/// The outcome of a session-state command: no inverse, and the event only when it changed.
+fn session_outcome(output: Output, changed: bool, event: ProjectEvent) -> Out {
+    Outcome {
+        output,
+        undo: Undo::None,
+        events: if changed { vec![event] } else { vec![] },
+        control: vec![],
     }
 }
 
@@ -211,7 +333,7 @@ fn last_key(state: &State) -> Result<OrderKey, CommandError> {
 /// The instrument a MIDI track plays, from the registry: refused when the type is
 /// unknown or is not an instrument.
 pub(crate) fn instrument_device(kind_id: &str) -> Result<Device, CommandError> {
-    instrument_from(REGISTRY, kind_id)
+    instrument_from(crate::device::registry(), kind_id)
 }
 
 fn instrument_from(registry: &[Builtin], kind_id: &str) -> Result<Device, CommandError> {
@@ -229,21 +351,11 @@ fn instrument_from(registry: &[Builtin], kind_id: &str) -> Result<Device, Comman
             format!("{kind_id} is not an instrument"),
         ));
     }
-    Ok(Device {
-        order: OrderKey::first(),
-        role: DeviceRole::Instrument,
-        enabled: true,
-        source: DeviceSource::Builtin {
-            id: descriptor.kind.into(),
-            version: descriptor.version,
-        },
-        params: descriptor
-            .params
-            .iter()
-            .map(|p| (p.key.to_owned(), p.default))
-            .collect(),
-        state: None,
-    })
+    Ok(crate::device::built(
+        builtin,
+        DeviceRole::Instrument,
+        OrderKey::first(),
+    ))
 }
 
 fn clip_player() -> Device {
@@ -329,6 +441,18 @@ fn delete(state: &mut State, track_id: &TrackId) -> Result<Out, CommandError> {
             solo: false,
         });
     }
+    if state.session.armed.remove(track_id) {
+        events.push(ProjectEvent::ArmChanged {
+            track: track_id.clone(),
+            armed: false,
+        });
+    }
+    if state.session.monitor.remove(track_id) {
+        events.push(ProjectEvent::MonitorChanged {
+            track: track_id.clone(),
+            monitor: false,
+        });
+    }
     Ok(Outcome {
         output: Output::Delete {
             devices: u32::try_from(track.devices.len()).unwrap_or(u32::MAX),
@@ -378,36 +502,132 @@ fn restore(state: &mut State, track_id: &TrackId, snap: &Track) -> Result<Out, C
 /// devices from the registry; a restore from outside must not bring in what it cannot.
 fn check_devices(snap: &Track) -> Result<(), CommandError> {
     for (id, device) in &snap.devices {
-        let DeviceSource::Builtin { id: kind, .. } = &device.source else {
-            continue;
-        };
-        if kind == CLIP_PLAYER {
-            if !device.params.is_empty() {
-                return Err(invalid(
-                    "snapshot",
-                    format!("device {id}: the clip player has no parameters"),
-                ));
-            }
-            continue;
-        }
-        let builtin = REGISTRY
-            .iter()
-            .find(|b| b.descriptor.kind == kind)
-            .ok_or_else(|| invalid("snapshot", format!("device {id}: unknown device {kind}")))?;
-        if let Some(param) = device.params.keys().find(|k| {
-            !builtin
-                .descriptor
-                .params
-                .iter()
-                .any(|p| p.key == k.as_str())
-        }) {
-            return Err(invalid(
-                "snapshot",
-                format!("device {id}: {kind} has no parameter {param}"),
-            ));
-        }
+        crate::device::check_device(crate::device::registry(), id, device)?;
     }
     Ok(())
+}
+
+/// The track's instrument: its id and device (a chain holds at most one).
+fn instrument_of(track: &Track) -> Option<(&DeviceId, &Device)> {
+    track
+        .devices
+        .iter()
+        .find(|(_, d)| d.role == DeviceRole::Instrument)
+}
+
+fn chain_changed(track: &TrackId) -> Vec<ProjectEvent> {
+    vec![ProjectEvent::DeviceChainChanged {
+        track: track.clone(),
+    }]
+}
+
+fn set_instrument(
+    state: &mut State,
+    ctx: &mut Context,
+    track_id: &TrackId,
+    instrument: &str,
+) -> Result<Out, CommandError> {
+    let track = track_mut(state, track_id)?;
+    if track.kind != TrackKind::Midi {
+        return Err(invalid(
+            "track",
+            "an audio track plays the clip player, whose instrument is not replaced",
+        ));
+    }
+    let mut device = instrument_device(instrument)?;
+    let (old_id, old) = instrument_of(track)
+        .map(|(id, d)| (id.clone(), d.clone()))
+        .ok_or_else(|| invalid("track", "the track has no instrument to replace"))?;
+    let same = matches!(&old.source, DeviceSource::Builtin { id, .. } if id == instrument);
+    if same {
+        return Ok(unchanged(Output::SetInstrument {
+            device: old_id.clone(),
+            previous: old_id,
+        }));
+    }
+    if crate::device::has_lane(track, &old_id) {
+        return Err(invalid(
+            "track",
+            "an automation lane targets the instrument: remove the lane first",
+        ));
+    }
+    // The new instrument takes the old one's place, first in the chain.
+    device.order = old.order.clone();
+    let new_id = DeviceId::generate(&mut ctx.ids);
+    track.devices.remove(&old_id);
+    track.devices.insert(new_id.clone(), device);
+    Ok(Outcome {
+        output: Output::SetInstrument {
+            device: new_id.clone(),
+            previous: old_id.clone(),
+        },
+        undo: Undo::Inverse(Box::new(Command::RestoreInstrument {
+            track: track_id.clone(),
+            current: new_id,
+            device: old_id,
+            snapshot: old,
+        })),
+        events: chain_changed(track_id),
+        control: vec![],
+    })
+}
+
+fn restore_instrument(
+    state: &mut State,
+    track_id: &TrackId,
+    current: &DeviceId,
+    device_id: &DeviceId,
+    snapshot: &Device,
+) -> Result<Out, CommandError> {
+    if snapshot.role != DeviceRole::Instrument {
+        return Err(invalid("snapshot", "only an instrument is swapped in"));
+    }
+    if state.project.contains_id(&device_id.0) {
+        return Err(invalid(
+            "device",
+            format!("the identifier {device_id} is already in use"),
+        ));
+    }
+    crate::device::check_device(crate::device::registry(), device_id, snapshot)?;
+    let track = track_mut(state, track_id)?;
+    let out = track
+        .devices
+        .get(current)
+        .filter(|d| d.role == DeviceRole::Instrument)
+        .cloned()
+        .ok_or_else(|| invalid("current", "that device is not the track's instrument"))?;
+    if crate::device::has_lane(track, current) {
+        return Err(invalid(
+            "current",
+            "an automation lane targets the instrument: remove the lane first",
+        ));
+    }
+    track.devices.remove(current);
+    track.devices.insert(device_id.clone(), snapshot.clone());
+    // The snapshot is data from outside: the whole project must stay valid with it (the
+    // instrument first, the clip player only on an audio track). A refusal puts the
+    // chain back, so the state is untouched.
+    if let Err(violations) = state.project.validate() {
+        if let Some(track) = state.project.tracks.get_mut(track_id) {
+            track.devices.remove(device_id);
+            track.devices.insert(current.clone(), out);
+        }
+        let first = violations
+            .first()
+            .map_or_else(String::new, ToString::to_string);
+        return Err(invalid("snapshot", first));
+    }
+    Ok(Outcome {
+        output: Output::RestoreInstrument {},
+        undo: Undo::Inverse(Box::new(Command::RestoreInstrument {
+            track: track_id.clone(),
+            current: device_id.clone(),
+            device: current.clone(),
+            snapshot: out,
+        })),
+        events: chain_changed(track_id),
+        control: vec![],
+    })
 }
 
 fn track_mut<'a>(state: &'a mut State, track: &TrackId) -> Result<&'a mut Track, CommandError> {
@@ -879,7 +1099,7 @@ mod tests {
         assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "instrument"));
         // An instrument of the registry is accepted, one outside the given registry is
         // not found.
-        assert!(instrument_from(REGISTRY, DEFAULT_INSTRUMENT).is_ok());
+        assert!(instrument_from(crate::device::registry(), DEFAULT_INSTRUMENT).is_ok());
         assert_eq!(
             instrument_from(&registry, "faulk.osc_synth")
                 .unwrap_err()

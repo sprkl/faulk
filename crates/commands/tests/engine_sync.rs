@@ -5,6 +5,7 @@
 use commands::engine_msgs::{CHUNK_ITEMS, Synced, resync, snapshot};
 use commands::{Command, ControlMsg, Output, State, testing};
 use engine::msg::{ClipSlot, DeviceSlot, ParamId, SceneSlot, TrackSlot};
+use engine::time::LoopRegion;
 use project::{OrderKey, Scene, SceneId, Tick, TrackId};
 use serde_json::{Value, json};
 
@@ -470,7 +471,7 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
 }
 
 #[test]
-fn a_huge_parameter_value_saturates_and_still_encodes() {
+fn a_huge_parameter_value_is_clamped_by_the_command_and_a_huge_stored_one_still_encodes() {
     let (mut s, synth, _) = synced();
     let device = s.state.project.tracks[&synth]
         .devices
@@ -478,18 +479,71 @@ fn a_huge_parameter_value_saturates_and_still_encodes() {
         .next()
         .unwrap()
         .clone();
-    let (_, bytes) = s
+    // The command clamps to the descriptor's range (DV-8): the engine gets the bound.
+    let (outcome, bytes) = s
         .run(&cmd(
             json!({"type": "device.set_param", "device": device, "param": "gain", "value": 1e39}),
         ))
         .expect("the command and its message encode");
     assert!(!bytes.is_empty());
+    assert!(matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == 1.0));
     let (outcome, _) = s
         .run(&cmd(json!({"type": "device.set_param", "device": device, "param": "attack", "value": -1e300})))
         .unwrap();
-    assert!(
-        matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == f32::MIN)
-    );
-    // The project keeps 1e39; its snapshot still encodes.
+    assert!(matches!(outcome.control[..], [ControlMsg::ParamSet { value, .. }] if value == 0.002));
+    // A project from outside may still hold a value past f32: its snapshot saturates and
+    // still encodes.
+    s.state
+        .project
+        .tracks
+        .get_mut(&synth)
+        .unwrap()
+        .devices
+        .get_mut(&device)
+        .unwrap()
+        .params
+        .insert("gain".into(), 1e39);
     s.resync().expect("the snapshot encodes");
+}
+
+#[test]
+fn a_clip_upload_carries_its_loop_and_every_field_of_its_notes() {
+    let (mut s, track, scene) = synced();
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": track, "at": {"at": "slot", "scene": scene}, "length": 3840}),
+    );
+    let Output::Clip(commands::clip::Output::Create { clip, .. }) = out else {
+        panic!("{out:?}")
+    };
+    run(
+        &mut s,
+        json!({"type": "clip.notes.add", "clip": clip, "notes": [
+            {"start": 0, "pitch": 60, "length": 10, "velocity": 1},
+            {"start": 0, "pitch": 60, "length": 10, "velocity": 1, "cents": -20, "chance": 40, "repeat": 3}
+        ]}),
+    );
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.set_loop", "clip": clip, "looping": {"start": 960, "end": 1920}}),
+    );
+    let [ControlMsg::ClipNotesUpload { looping, notes, .. }] = &msgs[..] else {
+        panic!("{msgs:?}")
+    };
+    assert_eq!(*looping, LoopRegion::new(Tick(960), Tick(1920)));
+    // Two notes that differ only by their optional fields stay two notes.
+    let mut fields: Vec<(i8, u8, u8)> = notes
+        .iter()
+        .map(|n| (n.cents, n.chance, n.repeat))
+        .collect();
+    fields.sort();
+    assert_eq!(fields, [(-20, 40, 3), (0, 100, 1)]);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.set_loop", "clip": clip, "looping": null}),
+    );
+    assert!(matches!(
+        msgs[..],
+        [ControlMsg::ClipNotesUpload { looping: None, .. }]
+    ));
 }

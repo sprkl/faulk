@@ -1,0 +1,2 @@
+2026-10-21
+* **Update** (#262): the flaky `helper.spec.ts` was a real race in the Boost to Web switch. `enterWeb` made the Web engine current before its snapshot was pushed, so a note played in between reached the engine first and the snapshot's new epoch wiped it. The helper now stays current until the Web engine has its snapshot, and the switch is synchronous. `FAULK_E2E_HELPER_PORT` moves the stand-in helper (and the page's target at build time) when an installed helper holds port 47800 (`docs/agents/verification.md`).

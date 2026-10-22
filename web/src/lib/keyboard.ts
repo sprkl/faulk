@@ -1,6 +1,15 @@
 /**
  * Computer keyboard as a piano. Keys are matched by physical position
  * (`KeyboardEvent.code`), so the layout is the same on QWERTY and AZERTY.
+ *
+ * The rule between playing and shortcuts (UI-3): no shortcut fires while the keyboard plays, meaning no
+ * key does both: a played key never fires a shortcut, and a shortcut never plays a note. A shortcut
+ * pressed while a note is held still works (undo stays reachable); the held note goes on.
+ * - A played key is a bare letter or Semicolon (the keys of `KEY_OFFSETS`, plus Z and X for the octave).
+ * - An application shortcut never uses a bare letter: it carries Ctrl or Cmd (`historyShortcut`), or is
+ *   a key that plays nothing (F2 to rename, Escape, Enter, the arrows, Delete).
+ * - So playing ignores any event with Ctrl, Cmd or Alt held (`ignoreKeyEvent`) and the shortcuts ignore
+ *   bare letters; a new shortcut must keep to this, and `keyboard.test.ts` enumerates both sides.
  */
 
 /** Semitone offset from C of each key, two rows like a piano. */
@@ -12,6 +21,23 @@ const KEY_OFFSETS: Record<string, number> = {
 export const MIN_OCTAVE = 0
 export const MAX_OCTAVE = 8
 export const DEFAULT_OCTAVE = 4
+/** The octave that puts the drum sounds (notes 36 to 46: kick A, snare S, clap E, closed hat T, open hat U) on the key row. */
+export const DRUMS_OCTAVE = 2
+
+/** The octave the keyboard starts at for a track whose instrument is of this kind (`faulk.drums` or any other, or none). */
+export function defaultOctave(instrumentKind: string | null): number {
+  return instrumentKind === 'faulk.drums' ? DRUMS_OCTAVE : DEFAULT_OCTAVE
+}
+
+/**
+ * The application shortcuts that need no modifier, by `KeyboardEvent.key` (Space by `code`): F2 renames
+ * a track, Escape cancels (a rename, the add-track menu, a tempo edit), Enter confirms a rename or a
+ * tempo, the arrows step the tempo field, Space plays and stops the transport. None of them plays a note.
+ */
+export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space']
+
+/** Every physical key that plays a note, for the rule above. */
+export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)
 
 /** MIDI note for a key at an octave (C4 = 60), or null when the key plays nothing. */
 export function noteForKey(code: string, octave: number): number | null {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { clampOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep } from './keyboard'
+import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS } from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -64,5 +64,67 @@ describe('history shortcuts', () => {
     const range = document.createElement('input')
     range.type = 'range'
     expect(historyShortcut({ ...base, target: range })).toBe('undo')
+  })
+})
+
+describe('playing and shortcuts never meet (UI-3)', () => {
+  const letter = (code: string) => (code === 'Semicolon' ? ';' : code.replace('Key', '').toLowerCase())
+  const bare = { repeat: false, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: document.body }
+
+  it('plays no note from a key that fires a shortcut: every playing key, bare, fires none', () => {
+    expect(PLAYING_KEYS.length).toBe(17)
+    for (const code of [...PLAYING_KEYS, 'KeyZ', 'KeyX']) {
+      expect(historyShortcut({ ...bare, key: letter(code) }), code).toBeNull()
+      expect(historyShortcut({ ...bare, shiftKey: true, key: letter(code).toUpperCase() }), code).toBeNull()
+    }
+  })
+
+  it('plays nothing while a shortcut is held: every playing key with Ctrl, Cmd or Alt is ignored', () => {
+    for (const code of [...PLAYING_KEYS, 'KeyZ', 'KeyX']) {
+      for (const held of ['ctrlKey', 'metaKey', 'altKey'] as const) {
+        expect(ignoreKeyEvent({ ...bare, code, key: letter(code), [held]: true } as never), `${code} ${held}`).toBe(true)
+      }
+    }
+    // The shortcut itself still works, and it is the undo, not a note nor an octave step.
+    expect(historyShortcut({ ...bare, ctrlKey: true, key: 'z' })).toBe('undo')
+  })
+
+  it('starts drums where their sounds are (notes 36 to 46 on the key row), anything else at octave 4', () => {
+    const octave = defaultOctave('faulk.drums')
+    const notes = PLAYING_KEYS.map((code) => noteForKey(code, octave))
+    for (const sound of [36, 38, 39, 42, 46]) expect(notes, `note ${sound}`).toContain(sound)
+    expect(noteForKey('KeyA', octave)).toBe(36)
+    expect(defaultOctave('faulk.osc_synth')).toBe(4)
+    expect(defaultOctave(null)).toBe(4)
+  })
+
+  it('keeps the bare shortcuts off the playing keys, and knows every component that handles keys', () => {
+    for (const code of BARE_SHORTCUT_CODES) {
+      expect(PLAYING_KEYS, code).not.toContain(code)
+      expect(octaveStep(code), code).toBe(0)
+    }
+    // Every component with a key handler is listed here: a new one must follow the rule of keyboard.ts
+    // (no bare letter) and be added, with the keys it reads, to this table and to BARE_SHORTCUT_CODES.
+    const sources = import.meta.glob(['/src/**/*.svelte', '/src/**/*.ts', '!/src/**/*.test.ts', '!/src/lib/generated/**'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+    const handlers: Record<string, string[]> = {}
+    for (const [file, text] of Object.entries(sources)) {
+      if (!/\bon(keydown|keyup)\b|addEventListener\(\s*'key(down|up)'/.test(text)) continue
+      // Every literal a handler compares a key or a code with: `=== 'x'`, `!== 'x'`, `case 'x':`.
+      const reads = [...text.matchAll(/(?:\.(?:key|code)\s*[!=]==\s*|bcase\s+)'([^']+)'/g)].map((m) => m[1]!)
+      handlers[file.replace('/src/', '')] = reads.sort()
+    }
+    expect(handlers).toEqual({
+      'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'],
+      'views/play/PlayView.svelte': [],
+      'views/shell/Shell.svelte': [],
+      'views/tracks/TrackList.svelte': ['Escape'],
+      'views/transport/Transport.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'Space'],
+    })
+    const bare = new Set(Object.values(handlers).flat())
+    for (const key of bare) expect(BARE_SHORTCUT_CODES, key).toContain(key)
   })
 })

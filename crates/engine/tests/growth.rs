@@ -107,6 +107,7 @@ fn note(i: u32) -> Note {
         length: Tick(240),
         pitch: (i % 128) as u8,
         velocity: 100,
+        ..Note::default()
     }
 }
 
@@ -130,7 +131,7 @@ fn upload(clip: u32, first: u32, total: u32, n: u32) -> M {
     M::ClipNotesUpload {
         clip: ClipSlot(clip),
         length: Tick(3840),
-        looped: true,
+        looping: None,
         first,
         total,
         notes: (first..first + n).map(note).collect(),
@@ -600,6 +601,7 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             placements: Table::from_vec(Vec::new()),
             launch: None,
             graph: Default::default(),
+            player: Default::default(),
         }),
         grown: Some(Table::try_filled(2).unwrap()),
     });
@@ -722,7 +724,7 @@ fn a_device_is_built_with_its_initial_state() {
 
 fn notes_of(e: &Engine, clip: u32) -> Option<usize> {
     match &e.state().clip(ClipSlot(clip))?.content {
-        ClipContent::Notes(n) => Some(n.len()),
+        ClipContent::Notes(n) => Some(n.notes()),
         ClipContent::Audio { .. } => None,
     }
 }

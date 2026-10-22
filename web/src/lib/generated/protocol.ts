@@ -8,7 +8,7 @@ export type SynthParam = keyof typeof PARAM_IDS
 /** The ids of the one synth until the project runs in the page (PR-4, PR-5), and its device kind. */
 export const SINGLE_SYNTH = {"device":"00000000000000000000000002","kind":"faulk.osc_synth","track":"00000000000000000000000001"} as const
 /** The descriptor of every built-in device (CT-5, DV-1): the UI builds the device panels from them. */
-export const DEVICES = [{"kind":"faulk.osc_synth","kind_id":1,"memory_bytes":968,"midi_output":null,"name":"Oscillator","params":[{"default":1,"id":0,"key":"waveform","max":3,"min":0,"scale":"linear","smoothing_seconds":0,"step":1,"unit":"none","values":["sine","saw","square","triangle"]},{"default":0.005,"id":1,"key":"attack","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.2,"id":2,"key":"decay","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.7,"id":3,"key":"sustain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.005,"step":0,"unit":"none","values":[]},{"default":0.3,"id":4,"key":"release","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.8,"id":5,"key":"gain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]}],"role":"instrument","version":1},{"kind":"faulk.drums","kind_id":2,"memory_bytes":520,"midi_output":null,"name":"Drums","params":[{"default":52,"id":0,"key":"kick_tune","max":120,"min":30,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.45,"id":1,"key":"kick_decay","max":1.5,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"id":2,"key":"kick_punch","max":1,"min":0,"scale":"linear","smoothing_seconds":0,"step":0,"unit":"none","values":[]},{"default":0.9,"id":3,"key":"kick_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":185,"id":4,"key":"snare_tune","max":400,"min":100,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.2,"id":5,"key":"snare_decay","max":0.8,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"id":6,"key":"snare_snap","max":1,"min":0,"scale":"linear","smoothing_seconds":0,"step":0,"unit":"none","values":[]},{"default":0.8,"id":7,"key":"snare_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":1500,"id":8,"key":"clap_tone","max":4000,"min":600,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.3,"id":9,"key":"clap_decay","max":1,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.7,"id":10,"key":"clap_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":7000,"id":11,"key":"hat_tone","max":12000,"min":3000,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.05,"id":12,"key":"hat_decay","max":0.4,"min":0.01,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.5,"id":13,"key":"hat_open_decay","max":2,"min":0.1,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"id":14,"key":"hat_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":0.8,"id":15,"key":"gain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]}],"role":"instrument","version":1}] as const
+export const DEVICES = [{"kind":"faulk.osc_synth","kind_id":1,"memory_bytes":968,"midi_output":null,"name":"Oscillator","params":[{"default":1,"description":"Shape of the oscillator: sine, saw, square or triangle.","id":0,"key":"waveform","max":3,"min":0,"scale":"linear","smoothing_seconds":0,"step":1,"unit":"none","values":["sine","saw","square","triangle"]},{"default":0.005,"description":"Time the note takes to reach full level after it starts, in seconds.","id":1,"key":"attack","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.2,"description":"Time the level takes to fall from full to the sustain level, in seconds.","id":2,"key":"decay","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.7,"description":"Level held while the note is down, from 0 to 1 of full level.","id":3,"key":"sustain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.005,"step":0,"unit":"none","values":[]},{"default":0.3,"description":"Time the level takes to fade out after the note ends, in seconds.","id":4,"key":"release","max":30,"min":0.002,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.8,"description":"Output level of the synth, from 0 to 1 (linear gain).","id":5,"key":"gain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]}],"role":"instrument","version":1},{"kind":"faulk.drums","kind_id":2,"memory_bytes":520,"midi_output":null,"name":"Drums","params":[{"default":52,"description":"Pitch the kick settles on after its fast fall, in hertz.","id":0,"key":"kick_tune","max":120,"min":30,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.45,"description":"How long the kick rings, in seconds.","id":1,"key":"kick_decay","max":1.5,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"description":"Depth of the initial pitch fall of the kick: 0 is soft, 1 is the sharpest attack.","id":2,"key":"kick_punch","max":1,"min":0,"scale":"linear","smoothing_seconds":0,"step":0,"unit":"none","values":[]},{"default":0.9,"description":"Loudness of the kick, from 0 to 1 (linear gain).","id":3,"key":"kick_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":185,"description":"Pitch of the snare tone, in hertz.","id":4,"key":"snare_tune","max":400,"min":100,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.2,"description":"How long the snare rings, in seconds.","id":5,"key":"snare_decay","max":0.8,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"description":"Balance between the tone (0) and the noise (1) of the snare.","id":6,"key":"snare_snap","max":1,"min":0,"scale":"linear","smoothing_seconds":0,"step":0,"unit":"none","values":[]},{"default":0.8,"description":"Loudness of the snare, from 0 to 1 (linear gain).","id":7,"key":"snare_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":1500,"description":"Centre frequency of the clap noise, in hertz.","id":8,"key":"clap_tone","max":4000,"min":600,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.3,"description":"How long the clap rings, in seconds.","id":9,"key":"clap_decay","max":1,"min":0.05,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.7,"description":"Loudness of the clap, from 0 to 1 (linear gain).","id":10,"key":"clap_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":7000,"description":"Brightness of the hi-hat, as the pitch of its metallic tone in hertz.","id":11,"key":"hat_tone","max":12000,"min":3000,"scale":"log","smoothing_seconds":0,"step":0,"unit":"hertz","values":[]},{"default":0.05,"description":"How long the closed hi-hat rings, in seconds.","id":12,"key":"hat_decay","max":0.4,"min":0.01,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.5,"description":"How long the open hi-hat rings, in seconds.","id":13,"key":"hat_open_decay","max":2,"min":0.1,"scale":"log","smoothing_seconds":0,"step":0,"unit":"seconds","values":[]},{"default":0.6,"description":"Loudness of the hi-hat, from 0 to 1 (linear gain).","id":14,"key":"hat_level","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]},{"default":0.8,"description":"Output level of the whole kit, from 0 to 1 (linear gain).","id":15,"key":"gain","max":1,"min":0,"scale":"linear","smoothing_seconds":0.01,"step":0,"unit":"gain","values":[]}],"role":"instrument","version":1}] as const
 /**
  * A Faulk command, `{"type": "domain.verb", ...}`. One variant per domain; the
  * domain's enum holds its commands.
@@ -74,6 +74,42 @@ order: OrderKey
  */
 track: string
 type: "track.restore_order"
+} | {
+instrument: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.set_instrument"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+current: string
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+snapshot: Device
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.restore_instrument"
+} | {
+armed: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.arm"
+} | {
+monitor: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.set_monitor"
 } | {
 name?: (string | null)
 /**
@@ -198,7 +234,53 @@ offset: number
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type DeviceCommand = {
+export type DeviceCommand = ({
+index: number
+kind: string
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.insert"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.remove"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+snapshot: Device
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.restore"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+index: number
+type: "device.move"
+} | {
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+order: OrderKey
+type: "device.restore_order"
+} | {
+bypass: boolean
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.set_bypass"
+} | {
 /**
  * Identifier of a device in a track's chain.
  */
@@ -206,7 +288,7 @@ device: string
 param: string
 type: "device.set_param"
 value: number
-}
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -434,6 +516,17 @@ note: number
 track: string
 type: "live.note_off"
 } | {
+note: number
+type: "live.input_note_on"
+velocity: number
+} | {
+note: number
+type: "live.input_note_off"
+} | {
+controller: number
+type: "live.control_change"
+value: number
+} | {
 type: "live.all_notes_off"
 })
 /**
@@ -519,6 +612,30 @@ type: "track.move"
 type: "track.restore_order"
 } | {
 /**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+/**
+ * Identifier of a device in a track's chain.
+ */
+previous: string
+type: "track.set_instrument"
+} | {
+type: "track.restore_instrument"
+} | {
+/**
+ * Whether the track was armed before the command.
+ */
+previous: boolean
+type: "track.arm"
+} | {
+/**
+ * Whether the track was monitored before the command.
+ */
+previous: boolean
+type: "track.set_monitor"
+} | {
+/**
  * Identifier of a track.
  */
 track: string
@@ -527,13 +644,45 @@ type: "track.duplicate"
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type DeviceOutput = {
+export type DeviceOutput = ({
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device.insert"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device.remove"
+} | {
+type: "device.restore"
+} | {
+/**
+ * The effect's index before the command.
+ */
+previous_index: number
+type: "device.move"
+} | {
+type: "device.restore_order"
+} | {
+/**
+ * Whether the device was bypassed before the command.
+ */
+previous: boolean
+type: "device.set_bypass"
+} | {
 /**
  * The value before the command.
  */
 previous: number
 type: "device.set_param"
-}
+/**
+ * The value now: the one asked for, clamped and rounded.
+ */
+value: number
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -737,6 +886,25 @@ type: "live.note_on"
 } | {
 type: "live.note_off"
 } | {
+/**
+ * The tracks the note is routed to; empty when no MIDI track is selected or armed.
+ * A track the engine has no room for is listed but plays nothing.
+ * 
+ * Items: Identifier of a track.
+ */
+tracks: string[]
+type: "live.input_note_on"
+} | {
+/**
+ * The tracks the note was released on; empty when it was not held.
+ * 
+ * Items: Identifier of a track.
+ */
+tracks: string[]
+type: "live.input_note_off"
+} | {
+type: "live.control_change"
+} | {
 type: "live.all_notes_off"
 })
 /**
@@ -922,6 +1090,19 @@ param: string
 type: "device_param_changed"
 value: number
 } | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "device_chain_changed"
+} | {
+bypass: boolean
+/**
+ * Identifier of a device in a track's chain.
+ */
+device: string
+type: "device_bypass_changed"
+} | {
 gain_db?: (number | null)
 mute: boolean
 pan: number
@@ -934,6 +1115,24 @@ solo: boolean
  */
 track: string
 type: "solo_changed"
+} | {
+armed: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "arm_changed"
+} | {
+monitor: boolean
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "monitor_changed"
+} | {
+controller: number
+type: "control_change"
+value: number
 } | {
 bpm: number
 type: "tempo_changed"
@@ -1585,9 +1784,23 @@ gain_db?: (number | null)
  */
 export interface SessionState {
 /**
+ * The armed tracks (RE-1): live input reaches them besides the selected track, and
+ * recording (RE-2) captures them. A session saved before arming existed has none.
+ * 
+ * Items: Identifier of a track.
+ */
+armed?: string[]
+/**
  * The name of the chosen MIDI input port; `None` when none is chosen.
  */
 midi_input?: (string | null)
+/**
+ * The tracks that monitor the live input through their chain (RE-1). Kept for the
+ * audio input; a MIDI track's instrument always sounds what is played.
+ * 
+ * Items: Identifier of a track.
+ */
+monitor?: string[]
 /**
  * The selected track: where live MIDI goes. `None` when no track is selected.
  */

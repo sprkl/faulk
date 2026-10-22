@@ -39,9 +39,17 @@ describe('the tracks in the project store', () => {
     expect(store.soloed).toEqual([a.id])
     run(commands.setMute(a.id, true))
     expect(store.tracks[0].track.mixer.mute).toBe(true)
+    run(commands.armTrack(a.id, true))
+    run(commands.setMonitor(b.id, true))
+    expect([store.armed, store.monitored]).toEqual([[a.id], [b.id]])
+    run(commands.armTrack(a.id, false))
+    expect(store.armed).toEqual([])
+    run(commands.armTrack(a.id, true))
     run(commands.deleteTrack(b.id))
     expect(store.tracks.map((e) => e.id)).toEqual([a.id])
     expect(store.selected).toBeNull()
+    expect(store.monitored).toEqual([])
+    expect(store.armed).toEqual([a.id])
   })
 
   it('follows a rename, a colour, a volume and a pan', () => {
@@ -56,27 +64,8 @@ describe('the tracks in the project store', () => {
     expect([track.name, track.color, track.mixer.gain_db, track.mixer.pan]).toEqual(['Lead', '#e86fb0', -6, 0.25])
   })
 
-  it('exposes the oscillator of the selected track only, with its settings over the defaults', () => {
-    const { store, run } = session()
-    run(commands.createTrack('midi', 'faulk.osc_synth', '#58c27d'))
-    run(commands.createTrack('midi', 'faulk.drums', '#5b8def'))
-    run(commands.createTrack('audio', null, '#e86fb0'))
-    const [osc, drums, audio] = store.tracks
-    expect(store.synth).toBeNull()
-    run(commands.selectTrack(drums.id))
-    expect(store.synth).toBeNull()
-    run(commands.selectTrack(audio.id))
-    expect(store.synth).toBeNull()
-    run(commands.selectTrack(osc.id))
-    expect(store.synth?.track).toBe(osc.id)
-    expect(store.synth?.params.gain).toBeTypeOf('number')
-    const device = store.synth!.device
-    run({ type: 'device.set_param', device, param: 'gain', value: 0.25 })
-    expect(store.synth?.params.gain).toBe(0.25)
-  })
-
   it('has no tracks before a project is shown', () => {
     const store = new ProjectStore()
-    expect([store.tracks, store.selected, store.synth, store.soloed]).toEqual([[], null, null, []])
+    expect([store.tracks, store.selected, store.soloed, store.armed, store.monitored]).toEqual([[], null, [], [], []])
   })
 })

@@ -1,0 +1,2 @@
+2026-10-21
+* **Update** (#85): RE-1, arming and monitoring (`track.arm`, `track.set_monitor`, session state, not in the history) and the live input (`live.input_note_on`, `live.input_note_off`, `live.control_change`): the command layer routes a note to the selected and the armed MIDI tracks and releases it where it started, in Web and in Boost; `docs/architecture/02-modele-projet.md` and `03-stockage-local.md` list the new session fields.

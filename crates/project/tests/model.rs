@@ -384,6 +384,8 @@ fn the_session_is_kept_apart_from_the_project() {
     session.solo.insert(fx.midi.clone());
     session.selected_track = Some(fx.audio.clone());
     session.midi_input = Some("Keystation 49".into());
+    session.armed.insert(fx.midi.clone());
+    session.monitor.insert(fx.midi.clone());
     // The project's text does not move; the session has its own.
     assert_eq!(serde_json::to_string(&fx.project).unwrap(), before);
     let s = serde_json::to_string(&session).unwrap();
@@ -394,12 +396,19 @@ fn the_session_is_kept_apart_from_the_project() {
     other.tracks.clear();
     assert!(session.forget_missing_tracks(&other));
     assert!(session.solo.is_empty() && session.selected_track.is_none());
+    assert!(session.armed.is_empty() && session.monitor.is_empty());
     assert_eq!(session.midi_input.as_deref(), Some("Keystation 49"));
     assert!(!session.forget_missing_tracks(&other));
     let mut kept = SessionState::default();
     kept.solo.insert(fx.midi.clone());
     assert!(!kept.forget_missing_tracks(&fx.project));
     assert_eq!(kept.solo.len(), 1);
+    // A session saved before arming existed still loads, with nothing armed.
+    let old = r#"{"selected_track":null,"solo":[],"midi_input":null}"#;
+    assert_eq!(
+        serde_json::from_str::<SessionState>(old).unwrap(),
+        SessionState::default()
+    );
 }
 
 #[test]
@@ -499,6 +508,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         TempoMap => "TempoMap",
         MeterMap => "MeterMap",
         NotFinite => "NotFinite",
+        GainOutOfRange => "GainOutOfRange",
         PanOutOfRange => "PanOutOfRange",
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
@@ -511,7 +521,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 30] = [
+const ALL_KINDS: [&str; 31] = [
     "MissingInstrument",
     "BadSampleRate",
     "Format",
@@ -535,6 +545,7 @@ const ALL_KINDS: [&str; 30] = [
     "TempoMap",
     "MeterMap",
     "NotFinite",
+    "GainOutOfRange",
     "PanOutOfRange",
     "TooManyInstruments",
     "InstrumentNotFirst",
@@ -955,6 +966,41 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "NotFinite",
         ),
         (
+            "master gain 6.5 dB",
+            Box::new(|fx| fx.project.master.gain_db = 6.5),
+            "GainOutOfRange",
+        ),
+        (
+            "track gain -96.5 dB",
+            Box::new(|fx| midi_track(fx).mixer.gain_db = -96.5),
+            "GainOutOfRange",
+        ),
+        (
+            "metronome gain 6.5 dB",
+            Box::new(|fx| fx.project.transport.metronome.gain_db = 6.5),
+            "GainOutOfRange",
+        ),
+        (
+            "metronome gain -96.5 dB",
+            Box::new(|fx| fx.project.transport.metronome.gain_db = -96.5),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at 6.5 dB",
+            Box::new(|fx| insert_gain_point(fx, 6.5)),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at -96.5 dB",
+            Box::new(|fx| insert_gain_point(fx, -96.5)),
+            "GainOutOfRange",
+        ),
+        (
+            "gain automation point at -inf",
+            Box::new(|fx| insert_gain_point(fx, f64::NEG_INFINITY)),
+            "NotFinite",
+        ),
+        (
             "+inf clip gain",
             Box::new(|fx| {
                 if let ClipContent::Audio { gain_db, .. } = audio_content(fx) {
@@ -1184,6 +1230,124 @@ fn violations_carry_their_path_and_are_all_reported() {
     assert_eq!(violations[0].path, "format");
     assert_eq!(violations[1].path, format!("tracks/{}", fx.midi));
     assert_eq!(violations[1].kind, ViolationKind::PanOutOfRange);
+}
+
+#[test]
+fn gain_below_the_minimum_is_refused_with_its_path() {
+    let mut fx = fixture();
+    midi_track(&mut fx).mixer.gain_db = MIN_GAIN_DB;
+    fx.project.validate().expect("the minimum is a valid gain");
+    midi_track(&mut fx).mixer.gain_db = MIN_GAIN_DB - 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, format!("tracks/{}", fx.midi));
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
+#[test]
+fn gain_above_the_maximum_is_refused_with_its_path() {
+    let mut fx = fixture();
+    fx.project.master.gain_db = MAX_GAIN_DB;
+    fx.project.validate().expect("the maximum is a valid gain");
+    fx.project.master.gain_db = MAX_GAIN_DB + 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "master");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
+/// Adds a gain automation lane on the MIDI track with one point at tick 0.
+fn insert_gain_point(fx: &mut Fx, value: f64) {
+    let lane = AutomationLane {
+        target: AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        points: BTreeMap::from([(
+            Tick(0),
+            AutomationPoint {
+                value,
+                shape: Shape::Step,
+            },
+        )]),
+    };
+    midi_track(fx)
+        .automation
+        .insert(LaneId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(), lane);
+}
+
+#[test]
+fn metronome_gain_bounds_are_checked_with_their_path() {
+    let mut fx = fixture();
+    fx.project.transport.metronome.gain_db = MIN_GAIN_DB;
+    fx.project.validate().expect("the minimum is a valid level");
+    fx.project.transport.metronome.gain_db = MIN_GAIN_DB - 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "transport/metronome");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+
+    fx.project.transport.metronome.gain_db = MAX_GAIN_DB;
+    fx.project.validate().expect("the maximum is a valid level");
+    fx.project.transport.metronome.gain_db = MAX_GAIN_DB + 0.5;
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "transport/metronome");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
+#[test]
+fn gain_automation_bounds_are_checked_with_their_path() {
+    let mut fx = fixture();
+    let lane_path = format!("tracks/{}/automation/01ARZ3NDEKTSV4RRFFQ69G5FAV", fx.midi);
+    insert_gain_point(&mut fx, MIN_GAIN_DB);
+    fx.project
+        .validate()
+        .expect("the minimum is a valid gain point");
+    insert_gain_point(&mut fx, MIN_GAIN_DB - 0.5);
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, lane_path);
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+
+    insert_gain_point(&mut fx, MAX_GAIN_DB);
+    fx.project
+        .validate()
+        .expect("the maximum is a valid gain point");
+    insert_gain_point(&mut fx, MAX_GAIN_DB + 0.5);
+    let violations = fx.project.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, lane_path);
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+}
+
+#[test]
+fn silence_is_a_valid_gain_on_a_track_and_on_the_master() {
+    // `null` in the file reads as -inf: silence, outside the finite range.
+    let mut fx = fixture();
+    fx.project.master.gain_db = f64::NEG_INFINITY;
+    midi_track(&mut fx).mixer.gain_db = f64::NEG_INFINITY;
+    fx.project.transport.metronome.gain_db = f64::NEG_INFINITY;
+    fx.project.validate().expect("silence is valid");
+}
+
+#[test]
+fn a_gain_read_from_text_is_checked_and_null_is_silence() {
+    // What a file holds: a number for a gain, `null` for silence.
+    let mut fx = fixture();
+    fx.project.master.gain_db = 7.0;
+    let text = serde_json::to_string(&fx.project).unwrap();
+    assert!(text.contains("\"gain_db\":7.0"), "{text}");
+    let read: Project = serde_json::from_str(&text).unwrap();
+    let violations = read.validate().unwrap_err();
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert_eq!(violations[0].path, "master");
+    assert_eq!(violations[0].kind, ViolationKind::GainOutOfRange);
+
+    fx.project.master.gain_db = f64::NEG_INFINITY;
+    let text = serde_json::to_string(&fx.project).unwrap();
+    assert!(text.contains("\"gain_db\":null"), "{text}");
+    let read: Project = serde_json::from_str(&text).unwrap();
+    read.validate().expect("null is silence");
 }
 
 #[test]

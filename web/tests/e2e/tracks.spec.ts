@@ -143,15 +143,11 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
       await page.keyboard.up('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b0\b/)
-      // The drums answer on C2 (the kick): two octaves down with Z.
+      // The drums answer on A (the kick, C2) at once: their octave is the keyboard's default (UI-3).
       await header(page, 'Kit').getByTestId('track-name').click()
-      await page.keyboard.press('KeyZ')
-      await page.keyboard.press('KeyZ')
       await page.keyboard.down('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b[1-9]/)
       await page.keyboard.up('KeyA')
-      await page.keyboard.press('KeyX')
-      await page.keyboard.press('KeyX')
       // A held note survives a change elsewhere in the project, and a click on a control of another
       // track neither selects it nor moves the keyboard.
       await header(page, x.track(3)).getByTestId('track-name').click()

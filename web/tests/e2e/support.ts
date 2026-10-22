@@ -2,13 +2,14 @@ import type { Page } from '@playwright/test'
 
 /** The helper's address (`src/lib/engine/helper-client.ts`). */
 export const HELPER_HOST = '127.0.0.1'
-export const HELPER_PORT = 47800
+/** `FAULK_E2E_HELPER_PORT` moves the stand-in helper (and the page's target, at build time) when 47800 is held by an installed helper. */
+export const HELPER_PORT = Number(process.env.FAULK_E2E_HELPER_PORT) || 47800
 
 /**
  * The page probes the helper on load; with no helper listening, the browser logs the refused
  * WebSocket as a console error. That one is expected and is the only one ignored.
  */
-const REFUSED_PROBE = /^WebSocket connection to 'ws:\/\/127\.0\.0\.1:47800\/probe' failed/
+const REFUSED_PROBE = new RegExp(String.raw`^WebSocket connection to 'ws://127\.0\.0\.1:${HELPER_PORT}/probe' failed`)
 
 /** Collects console errors and uncaught exceptions, and every request the page makes. */
 export function watch(page: Page) {

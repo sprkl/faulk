@@ -1,5 +1,6 @@
 //! The frozen parts of `engine::msg` (CT-3): header codec, tags, limits, sizes.
 
+use engine::clip_player::PackedNote;
 use engine::engine::{Clip, DeviceEntry, Lane, Source, Track};
 use engine::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg,
@@ -9,7 +10,7 @@ use engine::msg::{
     TrackSlot, limits,
 };
 use engine::msg::{Garbage, LiveEvent};
-use engine::time::{Frame, Quantize, Tempo, Tick, TimeSignature};
+use engine::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 
 fn header(tag: Tag, len: u32) -> Header {
     Header {
@@ -110,7 +111,7 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::ClipNotesUpload {
             clip: ClipSlot(0),
             length: Tick(3840),
-            looped: true,
+            looping: None,
             first: 0,
             total: 0,
             notes: vec![],
@@ -329,7 +330,12 @@ fn limits_fit_under_the_wasm32_cap() {
     // exists next to the old one during a growth), plus the largest table once more for
     // the fragmentation of a linear memory that never shrinks (freed blocks of
     // 1 + 2 + … + n/2 cannot hold 2n), the track buffers, the PCM budget, the rings.
-    let notes = u64::from(MAX_NOTES) * size_of::<Note>() as u64;
+    // A clip's notes as the clip player keeps them (CL-2): a packed note and its two
+    // entries of the delivery order each, one held bit; per clip, its count and a held
+    // word at most for the rounding.
+    let notes = u64::from(MAX_NOTES) * (size_of::<PackedNote>() + 2 * size_of::<u32>()) as u64
+        + u64::from(MAX_NOTES).div_ceil(32) * 4
+        + u64::from(MAX_CLIPS) * 8;
     let points = u64::from(MAX_AUTOMATION_POINTS) * size_of::<AutomationPoint>() as u64;
     let placements = u64::from(MAX_PLACEMENTS) * size_of::<Placement>() as u64;
     // The runtime tables as MO-1 builds them: a slot (a pointer) per entry plus the boxed
@@ -418,9 +424,22 @@ fn rich_samples() -> Vec<ControlMsg> {
     use engine::msg::{Curve, Span};
     let mut out = samples();
     out.push(ControlMsg::ClipNotesUpload {
+        clip: ClipSlot(8),
+        length: Tick(7680),
+        looping: LoopRegion::new(Tick(3840), Tick(7200)),
+        first: 0,
+        total: 1,
+        notes: vec![Note {
+            cents: 37,
+            chance: 64,
+            repeat: 3,
+            ..Note::default()
+        }],
+    });
+    out.push(ControlMsg::ClipNotesUpload {
         clip: ClipSlot(7),
         length: Tick(-5),
-        looped: false,
+        looping: None,
         first: 3,
         total: 9,
         notes: vec![
@@ -429,6 +448,9 @@ fn rich_samples() -> Vec<ControlMsg> {
                 length: Tick(i64::MAX),
                 pitch: 127,
                 velocity: 0,
+                cents: -50,
+                chance: 0,
+                repeat: 16,
             };
             3
         ],
@@ -599,13 +621,52 @@ fn out_of_range_values_are_bad_payloads() {
     let upload = ControlMsg::ClipNotesUpload {
         clip: ClipSlot(0),
         length: Tick(1),
-        looped: false,
+        looping: None,
         first: 0,
         total: 1,
         notes: vec![Note::default()],
     };
     assert_eq!(
-        decode(&upload, 21, &u32::MAX.to_le_bytes()),
+        decode(&upload, 37, &u32::MAX.to_le_bytes()),
+        bad(Tag::ClipNotesUpload)
+    );
+    // A note's cents, chance and repeat outside their ranges (CL-2, #225): payload bytes
+    // 59, 60 and 61 (clip 4, length 8, loop 17, first 4, total 4, count 4, then start 8,
+    // length 8, pitch, velocity).
+    for (at, value) in [
+        (59, 51u8),
+        (59, (-51i8) as u8),
+        (60, 101),
+        (61, 0),
+        (61, 17),
+    ] {
+        assert_eq!(
+            decode(&upload, at, &[value]),
+            bad(Tag::ClipNotesUpload),
+            "{at}"
+        );
+    }
+    assert!(decode(&upload, 59, &[(-50i8) as u8]).is_ok());
+    // A clip loop outside `[0, length]`, or empty.
+    let looped = ControlMsg::ClipNotesUpload {
+        clip: ClipSlot(0),
+        length: Tick(100),
+        looping: LoopRegion::new(Tick(0), Tick(100)),
+        first: 0,
+        total: 0,
+        notes: vec![],
+    };
+    assert!(decode(&looped, 12, &[1]).is_ok());
+    assert_eq!(
+        decode(&looped, 21, &101i64.to_le_bytes()),
+        bad(Tag::ClipNotesUpload)
+    );
+    assert_eq!(
+        decode(&looped, 13, &(-1i64).to_le_bytes()),
+        bad(Tag::ClipNotesUpload)
+    );
+    assert_eq!(
+        decode(&looped, 13, &100i64.to_le_bytes()),
         bad(Tag::ClipNotesUpload)
     );
     // A device state that is not whole pairs, or holds a non-finite value (written by hand:
@@ -640,7 +701,7 @@ fn a_payload_over_the_limit_is_refused_by_the_encoder() {
     let msg = ControlMsg::ClipNotesUpload {
         clip: ClipSlot(0),
         length: Tick(1),
-        looped: false,
+        looping: None,
         first: 0,
         total: notes as u32,
         notes: vec![Note::default(); notes],

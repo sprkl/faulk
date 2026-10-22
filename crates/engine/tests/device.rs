@@ -8,8 +8,8 @@ use engine::device::testing::{
 };
 use engine::device::{
     AudioIo, BlockCtx, DescriptorError, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event,
-    EventBuffer, Factory, MAX_KEY_LEN, MAX_PARAMS_PER_DEVICE, MidiOutput, ParamDescriptor, Scale,
-    Transport, Unit, VoiceId, builtin, builtin_descriptors,
+    EventBuffer, Factory, MAX_DESCRIPTION_LEN, MAX_KEY_LEN, MAX_PARAMS_PER_DEVICE, MidiOutput,
+    ParamDescriptor, Scale, Transport, Unit, VoiceId, builtin, builtin_descriptors,
 };
 use engine::msg::{DeviceKind, ParamId};
 use engine::{OSC_SYNTH, Param, Synth};
@@ -151,6 +151,7 @@ fn validate_rejects_each_broken_rule() {
     let base_param = ParamDescriptor {
         id: ParamId(0),
         key: "cutoff",
+        description: "Test parameter cutoff.",
         unit: Unit::Hertz,
         min: 20.0,
         max: 20_000.0,
@@ -300,6 +301,27 @@ fn validate_rejects_each_broken_rule() {
                 ..base_param
             }),
             DescriptorError::BadKey(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: "",
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: " padded ",
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
+        ),
+        (
+            one(ParamDescriptor {
+                description: Box::leak("x".repeat(MAX_DESCRIPTION_LEN + 1).into_boxed_str()),
+                ..base_param
+            }),
+            DescriptorError::BadDescription(0),
         ),
         (
             one(ParamDescriptor {
@@ -455,6 +477,62 @@ fn sanitize_and_smoothing_frames() {
     let semis = &TRANSPOSE.params[0];
     assert_eq!(semis.sanitize(2.4), Some(2.0));
     assert_eq!(semis.sanitize(-2.6), Some(-3.0));
+}
+
+#[test]
+fn sanitize_in_f64_is_the_one_sanitize_widened_and_keeps_the_project_precision() {
+    // The formula `sanitize` had before `sanitize_f64` (DV-8): `sanitize` must still give
+    // exactly its result, for every parameter of every built-in device, at the bounds, the
+    // default and values off the step.
+    fn legacy(p: &ParamDescriptor, value: f32) -> Option<f32> {
+        if !value.is_finite() {
+            return None;
+        }
+        let mut v = f64::from(value).clamp(p.min, p.max);
+        if p.step > 0.0 {
+            v = (p.min + ((v - p.min) / p.step).round() * p.step).min(p.max);
+        }
+        Some(v as f32)
+    }
+    let mut checked = 0;
+    for descriptor in builtin_descriptors().chain([&GAIN, &TRANSPOSE, &TONE]) {
+        for p in descriptor.params {
+            let span = (p.max - p.min) as f32;
+            let mut values = vec![
+                p.min as f32,
+                p.max as f32,
+                p.default as f32,
+                p.min as f32 - 1.0,
+                p.max as f32 + 1.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+            ];
+            for i in 0..=40 {
+                values.push(p.min as f32 + span * (i as f32) / 37.0 - 0.013);
+            }
+            for v in values {
+                assert_eq!(p.sanitize(v), legacy(p, v), "{} at {v}", p.key);
+                assert_eq!(
+                    p.sanitize_f64(f64::from(v)).map(|x| x as f32),
+                    legacy(p, v),
+                    "{} at {v}",
+                    p.key
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 500, "{checked}");
+    // In f64 a value keeps its precision: 0.1 is not widened from an f32.
+    let attack = OSC_SYNTH.params.iter().find(|p| p.key == "attack").unwrap();
+    assert_eq!(attack.sanitize_f64(0.1), Some(0.1));
+    assert_eq!(attack.sanitize_f64(f64::NAN), None);
+    assert_eq!(attack.sanitize_f64(1e300), Some(30.0));
+    let waveform = &OSC_SYNTH.params[0];
+    assert_eq!(waveform.sanitize_f64(2.6), Some(3.0));
 }
 
 // ---------------------------------------------------------------- events

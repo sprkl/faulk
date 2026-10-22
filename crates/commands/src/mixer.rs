@@ -18,10 +18,8 @@ use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo}
 use crate::macros::domain;
 use project::{Mixer, TrackId};
 
-/// The lowest finite gain a command accepts, in dB. Below it, use `null` (silence).
-pub const MIN_GAIN_DB: f64 = -96.0;
-/// The highest gain a command accepts, in dB.
-pub const MAX_GAIN_DB: f64 = 6.0;
+/// The gain bounds, defined by the project document and shared with the commands (#226).
+pub use project::{MAX_GAIN_DB, MIN_GAIN_DB};
 
 domain! {
     domain = "mixer", schema = ("MixerCommand", "MixerOutput");
@@ -296,9 +294,9 @@ fn gain_outcome(
     }
 }
 
-/// Refuses to edit a gain that is outside the range (a document edited by hand: the volume
-/// then cannot be changed by a command until the project is fixed, since the
-/// project accepts any finite gain): the edit could not be undone exactly.
+/// Refuses to edit a gain that is outside the range: the edit could not be undone exactly.
+/// `validate` refuses such a gain when a project is read, so this guards a state built in
+/// memory rather than a loaded document.
 fn check_current(mixer: &Mixer) -> Result<(), CommandError> {
     to_db(from_db(mixer.gain_db))
         .map(|_| ())

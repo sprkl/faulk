@@ -686,6 +686,7 @@ fn a_track_put_beyond_the_table_is_garbage_not_a_retiring_track() {
             placements: Table::from_vec(Vec::new()),
             launch: None,
             graph: Default::default(),
+            player: Default::default(),
         }),
         grown: None,
     });

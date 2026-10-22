@@ -72,6 +72,9 @@ pub struct Segment {
     /// Fractional sample, relative to the block start, where `origin_tick` is played.
     origin_sample: f64,
     samples_per_tick: f64,
+    /// Added to a tick before it is mapped to a sample: 0 for the clock's segments, the
+    /// clip's anchor for a piece of a clip ([`Segment::shifted`]).
+    shift: i64,
 }
 
 impl Segment {
@@ -79,7 +82,7 @@ impl Segment {
     /// fractional position, clamped to the segment (a tick outside `[from, to)` lands on
     /// its first or last frame).
     pub fn offset_of(&self, tick: Tick) -> usize {
-        let at = self.origin_sample + (tick.0 as f64 - self.origin_tick) * self.samples_per_tick;
+        let at = self.sample_of(tick);
         let last = self.offset + self.frames.saturating_sub(1);
         // `as` saturates and sends NaN to zero.
         (at.floor() as usize).clamp(self.offset, last)
@@ -92,7 +95,24 @@ impl Segment {
 
     /// The fractional position of `tick`, in samples from the block start (not clamped).
     pub fn sample_of(&self, tick: Tick) -> f64 {
-        self.origin_sample + (tick.0 as f64 - self.origin_tick) * self.samples_per_tick
+        let tick = tick.0.saturating_add(self.shift);
+        self.origin_sample + (tick as f64 - self.origin_tick) * self.samples_per_tick
+    }
+
+    /// The part of this segment that plays the ticks `[from, to)` (this segment's), seen
+    /// in a time shifted by `base` ticks: its ticks are `from − base` to `to − base`, and
+    /// a tick `t` of it lands where `t + base` lands in this segment (the clip player's
+    /// pieces, CL-2). It starts at the sample of `from` and ends with this segment.
+    pub fn shifted(&self, base: i64, from: Tick, to: Tick) -> Segment {
+        let offset = self.offset_of(from);
+        Segment {
+            offset,
+            frames: (self.offset + self.frames).saturating_sub(offset),
+            from: Tick(from.0.saturating_sub(base)),
+            to: Tick(to.0.saturating_sub(base)),
+            shift: self.shift.saturating_add(base),
+            ..*self
+        }
     }
 }
 
@@ -347,6 +367,7 @@ impl Transport {
                     origin_tick,
                     origin_sample,
                     samples_per_tick: spt,
+                    shift: 0,
                 }
             } else {
                 let to = Tick(self.position_at(block_end).ceil() as i64);
@@ -361,6 +382,7 @@ impl Transport {
                     origin_tick,
                     origin_sample,
                     samples_per_tick: spt,
+                    shift: 0,
                 }
             };
             if segment.frames > 0 || segment.from < segment.to {

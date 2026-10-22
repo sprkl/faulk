@@ -12,6 +12,7 @@ use commands::{
 };
 
 mod clip_examples;
+mod device_examples;
 mod track_examples;
 mod transport_examples;
 
@@ -67,6 +68,15 @@ fn examples() -> Vec<(Command, State)> {
             note: 60,
         })),
         on(Command::Live(live::Command::AllNotesOff {})),
+        on(Command::Live(live::Command::InputNoteOn {
+            note: 60,
+            velocity: 100,
+        })),
+        on(Command::Live(live::Command::InputNoteOff { note: 60 })),
+        on(Command::Live(live::Command::ControlChange {
+            controller: 1,
+            value: 64,
+        })),
         on(Command::Mixer(mixer::Command::SetVolume {
             track: f.track.clone(),
             gain_db: Some(-6.0),
@@ -104,6 +114,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(clip_examples::examples())
     .chain(transport_examples::examples())
     .chain(track_examples::examples())
+    .chain(device_examples::examples())
     .collect()
 }
 

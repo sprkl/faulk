@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, MidiInput } from '../generated/protocol'
 import { type MidiAccessLike, type MidiInputLike, WebMidiHost } from './web-midi'
-import { allNotesOff, noteOff, noteOn } from '../synth-commands'
+import { allNotesOff, inputNoteOff, inputNoteOn } from '../synth-commands'
 
 class FakeInput implements MidiInputLike {
   state: 'connected' | 'disconnected' = 'connected'
@@ -48,8 +48,8 @@ describe('WebMidiHost', () => {
     map.get('b')!.play(0x90, 61, 100) // not selected: ignored
     map.get('a')!.play(0x80, 60, 0)
     expect(log.commands).toEqual([
-      noteOn(60, 100),
-      noteOff(60),
+      inputNoteOn(60, 100),
+      inputNoteOff(60),
     ])
     expect(log.activity).toEqual([
       [60, 100],

@@ -14,11 +14,11 @@
 //! | [`Tempo`] | `f64` beats per minute, through [`Tempo::new`] |
 //! | [`TimeSignature`] | numerator `u8`, denominator `u8`, through [`TimeSignature::new`] |
 //! | [`Quantize`] | `u8`, its index in [`Quantize::ALL`] |
-//! | [`LoopRegion`] | start `i64`, end `i64`, through [`LoopRegion::new`] |
+//! | [`LoopRegion`] | start `i64`, end `i64`, through [`LoopRegion::new`]; a clip's loop (`ClipNotesUpload`) must lie within `[0, length]` |
 //! | [`TrackKind`], [`Curve`] | `u8` discriminant |
 //! | [`AutomationTarget`] | kind `u8` (0 device parameter, 1 mixer gain, 2 mixer pan), device `u16`, param `u32` (7 bytes) |
 //! | [`Span`] | kind `u8` (0 ticks, 1 frames), offset and length as 64-bit values (17 bytes) |
-//! | [`Note`] | start `i64`, length `i64`, pitch `u8` ≤ 127, velocity `u8` ≤ 127 (18 bytes) |
+//! | [`Note`] | start `i64`, length `i64`, pitch `u8` ≤ 127, velocity `u8` ≤ 127, cents `i8` in ±50, chance `u8` ≤ 100, repeat `u8` in 1..=16 (21 bytes) |
 //! | [`AutomationPoint`] | tick `i64`, value `f32`, curve `u8` (13 bytes) |
 //! | [`Placement`] | placement `u32`, clip `u32`, start `i64`, span (33 bytes) |
 //! | a list | count `u32`, then the items; the count must match the bytes left exactly |
@@ -42,7 +42,7 @@ use super::{
 use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 
 /// Bytes of a [`Note`] on the wire.
-pub const NOTE_WIRE_BYTES: usize = 18;
+pub const NOTE_WIRE_BYTES: usize = 21;
 /// Bytes of an [`AutomationPoint`] on the wire.
 pub const POINT_WIRE_BYTES: usize = 13;
 /// Bytes of a [`Placement`] on the wire.
@@ -92,6 +92,9 @@ impl Writer<'_> {
         self.i64(n.length.0);
         self.u8(n.pitch);
         self.u8(n.velocity);
+        self.u8(n.cents as u8);
+        self.u8(n.chance);
+        self.u8(n.repeat);
     }
     fn point(&mut self, p: &AutomationPoint) {
         self.i64(p.tick.0);
@@ -232,6 +235,21 @@ impl<'a> Reader<'a> {
             length: self.tick()?,
             pitch: self.midi()?,
             velocity: self.midi()?,
+            cents: {
+                let v = self.u8()? as i8;
+                check(v.unsigned_abs() <= Note::MAX_CENTS.unsigned_abs())?;
+                v
+            },
+            chance: {
+                let v = self.u8()?;
+                check(v <= Note::MAX_CHANCE)?;
+                v
+            },
+            repeat: {
+                let v = self.u8()?;
+                check((1..=Note::MAX_REPEAT).contains(&v))?;
+                v
+            },
         })
     }
     fn curve(&mut self) -> Result<Curve, Bad> {
@@ -463,14 +481,16 @@ impl ControlMsg {
             ControlMsg::ClipNotesUpload {
                 clip,
                 length,
-                looped,
+                looping,
                 first,
                 total,
                 notes,
             } => {
                 w.u32(clip.0);
                 w.i64(length.0);
-                w.bool(*looped);
+                w.bool(looping.is_some());
+                w.i64(looping.map_or(0, |r| r.start().0));
+                w.i64(looping.map_or(0, |r| r.end().0));
                 w.u32(*first);
                 w.u32(*total);
                 w.count(notes.len());
@@ -658,14 +678,27 @@ impl ControlMsg {
                 param: ParamId(r.u32()?),
                 value: r.f32()?,
             },
-            Tag::ClipNotesUpload => ControlMsg::ClipNotesUpload {
-                clip: r.clip()?,
-                length: r.tick()?,
-                looped: r.bool()?,
-                first: r.u32()?,
-                total: r.u32()?,
-                notes: r.list(NOTE_WIRE_BYTES, Reader::note)?,
-            },
+            Tag::ClipNotesUpload => {
+                let clip = r.clip()?;
+                let length = r.tick()?;
+                let present = r.bool()?;
+                let (start, end) = (r.tick()?, r.tick()?);
+                let looping = if present {
+                    // Within the clip: `[start, end)` inside `[0, length]`.
+                    check(start.0 >= 0 && end <= length)?;
+                    Some(LoopRegion::new(start, end).ok_or(Bad::Payload)?)
+                } else {
+                    None
+                };
+                ControlMsg::ClipNotesUpload {
+                    clip,
+                    length,
+                    looping,
+                    first: r.u32()?,
+                    total: r.u32()?,
+                    notes: r.list(NOTE_WIRE_BYTES, Reader::note)?,
+                }
+            }
             Tag::ClipRemove => ControlMsg::ClipRemove { clip: r.clip()? },
             Tag::AudioSourceDeclare => ControlMsg::AudioSourceDeclare {
                 source: SourceSlot(r.u32()?),

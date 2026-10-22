@@ -101,5 +101,17 @@ pub fn examples() -> Vec<(Command, State)> {
             track: f.audio_track.clone(),
             name: Some("Drums 2".into()),
         }),
+        on(track::Command::Arm {
+            track: f.track.clone(),
+            armed: true,
+        }),
+        on(track::Command::Arm {
+            track: f.audio_track.clone(),
+            armed: false,
+        }),
+        on(track::Command::SetMonitor {
+            track: f.track.clone(),
+            monitor: true,
+        }),
     ]
 }

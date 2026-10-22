@@ -73,6 +73,23 @@ describe('the commands of the track headers', () => {
     expect(core.project().session.solo).toEqual([b])
   })
 
+  it('arms and monitors in the session, never in the project nor the history', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.createTrack('midi', null, '#58c27d'))
+    run(core, commands.createTrack('audio', null, '#5b8def'))
+    const [a, b] = sortedTracks(project(core)).map((e) => e.id)
+    const before = JSON.stringify(project(core))
+    const reports = [commands.armTrack(a, true), commands.armTrack(b, true), commands.setMonitor(a, true)].map((c) => run(core, c))
+    expect(reports.flatMap((r) => r.events.map((e) => e.type))).toEqual(['arm_changed', 'arm_changed', 'monitor_changed'])
+    let { session } = core.project()
+    expect([[...(session.armed ?? [])].sort(), session.monitor]).toEqual([[a, b].sort(), [a]])
+    expect(JSON.stringify(project(core))).toBe(before)
+    run(core, commands.armTrack(b, false))
+    run(core, commands.deleteTrack(a))
+    ;({ session } = core.project())
+    expect([session.armed, session.monitor]).toEqual([[], []])
+  })
+
   it('deletes a track and brings it back whole with an undo; a gesture is one undo', () => {
     const core = ProjectCore.create(module, 'empty', 1)
     run(core, commands.createTrack('midi', 'faulk.drums', '#58c27d'))

@@ -55,7 +55,7 @@ fn track_spec() -> impl Strategy<Value = TrackSpec> {
     (
         any::<bool>(),
         name(),
-        prop::option::of(-120.0f64..12.0),
+        prop::option::of(MIN_GAIN_DB..=MAX_GAIN_DB),
         -1.0f64..=1.0,
         any::<bool>(),
         prop::collection::vec(("[a-z][a-z0-9_]{0,10}", -1e6f64..1e6), 0..4),
@@ -221,6 +221,11 @@ fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) -> Pro
                 param: MixerParam::Gain,
             },
         };
+        // A gain lane holds levels: its points are spread over the shared range (#269).
+        let gain_lane = target
+            == AutomationTarget::Mixer {
+                param: MixerParam::Gain,
+            };
         track.automation.insert(
             LaneId::generate(&mut ids),
             AutomationLane {
@@ -229,6 +234,13 @@ fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) -> Pro
                     .points
                     .into_iter()
                     .map(|(t, value, step)| {
+                        // The generated values are in -1e3..1e3: a linear map keeps them
+                        // finite and inside the range.
+                        let value = if gain_lane {
+                            MIN_GAIN_DB + (value + 1e3) / 2e3 * (MAX_GAIN_DB - MIN_GAIN_DB)
+                        } else {
+                            value
+                        };
                         let shape = if step { Shape::Step } else { Shape::Linear };
                         (Tick(t), AutomationPoint { value, shape })
                     })
@@ -268,6 +280,8 @@ proptest! {
         let all: Vec<TrackId> = solo.iter().map(|_| TrackId::generate(&mut ids)).collect();
         let session = SessionState {
             selected_track: all.first().cloned(),
+            armed: all.iter().step_by(2).cloned().collect(),
+            monitor: all.iter().skip(1).step_by(2).cloned().collect(),
             solo: all.into_iter().collect(),
             midi_input: input,
         };

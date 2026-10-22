@@ -42,6 +42,8 @@ pub struct TrackView {
     pub pan: f32,
     pub mute: bool,
     pub solo: bool,
+    pub armed: bool,
+    pub monitor: bool,
     pub devices: BTreeMap<DeviceId, DeviceView>,
     /// Scene → the clip in that launch-grid slot.
     pub scenes: BTreeMap<SceneId, ClipId>,
@@ -53,7 +55,7 @@ pub struct TrackView {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClipView {
     pub length: Tick,
-    pub looped: bool,
+    pub looping: Option<LoopRegion>,
     pub notes: Vec<EngineNote>,
 }
 
@@ -114,6 +116,8 @@ struct SlotTrack {
     kind: Option<TrackKind>,
     mix: (f32, f32, bool),
     solo: bool,
+    armed: bool,
+    monitor: bool,
     devices: BTreeMap<u16, DeviceView>,
     scenes: BTreeMap<u16, u32>,
     placements: Vec<engine::msg::Placement>,
@@ -170,6 +174,10 @@ impl Model {
                 mute,
             } => self.track(track.0).mix = (gain, pan, mute),
             ControlMsg::TrackSetSolo { track, solo } => self.track(track.0).solo = solo,
+            ControlMsg::TrackArm { track, armed } => self.track(track.0).armed = armed,
+            ControlMsg::TrackSetMonitor { track, monitor } => {
+                self.track(track.0).monitor = monitor;
+            }
             ControlMsg::SelectTrack { track } => self.selected = track.map(|t| t.0),
             ControlMsg::DeviceInsert {
                 track,
@@ -208,7 +216,7 @@ impl Model {
             ControlMsg::ClipNotesUpload {
                 clip,
                 length,
-                looped,
+                looping,
                 first,
                 total,
                 notes,
@@ -222,7 +230,7 @@ impl Model {
                         clip.0,
                         ClipView {
                             length,
-                            looped,
+                            looping,
                             notes,
                         },
                     );
@@ -329,6 +337,8 @@ impl EngineView {
                 pan: t.mix.1,
                 mute: t.mix.2,
                 solo: t.solo,
+                armed: t.armed,
+                monitor: t.monitor,
                 devices: t
                     .devices
                     .iter()
@@ -479,7 +489,7 @@ impl EngineView {
                     cid.clone(),
                     ClipView {
                         length: *length,
-                        looped: looping.is_some(),
+                        looping: looping.and_then(|l| LoopRegion::new(l.start, l.end)),
                         notes: notes
                             .iter()
                             .map(|n| EngineNote {
@@ -487,6 +497,9 @@ impl EngineView {
                                 length: n.length,
                                 pitch: n.pitch,
                                 velocity: n.velocity,
+                                cents: n.cents,
+                                chance: n.chance,
+                                repeat: n.repeat,
                             })
                             .collect(),
                     },
@@ -546,6 +559,8 @@ impl EngineView {
                     pan: t.mixer.pan as f32,
                     mute: t.mixer.mute,
                     solo: session.solo.contains(id),
+                    armed: session.armed.contains(id),
+                    monitor: session.monitor.contains(id),
                     devices,
                     scenes,
                     placements,
