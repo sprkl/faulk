@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#93): the canonical folder format of the project, `crates/project/src/file/` (SV-1): writer and reader (sorted-key JSON, TSV, `blobs/<sha256>`), migrations, typed refusals, dirty-file save, cache snapshot, session file, `.gitattributes`/`.gitignore`, `.faulkpack`; the QA-7 thresholds applied and the contract described in `docs/architecture/02-modele-projet.md` § 2.7, the interim files of `commands::host` left to SV-4 and SV-2.

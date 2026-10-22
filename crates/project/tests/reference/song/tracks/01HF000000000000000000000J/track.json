@@ -1,0 +1,12 @@
+{
+  "color": "#2288cc",
+  "kind": "midi",
+  "mixer": {
+    "gain_db": -3.0,
+    "mute": false,
+    "pan": -0.25
+  },
+  "name": "Bass",
+  "order": "a0",
+  "output": "master"
+}

@@ -6,11 +6,12 @@
 //! on the page's main thread and returns them as JSON; their schema is in the bundle the
 //! web app generates its types from (`protocol::schema_bundle`, `project_core`).
 //!
-//! **Interim files** until the folder format of SV-1 (#93): [`PROJECT_FILE`] holds the
+//! **Interim files** until the page uses the folder format: [`PROJECT_FILE`] holds the
 //! whole serde [`Project`] (its `format` field included) and [`SESSION_FILE`] the
-//! [`SessionState`]. SV-1 replaces [`save_files`] and [`load_files`] with its canonical
-//! writer and reader (one file per track, TSV, blobs) behind the same `load(files)` and
-//! `save()` of the page.
+//! [`SessionState`]. SV-1 (#93) wrote the canonical writer and reader (one file per
+//! track, TSV, blobs) as `project::file`; SV-4 (loading) and SV-2 (saving, with the dirty
+//! units the commands mark) put them behind the same `load(files)` and `save()` of the
+//! page and replace [`save_files`] and [`load_files`].
 
 use std::collections::BTreeMap;
 

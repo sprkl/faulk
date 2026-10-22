@@ -264,11 +264,24 @@ fn compile_event(
             if *part == ClipPart::Name {
                 return;
             }
-            let Some(c) = project.tracks.values().find_map(|t| t.clips.get(clip)) else {
+            let Some((track, c)) = project
+                .tracks
+                .iter()
+                .find_map(|(id, t)| t.clips.get(clip).map(|c| (id, c)))
+            else {
                 return;
             };
             if let Some(slot) = sync.clips.get(clip) {
                 upload_clip(ClipSlot(slot), &c.content, out);
+            }
+            // The placements that play the clip whole follow its length.
+            if matches!(part, ClipPart::Length | ClipPart::Content)
+                && let Some(t) = project
+                    .tracks
+                    .get(track)
+                    .filter(|t| !t.placements.is_empty())
+            {
+                placements_msgs(track, t, sync, out);
             }
         }
         ProjectEvent::DeviceParamChanged {

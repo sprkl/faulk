@@ -1,0 +1,23 @@
+{
+  "color": null,
+  "content": {
+    "audio": {
+      "frames": 88200,
+      "gain_db": null,
+      "looping": {
+        "end": 88200,
+        "start": 0
+      },
+      "media": {
+        "channels": 2,
+        "frames": 441000,
+        "hash": "abababababababababababababababababababababababababababababababab",
+        "name": "drums.wav",
+        "sample_rate": 44100
+      },
+      "start": 0
+    }
+  },
+  "name": "Loop",
+  "slot": null
+}

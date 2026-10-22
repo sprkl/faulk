@@ -2,10 +2,12 @@
 //!
 //! This is NOT the product's writer. It follows the layout of `docs/architecture/02-modele-projet.md`
 //! § 2.2 to § 2.4 (JSON skeletons, TSV for notes, points and placements, packed binary
-//! blobs, a binary cache snapshot) closely enough to measure what the format costs, and
-//! SV-1 takes it over or replaces it. It reuses the model types and `Project::validate`
-//! (they are the project crate's), and nothing here goes into the `project` crate itself:
-//! no `project::file`.
+//! blobs, a binary cache snapshot) closely enough to measure what the format costs. SV-1
+//! (#93) wrote the product's writer and reader, `project::file`, with its own tests and
+//! its own cost measure (`tests/folder_load.rs`); this prototype stays as the instrument
+//! the QA-7 numbers were taken with, so that they can be reproduced. It differs from the
+//! product on purpose: its lane header holds JSON, its blob has no magic, it reads on
+//! several threads. Pointing the bench at `project::file` is a possible follow-up.
 //!
 //! The reader works through the [`Files`] trait: the folder on disk ([`FsFiles`]) or a map
 //! of bytes in memory ([`MemFiles`], what the browser build feeds from OPFS).

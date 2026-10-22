@@ -218,18 +218,21 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // Longer: nothing to cut.
         on(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(7680),
             trim: false,
         }),
         // Shorter, past no note: the plain inverse.
         on(clip::Command::SetLength {
+            placements: None,
             clip: f.placed.clone(),
             length: Tick(1920),
             trim: true,
         }),
         // Shorter, cutting notes and the loop: `set_content` is the inverse.
         on(clip::Command::SetLength {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(1200),
             trim: true,
@@ -246,6 +249,7 @@ pub fn examples() -> Vec<(Command, State)> {
             looping: None,
         }),
         on(clip::Command::SetContent {
+            placements: None,
             clip: f.clip.clone(),
             length: Tick(960),
             looping: None,
