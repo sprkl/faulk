@@ -30,14 +30,6 @@ export function instrumentName(track: Track): string | null {
   return DEVICES.find((d) => d.kind === kind)?.name ?? null
 }
 
-/** The first device of a kind in a track's chain, with its id. */
-export function deviceOfKind(track: Track, kind: string): { id: string; params: Record<string, number | undefined> } | null {
-  for (const [id, device] of Object.entries(track.devices)) {
-    if (device && 'builtin' in device.source && device.source.builtin.id === kind) return { id, params: device.params }
-  }
-  return null
-}
-
 /**
  * Whether the add-track menu offers an audio track. Off until audio can be imported (AU-1): an audio
  * track with no way to put audio in only confuses. The code path stays; this is the one flag.

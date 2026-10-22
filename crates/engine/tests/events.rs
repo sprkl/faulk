@@ -53,6 +53,7 @@ const LEVEL: ParamId = ParamId(7);
 static PROBE_PARAMS: [ParamDescriptor; 1] = [ParamDescriptor {
     id: LEVEL,
     key: "level",
+    description: "Test parameter level.",
     unit: Unit::None,
     min: 0.0,
     max: 1.0,

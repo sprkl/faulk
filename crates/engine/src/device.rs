@@ -93,6 +93,8 @@ pub const MAX_PARAMS_PER_DEVICE: usize = 10_000;
 
 /// Longest parameter key or device kind, in bytes (the project's `MAX_KEY_LEN`).
 pub const MAX_KEY_LEN: usize = 128;
+/// Longest parameter description, in bytes.
+pub const MAX_DESCRIPTION_LEN: usize = 240;
 
 /// Highest sample rate a device must support; [`DeviceDescriptor::memory_bytes`] is the
 /// memory at this rate.
@@ -512,6 +514,9 @@ pub struct ParamDescriptor {
     /// Stable string id: the key of the project's parameter map and of the translated
     /// label and description in the UI.
     pub key: &'static str,
+    /// What the parameter does and what its range means, in English: for agents (the
+    /// schema bundle) and for the tooltips of the UI. One or two sentences.
+    pub description: &'static str,
     pub unit: Unit,
     pub min: f64,
     pub max: f64,
@@ -600,6 +605,9 @@ pub enum DescriptorError {
     DuplicateParam(u32),
     /// A key is empty or not lowercase ASCII with `_`.
     BadKey(u32),
+    /// A description is empty, has surrounding spaces, or is longer than
+    /// [`MAX_DESCRIPTION_LEN`] bytes.
+    BadDescription(u32),
     /// A bound is not finite, or `min >= max`.
     BadRange(u32),
     /// `default` is out of range or not on the step.
@@ -663,6 +671,12 @@ impl DeviceDescriptor {
             }
             if !is_key(p.key) {
                 return Err(DescriptorError::BadKey(id));
+            }
+            if p.description.is_empty()
+                || p.description.trim() != p.description
+                || p.description.len() > MAX_DESCRIPTION_LEN
+            {
+                return Err(DescriptorError::BadDescription(id));
             }
             if !(p.min.is_finite() && p.max.is_finite() && p.min < p.max) {
                 return Err(DescriptorError::BadRange(id));

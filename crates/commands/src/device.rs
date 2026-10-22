@@ -110,7 +110,8 @@ domain! {
     /// value stored (and returned) is the result. The built-in synth's parameters:
     /// `waveform` (0 sine, 1 saw, 2 square, 3 triangle), `attack`, `decay` and
     /// `release` (seconds, 0.002 to 30), `sustain` (0 to 1), `gain` (0 to 1, linear).
-    /// Undo: set the parameter back to its previous value.
+    /// Every device's parameters (key, unit, range, default, and a `description` of what
+    /// each does) are in the device descriptors of the schema bundle. Undo: set the parameter back to its previous value.
     "device.set_param" (kind = "edit", undo = "inverse", destructive = false)
     SetParam {
         device: DeviceId,

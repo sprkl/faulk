@@ -122,6 +122,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/play/PlayView.svelte': [],
       'views/shell/Shell.svelte': [],
       'views/tracks/TrackList.svelte': ['Escape'],
+      'views/transport/Transport.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'Space'],
     })
     const bare = new Set(Object.values(handlers).flat())
     for (const key of bare) expect(BARE_SHORTCUT_CODES, key).toContain(key)

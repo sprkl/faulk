@@ -43,6 +43,9 @@ export function provideStores(stores: Stores): Stores {
   return setContext(KEY, stores)
 }
 
+/** The context a component test passes to `render` (`svelte/server`) to render a view outside the shell. */
+export const storesContext = (stores: Stores): Map<symbol, Stores> => new Map([[KEY, stores]])
+
 /** Call from a view's script: the stores the shell provided. */
 export function useStores(): Stores {
   const stores = getContext<Stores | undefined>(KEY)

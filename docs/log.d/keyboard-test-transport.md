@@ -1,0 +1,1 @@
+- Keyboard rule test: list the transport bar's key handlers (Space, arrows, Enter, Escape) among the bare shortcuts, after TR-4 and UI-3 met on develop.

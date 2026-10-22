@@ -70,6 +70,24 @@ describe('i18n', () => {
     }
   })
 
+  it('has, for every parameter of every device, its label and its tooltip in both languages, and for every enumerated value its label', () => {
+    // A device added to the registry without its text fails here, not in the panel (which falls back to the key and the description).
+    for (const d of DEVICES) {
+      const kind = d.kind.replace(/^faulk\./, '')
+      for (const p of d.params) {
+        expect(p.description.trim(), `${d.kind} ${p.key} description`).not.toBe('')
+        for (const lang of ['en', 'fr'] as const) {
+          const catalogue = messages[lang] as Record<string, string>
+          expect(catalogue[`${kind}.${p.key}`], `${lang} ${kind}.${p.key}`).toBeTruthy()
+          expect(catalogue[`${kind}.${p.key}.hint`], `${lang} ${kind}.${p.key}.hint`).toBeTruthy()
+          for (const value of p.values) expect(catalogue[`${kind}.${value}`], `${lang} ${kind}.${value}`).toBeTruthy()
+        }
+        // One English text for agents and for the tooltip: they cannot drift apart.
+        expect((messages.en as Record<string, string>)[`${kind}.${p.key}.hint`], `${kind}.${p.key}`).toBe(p.description)
+      }
+    }
+  })
+
   it('fills placeholders', () => {
     expect(translate('en', 'engine.latency', { ms: 12 })).toBe('~12 ms (estimated)')
     expect(translate('fr', 'helper.refused', { n: 3 })).toBe('Code incorrect. Encore 3 essais.')
