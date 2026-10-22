@@ -73,6 +73,7 @@ fn scenario() -> Vec<Step> {
             M::Reset { epoch },
             M::SetMaster {
                 gain: 0.9,
+                pan: 0.0,
                 mute: false,
             },
             M::TrackCreate {

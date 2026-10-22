@@ -905,6 +905,7 @@ fn set_metronome(project: &Project) -> ControlMsg {
 fn master(project: &Project) -> ControlMsg {
     ControlMsg::SetMaster {
         gain: db_to_gain(project.master.gain_db),
+        pan: project.master.pan as f32,
         mute: project.master.mute,
     }
 }

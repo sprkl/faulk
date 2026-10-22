@@ -434,9 +434,10 @@ pub enum ControlMsg {
         volume: f32,
         count_in_bars: u8,
     },
-    /// Master mix (MX-1).
+    /// Master mix (MX-1): linear gain, pan from -1 to 1, mute.
     SetMaster {
         gain: f32,
+        pan: f32,
         mute: bool,
     },
     // tracks
@@ -1360,6 +1361,7 @@ pub enum RtMsg {
     },
     SetMaster {
         gain: f32,
+        pan: f32,
         mute: bool,
     },
     /// A new track (its devices, scenes and placements empty), in its slot.

@@ -1068,3 +1068,19 @@ fn a_jump_while_a_large_group_is_still_pending_is_handled() {
     rig.run(25 * 400, 512);
     assert!(check_voices(&events(INSTRUMENT)).is_empty());
 }
+
+/// The master's timed gain and pan (MX-1) reach the render: the scenario with its master
+/// schedule differs from the scenario without (the one the WASM parity also renders).
+#[test]
+fn the_scenarios_master_schedule_changes_the_render() {
+    use engine::events::testing::scenario_with;
+    let with = scenario_with(true).unwrap();
+    let without = scenario_with(false).unwrap();
+    assert_eq!(with.len(), without.len());
+    let diff = with
+        .iter()
+        .zip(&without)
+        .filter(|(a, b)| (**a - **b).abs() > 1e-3)
+        .count();
+    assert!(diff > 1_000, "{diff} samples differ");
+}
