@@ -25,10 +25,10 @@
 //! built off the audio path ([`Schedule::try_new`], fallible allocations only) and read by
 //! the audio side with a [`Cursor`]. The cursor reads any tick-sorted run of [`Events`]:
 //! a schedule's table, or the notes of a clip, which the clip player (CL-2,
-//! [`crate::clip_player`]) keeps in a more compact table of their own. The arrangement
-//! (AR-2) and the automation (AM-2) will fill the track's schedule; until they land,
-//! nothing in the production path does (no message carries one), and the tests set it
-//! through `Engine::state_mut`.
+//! [`crate::clip_player`]) keeps in a more compact table of their own, and the placements
+//! of the arrangement ([`crate::arrangement`], AR-2) read. The automation (AM-2) will fill
+//! the track's schedule; until it lands, nothing in the production path does (no message
+//! carries one), and the tests set it through `Engine::state_mut`.
 //!
 //! [`Schedule::read`] delivers the events of a segment's ticks `[from, to)`: each at
 //! [`Segment::offset_of`] its tick (the floor of its fractional sample, TR-1's rule),

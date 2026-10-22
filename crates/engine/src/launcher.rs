@@ -20,8 +20,9 @@
 //!   left alone (they are not reported as stopping).
 //! - [`back_to_arrangement`]: every track that plays, waits or has an order gets released
 //!   **at once**, not at a boundary: the notes of its clip end at the first sample of the
-//!   block, its pending launch is dropped, and the track's own schedule (the arrangement,
-//!   AR-2) plays again.
+//!   block, its pending launch is dropped, and the track's own timeline (the arrangement,
+//!   [`crate::arrangement`]) plays again from the playhead. A track the grid holds without a
+//!   clip (after a stop) goes back too.
 //!
 //! # The report
 //!
@@ -74,7 +75,8 @@ pub fn stop_all(state: &mut State) {
 /// `BackToArrangement` (module doc).
 pub fn back_to_arrangement(state: &mut State) {
     for track in state.tracks.as_mut_slice().iter_mut().flatten() {
-        if engaged(track) {
+        // A track the grid holds without a clip (after a stop) goes back too.
+        if engaged(track) || track.player.taken() {
             track.launch = None;
             track.back = true;
         }

@@ -461,6 +461,8 @@ track: string
 type: "launch.stop_track"
 } | {
 type: "launch.stop_all"
+} | {
+type: "launch.back_to_arrangement"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -864,6 +866,8 @@ type: "launch.scene"
 type: "launch.stop_track"
 } | {
 type: "launch.stop_all"
+} | {
+type: "launch.back_to_arrangement"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.

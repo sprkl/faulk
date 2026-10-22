@@ -106,6 +106,9 @@ pub fn compile(
         Command::Live(live::Command::InputNoteOff { note }) => {
             release_input(sync, *note, &mut out);
         }
+        Command::Launch(launch::Command::BackToArrangement {}) => {
+            out.push(ControlMsg::BackToArrangement);
+        }
         Command::Live(live::Command::AllNotesOff {}) => {
             sync.held.clear();
             out.extend(sync.tracks.iter().map(|(slot, _)| ControlMsg::AllNotesOff {

@@ -50,6 +50,15 @@ domain! {
     /// transport, and does not stop it. Played live: not undoable, not saved.
     "launch.stop_all" (kind = "live", undo = "none", destructive = false)
     StopAll {} => {};
+
+    /// Give every track back to its arrangement: a clip launched from the grid (or a stop
+    /// given from it) takes a track until this command. The notes of the grid's clips end
+    /// at once, launches still waiting for their boundary are dropped, and each track plays
+    /// its arrangement again from the playhead (a note already started on the timeline is
+    /// not restarted: it stays silent until its end). Does nothing to a track that follows
+    /// its arrangement. Played live: not undoable, not saved.
+    "launch.back_to_arrangement" (kind = "live", undo = "none", destructive = false)
+    BackToArrangement {} => {};
 }
 
 type Out = Outcome<Command, Output>;
@@ -115,5 +124,6 @@ pub fn apply(
             Ok(done(Output::StopTrack {}))
         }
         Command::StopAll {} => Ok(done(Output::StopAll {})),
+        Command::BackToArrangement {} => Ok(done(Output::BackToArrangement {})),
     }
 }
