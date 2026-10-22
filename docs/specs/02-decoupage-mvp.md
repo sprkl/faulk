@@ -480,10 +480,15 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Nom affiché : Echo (le même device que l'extension Echo du catalogue, #161).
 - But : temps libre ou en division, retour, mélange.
 - Critères : écho mesuré au bon nombre d'échantillons ; tampon alloué dans `prepare` ; changement de tempo sans craquement.
-- Touche : `crates/engine/src/devices/delay.rs`.
-- Dépend de : DV-1, TR-1.
-- Phase : 4.
-- Étiquettes : hardware: non, founder: non.
+- Touche : `crates/engine/src/devices/echo.rs` (le fichier porte le nom du type du device sans `faulk.`, comme les autres).
+- **Réalisé (#65, 2026-10-22)** : le device `faulk.echo`, affiché « Echo » (identifiant de type 3, effet) :
+  - **Signal** : deux lignes à retard indépendantes (gauche et droite), lecture interpolée linéairement, sortie `sec × (1 − mélange) + écho × mélange`, la ligne reçoit `sec + écho × retour`. Le retour est borné à 0,95 dans le descripteur : le gain de boucle reste sous 1, la queue ne s'emballe jamais. L'entrée est assainie (non fini → 0, bornée à ±1e6, valeurs sous 1e-20 remises à 0) : aucun dénormal ne circule dans la boucle.
+  - **Réglages** (identifiants stables) : 0 `mode` (`free` ou `synced`, défaut `synced`), 1 `time` (1 ms à 4 s, échelle log, défaut 300 ms, mode libre), 2 `division` (dix valeurs de note de 1/32 à la ronde, triolets et pointée de croche et de noire comprises, défaut croche pointée, mode au tempo), 3 `feedback` (0 à 0,95, défaut 0,4, lissé 20 ms), 4 `mix` (0 à 1, défaut 0,3, lissé 20 ms).
+  - **Temps** : en mode au tempo, `valeur × 60 / tempo` secondes au tempo du bloc (`BlockCtx.transport.tempo`, transport à l'arrêt compris) ; le retard est borné à [1 image, 4 s] (une ronde sous 60 BPM est ramenée à 4 s). Le retard en cours glisse vers sa cible (constante de temps 50 ms, pas par image entre 0,002 et 0,25) : un changement de tempo, de temps, de valeur ou de mode ne fait aucun saut, au prix d'un glissement de hauteur des répétitions (25 % au plus) pendant qu'il glisse ; un grand changement glisse donc plusieurs secondes (environ 8 s de 120 à 20 BPM sur une ronde, jusqu'à 16 s de 4 s à 1 ms). Choix du chef (délégué par le fondateur) : un glissement façon bande plutôt qu'un fondu enchaîné, validable à l'écoute. Le premier bloc après la construction ou un `reset` part de la cible.
+  - **Limites connues** : le contournement (`device.set_bypass`) coupe la queue d'un coup, sans fondu, et le réactiver repart d'une ligne vide, le sec passant à `sec × (1 − mélange)` en une image (le graphe saute un device désactivé, antérieur à #65) ; l'écho joue dans le worklet web, pas encore dans l'assistant natif (la chaîne de devices du helper vient avec BO-1).
+  - **Mémoire** : les deux lignes (4 s au taux de l'instance, au plus 192 kHz) sont allouées dans la fabrique (`prepare`), `process` n'alloue rien ; `memory_bytes` est déclaré à 192 kHz.
+  - **Moteur** : `RtMsg::DeviceSetEnabled` appelle `Device::reset` quand un effet audio est activé ou désactivé, pour qu'une queue d'avant le contournement ne revienne pas. `reset` de l'écho est en temps constant (il ne vide pas les lignes : un compteur masque ce qu'elles contiennent).
+  - **Mesures** : `crates/engine/tests/echo.rs` (écho au bon nombre d'images, libre et au tempo, fractions de temps, répétitions, borne du retour, pas entre échantillons voisins sous un balayage de tempo, NaN, dénormaux, indépendance du découpage en blocs), `crates/engine/tests/graph.rs` (activation) et `crates/engine-wasm/tests/echo_parity.rs` (parité natif / WASM).
 
 **DV-4 — Réverbération**
 - Nom affiché : Reverb.
@@ -524,7 +529,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
   - **`device.remove` n'est pas marquée destructive** : le contrat réserve ce drapeau aux éditions sans inverse, et celle-ci s'annule (`device.restore` rend l'identifiant, la clé d'ordre, les réglages et le contournement), comme `track.delete`. Un device qu'une courbe d'automatisation vise ne se retire pas (ni l'instrument qu'elle vise ne se remplace) tant que les commandes d'automatisation (AM) n'existent pas.
   - **`device.set_param`** valide l'identifiant contre le descripteur du device, borne la valeur à la plage et l'arrondit au pas (`ParamDescriptor::sanitize_f64`) ; la valeur stockée, l'événement et la sortie portent le résultat. Un device sans descripteur (un module) garde l'ancien contrôle.
   - **Moteur** : la place d'un device dans le moteur est son index dans la chaîne ; un changement de chaîne (`DeviceChainChanged`) reconstruit les devices dont l'index change (leur queue et leurs voix repartent de leurs réglages du projet), vide les places libérées et laisse intacts ceux qui gardent leur place ; ajouter en fin de chaîne ne touche rien. Les courbes d'automatisation d'un device reconstruit sont renvoyées à sa nouvelle place.
-  - **Tests** : le registre n'a pas encore d'effet (DV-3 à DV-5) ; avec la fonctionnalité `testing` de `commands`, que ses propres tests activent, les commandes construisent aussi l'effet de test du moteur (`faulk.test_gain`).
+  - **Tests** : le registre n'avait pas encore d'effet (DV-3, l'écho, en est le premier, DV-4 et DV-5 suivent) ; avec la fonctionnalité `testing` de `commands`, que ses propres tests activent, les commandes construisent aussi l'effet de test du moteur (`faulk.test_gain`).
 
 **DV-9 — Panneau de chaîne de devices**
 - But : panneau du bas avec l'instrument et les effets de la piste sélectionnée, réglages générés (`ParamControl`), ajout depuis un navigateur d'instruments et d'effets, suppression, réordonnancement, contournement.
