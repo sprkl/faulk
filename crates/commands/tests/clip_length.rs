@@ -7,7 +7,7 @@ use ::project::{ClipId, IdGenerator, PlacementId, Project, Span, Tick};
 use clip_examples::{ClipFx, c, fx};
 use commands::clip::{self, ClipTarget, PlacementLength};
 use commands::testing::{check_refusal, context};
-use commands::{Command, Context, Output, State, Undo, run};
+use commands::{Command, CommandError, Context, Output, State, Undo, run};
 
 /// A one-bar clip placed in the arrangement of the fixture's MIDI track at `start`.
 fn placed_bar(
@@ -195,7 +195,81 @@ fn set_content_follows_too_and_exact_lengths_refuse_an_overlap_or_a_foreign_plac
             trim: false,
         })
     };
-    assert!(check_refusal(&exact(&placement, 9000), &state, &context()).is_ok());
-    assert!(check_refusal(&exact(&next, 100), &state, &context()).is_ok());
-    assert!(check_refusal(&exact(&placement, 0), &state, &context()).is_ok());
+    let refusal = |command: Command| check_refusal(&command, &state, &context()).unwrap();
+    let field = |e: CommandError| match e {
+        CommandError::Invalid { field, .. } => field,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(field(refusal(exact(&placement, 9000))), "placements");
+    assert_eq!(field(refusal(exact(&placement, 0))), "placements");
+    assert!(matches!(
+        refusal(exact(&next, 100)),
+        CommandError::NotFound { .. }
+    ));
+    let twice = c(clip::Command::SetLength {
+        placements: Some(vec![
+            PlacementLength {
+                placement: placement.clone(),
+                length: Tick(100),
+            };
+            2
+        ]),
+        clip: clip.clone(),
+        length: Tick(1920),
+        trim: false,
+    });
+    assert_eq!(field(refusal(twice)), "placements");
+}
+
+#[test]
+fn a_grow_never_shrinks_a_placement_and_adjacent_copies_stay_as_they_are() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    let (clip, first) = placed_bar(&mut state, &mut ctx, &f, 0);
+    let (_, second) = placed_bar(&mut state, &mut ctx, &f, 3840);
+    // The next placement starts inside the first one (a merge can leave that): it stays.
+    let track = state.project.tracks.get_mut(&f.track).unwrap();
+    let mut early = track.placements[&first].clone();
+    early.start = Tick(100);
+    early.span = Span::Ticks {
+        length: Tick(100),
+        offset: Tick(0),
+    };
+    let mut ids = IdGenerator::new(1_670_000_000_000, 12);
+    track
+        .placements
+        .insert(PlacementId::generate(&mut ids), early);
+    set_length(&mut state, &clip, 7680);
+    assert_eq!(length_in(&state.project, &f, &first), 3840, "not shrunk");
+    assert_eq!(
+        length_in(&state.project, &f, &second),
+        3840,
+        "the last copy"
+    );
+}
+
+#[test]
+fn the_undo_of_a_length_change_never_fails_on_overlaps_the_project_already_holds() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    let (clip, _) = placed_bar(&mut state, &mut ctx, &f, 0);
+    // Two unrelated placements that overlap each other, far from the clip's.
+    let track = state.project.tracks.get_mut(&f.track).unwrap();
+    let mut ids = IdGenerator::new(1_670_000_000_000, 13);
+    for start in [30_000, 31_000] {
+        let id = PlacementId::generate(&mut ids);
+        let mut p = track.placements[&f.placement].clone();
+        p.start = Tick(start);
+        track.placements.insert(id, p);
+    }
+    state.project.validate().unwrap();
+    let before = state.project.clone();
+    let out = set_length(&mut state, &clip, 7680);
+    let Undo::Inverse(inverse) = out.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before);
 }

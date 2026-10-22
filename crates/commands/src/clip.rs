@@ -535,9 +535,10 @@ fn check_offsets(track: &Track, clip: &ClipId, length: Tick) -> Result<(), Comma
 /// The placements of `clip` in the track whose length changes with the clip, as
 /// `(id, length before, length after)`. Without `explicit`: those that play the clip whole
 /// (offset 0, length equal to `old`) take `new`; a growing one stops at the start of the
-/// next placement of the track (a note edit never makes an overlap: that rule is the
-/// arrangement's). With `explicit` (undo): exactly those lengths, refused when the
-/// result would overlap or leave the timeline.
+/// next placement of the track, and is left as it is when that next one already starts
+/// inside it (a note edit never makes an overlap: that rule is the arrangement's). With
+/// `explicit` (undo): exactly those lengths, refused when one is listed twice, is not a
+/// placement of the clip, leaves the timeline, or makes an overlap that was not there.
 fn placement_changes(
     track: &Track,
     clip: &ClipId,
@@ -545,50 +546,16 @@ fn placement_changes(
     new: Tick,
     explicit: Option<&[PlacementLength]>,
 ) -> Result<Vec<(PlacementId, Tick, Tick)>, CommandError> {
-    let mut out = Vec::new();
     if let Some(list) = explicit {
-        for item in list {
-            let p = track
-                .placements
-                .get(&item.placement)
-                .filter(|p| p.clip == *clip)
-                .ok_or_else(|| not_found("placement", &item.placement))?;
-            let Span::Ticks { length, .. } = p.span else {
-                return Err(invalid("placements", "an audio placement has no ticks"));
-            };
-            if length != item.length {
-                out.push((item.placement.clone(), length, item.length));
-            }
-        }
-        let mut spans: Vec<(i64, i64)> = Vec::new();
-        for (id, p) in &track.placements {
-            let Span::Ticks { length, .. } = p.span else {
-                continue;
-            };
-            let length = out
-                .iter()
-                .find(|(i, _, _)| i == id)
-                .map_or(length, |(_, _, n)| *n);
-            let end = p.start.get().checked_add(length.get());
-            if length.get() < 1 || end.is_none_or(|e| e > MAX_TICK) {
-                return Err(invalid(
-                    "placements",
-                    format!(
-                        "a placement lies in [0, {MAX_TICK}] ticks, with a length of at least 1"
-                    ),
-                ));
-            }
-            spans.push((p.start.get(), end.unwrap_or(MAX_TICK)));
-        }
-        spans.sort_unstable();
-        if spans.windows(2).any(|w| w[1].0 < w[0].1) {
-            return Err(invalid("placements", "the placements would overlap"));
-        }
-        return Ok(out);
+        return explicit_changes(track, clip, list);
     }
+    let mut out = Vec::new();
     if old == new {
         return Ok(out);
     }
+    // The starts in order, for the next placement of each one in O(log n).
+    let mut starts: Vec<i64> = track.placements.values().map(|q| q.start.get()).collect();
+    starts.sort_unstable();
     for (id, p) in &track.placements {
         let Span::Ticks { length, offset } = p.span else {
             continue;
@@ -596,21 +563,83 @@ fn placement_changes(
         if p.clip != *clip || offset.get() != 0 || length != old {
             continue;
         }
-        let mut target = new.get().min(MAX_TICK.saturating_sub(p.start.get()));
+        let start = p.start.get();
+        let mut target = new.get().min(MAX_TICK.saturating_sub(start));
         if new > old {
-            let next = track
-                .placements
-                .values()
-                .map(|q| q.start.get())
-                .filter(|s| *s > p.start.get())
-                .min();
-            if let Some(next) = next {
-                target = target.min(next - p.start.get());
+            let after = starts.partition_point(|s| *s <= start);
+            if let Some(next) = starts.get(after) {
+                target = target.min(next - start);
+            }
+            if target <= length.get() {
+                // Already blocked (or overlapping) there: it does not shrink on a grow.
+                continue;
             }
         }
         if target >= 1 && target != length.get() {
             out.push((id.clone(), length, Tick(target)));
         }
+    }
+    Ok(out)
+}
+
+/// The exact lengths of `list`, for undo: what [`placement_changes`] checks about them.
+fn explicit_changes(
+    track: &Track,
+    clip: &ClipId,
+    list: &[PlacementLength],
+) -> Result<Vec<(PlacementId, Tick, Tick)>, CommandError> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for item in list {
+        if !seen.insert(&item.placement) {
+            return Err(invalid("placements", "a placement is listed twice"));
+        }
+        let p = track
+            .placements
+            .get(&item.placement)
+            .filter(|p| p.clip == *clip)
+            .ok_or_else(|| not_found("placement", &item.placement))?;
+        let Span::Ticks { length, .. } = p.span else {
+            return Err(invalid("placements", "an audio placement has no ticks"));
+        };
+        let end = p.start.get().checked_add(item.length.get());
+        if item.length.get() < 1 || end.is_none_or(|e| e > MAX_TICK) {
+            return Err(invalid(
+                "placements",
+                format!("a placement lies in [0, {MAX_TICK}] ticks, with a length of at least 1"),
+            ));
+        }
+        if length != item.length {
+            out.push((item.placement.clone(), length, item.length));
+        }
+    }
+    // No overlap that was not there: restoring a state that was valid, with the overlaps
+    // the project may already hold, never fails.
+    let changed: std::collections::HashMap<&PlacementId, Tick> =
+        out.iter().map(|(id, _, n)| (id, *n)).collect();
+    let mut rows: Vec<(i64, i64, i64)> = track
+        .placements
+        .iter()
+        .filter_map(|(id, p)| match p.span {
+            Span::Ticks { length, .. } => {
+                let now = p.start.get().saturating_add(length.get());
+                let then = p
+                    .start
+                    .get()
+                    .saturating_add(changed.get(id).map_or(length, |n| *n).get());
+                Some((p.start.get(), now, then))
+            }
+            Span::Frames { .. } => None,
+        })
+        .collect();
+    rows.sort_unstable();
+    let (mut max_now, mut max_then) = (i64::MIN, i64::MIN);
+    for (start, now, then) in rows {
+        if start < max_then && start >= max_now {
+            return Err(invalid("placements", "the placements would overlap"));
+        }
+        max_now = max_now.max(now);
+        max_then = max_then.max(then);
     }
     Ok(out)
 }
