@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use project::{FORMAT_VERSION, FormatProbe, Project, SessionState};
+use project::{EngineSlots, FORMAT_VERSION, FormatProbe, Project, SceneId, SessionState, TrackId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -92,6 +92,41 @@ pub enum SnapshotReport {
 pub struct ProjectView {
     pub project: Project,
     pub session: SessionState,
+    /// Where the engine holds the tracks and the scenes: the key of the engine's feedback.
+    pub slots: ViewSlots,
+}
+
+/// The engine slots of the tracks and scenes that have one. The engine reports the state of
+/// a launch-grid cell by slots (its track slot, its scene slot), never by identifier; the
+/// launch grid reads this table to find the cell of a report. An entity the engine was never
+/// told about is absent.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ViewSlots {
+    /// The epoch of the engine stream these slots belong to: a report of another epoch (an
+    /// engine behind a snapshot) names other slots and is not read against this table.
+    pub epoch: u16,
+    pub tracks: BTreeMap<TrackId, u32>,
+    pub scenes: BTreeMap<SceneId, u32>,
+}
+
+impl ViewSlots {
+    /// The slots of `engine`, in the stream's `epoch`.
+    pub fn of(engine: &EngineSlots, epoch: u16) -> Self {
+        Self {
+            epoch,
+            tracks: engine
+                .tracks
+                .iter()
+                .map(|(slot, id)| (id.clone(), slot))
+                .collect(),
+            scenes: engine
+                .scenes
+                .iter()
+                .map(|(slot, id)| (id.clone(), slot))
+                .collect(),
+        }
+    }
 }
 
 /// What loading a project did.
