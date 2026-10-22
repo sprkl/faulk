@@ -95,6 +95,8 @@ test('arrangement: a note drawn in bar 2 after lengthening the clip sounds when 
   const g = await spot(page)
   await page.mouse.click(g.x(3850), g.y(60))
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '1')
+  // The click auditions the note: let its sound start and die before asking for silence (a meter that has not risen yet reads silent).
+  await page.waitForTimeout(2500)
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)
 
   // Play from the start: silent through bar 1, sounding once the playhead is inside the note.
@@ -105,15 +107,15 @@ test('arrangement: a note drawn in bar 2 after lengthening the clip sounds when 
   await expect
     .poll(
       async () => {
-        const t = await tick()
         const db = await meterDb(page)
+        const t = await tick()
         if (t < 3000) early.push(db)
         return t >= 3900 && t < 4700 && db > SILENCE_DB
       },
       { timeout: 15_000, intervals: [30] },
     )
     .toBe(true)
-  expect(early.every((db) => db === SILENCE_DB)).toBe(true)
+  expect(early.filter((db) => db !== SILENCE_DB)).toEqual([])
   await transport(page, 'Stop').click()
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)
   expect(seen.errors).toEqual([])
