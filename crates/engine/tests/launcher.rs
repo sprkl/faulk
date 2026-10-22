@@ -294,7 +294,6 @@ fn assert_nothing_held(track: u32) {
     assert!(h.is_empty(), "stuck notes on track {track}: {h:?}");
 }
 
-
 /// Plays clip 0 on track 0 from scene 0, launched before `Play` from 0.
 fn playing(rig: &mut Rig, clip: M) {
     rig.send(&[clip, slot(0, 0, 0), launch(0, 0), M::Play { from: Tick(0) }]);
@@ -506,7 +505,10 @@ fn a_scene_leaves_the_tracks_with_an_empty_cell_playing() {
     // Track 1 has no clip in scene 1: its drone went on, untouched.
     assert_eq!(ons(1), vec![(0, 61)]);
     assert!(offs(1).is_empty());
-    assert_eq!(grid(&r), vec![(0, 1, ClipState::Playing), (1, 0, ClipState::Playing)]);
+    assert_eq!(
+        grid(&r),
+        vec![(0, 1, ClipState::Playing), (1, 0, ClipState::Playing)]
+    );
 }
 
 #[test]
@@ -569,12 +571,7 @@ fn stop_all_stops_every_playing_track_at_the_boundary_and_cancels_a_pending_laun
 #[test]
 fn stop_all_with_the_transport_stopped_leaves_nothing_to_play() {
     let mut r = Rig::new(48_000, 1, Quantize::Bar);
-    r.send(&[
-        drone(0, LONG, 60),
-        slot(0, 0, 0),
-        launch(0, 0),
-        M::StopAll,
-    ]);
+    r.send(&[drone(0, LONG, 60), slot(0, 0, 0), launch(0, 0), M::StopAll]);
     r.run(128, 128);
     assert!(grid(&r).is_empty(), "a stop is not a clip");
     r.send(&[M::Play { from: Tick(0) }]);
@@ -825,7 +822,12 @@ fn a_launch_that_leaves_the_track_silent_is_reported_as_stopping() {
 #[test]
 fn a_playing_clip_is_reported_in_the_cell_it_sits_in_now() {
     let mut r = Rig::new(48_000, 1, Quantize::None);
-    r.send(&[drone(0, LONG, 60), slot(0, 4, 0), launch(0, 4), M::Play { from: Tick(0) }]);
+    r.send(&[
+        drone(0, LONG, 60),
+        slot(0, 4, 0),
+        launch(0, 4),
+        M::Play { from: Tick(0) },
+    ]);
     r.run(128, 128);
     assert_eq!(grid(&r), vec![(0, 4, ClipState::Playing)]);
     // Moved to another cell: reported there.
@@ -840,7 +842,14 @@ fn a_playing_clip_is_reported_in_the_cell_it_sits_in_now() {
     }]);
     r.run(128, 128);
     assert!(grid(&r).is_empty());
-    assert!(r.e.state().track(TrackSlot(0)).unwrap().player.playing().is_some());
+    assert!(
+        r.e.state()
+            .track(TrackSlot(0))
+            .unwrap()
+            .player
+            .playing()
+            .is_some()
+    );
 }
 
 /// A track without a device renders nothing, but its grid state is the real one.

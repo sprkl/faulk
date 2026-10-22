@@ -38,15 +38,15 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
-use crate::launcher;
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::launcher;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
-    ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot, Feedback,
-    Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow, MsgError, Note,
-    PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg, SceneSlot, Slots,
-    SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg, TransportState, limits, state_pairs,
-    try_box,
+    ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
+    Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
+    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg,
+    SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
+    TransportState, limits, state_pairs, try_box,
 };
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use crate::transport::{Segment, Transport};

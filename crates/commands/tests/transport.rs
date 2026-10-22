@@ -150,7 +150,10 @@ fn launch_quantize_sets_each_value_reports_the_previous_one_and_undoes() {
             assert_eq!(out.undo, Undo::None);
             assert!(out.events.is_empty());
         } else {
-            assert_eq!(out.events, vec![ProjectEvent::LaunchQuantizeChanged { quantize: q }]);
+            assert_eq!(
+                out.events,
+                vec![ProjectEvent::LaunchQuantizeChanged { quantize: q }]
+            );
             let mut undone = s.clone();
             run(&undo_of(out.undo), &mut undone, &mut context()).unwrap();
             assert_eq!(undone.project, before.project, "{q:?}");

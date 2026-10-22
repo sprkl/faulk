@@ -54,7 +54,7 @@ Le nom d'un device n'est jamais traduit : un seul nom anglais, le même dans les
 
 **Lancement** : démarrer ou arrêter un clip ou une scène depuis la grille ; il s'exécute à la prochaine limite de quantification (ou au saut de la tête de lecture, si elle saute avant). L'état de lecture est éphémère, jamais enregistré. Code : le lecteur de clips MIDI de chaque piste exécute `LaunchClip` et `StopTrack` (`ClipPlayer`, `engine::clip_player`, CL-2) ; commandes `launch.clip`, `launch.scene`, `launch.stop_track`, `launch.stop_all` **(prévu)**.
 
-**Quantification** (de lancement) : la durée sur laquelle un lancement s'aligne : aucune, 1/16, 1 temps, 1, 2, 4 ou 8 mesures. Elle est globale au projet, 1 mesure par défaut ; un réglage par clip viendra après le MVP. Code : `Quantize` (`engine::time`, sept valeurs, `next_boundary_at_or_after` donne la prochaine limite) ; `TransportSettings::launch_quantize` ; la commande `transport.set_launch_quantization` **(prévu)**.
+**Quantification** (de lancement) : la durée sur laquelle un lancement s'aligne : aucune, 1/16, 1 temps, 1, 2, 4 ou 8 mesures. Elle est globale au projet, 1 mesure par défaut ; un réglage par clip viendra après le MVP. Code : `Quantize` (`engine::time`, sept valeurs, `next_boundary_at_or_after` donne la prochaine limite) ; `TransportSettings::launch_quantize` ; la commande `transport.set_launch_quantize`.
 
 **Armement** : l'état d'une piste prête à enregistrer ; le MIDI joué en direct va à la piste sélectionnée et aux pistes armées. Code : commande `track.arm` **(prévu)**.
 

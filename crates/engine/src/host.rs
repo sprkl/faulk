@@ -436,9 +436,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     }
     let tracks = u32_at(40)?;
     let clips = u32_at(44)?;
-    if tracks > limits::MAX_TRACKS
-        || clips > 2 * tracks
-        || bytes.len() < report_len(tracks, clips)
+    if tracks > limits::MAX_TRACKS || clips > 2 * tracks || bytes.len() < report_len(tracks, clips)
     {
         return None;
     }
