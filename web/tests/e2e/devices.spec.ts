@@ -2,13 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { watch } from './support'
 
 // DV-9 (#70): the device panel in a real browser. Real worklet, engine and project core: every
-// action goes through the dispatcher as a DV-8 command. The registry has no effect yet (DV-3 to
-// DV-5), so the effect flow (insert, move, remove) is covered by unit tests on the commands the
-// panel sends; here the effects section shows its empty state.
+// action goes through the dispatcher as a DV-8 command. Echo (DV-3) is the first effect: the
+// browser lists it with no change to the panel, and it is inserted, bypassed, removed and undone here.
 
 const TEXTS = {
-  en: { bypass: (n: string) => `Bypass ${n}`, use: (n: string) => `Use ${n} as the instrument`, noEffects: 'No effect yet.', hint: 'Output level of the synth, from 0 to 1 (linear gain).' },
-  fr: { bypass: (n: string) => `Contourner ${n}`, use: (n: string) => `Utiliser ${n} comme instrument`, noEffects: 'Aucun effet pour l’instant.', hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).' },
+  en: { bypass: (n: string) => `Bypass ${n}`, use: (n: string) => `Use ${n} as the instrument`, add: (n: string) => `Add ${n} to the track`, remove: (n: string) => `Remove ${n}`, hint: 'Output level of the synth, from 0 to 1 (linear gain).' },
+  fr: { bypass: (n: string) => `Contourner ${n}`, use: (n: string) => `Utiliser ${n} comme instrument`, add: (n: string) => `Ajouter ${n} à la piste`, remove: (n: string) => `Retirer ${n}`, hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).' },
 } as const
 
 const card = (page: Page, name: string) => page.getByTestId('device-card').filter({ has: page.getByRole('heading', { name, exact: true }) })
@@ -36,7 +35,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(osc.locator('[data-testid^=param-]')).toHaveCount(6)
     await expect(osc.getByTestId('device-remove')).toHaveCount(0)
     await expect(osc.getByTestId('device-left')).toHaveCount(0)
-    await expect(panel.getByTestId('browse-no-effects')).toHaveText(x.noEffects)
+    await expect(panel.getByTestId('browse-no-effects')).toHaveCount(0)
     // The tooltip of a parameter is its description, in the page's language.
     await expect(osc.getByTestId('param-gain').locator('label')).toHaveAttribute('title', x.hint)
 
@@ -65,6 +64,24 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(osc).toHaveAttribute('data-bypassed', 'true')
     await page.keyboard.press('Control+z')
     await expect(bypass).toHaveAttribute('aria-pressed', 'false')
+
+    // Echo, the first effect: inserted from the browser, one control per parameter, bypassed,
+    // removed and brought back by undo.
+    await panel.getByRole('button', { name: x.add('Echo'), exact: true }).click()
+    await expect(page.getByTestId('device-card')).toHaveCount(2)
+    const echo = card(page, 'Echo')
+    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(5)
+    const echoBypass = echo.getByRole('button', { name: x.bypass('Echo'), exact: true })
+    await echoBypass.click()
+    await expect(echo).toHaveAttribute('data-bypassed', 'true')
+    await page.keyboard.press('Control+z')
+    await expect(echo).toHaveAttribute('data-bypassed', 'false')
+    await echo.getByRole('button', { name: x.remove('Echo'), exact: true }).click()
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(2)
+    await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
 
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
