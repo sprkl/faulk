@@ -13,6 +13,11 @@ export class UiStore {
   view: MainViewId
   /** The registry's view shown in the bottom panel. */
   panel: PanelViewId
+  /**
+   * The clip the piano roll is pointed at (the launch grid sets it): view state, not project data.
+   * The roll uses it when it belongs to the selected track and still exists, else its first clip.
+   */
+  editedClip = $state<string | null>(null)
 
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)

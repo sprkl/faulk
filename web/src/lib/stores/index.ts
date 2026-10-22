@@ -29,9 +29,10 @@ export function createStores(view: MainViewId, panel: PanelViewId): Stores {
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)
   // Dev server only: lets the browser checks send a command through the one entry point
-  // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet.
+  // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
+  // the project back (the ids of what they made, for the next command).
   if (import.meta.env.DEV && typeof window !== 'undefined') {
-    Object.assign(window, { __faulkRun: (command: Command) => dispatcher.run(command) })
+    Object.assign(window, { __faulkRun: (command: Command) => dispatcher.run(command), __faulkView: () => project.view })
   }
   return { project, engine, ui: new UiStore(view, panel), dispatcher }
 }

@@ -141,6 +141,8 @@ export class Dispatcher {
       const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
       if (report.status === 'encoded') {
         web.push(engine)
+        // The snapshot gave the engine its slots again (a new epoch): the view carries them for the launch grid.
+        this.refresh()
         return true
       }
       void this.stopWeb(report.stream_error, 0)
