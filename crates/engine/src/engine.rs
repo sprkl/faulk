@@ -1975,12 +1975,14 @@ impl Engine {
                         }
                     }
                     match t.scenes.as_mut_slice().get_mut(scene.0 as usize) {
-                        Some(entry) => *entry = clip,
+                        Some(entry) => {
+                            *entry = clip;
+                            if let Some(clip) = clip {
+                                // A clip that plays is reported in the cell it sits in now.
+                                t.player.moved(clip, scene);
+                            }
+                        }
                         None => skipped = true,
-                    }
-                    if let Some(clip) = clip {
-                        // A clip that plays is reported in the cell it sits in now.
-                        t.player.moved(clip, scene);
                     }
                     old.map(Garbage::Scenes)
                 }

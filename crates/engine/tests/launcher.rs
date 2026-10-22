@@ -723,6 +723,9 @@ fn a_track_with_a_cut_from_the_last_block_starts_the_scene_with_the_others() {
         let want = if shift <= 20 { 24_000 } else { 30_000 };
         assert_eq!(start(0, 110), vec![want], "shift {shift}, track 0");
         assert_eq!(start(1, 111), vec![want], "shift {shift}, track 1");
+        // The dense clip's whole release (3 089 notes) went through, whatever the cut.
+        assert_nothing_held(0);
+        assert_nothing_held(1);
     }
 }
 

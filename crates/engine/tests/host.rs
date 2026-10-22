@@ -562,10 +562,12 @@ fn the_launch_grid_states_travel_in_the_report() {
             scene: SceneSlot(3),
         },
     ]);
-    for _ in 0..13 {
-        session.host.render(128);
-    }
-    session.host.write_feedback();
+    assert_no_alloc(|| {
+        for _ in 0..13 {
+            session.host.render(128);
+        }
+        session.host.write_feedback();
+    });
     let cell = |state| ActiveClip {
         track: TrackSlot(0),
         scene: SceneSlot(3),
@@ -599,8 +601,10 @@ fn the_launch_grid_states_travel_in_the_report() {
         vec![cell(ClipState::Playing)]
     );
     session.send(&[M::StopAll]);
-    session.host.render(128);
-    session.host.write_feedback();
+    assert_no_alloc(|| {
+        session.host.render(128);
+        session.host.write_feedback();
+    });
     // A stop waits for its boundary (the next bar).
     assert_eq!(
         read_feedback(session.host.feedback()).unwrap().active_clips,
