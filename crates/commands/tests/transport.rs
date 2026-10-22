@@ -302,6 +302,14 @@ fn metronome_validates_every_field_and_needs_one() {
     for (c, field) in cases {
         assert_eq!(invalid_field(refused(&c, &f.state)), field);
     }
+    // The shared bounds are levels; silence is `null`.
+    for ok in [
+        Some(Some(::project::MIN_GAIN_DB)),
+        Some(Some(::project::MAX_GAIN_DB)),
+        Some(None),
+    ] {
+        check(&metronome(None, ok, None), &f.state, &context()).unwrap();
+    }
 }
 
 #[test]

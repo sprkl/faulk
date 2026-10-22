@@ -22,12 +22,9 @@
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
 use project::limits::{MAX_COUNT_IN_BARS, MAX_TICK};
-use project::{LoopRegion, Quantize, Tempo, Tick, TickLoop, TimeSignature};
-
-/// The lowest finite metronome level a command accepts, in dB.
-pub const MIN_METRONOME_DB: f64 = -96.0;
-/// The highest metronome level a command accepts, in dB.
-pub const MAX_METRONOME_DB: f64 = 6.0;
+use project::{
+    LoopRegion, MAX_GAIN_DB, MIN_GAIN_DB, Quantize, Tempo, Tick, TickLoop, TimeSignature,
+};
 
 domain! {
     domain = "transport", schema = ("TransportCommand", "TransportOutput");
@@ -364,7 +361,7 @@ fn toggle_loop(state: &mut State) -> Result<Out, CommandError> {
 }
 
 fn db_in_range(db: f64) -> bool {
-    db.is_finite() && (MIN_METRONOME_DB..=MAX_METRONOME_DB).contains(&db)
+    db.is_finite() && (MIN_GAIN_DB..=MAX_GAIN_DB).contains(&db)
 }
 
 fn from_db(db: f64) -> Option<f64> {
@@ -392,7 +389,7 @@ fn set_metronome(
             return Err(invalid(
                 "gain_db",
                 format!(
-                    "a metronome level is {MIN_METRONOME_DB} to {MAX_METRONOME_DB} dB, or null for silence, not {g}"
+                    "a metronome level is {MIN_GAIN_DB} to {MAX_GAIN_DB} dB, or null for silence, not {g}"
                 ),
             ));
         }
@@ -414,7 +411,7 @@ fn set_metronome(
         return Err(invalid(
             "gain_db",
             format!(
-                "the current level, {} dB, is outside {MIN_METRONOME_DB} to {MAX_METRONOME_DB} dB: a command could not undo the edit exactly",
+                "the current level, {} dB, is outside {MIN_GAIN_DB} to {MAX_GAIN_DB} dB: a command could not undo the edit exactly",
                 m.gain_db
             ),
         ));
@@ -469,14 +466,14 @@ fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<f64>>
     <Option<f64> as serde::Deserialize>::deserialize(d).map(Some)
 }
 
-/// The schema of the level to set: a number from [`MIN_METRONOME_DB`] to
-/// [`MAX_METRONOME_DB`], or `null` for silence; the field itself is optional.
+/// The schema of the level to set: a number from [`MIN_GAIN_DB`] to
+/// [`MAX_GAIN_DB`], or `null` for silence; the field itself is optional.
 fn optional_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({
         "type": ["number", "null"],
         "format": "double",
-        "minimum": MIN_METRONOME_DB,
-        "maximum": MAX_METRONOME_DB,
+        "minimum": MIN_GAIN_DB,
+        "maximum": MAX_GAIN_DB,
         "description": "The level in dB; `null` is silence; missing leaves it as it is."
     })
 }

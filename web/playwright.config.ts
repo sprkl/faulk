@@ -17,6 +17,10 @@ const channel = process.env.FAULK_E2E_CHANNEL || undefined
 // The page and the stand-in helper of the helper test agree on this port (`tests/e2e/support.ts`).
 if (process.env.FAULK_E2E_HELPER_PORT) process.env.VITE_FAULK_HELPER_PORT = process.env.FAULK_E2E_HELPER_PORT
 
+// `FAULK_E2E_DEV_PORT` and `FAULK_E2E_PREVIEW_PORT` move the two servers when another checkout holds 5180 or 4180.
+const devPort = Number(process.env.FAULK_E2E_DEV_PORT) || 5180
+const previewPort = Number(process.env.FAULK_E2E_PREVIEW_PORT) || 4180
+
 export default defineConfig({
   testDir: 'tests/e2e',
   workers: 1,
@@ -26,11 +30,12 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: { channel, locale: 'en-US', trace: 'retain-on-failure' },
   projects: [
-    { name: 'dev', use: { baseURL: 'http://localhost:5180' } },
-    { name: 'preview', use: { baseURL: 'http://localhost:4180' } },
+    { name: 'dev', use: { baseURL: `http://localhost:${devPort}` } },
+    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}` } },
   ],
   webServer: [
-    { command: 'pnpm exec vite dev --port 5180', url: 'http://localhost:5180/app', timeout: 300_000 },
-    { command: 'pnpm build && pnpm exec vite preview --port 4180', url: 'http://localhost:4180/app', timeout: 300_000 },
+    { command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 },
+    // The e2e build also carries the test surfaces under /dev (the time grid's, AR-3); a production build has them empty.
+    { command: `pnpm build && pnpm exec vite preview --port ${previewPort}`, url: `http://localhost:${previewPort}/app`, timeout: 300_000, env: { VITE_FAULK_DEV_ROUTES: '1' } },
   ],
 })
