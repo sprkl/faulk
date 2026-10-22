@@ -115,6 +115,7 @@ test('arrangement: a note drawn in bar 2 after lengthening the clip sounds when 
       { timeout: 15_000, intervals: [30] },
     )
     .toBe(true)
+  expect(early.length).toBeGreaterThan(5)
   expect(early.filter((db) => db !== SILENCE_DB)).toEqual([])
   await transport(page, 'Stop').click()
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)

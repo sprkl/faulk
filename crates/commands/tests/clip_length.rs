@@ -164,7 +164,7 @@ fn one_history_entry_undoes_and_redoes_clip_and_placement() {
 }
 
 #[test]
-fn set_content_follows_too_and_exact_lengths_refuse_an_overlap_or_a_foreign_placement() {
+fn set_content_follows_too_and_exact_lengths_refuse_a_bad_length_a_twin_or_a_foreign_placement() {
     let f = fx();
     let mut state = f.state.clone();
     let mut ctx = context();
@@ -200,7 +200,7 @@ fn set_content_follows_too_and_exact_lengths_refuse_an_overlap_or_a_foreign_plac
         CommandError::Invalid { field, .. } => field,
         other => panic!("{other:?}"),
     };
-    assert_eq!(field(refusal(exact(&placement, 9000))), "placements");
+    assert_eq!(field(refusal(exact(&placement, 1 << 41))), "placements");
     assert_eq!(field(refusal(exact(&placement, 0))), "placements");
     assert!(matches!(
         refusal(exact(&next, 100)),
@@ -267,6 +267,36 @@ fn the_undo_of_a_length_change_never_fails_on_overlaps_the_project_already_holds
     state.project.validate().unwrap();
     let before = state.project.clone();
     let out = set_length(&mut state, &clip, 7680);
+    let Undo::Inverse(inverse) = out.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before);
+}
+
+#[test]
+fn shortening_a_clip_out_of_an_overlap_can_be_undone() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    let (clip, whole) = placed_bar(&mut state, &mut ctx, &f, 0);
+    set_length(&mut state, &clip, 7680);
+    // A placement that starts inside the whole one: the project allows the overlap.
+    let track = state.project.tracks.get_mut(&f.track).unwrap();
+    let mut ids = IdGenerator::new(1_670_000_000_000, 14);
+    let mut inside = track.placements[&whole].clone();
+    inside.start = Tick(3840);
+    inside.span = Span::Ticks {
+        length: Tick(100),
+        offset: Tick(0),
+    };
+    track
+        .placements
+        .insert(PlacementId::generate(&mut ids), inside);
+    state.project.validate().unwrap();
+    let before = state.project.clone();
+    let out = set_length(&mut state, &clip, 3840);
+    assert_eq!(length_in(&state.project, &f, &whole), 3840);
     let Undo::Inverse(inverse) = out.undo else {
         panic!()
     };

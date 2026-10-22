@@ -174,9 +174,8 @@ domain! {
     /// in the same command, so notes added past the old end are heard in the
     /// arrangement; a growing placement stops at the start of the next placement of its
     /// track, and a placement that shows only part of the clip, or repeats it, is left
-    /// alone. `placements` is for undo: the exact lengths to give to placements of the
-    /// clip, instead of following the clip. Undo: set the length back, restoring what
-    /// `trim` cut and the lengths of the placements.
+    /// alone. Undo: set the length back, restoring what `trim` cut and the lengths of the
+    /// placements.
     "clip.set_length" (kind = "edit", undo = "inverse", destructive = false)
     SetLength {
         clip: ClipId,
@@ -184,6 +183,9 @@ domain! {
         #[serde(default)]
         trim: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact lengths an undo gives back, not in the schema (agents never
+        // see it; it is not a placement resize, AR-1 owns that).
+        #[schemars(skip)]
         placements: Option<Vec<PlacementLength>>,
     } => {
         /// The length before the command.
@@ -206,8 +208,8 @@ domain! {
     /// history entry for a whole clip written in one go. The same rules as
     /// `clip.set_length`, `clip.set_loop` and `clip.notes.add` apply (a note outside
     /// `[0, length]` is refused), and the placements follow the length in the same way
-    /// (`placements`, for undo, gives exact lengths instead). Undo: set the previous
-    /// content and the previous placement lengths back.
+    /// as `clip.set_length`. Undo: set the previous content and the previous placement
+    /// lengths back.
     "clip.set_content" (kind = "edit", undo = "inverse", destructive = false)
     SetContent {
         clip: ClipId,
@@ -215,6 +217,9 @@ domain! {
         looping: Option<TickLoop>,
         notes: Vec<Note>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact lengths an undo gives back, not in the schema (agents never
+        // see it; it is not a placement resize, AR-1 owns that).
+        #[schemars(skip)]
         placements: Option<Vec<PlacementLength>>,
     } => {
         /// How many notes the clip has now.
@@ -538,7 +543,7 @@ fn check_offsets(track: &Track, clip: &ClipId, length: Tick) -> Result<(), Comma
 /// next placement of the track, and is left as it is when that next one already starts
 /// inside it (a note edit never makes an overlap: that rule is the arrangement's). With
 /// `explicit` (undo): exactly those lengths, refused when one is listed twice, is not a
-/// placement of the clip, leaves the timeline, or makes an overlap that was not there.
+/// placement of the clip or leaves the timeline.
 fn placement_changes(
     track: &Track,
     clip: &ClipId,
@@ -613,34 +618,8 @@ fn explicit_changes(
             out.push((item.placement.clone(), length, item.length));
         }
     }
-    // No overlap that was not there: restoring a state that was valid, with the overlaps
-    // the project may already hold, never fails.
-    let changed: std::collections::HashMap<&PlacementId, Tick> =
-        out.iter().map(|(id, _, n)| (id, *n)).collect();
-    let mut rows: Vec<(i64, i64, i64)> = track
-        .placements
-        .iter()
-        .filter_map(|(id, p)| match p.span {
-            Span::Ticks { length, .. } => {
-                let now = p.start.get().saturating_add(length.get());
-                let then = p
-                    .start
-                    .get()
-                    .saturating_add(changed.get(id).map_or(length, |n| *n).get());
-                Some((p.start.get(), now, then))
-            }
-            Span::Frames { .. } => None,
-        })
-        .collect();
-    rows.sort_unstable();
-    let (mut max_now, mut max_then) = (i64::MIN, i64::MIN);
-    for (start, now, then) in rows {
-        if start < max_then && start >= max_now {
-            return Err(invalid("placements", "the placements would overlap"));
-        }
-        max_now = max_now.max(now);
-        max_then = max_then.max(then);
-    }
+    // No overlap check: the lengths are those of a state the project already held (the
+    // inverse of a length change), which may hold overlaps the model allows.
     Ok(out)
 }
 
