@@ -242,9 +242,10 @@ pub struct Echo {
     bpm: f64,
     /// The longest delay the lines hold, in frames.
     max_delay: f32,
-    /// The delay in use and the one it glides toward, in frames.
-    delay: f32,
-    target: f32,
+    /// The delay in use and the one it glides toward, in frames (`f64`: a step of 0.002 frame must
+    /// still move a delay of several seconds).
+    delay: f64,
+    target: f64,
     glide: f32,
     /// The next block starts at the target (built or reset).
     snap: bool,
@@ -302,9 +303,9 @@ impl Echo {
         } else {
             f64::from(self.time)
         };
-        let frames = (seconds * f64::from(self.sample_rate)) as f32;
+        let frames = seconds * f64::from(self.sample_rate);
         // `max` and `min` swallow a NaN into the bound.
-        self.target = frames.max(1.0).min(self.max_delay);
+        self.target = frames.max(1.0).min(f64::from(self.max_delay));
     }
 
     fn set_value(&mut self, id: ParamId, value: f32) {
@@ -331,17 +332,17 @@ impl Echo {
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             let diff = self.target - self.delay;
             let distance = diff.abs();
-            if distance <= REACHED {
+            if distance <= f64::from(REACHED) {
                 self.delay = self.target;
             } else {
-                let step = (distance * self.glide)
-                    .clamp(MIN_SLEW, MAX_SLEW)
+                let step = (distance * f64::from(self.glide))
+                    .clamp(f64::from(MIN_SLEW), f64::from(MAX_SLEW))
                     .min(distance);
                 self.delay += step.copysign(diff);
             }
             // `delay` is within [1, max_delay]: both indexes are inside the line.
             let whole = (self.delay as usize).clamp(1, len - GUARD_FRAMES);
-            let frac = (self.delay - whole as f32).clamp(0.0, 1.0);
+            let frac = ((self.delay - whole as f64) as f32).clamp(0.0, 1.0);
             let newer = if self.write >= whole {
                 self.write - whole
             } else {

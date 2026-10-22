@@ -570,6 +570,31 @@ fn reset_empties_the_lines_and_keeps_the_values() {
 }
 
 #[test]
+fn a_long_glide_lands_on_the_exact_frame() {
+    // A delay above 65 536 frames: a f32 step of MIN_SLEW would be lost, the echo would stop early.
+    for rate in [48_000.0_f32, 192_000.0] {
+        let mut e = with(
+            rate,
+            &[(MODE, 0.0), (TIME, 0.5), (MIX, 1.0), (FEEDBACK, 0.0)],
+        );
+        run_at(&mut e, &vec![0.0; 256], 120.0);
+        set(&mut e, TIME, 1.5);
+        let at = (5.5 * rate) as usize;
+        let delay = (1.5 * rate) as usize;
+        let out = run(
+            &mut e,
+            rate,
+            &impulse(at + delay + 100, at),
+            256,
+            |_| 120.0,
+            &[],
+        )
+        .0;
+        assert_eq!(argmax(&out), at + delay, "rate {rate}");
+    }
+}
+
+#[test]
 fn unknown_parameters_and_bad_values_are_ignored() {
     let mut e = echo_at(SR);
     let before = format!("{e:?}");
@@ -580,7 +605,7 @@ fn unknown_parameters_and_bad_values_are_ignored() {
         e.set_param(ParamId(id), f32::NEG_INFINITY);
     }
     // Infinity is not finite either; the ramps did not start, the values did not move.
-    assert_eq!(before.len(), format!("{e:?}").len());
+    assert_eq!(before, format!("{e:?}"));
 }
 
 // ---------------------------------------------------------------- the descriptor and the memory
