@@ -281,7 +281,6 @@ fn every_rt_message_applies_without_allocating() {
     assert!(s.lane(LaneSlot(0)).is_none());
     assert_eq!(t.scenes.as_slice()[1], Some(ClipSlot(3)));
     assert_eq!(t.launch, Some(LaunchRequest::Clip(SceneSlot(1))));
-    assert_eq!(s.grid.scene, Some(SceneSlot(1)));
     assert!(s.playback.playing);
     assert_eq!(s.playback.cue, Some(Tick(960)));
     assert_eq!(e.skipped(), 0);
@@ -375,8 +374,9 @@ fn the_transport_and_launch_orders_land_in_the_state() {
     assert!(!s.playback.playing && s.playback.recording);
     assert_eq!(s.playback.cue, Some(Tick(20)));
     assert_eq!(s.playback.loop_region, region);
-    assert_eq!(s.track(T0).unwrap().launch, Some(LaunchRequest::Stop));
-    assert!(s.grid.stop_all && s.grid.back_to_arrangement);
+    // `BackToArrangement` found the track engaged (its stop was pending) and released it.
+    assert!(s.track(T0).unwrap().back);
+    assert_eq!(s.track(T0).unwrap().launch, None);
 }
 
 #[test]
@@ -600,6 +600,7 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             scenes: Table::try_filled(1).unwrap(),
             placements: Table::from_vec(Vec::new()),
             launch: None,
+            back: false,
             graph: Default::default(),
             player: Default::default(),
         }),

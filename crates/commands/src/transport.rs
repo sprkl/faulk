@@ -11,6 +11,9 @@
 //!   and saved. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
 //!   clamped. One tempo and one time signature per project in the MVP: the commands set
 //!   the first point of the maps.
+//! - The launch quantization is one value for the whole project (`none`, `sixteenth`, `beat`,
+//!   `bar`, `bars_2`, `bars_4`, `bars_8`; one bar by default): `transport.set_launch_quantize`
+//!   sets it, a value outside the list is refused by the schema.
 //! - The loop region needs `0 <= start < end <= MAX_TICK`. The loop cannot be enabled
 //!   without a region, and the region cannot be cleared while the loop is enabled
 //!   (the project would be invalid): turn the loop off first.
@@ -19,7 +22,9 @@
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
 use project::limits::{MAX_COUNT_IN_BARS, MAX_TICK};
-use project::{LoopRegion, MAX_GAIN_DB, MIN_GAIN_DB, Tempo, Tick, TickLoop, TimeSignature};
+use project::{
+    LoopRegion, MAX_GAIN_DB, MIN_GAIN_DB, Quantize, Tempo, Tick, TickLoop, TimeSignature,
+};
 
 domain! {
     domain = "transport", schema = ("TransportCommand", "TransportOutput");
@@ -66,6 +71,18 @@ domain! {
         previous_numerator: u8,
         /// The denominator before the command.
         previous_denominator: u8,
+    };
+
+    /// Set the launch quantization, global to the project: the grid a clip or scene launch
+    /// snaps to. One of `none` (at once), `sixteenth`, `beat`, `bar`, `bars_2`, `bars_4`,
+    /// `bars_8`; a project starts at `bar`. Any other value is refused. Undo: set the
+    /// previous value back.
+    "transport.set_launch_quantize" (kind = "edit", undo = "inverse", destructive = false)
+    SetLaunchQuantize {
+        quantize: Quantize,
+    } => {
+        /// The quantization before the command.
+        previous: Quantize,
     };
 
     /// Set the loop region `{"start": <tick>, "end": <tick>}` with `0 <= start < end <=
@@ -168,6 +185,7 @@ pub fn apply(
             numerator,
             denominator,
         } => set_time_signature(state, *numerator, *denominator),
+        Command::SetLaunchQuantize { quantize } => set_launch_quantize(state, *quantize),
         Command::SetLoop { loop_region } => set_loop(state, *loop_region),
         Command::ToggleLoop {} => toggle_loop(state),
         Command::SetMetronome {
@@ -244,6 +262,21 @@ fn set_time_signature(
             numerator,
             denominator,
         },
+    ))
+}
+
+fn set_launch_quantize(state: &mut State, new: Quantize) -> Result<Out, CommandError> {
+    let t = &mut state.project.transport;
+    let previous = t.launch_quantize;
+    let output = Output::SetLaunchQuantize { previous };
+    if previous == new {
+        return Ok(unchanged(output));
+    }
+    t.launch_quantize = new;
+    Ok(edited(
+        output,
+        Command::SetLaunchQuantize { quantize: previous },
+        ProjectEvent::LaunchQuantizeChanged { quantize: new },
     ))
 }
 

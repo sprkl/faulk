@@ -76,14 +76,14 @@ for (const lang of ['en', 'fr'] as const) {
       const tempo = page.getByTestId('transport-tempo')
       const position = page.getByTestId('transport-position')
 
-      // Before the audio starts the controls are off, and record and launch quantization stay off after.
+      // Before the audio starts the controls are off, and record stays off after.
       await expect(control(page, x.play)).toBeDisabled()
       await expect(tempo).toBeDisabled()
       await page.getByTestId('engine-state').getByRole('button').click()
       await expect(page.getByTestId('engine-mode')).toBeVisible()
       await expect(control(page, x.play)).toBeEnabled()
       await expect(control(page, x.record)).toBeDisabled()
-      await expect(page.getByTestId('transport-quantize')).toBeDisabled()
+      await expect(page.getByTestId('transport-quantize')).toBeEnabled()
       await expect(page.getByTestId('transport-quantize')).toHaveValue('bar')
       await expect(page.getByTestId('transport-quantize').locator('option:checked')).toHaveText(x.bar)
 
@@ -195,6 +195,19 @@ for (const lang of ['en', 'fr'] as const) {
       await page.keyboard.press('Control+z')
       await expect(numerator).toHaveValue('4')
       await expect(denominator).toHaveValue('4')
+
+      // Launch quantization: the seven values, each choice is one command, undo takes it back.
+      const quantize = page.getByTestId('transport-quantize')
+      await expect(quantize.locator('option')).toHaveCount(7)
+      await quantize.selectOption('bars_4')
+      await expect(quantize).toHaveValue('bars_4')
+      await quantize.selectOption('none')
+      await expect(quantize).toHaveValue('none')
+      await quantize.blur()
+      await page.keyboard.press('Control+z')
+      await expect(quantize).toHaveValue('bars_4')
+      await page.keyboard.press('Control+z')
+      await expect(quantize).toHaveValue('bar')
 
       // Loop: the first press gives the project a region and turns the loop on, in one undo step; the second turns it off.
       const loop = control(page, x.loop)

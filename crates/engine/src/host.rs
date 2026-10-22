@@ -17,8 +17,8 @@
 //! after the master, the voices of the tracks' devices, the transport state and playhead
 //! (`Engine::report_transport`), the counters the prepare side published and, when the
 //! caller times its renders ([`Host::add_render_time`]), the CPU load. Not produced yet,
-//! written as zero: the disk underruns (AU-3), the active clips (LA), the recorded notes
-//! (RE-2).
+//! written as zero: the disk underruns (AU-3), the recorded notes (RE-2). The active clips
+//! of the launch grid (GR-1) follow the meters.
 //!
 //! [`factory`] resolves a device kind through the registry of the built-in devices
 //! ([`crate::devices`], DV-1).
@@ -31,8 +31,8 @@ use std::sync::Arc;
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
-    DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, MsgError, TRACK_METER_BYTES,
-    TrackMeter, TransportState, limits,
+    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
+    Feedback, MsgError, TRACK_METER_BYTES, TrackMeter, TransportState, limits,
 };
 
 /// The device kinds the shipping hosts build: the registry of the built-in devices
@@ -282,8 +282,9 @@ impl Host {
     ///
     /// Written: version, transport state and playhead, CPU load, epoch and the counters the
     /// prepare side published, the most voices sounding during the period, the meters of
-    /// every track slot up to the last track and the output's. Not produced yet, written as
-    /// zero: the disk underruns (AU-3), the active clips (LA), the recorded notes (RE-2).
+    /// every track slot up to the last track and the output's, then the active clips (GR-1).
+    /// Not produced yet, written as zero: the disk underruns (AU-3), the recorded notes
+    /// (RE-2).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -325,7 +326,6 @@ impl Host {
         put(32, self.status.rejected.load(Ordering::Relaxed));
         put(36, 0);
         put(40, tracks as u32);
-        put(44, 0);
         put(48, 0);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -336,6 +336,18 @@ impl Host {
             put(at + 12, m.rms_r.to_bits());
             at += TRACK_METER_BYTES;
         }
+        // The grid cells that are not idle, after the meters: at most two per track, which is
+        // the room the region has for them.
+        let mut clips = 0usize;
+        self.engine.active_clips(|c| {
+            if clips < 2 * tracks && (c.track.0 as usize) < tracks {
+                put(at, c.track.0);
+                put(at + 4, u32::from(c.scene.0) | (c.state as u32) << 16);
+                at += ACTIVE_CLIP_BYTES;
+                clips += 1;
+            }
+        });
+        put(44, clips as u32);
         self.meter_frames = 0;
         self.busy_secs = 0.0;
         self.timed = false;
@@ -356,11 +368,12 @@ pub fn feedback_voices(region: &[AtomicU32]) -> u32 {
     })
 }
 
-/// Bytes of the report whose header is in `header`: the fixed part, the track meters and
-/// the output's.
-fn report_len(tracks: u32) -> usize {
+/// Bytes of a report of `tracks` tracks and `clips` active clips (at most two per track):
+/// the fixed part, the track meters and the output's, then the clips.
+fn report_len(tracks: u32, clips: u32) -> usize {
     let tracks = (tracks as usize).min(limits::MAX_TRACKS as usize);
-    FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES
+    let clips = (clips as usize).min(2 * tracks);
+    Feedback::size_for(tracks, clips, 0)
 }
 
 /// Copies the report of a region into `out` as the little-endian bytes of the `Feedback`
@@ -382,7 +395,7 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
     if seq == 0 || seq & 1 == 1 {
         return false;
     }
-    let len = report_len(load(10)).min(region.len() * 4);
+    let len = report_len(load(10), load(11)).min(region.len() * 4);
     out.clear();
     out.extend((0..len.div_ceil(4)).flat_map(|i| load(i).to_le_bytes()));
     out.truncate(len);
@@ -409,8 +422,8 @@ pub fn read_feedback(region: &[AtomicU32]) -> Option<Feedback> {
 }
 
 /// Decodes the bytes of a report ([`copy_feedback`]): `None` for a version this code does
-/// not read or a buffer shorter than its meters. Active clips and recorded notes are not
-/// decoded (nothing writes them yet).
+/// not read, a buffer shorter than its meters and active clips, or a clip state it does not
+/// know. The recorded notes are not decoded (nothing writes them yet).
 pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let u32_at = |at: usize| -> Option<u32> {
         Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
@@ -422,7 +435,9 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         return None;
     }
     let tracks = u32_at(40)?;
-    if tracks > limits::MAX_TRACKS || bytes.len() < report_len(tracks) {
+    let clips = u32_at(44)?;
+    if tracks > limits::MAX_TRACKS || clips > 2 * tracks || bytes.len() < report_len(tracks, clips)
+    {
         return None;
     }
     let meter = |i: usize| -> Option<TrackMeter> {
@@ -436,6 +451,18 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     };
     let meters = (0..tracks as usize)
         .map(meter)
+        .collect::<Option<Vec<_>>>()?;
+    let clips_at = FEEDBACK_HEADER_BYTES + (tracks as usize + 1) * TRACK_METER_BYTES;
+    let active_clips = (0..clips as usize)
+        .map(|i| {
+            let at = clips_at + i * ACTIVE_CLIP_BYTES;
+            let scene = u32_at(at + 4)?;
+            Some(ActiveClip {
+                track: crate::msg::TrackSlot(u32_at(at)?),
+                scene: crate::msg::SceneSlot(scene as u16),
+                state: ClipState::from_byte((scene >> 16) as u8)?,
+            })
+        })
         .collect::<Option<Vec<_>>>()?;
     Some(Feedback {
         transport: match bytes[1] {
@@ -454,7 +481,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,
-        active_clips: Vec::new(),
+        active_clips,
         recorded: Vec::new(),
     })
 }

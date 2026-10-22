@@ -59,6 +59,14 @@
 //! block's segment that continues it, goes on from that piece (the pieces already
 //! delivered are not read twice); any other segment is a jump.
 //!
+//! `BackToArrangement` (GR-1, [`crate::launcher`]) is the one order that does not wait for a
+//! boundary: the pending launch is dropped, even while the transport is stopped, and the
+//! playing clip's notes are released at the first sample of the read, going on in the next
+//! sub-blocks when the sink fills ([`ClipPlayer::engaged`] holds until it is done).
+//! An order's boundary is never in the past of the block that takes it: it is computed from
+//! the start of that block's segment at the earliest, also for a read that goes on from a
+//! cut of the block before.
+//!
 //! A transport stop releases the held notes and stops the clip; a launch order not yet run
 //! stays. A clip plays on one track at a time: a track whose launch names a clip another
 //! track still plays stays silent. Tracks are read in slot order, so a clip released by a
@@ -353,11 +361,14 @@ impl Events for ClipNotes {
 
 // ---------------------------------------------------------------- the player
 
-/// The clip a player plays, and the transport tick of its position 0.
+/// The clip a player plays, the transport tick of its position 0 and the scene of the
+/// grid cell it was launched from (what the `Feedback` reports; `apply` follows the clip
+/// when it moves to another cell, [`ClipPlayer::moved`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Playing {
     pub clip: ClipSlot,
     pub anchor: Tick,
+    pub scene: SceneSlot,
 }
 
 /// A launch order taken from the track, and its boundary once known.
@@ -373,6 +384,8 @@ pub struct Env<'a> {
     pub clips: &'a mut Paged<Box<Clip>>,
     pub scenes: &'a Slots<ClipSlot>,
     pub launch: &'a mut Option<LaunchRequest>,
+    /// `BackToArrangement` asked for this track and not taken yet.
+    pub back: &'a mut bool,
     pub quantize: Quantize,
     pub signature: TimeSignature,
 }
@@ -388,6 +401,9 @@ struct Cut {
 pub struct ClipPlayer {
     playing: Option<Playing>,
     queued: Option<Queued>,
+    /// `BackToArrangement`: the playing clip is released at once; set until the release
+    /// is complete (a full sink finishes it at the next read).
+    back_pending: bool,
     cursor: Cursor,
     /// The segment `(from, to)` left unfinished by a `Read::Full`, and the transport tick
     /// of the piece to read again.
@@ -415,7 +431,17 @@ impl ClipPlayer {
 
     /// Whether the player has the track: a clip plays or a launch waits (module doc).
     pub fn engaged(&self) -> bool {
-        self.playing.is_some() || self.queued.is_some()
+        self.playing.is_some() || self.queued.is_some() || self.back_pending
+    }
+
+    /// The clip `clip` sits in cell `scene` of the grid now (`apply` of `SceneSetSlot`):
+    /// when this player plays it, it is reported there.
+    pub fn moved(&mut self, clip: ClipSlot, scene: SceneSlot) {
+        if let Some(p) = &mut self.playing
+            && p.clip == clip
+        {
+            p.scene = scene;
+        }
     }
 
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When this
@@ -443,6 +469,12 @@ impl ClipPlayer {
 
     /// Takes a new launch order from the track.
     fn take_launch(&mut self, env: &mut Env<'_>) {
+        // `BackToArrangement` first, whatever the transport does: the order waiting for its
+        // boundary is dropped (a launch given after it, in `launch`, is taken next).
+        if core::mem::take(env.back) {
+            self.back_pending = true;
+            self.queued = None;
+        }
         if let Some(order) = env.launch.take() {
             self.queued = Some(Queued { order, at: None });
         }
@@ -458,7 +490,9 @@ impl ClipPlayer {
             q.at = None;
         }
         // What does not fit is released at the next block.
-        self.halt(env, 0, sink);
+        if self.halt(env, 0, sink) {
+            self.back_pending = false;
+        }
     }
 
     /// Stops the playing clip with its notes released at `at`; `false` when the sink
@@ -512,9 +546,22 @@ impl ClipPlayer {
                 cut.is_some() || self.last != Some(segment.from),
             ),
         };
+        if self.back_pending {
+            // Released at once, at the first sample of this read.
+            if !self.halt(env, 0, sink) {
+                self.cut = Some((segment.from, segment.to, from));
+                return Read::Full(1);
+            }
+            self.back_pending = false;
+        }
         if let Some(q) = &mut self.queued {
             q.at = match q.at {
-                None => env.quantize.next_boundary_at_or_after(from, env.signature),
+                // From the start of this segment at the earliest: an order is never given
+                // in the past of the block that takes it (a read that went on from a cut
+                // of the block before starts earlier than its segment).
+                None => env
+                    .quantize
+                    .next_boundary_at_or_after(from.max(segment.from), env.signature),
                 // The playhead jumped before reaching the boundary (a transport loop that
                 // wraps first, a seek): the order runs at the jump.
                 Some(_) if jumped => Some(from),
@@ -588,6 +635,7 @@ impl ClipPlayer {
         self.playing = Some(Playing {
             clip: slot,
             anchor: at,
+            scene,
         });
         self.cursor = Cursor::default();
     }

@@ -430,6 +430,9 @@ denominator: number
 numerator: number
 type: "transport.set_time_signature"
 } | {
+quantize: Quantize
+type: "transport.set_launch_quantize"
+} | {
 loop_region?: (TickLoop | null)
 type: "transport.set_loop"
 } | {
@@ -803,6 +806,16 @@ previous_numerator: number
 type: "transport.set_time_signature"
 } | {
 /**
+ * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
+ * one bar by default (founder's decision 8).
+ * 
+ * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
+ * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
+ */
+previous: ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
+type: "transport.set_launch_quantize"
+} | {
+/**
  * The region before the command.
  */
 previous?: (TickLoop | null)
@@ -1140,6 +1153,9 @@ type: "tempo_changed"
 denominator: number
 numerator: number
 type: "time_signature_changed"
+} | {
+quantize: Quantize
+type: "launch_quantize_changed"
 } | {
 enabled: boolean
 region?: (TickLoop | null)

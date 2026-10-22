@@ -1,0 +1,2 @@
+2026-10-22
+* **Update** (#74): GR-1, the launch grid in the engine (`crates/engine/src/launcher.rs`): scene launch, `StopAll` and `BackToArrangement` become per-track orders, a launch never takes a boundary in the past of its block, a track without a device still launches, and the `Feedback` reports the clips that are not idle (queued, armed, playing, stopping, two per track at most; the page decodes them). Spec § GR-1 implementation note (choices to validate), glossary (quantization).

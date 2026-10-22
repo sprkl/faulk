@@ -181,6 +181,17 @@ fn each_edit_compiles_to_its_messages() {
     assert!(matches!(msgs[..], [ControlMsg::SetTransport { tempo, .. }] if tempo.bpm() == 100.0));
     let (_, msgs) = run(
         &mut s,
+        json!({"type": "transport.set_launch_quantize", "quantize": "bars_4"}),
+    );
+    assert!(matches!(
+        msgs[..],
+        [ControlMsg::SetTransport {
+            launch_quantize: engine::time::Quantize::Bars4,
+            ..
+        }]
+    ));
+    let (_, msgs) = run(
+        &mut s,
         json!({"type": "transport.set_loop", "loop_region": {"start": 0, "end": 960}}),
     );
     assert_eq!(
