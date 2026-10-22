@@ -542,6 +542,7 @@ fn report_session() -> Vec<Step> {
             mix(3, 0.8, 0.9, false),
             M::SetMaster {
                 gain: 0.7,
+                pan: 0.3,
                 mute: false,
             },
             note(0, 57),

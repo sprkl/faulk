@@ -169,6 +169,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
             M::Reset { epoch },
             M::SetMaster {
                 gain: 0.8,
+                pan: 0.0,
                 mute: false,
             },
             M::TrackCreate {

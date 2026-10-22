@@ -61,6 +61,7 @@ fn samples() -> Vec<ControlMsg> {
         },
         ControlMsg::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: false,
         },
         ControlMsg::TrackCreate {
@@ -573,6 +574,7 @@ fn out_of_range_values_are_bad_payloads() {
     assert_eq!(decode(&create, 4, &[2]), bad(Tag::TrackCreate));
     let master = ControlMsg::SetMaster {
         gain: 1.0,
+        pan: 0.0,
         mute: false,
     };
     assert_eq!(

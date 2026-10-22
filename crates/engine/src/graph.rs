@@ -30,7 +30,7 @@
 //!    replaces the stream (two streams are never merged), and the live input and a
 //!    schedule use separate ranges ([`crate::events::SCHEDULE_FIRST_VOICE`]);
 //! 2. every **retiring** track (below), with a target of silence;
-//! 3. the master's gain over the sum.
+//! 3. the master's strip over the sum.
 //!
 //! One stereo scratch serves every track, since they render one after another: the
 //! buffers of the graph are allocated once, by [`crate::engine::channel`], off the audio
@@ -38,16 +38,18 @@
 //!
 //! # Mix
 //!
-//! A track's level on each channel is `audible × gain × balance(pan)`: `audible` is false
-//! when the track is muted, or when another track is soloed and this one is not (solo is
-//! cumulative: every soloed track plays); the balance keeps unity at the centre and lowers
-//! the opposite side, `left = min(1, 1 − pan)`, `right = min(1, 1 + pan)` (pan clamped to
-//! [−1, 1]; a negative or non-finite gain is silence). The final pan law, the mixer's
-//! automation and its meters are MX-1's and MO-5's: this law is the graph's until then.
+//! The strips (a track's, the master's), their pan law and their timed parameters are the
+//! mixer's ([`crate::mixer`], MX-1): a track's level on each channel is
+//! `audible × gain × balance(pan)`, `audible` being false when the track is muted or when
+//! another track is soloed and this one is not (solo is cumulative: every soloed track
+//! plays). The track is mixed into the sum sub-block by sub-block, right after its chain,
+//! with the timed gain, pan and mute its schedule addresses to the strip
+//! ([`crate::mixer::MIXER_SLOT`]); the master's strip applies over the sum with those of
+//! the master's schedule ([`State::set_master_schedule`]).
 //!
-//! Every level moves by a linear ramp of [`FADE_SECONDS`] (the smoothing rule of CT-5: a
-//! new target starts a new ramp from the current value), the master's too, so that a gain,
-//! a pan, a mute or a solo never jumps.
+//! Every change a message makes moves by a linear ramp of [`FADE_SECONDS`] (the smoothing
+//! rule of CT-5: a new target starts a new ramp from the current value), the master's too,
+//! so that a gain, a pan, a mute or a solo never jumps; a timed gain or pan is exact.
 //!
 //! # Fades in and out
 //!
@@ -74,6 +76,8 @@ use crate::device::{
 };
 use crate::engine::{Clip, DeviceEntry, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
+pub use crate::mixer::mix_levels;
+use crate::mixer::{Mixer, timed};
 use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackMeter, TrackSlot};
 use crate::time::{Quantize, TimeSignature};
 use crate::transport::Segment;
@@ -90,9 +94,6 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 /// schedule reads: a sub-block is cut when its room is full (MO-4). Chained MIDI effects
 /// that multiply their notes beyond it meet CT-5's overflow safety net.
 pub const TRACK_INPUT_EVENTS: usize = NOTE_ROOM;
-
-/// Samples below this magnitude leave the graph as 0 (no denormal reaches the output).
-const DENORMAL_FLOOR: f32 = 1e-20;
 
 /// Frames a fade lasts at `sample_rate` (at least 1).
 pub fn fade_frames(sample_rate: f32) -> u32 {
@@ -133,7 +134,7 @@ impl Ramp {
     }
 
     /// The value `k` frames after the next one.
-    fn at(&self, k: u32) -> f32 {
+    pub(crate) fn at(&self, k: u32) -> f32 {
         let i = self.done.saturating_add(k);
         if i >= self.frames {
             self.target
@@ -144,6 +145,11 @@ impl Ramp {
 
     pub fn target(&self) -> f32 {
         self.target
+    }
+
+    /// Sets the value at once and leaves the ramp still (a timed gain, MX-1).
+    pub(crate) fn jump(&mut self, value: f32) {
+        *self = Ramp::new(value);
     }
 
     /// Whether the ramp has reached its target.
@@ -163,7 +169,7 @@ impl Ramp {
         self.done = 0;
     }
 
-    fn advance(&mut self, frames: u32) {
+    pub(crate) fn advance(&mut self, frames: u32) {
         self.done = self.done.saturating_add(frames).min(self.frames);
     }
 }
@@ -180,7 +186,7 @@ impl MeterAcc {
     /// Adds one sample of channel `i` (already scaled by the fader). A non-finite sample
     /// stays out of both the peak and the sum of squares.
     #[inline]
-    fn push(&mut self, i: usize, sample: f32) {
+    pub(crate) fn push(&mut self, i: usize, sample: f32) {
         let a = sample.abs();
         // Below 1e-18 (-360 dB) a sample is silence for a meter, and squaring it would be a
         // denormal on every sample of a decaying tail.
@@ -218,8 +224,8 @@ impl MeterAcc {
 /// the retiring list.
 #[derive(Debug)]
 pub struct TrackGraph {
-    left: Ramp,
-    right: Ramp,
+    /// The track's strip: gain, pan, mute and solo as two ramps ([`crate::mixer`], MX-1).
+    mixer: Mixer,
     /// The chain's note stream changed (a MIDI effect or an instrument inserted, removed,
     /// enabled or disabled): the next rendered block releases every note of the track
     /// first.
@@ -239,8 +245,7 @@ impl TrackGraph {
     /// A new track's: both levels at 0, so that it fades in.
     pub const fn new() -> Self {
         TrackGraph {
-            left: Ramp::new(0.0),
-            right: Ramp::new(0.0),
+            mixer: Mixer::new(),
             release: false,
             schedule: None,
             meter: MeterAcc {
@@ -256,6 +261,8 @@ impl TrackGraph {
     /// note of the track first, as for a changed chain: nothing would end them.
     pub fn set_schedule(&mut self, schedule: Option<Box<Schedule>>) -> Option<Box<Schedule>> {
         let old = core::mem::replace(&mut self.schedule, schedule);
+        // The lane that drove the strip may be gone: the faders take it back.
+        self.mixer.forget();
         if old.as_deref().is_some_and(|s| s.held() > 0) {
             self.release = true;
         }
@@ -280,15 +287,12 @@ impl TrackGraph {
 
     /// The levels (left, right) at the next frame.
     pub fn levels(&self) -> (f32, f32) {
-        (self.left.current(), self.right.current())
+        self.mixer.levels()
     }
 
     /// Both levels at 0 and still: the track is silent.
     fn is_silent(&self) -> bool {
-        self.left.is_still()
-            && self.right.is_still()
-            && self.left.target == 0.0
-            && self.right.target == 0.0
+        self.mixer.is_silent()
     }
 }
 
@@ -296,19 +300,6 @@ impl Default for TrackGraph {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The levels of a track: `audible × gain × balance(pan)` (module doc).
-pub fn mix_levels(gain: f32, pan: f32, audible: bool) -> (f32, f32) {
-    if !audible || !gain.is_finite() || gain <= 0.0 {
-        return (0.0, 0.0);
-    }
-    let pan = if pan.is_finite() {
-        pan.clamp(-1.0, 1.0)
-    } else {
-        0.0
-    };
-    (gain * (1.0 - pan).min(1.0), gain * (1.0 + pan).min(1.0))
 }
 
 // ---------------------------------------------------------------- the graph
@@ -344,7 +335,10 @@ pub struct Graph {
     fade: u32,
     max_frames: usize,
     scratch: Scratch,
-    master: Ramp,
+    /// The master's strip, and the timed parameters it plays ([`crate::mixer`], MX-1).
+    master: Mixer,
+    /// The `master_schedule_gen` of the state the master strip last read.
+    master_gen: u32,
     /// The output's meter since the last report, after the master and the metronome (MO-5).
     master_meter: MeterAcc,
     /// Voices sounding in the tracks' devices after the last block (MO-5).
@@ -403,7 +397,8 @@ impl Graph {
                 merged: EventBuffer::try_with_capacity(NOTE_ROOM + PARAM_CHUNK + 1)?,
                 unused: EventBuffer::try_with_capacity(1)?,
             },
-            master: Ramp::new(1.0),
+            master: Mixer::unity(),
+            master_gen: 0,
             master_meter: MeterAcc::default(),
             voices: 0,
             retiring: None,
@@ -415,6 +410,16 @@ impl Graph {
     /// The largest block the graph renders at once (the setup's).
     pub fn max_frames(&self) -> usize {
         self.max_frames
+    }
+
+    /// A `Reset` gave the master its default state: the strip takes it back.
+    pub(crate) fn reset_master(&mut self) {
+        self.master.forget();
+    }
+
+    /// The master's levels (left, right) at the next frame.
+    pub fn master_levels(&self) -> (f32, f32) {
+        self.master.levels()
     }
 
     /// Frames of a fade.
@@ -479,10 +484,11 @@ impl Graph {
             let Some(track) = entry.as_deref_mut() else {
                 continue;
             };
-            let audible = !track.mute && (!any_solo || track.solo);
-            let (l, r) = mix_levels(track.gain, track.pan, audible);
-            track.graph.left.set(l, fade);
-            track.graph.right.set(r, fade);
+            let audible = !any_solo || track.solo;
+            track
+                .graph
+                .mixer
+                .sync(track.gain, track.pan, track.mute, audible, fade);
             let input = Input {
                 slot: TrackSlot(slot as u32),
                 live,
@@ -499,6 +505,7 @@ impl Graph {
                 clock,
                 &ctx,
                 &mut self.scratch,
+                fade,
                 left,
                 right,
             );
@@ -511,8 +518,7 @@ impl Graph {
         let mut kept: Option<Box<Track>> = None;
         while let Some(mut track) = rest {
             rest = track.graph.next.take();
-            track.graph.left.set(0.0, fade);
-            track.graph.right.set(0.0, fade);
+            track.graph.mixer.fade_out(fade);
             let done = track.graph.is_silent()
                 || !render_track(
                     &mut track,
@@ -520,6 +526,7 @@ impl Graph {
                     clock,
                     &ctx,
                     &mut self.scratch,
+                    fade,
                     left,
                     right,
                 )
@@ -538,30 +545,80 @@ impl Graph {
         }
         self.retiring = kept;
 
-        // The master.
-        let target = if state.master.mute {
-            0.0
-        } else if state.master.gain.is_finite() {
-            state.master.gain.max(0.0)
-        } else {
-            0.0
+        self.master_pass(state, clock, left, right);
+    }
+
+    /// The master's strip over the sum (module doc), with the timed parameters of the
+    /// master's schedule, read like a track's.
+    fn master_pass(
+        &mut self,
+        state: &mut State,
+        clock: &BlockClock<'_>,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) {
+        let fade = self.fade;
+        if state.master_schedule_gen != self.master_gen {
+            // The lane that drove the master may be gone: the faders take it back.
+            self.master_gen = state.master_schedule_gen;
+            self.master.forget();
+        }
+        let frames = left.len().min(right.len());
+        let Graph {
+            master, scratch, ..
+        } = self;
+        master.sync(
+            state.master.gain,
+            state.master.pan,
+            state.master.mute,
+            true,
+            fade,
+        );
+        let sink = &mut scratch.sink;
+        sink.clear();
+        let Some(schedule) = state.master_schedule.as_deref_mut() else {
+            master.apply_in_place(left, right, core::iter::empty(), fade);
+            return;
         };
-        self.master.set(target, fade);
-        let master = self.master;
-        if master.is_still() {
-            let g = master.target;
-            for s in left.iter_mut().chain(right.iter_mut()) {
-                *s = flush(*s * g);
+        if !clock.running || clock.segments.is_empty() {
+            schedule.stop(sink);
+            master.apply_in_place(left, right, timed(sink.params()), fade);
+            return;
+        }
+        let mut start = 0;
+        let mut i = 0;
+        while i < clock.segments.len() && start < frames {
+            let segment = clock.segments[i];
+            let end = match schedule.read(&segment, start, sink) {
+                Read::Done => {
+                    i += 1;
+                    segment.offset + segment.frames
+                }
+                Read::Full(at) => start + at.max(1),
             }
-        } else {
-            for (k, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
-                let g = master.at(k as u32);
-                *l = flush(*l * g);
-                *r = flush(*r * g);
+            .min(frames);
+            if end > start {
+                master.apply_in_place(
+                    &mut left[start..end],
+                    &mut right[start..end],
+                    timed(sink.params()),
+                    fade,
+                );
+                sink.clear();
+                start = end;
             }
         }
-        self.master.advance(frames as u32);
+        if start < frames {
+            // Unreachable: the segments of a running block cover it.
+            master.apply_in_place(
+                &mut left[start..frames],
+                &mut right[start..frames],
+                core::iter::empty(),
+                fade,
+            );
+        }
     }
+
     /// Adds a rendered slice of the output (after the master and the metronome) to the
     /// output's meter.
     pub(crate) fn meter_output(&mut self, left: &[f32], right: &[f32]) {
@@ -625,16 +682,6 @@ impl Drop for Graph {
     }
 }
 
-/// A sample as it leaves the graph: a denormal, a NaN or an infinity (a device breaking
-/// its contract, a sum that overflowed) is 0.
-fn flush(x: f32) -> f32 {
-    if !x.is_finite() || x.abs() < DENORMAL_FLOOR {
-        0.0
-    } else {
-        x
-    }
-}
-
 /// The live input of a track in its slot, and the clips its player reads.
 struct Input<'a> {
     slot: TrackSlot,
@@ -659,12 +706,14 @@ fn has_enabled_device(track: &Track) -> bool {
 /// when the track is empty (nothing rendered, its levels untouched). The chain runs once
 /// per sub-block ([`crate::events`]): per segment of `clock`, cut again when the sink is
 /// full; a retiring track (`input` is `None`) reads no events.
+#[allow(clippy::too_many_arguments)]
 fn render_track(
     track: &mut Track,
     input: Option<Input<'_>>,
     clock: &BlockClock<'_>,
     ctx: &BlockCtx,
     scratch: &mut Scratch,
+    fade: u32,
     out_left: &mut [f32],
     out_right: &mut [f32],
 ) -> bool {
@@ -709,6 +758,12 @@ fn render_track(
         player,
         ..
     } = track;
+    let TrackGraph {
+        mixer,
+        meter,
+        schedule: track_schedule,
+        ..
+    } = graph;
     // The player plays the track's arrangement, or its launched clip once the grid holds
     // it ([`crate::arrangement`], [`crate::clip_player`]): the schedule is silent
     // meanwhile.
@@ -728,7 +783,7 @@ fn render_track(
             || launch_pending(&env)
             || env.as_ref().is_some_and(|e| !e.placements.is_empty()));
     let mut schedule = if reads {
-        graph.schedule.as_deref_mut()
+        track_schedule.as_deref_mut()
     } else {
         None
     };
@@ -758,6 +813,17 @@ fn render_track(
             &sub,
             &mut left[from..to],
             &mut right[from..to],
+        );
+        // The mix, with the strip's timed parameters, then the track's meter: after its
+        // fader, as the signal enters the sum.
+        mixer.mix_into(
+            &left[from..to],
+            &right[from..to],
+            &mut out_left[from..to],
+            &mut out_right[from..to],
+            meter,
+            timed(sink.params()),
+            fade,
         );
     };
     if !clock.running || clock.segments.is_empty() {
@@ -802,44 +868,6 @@ fn render_track(
         }
     }
 
-    // The mix.
-    let (gl, gr) = (&mut graph.left, &mut graph.right);
-    // The track's meter: the signal after its fader, as it enters the sum.
-    let meter = &mut graph.meter;
-    if gl.is_still() && gr.is_still() {
-        let (a, b) = (gl.target, gr.target);
-        for s in left.iter() {
-            meter.push(0, s * a);
-        }
-        for s in right.iter() {
-            meter.push(1, s * b);
-        }
-    } else {
-        for k in 0..frames {
-            meter.push(0, left[k] * gl.at(k as u32));
-            meter.push(1, right[k] * gr.at(k as u32));
-        }
-    }
-    if gl.is_still() && gr.is_still() {
-        let (a, b) = (gl.target, gr.target);
-        if a != 0.0 {
-            for (o, s) in out_left.iter_mut().zip(left.iter()) {
-                *o += s * a;
-            }
-        }
-        if b != 0.0 {
-            for (o, s) in out_right.iter_mut().zip(right.iter()) {
-                *o += s * b;
-            }
-        }
-    } else {
-        for k in 0..frames {
-            out_left[k] += left[k] * gl.at(k as u32);
-            out_right[k] += right[k] * gr.at(k as u32);
-        }
-    }
-    gl.advance(frames as u32);
-    gr.advance(frames as u32);
     true
 }
 
