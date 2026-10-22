@@ -3,7 +3,7 @@
 //! [`examples`] to the catalog of examples (a command without one fails there);
 //! `tests/device.rs` checks the behaviour in depth.
 //!
-//! The registry holds no effect yet (DV-3 to DV-5): under the `testing` feature, which the
+//! The registry holds one effect (Echo, DV-3; DV-4 and DV-5 follow): under the `testing` feature, which the
 //! tests of this crate enable, the commands also build the engine's test effect
 //! `faulk.test_gain`.
 

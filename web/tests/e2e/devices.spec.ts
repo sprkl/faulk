@@ -71,6 +71,15 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(2)
     const echo = card(page, 'Echo')
     await expect(echo.locator('[data-testid^=param-]')).toHaveCount(5)
+    // Its controls: the mode and the note value are choices, the feedback is shown as a percentage.
+    const free = echo.getByRole('radio', { name: lang === 'en' ? 'Free' : 'Libre', exact: true })
+    await free.click()
+    await expect(free).toHaveAttribute('aria-checked', 'true')
+    const quarter = echo.getByRole('radio', { name: '1/4', exact: true })
+    await quarter.click()
+    await expect(quarter).toHaveAttribute('aria-checked', 'true')
+    await expect(echo.getByTestId('param-feedback').locator('input')).toHaveAttribute('aria-valuetext', /%/)
+    await expect(echo.getByTestId('param-division').getByRole('radio')).toHaveCount(10)
     const echoBypass = echo.getByRole('button', { name: x.bypass('Echo'), exact: true })
     await echoBypass.click()
     await expect(echo).toHaveAttribute('data-bypassed', 'true')
@@ -80,7 +89,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(2)
-    await page.keyboard.press('Control+z')
+    // Back through the two control changes, then the insertion.
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
 
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
