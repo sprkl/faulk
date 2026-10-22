@@ -120,6 +120,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     expect(handlers).toEqual({
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'],
+      'views/piano-roll/PianoRollView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/play/PlayView.svelte': [],
       'views/shell/Shell.svelte': [],
       'views/tracks/TrackList.svelte': ['Escape'],

@@ -31,6 +31,17 @@ export interface Frame {
   font: string
 }
 
+/** What a host's `drawBody` is given, drawn over the grid in the same frame (the context is in CSS pixels). */
+export interface BodyFrame {
+  width: number
+  height: number
+  /** The view actually drawn (clamped). */
+  view: View
+  totalTicks: number
+  colors: Colors
+  dpr: number
+}
+
 /** The drawing surface the renderer needs: a subset of `CanvasRenderingContext2D`. */
 export type Surface = Pick<CanvasRenderingContext2D, 'fillRect' | 'fillText' | 'beginPath' | 'moveTo' | 'lineTo' | 'stroke'> & { fillStyle: unknown; strokeStyle: unknown; lineWidth: number; font: string; textBaseline: unknown; globalAlpha: number }
 
