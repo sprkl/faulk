@@ -6,11 +6,12 @@ import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { CoreError, coreModule, engineStep, ProjectCore } from '../project/core'
+import { CoreError, coreModule, engineStep, ProjectCore, type FolderEntry } from '../project/core'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
+import { refusalNotice, WEB_ONLY_NOTICE, type OpenOutcome, type OpenRefusal } from './open'
 import type { ProjectStore } from './project.svelte'
 import { storage, TOKEN_KEY } from './storage'
 
@@ -107,7 +108,7 @@ export class Dispatcher {
     this.state.starting = true
     try {
       this.state.streamError = null
-      const core = (this.core ??= ProjectCore.create(await coreModule(), 'single_synth', FIRST_EPOCH))
+      const core = await this.ensureCore()
       const generation = ++this.webGeneration
       const web = await WebEngine.create(this.events('web', generation))
       this.web = web
@@ -128,6 +129,71 @@ export class Dispatcher {
     const code = this.state.pendingPairCode
     this.state.pendingPairCode = null
     if (code) await this.pairFromLink(code)
+  }
+
+  /** The page's project core, created on first use (by `start`, or by opening a project before audio starts). */
+  private async ensureCore(): Promise<ProjectCore> {
+    const module = await coreModule()
+    return (this.core ??= ProjectCore.create(module, 'single_synth', FIRST_EPOCH))
+  }
+
+  /**
+   * Opens a project folder, replacing the current project (`project.open`): `entries` are the
+   * folder's files as the store read them (`FolderEntry`; `needsBytes` says which carry
+   * bytes). The core replaces the project and its history and restores its session (solo, MIDI
+   * input), and the engine starts over from a snapshot of the new project in a newer epoch (the
+   * old project's tracks fade out in 5 ms, no note outlives it). A folder that is not a valid project of this version changes nothing and
+   * says why in a notice. Works before audio starts: the first engine then starts from the opened
+   * project.
+   *
+   * In Boost the helper cannot hold a project yet (BO-1): the page plays the opened project
+   * itself, in Web mode, and says so.
+   */
+  async openProject(name: string, entries: FolderEntry[]): Promise<OpenOutcome> {
+    const core = await this.ensureCore()
+    // Nothing is touched before the folder is accepted: a refusal leaves the page as it was, input
+    // device and held notes included. The old project's notes end with it (the engine starts over),
+    // and the Web MIDI input is reselected below from the new session.
+    try {
+      core.stage(name, entries)
+    } catch (error) {
+      if (!(error instanceof CoreError)) throw error
+      return this.refuseOpen('frame')
+    }
+    const step = engineStep(() => core.open(name))
+    if ('refused' in step) {
+      const report = step.refused
+      const error = report.status === 'refused' ? report.error : null
+      return this.refuseOpen(error?.code === 'folder' ? error.error.reason : 'frame')
+    }
+    this.state.activeNotes = []
+    this.state.notice = null
+    this.mirror(step.events)
+    if (step.events.length === 0) this.refresh()
+    const view = core.project()
+    // The input of the restored session; reopened by the switch back to Web when Boost plays.
+    const input = view.session.midi_input ?? null
+    this.lastWebInput = input
+    if (this.native) {
+      // The snapshot of the switch below starts the Web engine from the opened project.
+      await this.enterWeb()
+      this.state.notice = WEB_ONLY_NOTICE
+    } else if ('streamError' in step) {
+      // Applied, but the snapshot did not encode: the Web engine, if any, is behind the project.
+      if (this.web) {
+        console.error(`engine stream: error ${step.streamError}`)
+        void this.stopWeb(step.streamError, 0)
+      }
+    } else {
+      this.web?.push(step.push)
+      this.midi?.select(input)
+    }
+    return { status: 'opened', name: view.project.name }
+  }
+
+  private refuseOpen(reason: OpenRefusal): OpenOutcome {
+    this.state.notice = refusalNotice(reason)
+    return { status: 'refused', reason }
   }
 
   /**

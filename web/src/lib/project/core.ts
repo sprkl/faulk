@@ -5,10 +5,8 @@
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
 import type {
   Command,
-  LoadReport,
   ProjectChanges,
   ProjectEvent,
-  ProjectFiles,
   ProjectView,
   RunReport,
   SaveReport,
@@ -28,7 +26,7 @@ interface CoreExports {
   pw_setup(core: number): number
   pw_snapshot(core: number): number
   pw_project(core: number): number
-  pw_load(core: number, len: number): number
+  pw_stage(core: number, len: number): number
   pw_save(core: number): number
   pw_saved(core: number, len: number): number
 }
@@ -65,6 +63,80 @@ export function coreModule(bytes?: BufferSource): Promise<WebAssembly.Module> {
     .then((b) => WebAssembly.compile(b))
   return loading
 }
+
+/**
+ * One file of a project folder, as the page stages it for `project.open`: its bytes, or for a
+ * blob the project only needs counted (audio, instrument state) its size. Opening reads the
+ * text files and the blobs of dense automation lanes; it only lists the other blobs, to tell
+ * the project which media the folder lacks. So the memory a staged folder takes is the
+ * project's, not its audio's (`StagedFs` in `crates/project-wasm`).
+ */
+export type FolderEntry = { path: string; bytes: Uint8Array } | { path: string; size: number }
+
+/** The first bytes of a blob of dense automation points (`crates/project/src/file/unit.rs`). */
+export const LANE_BLOB_MAGIC = 'FKAUTO01'
+
+/**
+ * Whether opening needs the bytes of the file at `path`, given its first bytes (`head`, 8 are
+ * enough): everything but the blobs, and the blobs of automation lanes. The page reads this
+ * much of each blob to decide, and sends the rest by size.
+ */
+export function needsBytes(path: string, head: Uint8Array): boolean {
+  if (!path.startsWith('blobs/')) return true
+  return LANE_BLOB_MAGIC.length <= head.length && LANE_BLOB_MAGIC.split('').every((c, i) => head[i] === c.charCodeAt(0))
+}
+
+/** The most bytes of a staged folder (`MAX_FOLDER_FRAME` in `crates/project-wasm`). */
+export const MAX_FOLDER_FRAME = 512 << 20
+
+/** The folder frame `pw_stage` takes: `crates/project-wasm` `parse_folder` documents the layout. */
+export function folderFrame(name: string, entries: FolderEntry[]): Uint8Array {
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  let total = 0
+  const push = (part: Uint8Array) => {
+    parts.push(part)
+    total += part.length
+  }
+  const u32 = (n: number) => {
+    const part = new Uint8Array(4)
+    new DataView(part.buffer).setUint32(0, n, true)
+    push(part)
+  }
+  const u64 = (n: number) => {
+    const part = new Uint8Array(8)
+    new DataView(part.buffer).setBigUint64(0, BigInt(n), true)
+    push(part)
+  }
+  const text = (value: string) => {
+    const bytes = encoder.encode(value)
+    u32(bytes.length)
+    push(bytes)
+  }
+  text(name)
+  for (const entry of entries) {
+    text(entry.path)
+    if ('bytes' in entry) {
+      push(Uint8Array.of(0))
+      u64(entry.bytes.length)
+      push(entry.bytes)
+    } else {
+      push(Uint8Array.of(1))
+      u64(entry.size)
+    }
+  }
+  if (total > MAX_FOLDER_FRAME) throw new CoreError('stage', ERR_BAD_FOLDER)
+  const frame = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) {
+    frame.set(part, at)
+    at += part.length
+  }
+  return frame
+}
+
+/** `pw_stage`: the frame is malformed or too big; nothing was staged. */
+export const ERR_BAD_FOLDER = -4
 
 /** A call failed below the reports (no core, bad input, a value that does not serialize). */
 export class CoreError extends Error {
@@ -161,6 +233,15 @@ export class ProjectCore {
     return { report, engine: this.engine() }
   }
 
+  /**
+   * Opens the folder staged under `name` (`stage`): the project, its history and its session are
+   * replaced and the engine bytes start it over from a snapshot of the new project in the next
+   * epoch. A refusal changes nothing.
+   */
+  open(name: string): WithEngine<RunReport> {
+    return this.run({ type: 'project.open', folder: name })
+  }
+
   /** A `Reset` in the current epoch and the snapshot of the project: for a fresh engine. */
   setup(): WithEngine<SnapshotReport> {
     const report = this.output<SnapshotReport>('setup', this.exports.pw_setup(this.live()))
@@ -178,11 +259,17 @@ export class ProjectCore {
     return this.output<ProjectView>('project', this.exports.pw_project(this.live()))
   }
 
-  /** Replaces the project with the one in `files` (empty history, snapshot in the next epoch). */
-  load(files: ProjectFiles): WithEngine<LoadReport> {
-    const len = this.input(JSON.stringify(files))
-    const report = this.output<LoadReport>('load', this.exports.pw_load(this.live(), len))
-    return { report, engine: this.engine() }
+  /**
+   * Stages a project folder under `name` for the next `project.open` that names it. Throws a
+   * `CoreError` when the entries are not a valid folder (a bad path, too big): nothing is staged.
+   */
+  stage(name: string, entries: FolderEntry[]) {
+    const frame = folderFrame(name, entries)
+    const at = this.exports.pw_inbox(frame.length)
+    if (!at) throw new CoreError('inbox', 0)
+    new Uint8Array(this.exports.memory.buffer, at, frame.length).set(frame)
+    const code = this.exports.pw_stage(this.live(), frame.length)
+    if (code !== 0) throw new CoreError('stage', code)
   }
 
   /** The changes since the last recorded write; call `saved` once they are written. */

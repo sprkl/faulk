@@ -17,10 +17,13 @@ export type Command = (ProjectCommand | TrackCommand | DeviceCommand | ClipComma
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type ProjectCommand = {
+export type ProjectCommand = ({
 name: string
 type: "project.rename"
-}
+} | {
+folder: string
+type: "project.open"
+})
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -673,13 +676,32 @@ export type CommandOutput = (ProjectOutput | TrackOutput | DeviceOutput | ClipOu
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type ProjectOutput = {
+export type ProjectOutput = ({
 /**
  * The name before the command.
  */
 previous: string
 type: "project.rename"
-}
+} | {
+/**
+ * The format version the folder was in, when it was migrated in memory.
+ */
+migrated_from?: (number | null)
+/**
+ * Blobs the project refers to that the folder does not have (shown as missing
+ * media).
+ */
+missing_blobs: number
+/**
+ * The name of the project opened.
+ */
+name: string
+/**
+ * The session file was there but unreadable: the default session is used.
+ */
+session_reset: boolean
+type: "project.open"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -1247,45 +1269,6 @@ message: string
 type: "error"
 })
 /**
- * What loading a project did.
- */
-export type LoadReport = ({
-session_reset: boolean
-snapshot: SnapshotReport
-status: "loaded"
-} | {
-error: LoadError
-status: "refused"
-})
-/**
- * What encoding a snapshot for the engine did: the bytes are returned beside it.
- */
-export type SnapshotReport = ({
-epoch: number
-status: "encoded"
-} | {
-status: "failed"
-stream_error: number
-})
-/**
- * Why project files were refused.
- */
-export type LoadError = ({
-code: "missing_file"
-file: string
-} | {
-code: "format"
-found: number
-supported: number
-} | {
-code: "parse"
-file: string
-message: string
-} | {
-code: "invalid"
-violations: string[]
-})
-/**
  * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
  * 
  * Constant per project at the MVP. Carries every conversion between ticks, seconds,
@@ -1315,6 +1298,9 @@ status: "invalid"
 export type ProjectEvent = ({
 name: string
 type: "project_renamed"
+} | {
+name: string
+type: "project_opened"
 } | {
 track?: (string | null)
 type: "track_selected"
@@ -1507,6 +1493,50 @@ max: number
 } | {
 code: "unsupported"
 command: string
+} | {
+code: "folder"
+error: FolderError
+})
+/**
+ * Why a project folder was refused (`project.open`). The page shows a text per variant;
+ * `message`s are for developers.
+ */
+export type FolderError = ({
+folder: string
+reason: "not_staged"
+} | {
+reason: "not_a_project"
+} | {
+found: number
+reason: "newer_format"
+supported: number
+} | {
+found: number
+reason: "unsupported_format"
+} | {
+path: string
+reason: "missing"
+} | {
+message: string
+path: string
+reason: "corrupt"
+} | {
+max: number
+path: string
+reason: "too_large"
+size: number
+} | {
+reason: "invalid"
+total: number
+violations: string[]
+} | {
+message: string
+path: string
+reason: "io"
+} | {
+from: number
+message: string
+reason: "migration"
 })
 /**
  * What asking for the project's changes gave.
@@ -1517,6 +1547,16 @@ status: "changes"
 } | {
 message: string
 status: "failed"
+})
+/**
+ * What encoding a snapshot for the engine did: the bytes are returned beside it.
+ */
+export type SnapshotReport = ({
+epoch: number
+status: "encoded"
+} | {
+status: "failed"
+stream_error: number
 })
 
 /**

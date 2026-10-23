@@ -4,7 +4,7 @@
 //! example. The harness is generic so that its own rejection branches are tested with
 //! deliberately broken commands (see the tests at the bottom).
 
-use crate::contract::{CommandError, Context, Kind, Meta, Outcome, State, Undo, UndoKind};
+use crate::contract::{CommandError, Context, Folder, Kind, Meta, Outcome, State, Undo, UndoKind};
 use std::fmt::Debug;
 
 /// What the harness needs from a command: the root [`crate::Command`], or a fake.
@@ -165,9 +165,44 @@ pub fn check_refusal<C: Checked>(
     }
 }
 
-/// The context the examples run with.
+/// The context the examples run with, with [`OPENED_FOLDER`] staged.
 pub fn context() -> Context {
+    let mut ctx = bare_context();
+    ctx.folder = Some(opened_folder());
+    ctx
+}
+
+/// [`context`] with nothing staged.
+pub fn bare_context() -> Context {
     Context::new(crate::Author::User, project::IdGenerator::for_tests())
+}
+
+/// The name of the folder [`context`] stages for `project.open`.
+pub const OPENED_FOLDER: &str = "opened-song";
+
+/// A project folder as `project::file` writes it: the [`fixture`]'s project named `Opened
+/// song`, its track selected and soloed in the session.
+pub fn opened_folder() -> Folder {
+    use project::file::{MemFs, SaveOptions, SaveState, save, save_session};
+    let f = fixture();
+    let mut project = f.state.project;
+    project.name = "Opened song".into();
+    let mut session = project::SessionState {
+        selected_track: Some(f.track.clone()),
+        ..project::SessionState::default()
+    };
+    session.solo.insert(f.track);
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        &project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap_or_else(|e| panic!("the opened folder saves: {e}"));
+    save_session(&mut fs, &session).unwrap_or_else(|e| panic!("its session saves: {e}"));
+    Folder::new(OPENED_FOLDER, fs)
 }
 
 /// A valid empty project, with an empty session and history. Its id comes from a seed
@@ -225,7 +260,7 @@ pub fn fixture() -> Fixture {
     let rename = crate::Command::Project(crate::project::Command::Rename {
         name: "Demo".into(),
     });
-    crate::run(&rename, &mut state, &mut context())
+    crate::run(&rename, &mut state, &mut bare_context())
         .unwrap_or_else(|e| panic!("the fixture's rename applies: {e}"));
     Fixture {
         state,

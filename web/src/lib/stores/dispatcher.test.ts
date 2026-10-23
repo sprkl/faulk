@@ -4,7 +4,8 @@ import { NativeEngine } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
 import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
-import { CoreError, ProjectCore } from '../project/core'
+import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
+import { readFolder, SONG_FOLDER } from '../project/reference-folder'
 import { TOKEN_KEY } from './storage'
 
 const pairHelper = vi.fn()
@@ -709,5 +710,172 @@ describe('running commands through the project core', () => {
     const source = readFileSync(`${process.cwd()}/src/lib/stores/dispatcher.ts`, 'utf8')
     expect(source).not.toMatch(/command\.type|type: '|'(project|track|device|clip|note|scene|launch|arrangement|automation|transport|mixer|record|midi(?!.connect)|live|history|view)\.[a-z_.]+'/)
     expect(source).not.toMatch(/from '\.\.\/synth-commands'/)
+  })
+})
+
+describe('opening a project folder (SV-4)', () => {
+  const SONG_TRACK = '01HF000000000000000000000J'
+  const song = () => readFolder(SONG_FOLDER)
+  const withFile = (entries: FolderEntry[], path: string, text: string): FolderEntry[] => [
+    ...entries.filter((e) => e.path !== path),
+    { path, bytes: new TextEncoder().encode(text) },
+  ]
+  const boostEngine = () =>
+    (nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    })
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  it('replaces the project in the store, the history with it, and starts the engine over from a snapshot', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run(setParamCommand(firstParam, 0.3))
+    session.dispatcher.run(noteOn(60))
+    expect(session.project.canUndo).toBe(true)
+    expect(session.engine.activeNotes).toEqual([60])
+    const pushes = webs[0].push.mock.calls.length
+    const epoch = session.project.view!.slots.epoch
+
+    expect(await session.dispatcher.openProject('song', song())).toEqual({ status: 'opened', name: 'Song "one"' })
+    expect(session.project.view?.project.name).toBe('Song "one"')
+    expect(Object.keys(session.project.view!.project.tracks)).toHaveLength(2)
+    expect(session.project.canUndo).toBe(false)
+    expect(session.project.canRedo).toBe(false)
+    expect(session.engine.activeNotes).toEqual([])
+    expect(session.engine.notice).toBeNull()
+    // The engine started over from the snapshot of the new project: the old voices end with the old state.
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    expect(webs[0].push.mock.calls.at(-1)![0].length).toBeGreaterThan(0)
+    expect(session.project.view!.slots.epoch).toBe(epoch + 1)
+    expect(Object.keys(session.project.view!.slots.tracks)).toHaveLength(2)
+    expect(session.engine.started).toBe(true)
+  })
+
+  it('restores the session of the folder: solo, selection and the MIDI input', async () => {
+    midiOn = true
+    const session = newSession()
+    await session.dispatcher.start()
+    const midi = (session.dispatcher as unknown as { midi: { select: ReturnType<typeof vi.fn> } }).midi
+    const sessionFile = JSON.stringify({ selected_track: SONG_TRACK, solo: [SONG_TRACK], midi_input: 'in-1' })
+    await session.dispatcher.openProject('song', withFile(song(), '.faulk/session.json', sessionFile))
+    expect(session.project.soloed).toEqual([SONG_TRACK])
+    expect(session.project.selected?.id).toBe(SONG_TRACK)
+    expect(midi.select).toHaveBeenLastCalledWith('in-1')
+    // Another session without an input: the page closes the previous project's input.
+    await session.dispatcher.openProject('song', song())
+    expect(session.project.soloed).toEqual([])
+    expect(midi.select).toHaveBeenLastCalledWith(null)
+  })
+
+  it('opens before audio starts: the first engine then starts from the opened project', async () => {
+    const session = newSession()
+    expect(await session.dispatcher.openProject('song', song())).toEqual({ status: 'opened', name: 'Song "one"' })
+    expect(session.project.view?.project.name).toBe('Song "one"')
+    expect(session.engine.started).toBe(false)
+    await session.dispatcher.start()
+    expect(webs[0].push).toHaveBeenCalledTimes(1)
+    expect(webs[0].push.mock.calls[0][0].length).toBeGreaterThan(0)
+    expect(session.project.view?.project.name).toBe('Song "one"')
+    expect(Object.keys(session.project.view!.slots.tracks)).toHaveLength(2)
+  })
+
+  it('refuses what it cannot read with a notice and changes nothing', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run(setParamCommand(firstParam, 0.3))
+    const view = session.project.view
+    const pushes = webs[0].push.mock.calls.length
+    const sends = webs[0].send.mock.calls.length
+    const newer = withFile(song(), 'project.json', new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 1', '"format": 99'))
+    const cases: [string, FolderEntry[], string, string][] = [
+      ['a newer format', newer, 'newer_format', 'project.open.newer'],
+      ['no project', [{ path: 'x.txt', bytes: new Uint8Array([1]) }], 'not_a_project', 'project.open.notAProject'],
+      ['a damaged file', withFile(song(), 'project.json', '{"format": 1'), 'corrupt', 'project.open.invalid'],
+      ['entries that are not a folder', [{ path: '../x', bytes: new Uint8Array() }], 'frame', 'project.open.invalid'],
+    ]
+    for (const [what, entries, reason, notice] of cases) {
+      session.engine.notice = null
+      expect(await session.dispatcher.openProject('p', entries), what).toEqual({ status: 'refused', reason })
+      expect(session.engine.notice, what).toBe(notice)
+      expect(session.project.view, what).toBe(view)
+      expect(session.project.canUndo, what).toBe(true)
+    }
+    expect(webs[0].push.mock.calls.length).toBe(pushes)
+    // Nothing was sent to the engine: a refusal leaves the page as it was.
+    expect(webs[0].send.mock.calls.length).toBe(sends)
+    expect(session.engine.started).toBe(true)
+    // The project still takes commands.
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    expect(session.project.params[firstParam]).toBe(0.6)
+  })
+
+  it('leaves the MIDI input alone when the folder is refused', async () => {
+    midiOn = true
+    const released = vi.fn(() => Promise.resolve())
+    midiReleaseAll = released
+    const session = newSession()
+    await session.dispatcher.start()
+    const midi = (session.dispatcher as unknown as { midi: { select: ReturnType<typeof vi.fn> } }).midi
+    midi.select.mockClear()
+    expect(await session.dispatcher.openProject('p', [{ path: 'x.txt', bytes: new Uint8Array([1]) }])).toMatchObject({ status: 'refused' })
+    expect(await session.dispatcher.openProject('p', [{ path: '../x', bytes: new Uint8Array() }])).toMatchObject({ status: 'refused' })
+    expect(released).not.toHaveBeenCalled()
+    expect(midi.select).not.toHaveBeenCalled()
+  })
+
+  it('shows a storage error and a too large file as unreadable, not as damaged', async () => {
+    const { refusalNotice } = await import('./open')
+    expect(refusalNotice('io')).toBe('project.open.unreadable')
+    expect(refusalNotice('too_large')).toBe('project.open.unreadable')
+    expect(refusalNotice('corrupt')).toBe('project.open.invalid')
+  })
+
+  it('plays an opened project in the page when Boost is on, since the helper cannot hold a project yet', async () => {
+    const native = boostEngine()
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    const sent = native.send.mock.calls.length
+    const pushes = webs[0].push.mock.calls.length
+
+    expect(await session.dispatcher.openProject('song', song())).toEqual({ status: 'opened', name: 'Song "one"' })
+    // The helper was never told: it would have refused the command.
+    expect(native.send.mock.calls.slice(sent).some(([c]) => c.type === 'project.open')).toBe(false)
+    expect(native.close).toHaveBeenCalled()
+    expect(session.engine.mode).toBe('web')
+    expect(session.engine.notice).toBe('project.open.webOnly')
+    // The Web engine got the snapshot of the opened project.
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    expect(session.project.view?.project.name).toBe('Song "one"')
+    expect(Object.keys(session.project.view!.slots.tracks)).toHaveLength(2)
+  })
+
+  it('stops the Web engine when the snapshot of the opened project does not encode', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // The core applied the opening but reports that the engine bytes did not encode.
+    const open = vi.spyOn(ProjectCore.prototype, 'open').mockImplementationOnce(function (this: ProjectCore, name: string) {
+      const result = this.run({ type: 'project.open', folder: name })
+      if (result.report.status === 'applied') result.report.stream_error = -3
+      return result
+    })
+    expect((await session.dispatcher.openProject('song', song())).status).toBe('opened')
+    expect(session.engine.streamError).toEqual({ code: -3, at: 0 })
+    expect(session.engine.started).toBe(false)
+    expect(session.project.view?.project.name).toBe('Song "one"')
+    open.mockRestore()
   })
 })
