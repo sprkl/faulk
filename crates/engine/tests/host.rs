@@ -321,6 +321,7 @@ fn a_muted_track_and_an_empty_slot_meter_zero_and_master_gain_applies() {
         },
         M::SetMaster {
             gain: 0.25,
+            pan: 0.0,
             mute: false,
         },
         // A track far beyond: the slots between are empty.

@@ -461,7 +461,9 @@ pub trait Device: Send {
     fn set_param(&mut self, id: ParamId, value: f32);
 
     /// Clears the DSP state (voices, tails) and snaps smoothed parameters to their
-    /// targets; parameter values are kept.
+    /// targets; parameter values are kept. The engine also calls it on the audio thread when
+    /// an audio effect is switched on or off: it must take constant time and allocate nothing
+    /// (never wipe a large buffer there: hide its content with a counter or a flag).
     fn reset(&mut self);
 
     /// Voices sounding after the last block, releasing ones included, for the visual

@@ -166,6 +166,7 @@ fn every_rt_message_applies_without_allocating() {
         },
         M::SetMaster {
             gain: 0.7,
+            pan: 0.0,
             mute: true,
         },
         create(0),

@@ -3,7 +3,7 @@
 //! against its descriptor, `track.set_instrument` swaps the instrument and undoes exactly,
 //! and the engine messages of every chain change leave the engine as a snapshot would.
 //!
-//! The registry holds no effect yet: the tests run with the engine's test effect
+//! The registry holds one effect (Echo): the tests also run with the engine's test effect
 //! (`faulk.test_gain`, feature `testing`, enabled by this crate's dev-dependency on itself).
 
 use ::project::{

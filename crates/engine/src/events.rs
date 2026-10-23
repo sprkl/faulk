@@ -866,7 +866,41 @@ pub mod testing {
                 value: 0.2 + (i % 4) as f32 * 0.2,
             });
         }
+        for i in 0..40i64 {
+            let (id, value) = match i % 3 {
+                0 => (crate::mixer::GAIN, 0.3 + (i % 7) as f32 * 0.1),
+                1 => (crate::mixer::PAN, ((i % 5) as f32 - 2.0) / 2.5),
+                _ => (crate::mixer::MUTE, f32::from(i % 6 == 2)),
+            };
+            params.push(ScheduledParam {
+                tick: Tick(900 + i * 211),
+                device: crate::mixer::MIXER_SLOT,
+                id,
+                value,
+            });
+        }
         Schedule::try_new(&notes, &params, SCHEDULE_FIRST_VOICE)
+    }
+
+    /// The master's schedule of the scenario: a gain and a pan moving over the loop.
+    pub fn master_schedule() -> Result<Schedule, MsgError> {
+        let params: Vec<ScheduledParam> = (0..30i64)
+            .map(|i| ScheduledParam {
+                tick: Tick(1100 + i * 263),
+                device: crate::mixer::MIXER_SLOT,
+                id: if i % 2 == 0 {
+                    crate::mixer::GAIN
+                } else {
+                    crate::mixer::PAN
+                },
+                value: if i % 2 == 0 {
+                    0.5 + (i % 5) as f32 * 0.1
+                } else {
+                    ((i % 7) as f32 - 3.0) / 3.5
+                },
+            })
+            .collect();
+        Schedule::try_new(&[], &params, SCHEDULE_FIRST_VOICE)
     }
 
     struct Rig {
@@ -884,6 +918,11 @@ pub mod testing {
 
     /// Renders the scenario: left then right of every block, in order.
     pub fn scenario() -> Result<Vec<f32>, MsgError> {
+        scenario_with(true)
+    }
+
+    /// The scenario, with the master's schedule or without it.
+    pub fn scenario_with(master: bool) -> Result<Vec<f32>, MsgError> {
         let mut rig = Rig {
             cycle: Cycle::new(SCENARIO_RATE)?,
             seq: 0,
@@ -918,6 +957,11 @@ pub mod testing {
             ControlMsg::Play { from: Tick(0) },
         ])?;
         let mut schedule = Some(Box::new(schedule()?));
+        let mut master = if master {
+            Some(Box::new(master_schedule()?))
+        } else {
+            None
+        };
         let mut out = Vec::new();
         for block in 0..SCENARIO_BLOCKS {
             match block {
@@ -936,6 +980,10 @@ pub mod testing {
                 && let Some(s) = schedule.take()
             {
                 drop(t.graph.set_schedule(Some(s)));
+                // The master's too: the `Reset` of the first block replaced the state.
+                if let Some(m) = master.take() {
+                    drop(rig.cycle.engine.state_mut().set_master_schedule(Some(m)));
+                }
             }
         }
         Ok(out)

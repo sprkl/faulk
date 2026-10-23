@@ -326,7 +326,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     assert!((peak(&l) - TONE_LEVEL).abs() < 1e-3);
     assert_eq!(peak(&r), 0.0);
     let (l, r) = steady(&[mix(0, 1.0, 0.5, false)], 40);
-    assert!((peak(&l) - 0.5 * TONE_LEVEL).abs() < 1e-3);
+    assert!((peak(&l) - std::f32::consts::FRAC_1_SQRT_2 * TONE_LEVEL).abs() < 1e-3);
     assert!((peak(&r) - TONE_LEVEL).abs() < 1e-3);
 
     let (l, r) = steady(&[mix(0, 1.0, 0.0, true)], 40);
@@ -335,6 +335,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     let (l, _) = steady(
         &[M::SetMaster {
             gain: 0.5,
+            pan: 0.0,
             mute: false,
         }],
         40,
@@ -343,6 +344,7 @@ fn gain_pan_mute_and_the_master_set_the_levels() {
     let (l, _) = steady(
         &[M::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: true,
         }],
         40,
@@ -427,10 +429,12 @@ fn every_change_of_a_level_ramps() {
         },
         M::SetMaster {
             gain: 0.0,
+            pan: 0.0,
             mute: false,
         },
         M::SetMaster {
             gain: 1.0,
+            pan: 0.0,
             mute: false,
         },
     ] {
@@ -837,6 +841,55 @@ fn a_bypassed_instrument_keeps_no_stuck_note() {
     assert_eq!(peak(&after), 0.0, "the held voice was released");
 }
 
+/// A switched effect starts clean (DV-3): the tail of an echo does not come back when it is
+/// switched on again, nor does it ring on through the switching.
+#[test]
+fn an_effect_switched_off_and_on_loses_its_tail() {
+    use engine::devices::echo::{self, DESCRIPTOR as ECHO};
+    let (mode, time, mixture, feedback) = (
+        (ParamId(echo::MODE), 0.0),
+        (ParamId(echo::TIME), 0.1),
+        (ParamId(echo::MIX), 1.0),
+        (ParamId(echo::FEEDBACK), 0.9),
+    );
+    let enable = |enabled| M::DeviceSetEnabled {
+        track: t(0),
+        device: DeviceSlot(1),
+        enabled,
+    };
+    let play = || {
+        let mut r = Rig::new();
+        r.send(&[
+            create(0),
+            tone(0),
+            insert(0, 1, ECHO.kind_id, &[mode, time, mixture, feedback]),
+            note(0, 69),
+        ]);
+        r.run(60);
+        r.send(&[M::NoteOff {
+            track: t(0),
+            pitch: 69,
+        }]);
+        r
+    };
+    // Control: left alone, the tail rings on.
+    let mut r = play();
+    let ringing = r.run(30).0;
+    assert!(peak(&ringing) > 0.05, "the echo rings: {}", peak(&ringing));
+
+    // Switched off then on again: nothing of it is left, and the echo is still there for
+    // the next note.
+    let mut r = play();
+    r.send(&[enable(false)]);
+    r.run(2);
+    r.send(&[enable(true)]);
+    let after = r.run(60).0;
+    assert_eq!(peak(&after), 0.0, "no stale tail");
+    r.send(&[note(0, 69)]);
+    let again = r.run(60).0;
+    assert!(peak(&again[4_800 + 256..]) > 0.05, "the echo works again");
+}
+
 #[test]
 fn nan_and_infinities_from_a_device_never_reach_the_output() {
     let mut r = Rig::new();
@@ -854,6 +907,7 @@ fn nan_and_infinities_from_a_device_never_reach_the_output() {
     assert!(peak(&l) <= 1.0 && peak(&rr) <= 1.0);
     r.send(&[M::SetMaster {
         gain: 1.0,
+        pan: 0.0,
         mute: true,
     }]);
     let (l, rr) = r.run(8);
