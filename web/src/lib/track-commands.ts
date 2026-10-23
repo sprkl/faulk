@@ -26,3 +26,5 @@ export const redo = (): Command => ({ type: 'history.redo' })
 /** A fader or pan gesture is one history group: one undo takes the whole drag back. */
 export const beginGroup = (): Command => ({ type: 'history.begin_group' })
 export const endGroup = (): Command => ({ type: 'history.end_group' })
+/** The master's volume in dB (`null` is silence). There is no master pan or master mute command. */
+export const setMasterVolume = (gainDb: number | null): Command => ({ type: 'mixer.set_master_volume', gain_db: gainDb })
