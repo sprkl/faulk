@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
    * A track's header: colour, name (renamed from the keyboard with F2, Enter to confirm), kind and
-   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid,
-   * the timeline and the mixer. It holds no project state: it reads the stores and every action
+   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid
+   * and the timeline (the mixer draws its own vertical strips from the same commands). It holds no project state: it reads the stores and every action
    * is a command (`track-commands.ts`) through the dispatcher. An armed track receives the live
    * input (MIDI controller) besides the selected one; recording itself comes with RE-2.
    */

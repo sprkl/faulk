@@ -15,6 +15,7 @@ import { keys } from './keys'
 import { layout } from './layout'
 import { fill, type Lang } from './lang'
 import { midi } from './midi'
+import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
 import { project } from './project'
 import { shell } from './shell'
@@ -25,7 +26,7 @@ import { transport } from './transport'
 export { DEVICE_NAME_KEYS } from './synth'
 
 /** Every feature of the DAW, in the order of the screen. One line per feature. */
-export const features = { shell, layout, tracks, transport, engine, helper, midi, synth, drums, echo, devices, keys, pianoRoll, grid, project } as const satisfies Record<string, FeatureMessages>
+export const features = { shell, layout, tracks, transport, engine, helper, midi, synth, drums, echo, devices, keys, pianoRoll, grid, project, mixer } as const satisfies Record<string, FeatureMessages>
 
 type Features = typeof features
 type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (i: infer I) => void ? I : never
