@@ -160,8 +160,21 @@ pub fn compile(
         Command::Launch(launch::Command::StopAll {}) => out.push(ControlMsg::StopAll),
         _ => {}
     }
+    // The tracks whose table one `ArrangementChanged` sends at the end of the outcome:
+    // their clip events send the clips only, so N clips created or removed by one command
+    // cost one table, not N.
+    let mut batch = Batch {
+        tracks: events
+            .iter()
+            .filter_map(|e| match e {
+                ProjectEvent::ArrangementChanged { track } => Some(track.clone()),
+                _ => None,
+            })
+            .collect(),
+        removed: Vec::new(),
+    };
     for event in events {
-        compile_event(event, state, sync, &mut out);
+        compile_event(event, state, sync, &mut out, &mut batch);
     }
     out
 }
@@ -198,11 +211,20 @@ fn start_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
     }
 }
 
+/// What the clip events of one outcome leave to its `ArrangementChanged`.
+struct Batch {
+    tracks: BTreeSet<TrackId>,
+    /// Clips removed from the project, whose engine slot is freed after the table that no
+    /// longer uses them.
+    removed: Vec<(TrackId, ClipId)>,
+}
+
 fn compile_event(
     event: &ProjectEvent,
     state: &State,
     sync: &mut EngineSlots,
     out: &mut Vec<ControlMsg>,
+    batch: &mut Batch,
 ) {
     let project = &state.project;
     match event {
@@ -220,7 +242,27 @@ fn compile_event(
             if let Some(c) = t.clips.get(clip) {
                 clip_msgs(track, slot, clip, c, sync, out);
             }
-            placements_msgs(track, t, sync, out);
+            if !batch.tracks.contains(track) {
+                placements_msgs(track, t, sync, out);
+            }
+        }
+        ProjectEvent::ArrangementChanged { track } => {
+            // The table once, after the clips created (their slots are assigned) and
+            // before the clips removed are freed.
+            if let (Some(t), Some(_)) = (project.tracks.get(track), track_slot(sync, track)) {
+                placements_msgs(track, t, sync, out);
+            }
+            let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut batch.removed)
+                .into_iter()
+                .partition(|(t, _)| t == track);
+            batch.removed = kept;
+            for (_, clip) in gone {
+                if let Some(clip) = sync.clips.release(&clip) {
+                    out.push(ControlMsg::ClipRemove {
+                        clip: ClipSlot(clip),
+                    });
+                }
+            }
         }
         ProjectEvent::ClipDeleted { track, clip, .. } => {
             let Some(slot) = track_slot(sync, track) else {
@@ -238,6 +280,10 @@ fn compile_event(
                     scene: SceneSlot(scene as u16),
                     clip: None,
                 });
+            }
+            if batch.tracks.contains(track) {
+                batch.removed.push((track.clone(), clip.clone()));
+                return;
             }
             if let Some(t) = project.tracks.get(track) {
                 placements_msgs(track, t, sync, out);

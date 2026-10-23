@@ -11,6 +11,7 @@ use commands::{
     device, history, launch, live, midi, mixer, project, view,
 };
 
+mod arrangement_examples;
 mod clip_examples;
 mod device_examples;
 mod grid_examples;
@@ -114,6 +115,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(arrangement_examples::examples())
     .chain(grid_examples::examples())
     .chain(transport_examples::examples())
     .chain(track_examples::examples())

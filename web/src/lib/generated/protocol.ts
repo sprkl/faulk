@@ -467,7 +467,59 @@ type: "launch.back_to_arrangement"
 /**
  * The commands of this domain, tagged by `type`.
  */
-export type ArrangementCommand = never
+export type ArrangementCommand = ({
+/**
+ * Identifier of a clip.
+ */
+clip: string
+length?: (Tick | null)
+offset?: (Tick | null)
+start: Tick
+type: "arrangement.place"
+} | {
+by: Tick
+/**
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+type: "arrangement.move"
+} | {
+edge: Edge
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
+to: Tick
+type: "arrangement.resize"
+} | {
+at: Tick
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
+type: "arrangement.split"
+} | {
+/**
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+type: "arrangement.delete"
+} | {
+by?: (Tick | null)
+linked?: boolean
+/**
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+type: "arrangement.duplicate"
+} | {
+edits: TrackEdit[]
+type: "arrangement.restore"
+})
+/**
+ * The edge of a placement that `arrangement.resize` moves.
+ */
+export type Edge = ("start" | "end")
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -872,7 +924,81 @@ type: "launch.back_to_arrangement"
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
-export type ArrangementOutput = never
+export type ArrangementOutput = ({
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
+type: "arrangement.place"
+} | {
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+type: "arrangement.move"
+} | {
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+type: "arrangement.resize"
+} | {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
+type: "arrangement.split"
+} | {
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many placements were deleted.
+ */
+deleted: number
+type: "arrangement.delete"
+} | {
+/**
+ * The clips created (none when `linked`).
+ * 
+ * Items: Identifier of a clip.
+ */
+clips: string[]
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+/**
+ * The new placements, in the order of the list.
+ * 
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+type: "arrangement.duplicate"
+} | {
+type: "arrangement.restore"
+})
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -1301,6 +1427,12 @@ type: "clip_deleted"
 clip: string
 part: ClipPart
 type: "clip_changed"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "arrangement_changed"
 } | {
 /**
  * Identifier of a track.
@@ -1800,6 +1932,80 @@ placement: Placement
 export interface SceneSnapshot {
 name: string
 order: OrderKey
+}
+/**
+ * What `arrangement.restore` changes in one track.
+ */
+export interface TrackEdit {
+/**
+ * Clips to bring back (their identifiers must be unused).
+ */
+clips: ClipRecord[]
+/**
+ * Placements to write exactly as given: created, or replaced when the identifier
+ * is already a placement of the track.
+ */
+put: PlacementRecord[]
+/**
+ * Placements of the track to remove.
+ * 
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+remove: string[]
+/**
+ * Clips of the track to remove; no placement may be left on them.
+ * 
+ * Items: Identifier of a clip.
+ */
+remove_clips: string[]
+/**
+ * Identifier of a track.
+ */
+track: string
+}
+/**
+ * A MIDI clip that `arrangement.restore` brings back, with its identifier.
+ */
+export interface ClipRecord {
+/**
+ * Identifier of a clip.
+ */
+id: string
+snapshot: ClipSnapshot
+}
+/**
+ * A placement of a clip as `arrangement.restore` writes it, with its identifier.
+ */
+export interface PlacementRecord {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+offset: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
 }
 /**
  * A MIDI input as the helper sees it.

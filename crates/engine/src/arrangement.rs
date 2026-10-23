@@ -18,7 +18,8 @@
 //! clip without a loop is silent after its end). A note is delivered when its start is in
 //! `[offset, offset + length)`, and the notes still held at the end of the placement are
 //! released **at the sample of the end tick**, each by its own note-off. Placements do not
-//! overlap (the arrangement commands, AR-1, refuse it); the engine does not trust that:
+//! overlap (the arrangement commands, AR-1, carve the placements a new one covers); the
+//! engine does not trust that:
 //! the effective end of a placement is the least of its own end and the start of the next
 //! one, so the later start wins and the earlier is cut, whatever the table holds.
 //!

@@ -264,6 +264,12 @@ pub enum ProjectEvent {
     },
     /// Part of a clip changed.
     ClipChanged { clip: ClipId, part: ClipPart },
+    /// The placements of a track changed: some were placed, moved, resized, split,
+    /// carved by the overlap rule, deleted or brought back (AR-1). The page reads them
+    /// from its own copy of the project, to which the same command applies. A command
+    /// that also creates or removes clips reports them with `ClipCreated` and
+    /// `ClipDeleted` first.
+    ArrangementChanged { track: TrackId },
     /// A track was created or brought back, with everything it holds. The page reads it
     /// from its own copy of the project, to which the same command applies.
     TrackCreated { track: TrackId },
