@@ -32,7 +32,16 @@ export function createStores(view: MainViewId, panel: PanelViewId): Stores {
   // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
   // the project back (the ids of what they made, for the next command).
   if (import.meta.env.DEV && typeof window !== 'undefined') {
-    Object.assign(window, { __faulkRun: (command: Command) => dispatcher.run(command), __faulkView: () => project.view })
+    Object.assign(window, {
+      __faulkRun: (command: Command) => dispatcher.run(command),
+      __faulkView: () => project.view,
+      // The folder store of SV-2 does not exist yet: a check hands the folder's files over (bytes as numbers).
+      __faulkOpen: (name: string, files: { path: string; bytes?: number[]; size?: number }[]) =>
+        dispatcher.openProject(
+          name,
+          files.map((f) => (f.bytes ? { path: f.path, bytes: Uint8Array.from(f.bytes) } : { path: f.path, size: f.size ?? 0 })),
+        ),
+    })
   }
   return { project, engine, ui: new UiStore(view, panel), dispatcher }
 }

@@ -147,6 +147,24 @@ impl Session {
         outcome.output
     }
 
+    /// Stages a project folder for `project.open`, as the page does before it runs the
+    /// command (`commands::contract::Folder`).
+    pub fn stage(&mut self, folder: commands::contract::Folder) -> &mut Self {
+        self.synced.ctx.folder = Some(folder);
+        self
+    }
+
+    /// Runs `project.open` on the staged folder `name`: the project, its session and its
+    /// history are replaced and the engine starts over from a `Reset` in the next epoch and
+    /// the snapshot of the opened project. Panics when the command is refused. The
+    /// single-synth helpers (`note_on`, `set_param`) no longer apply afterwards.
+    pub fn open(&mut self, name: &str) -> &mut Self {
+        self.fixture = None;
+        self.run(Command::Project(commands::project::Command::Open {
+            folder: name.to_owned(),
+        }))
+    }
+
     /// Sends a `Reset` in a new epoch and the snapshot of the project as it is now.
     pub fn resync(&mut self) -> &mut Self {
         let bytes = self.synced.resync().expect("the snapshot encodes");

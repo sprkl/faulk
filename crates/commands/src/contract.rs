@@ -12,6 +12,7 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
+use project::file::{FileError, FileSystem};
 use project::{
     ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SceneId,
     SessionState, TickLoop, TrackId,
@@ -19,6 +20,7 @@ use project::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::Arc;
 
 /// What a command applies to: the project document, the session state (founder's
 /// decision 10: solo, selected MIDI input, selection live in the session, never in the
@@ -95,7 +97,49 @@ pub struct Context {
     pub ids: IdGenerator,
     /// The engine's slots of the project's entities (PR-3).
     pub engine: EngineSlots,
+    /// The project folder the host staged for `project.open` (SV-4): taken by the command,
+    /// so a folder serves one opening.
+    pub folder: Option<Folder>,
 }
+
+/// A project folder a host read access to, staged in the [`Context`] for `project.open`.
+/// The host decides where it lives: the page fills a `MemFs` from the browser's storage,
+/// the helper wraps the disk. The command reads it and never writes.
+#[derive(Clone)]
+pub struct Folder {
+    /// What the host calls this folder; `project.open` names it, so a folder staged for
+    /// another opening is never taken by mistake.
+    pub name: String,
+    fs: Arc<dyn FileSystem + Send + Sync>,
+}
+
+impl Folder {
+    pub fn new(name: impl Into<String>, fs: impl FileSystem + Send + Sync + 'static) -> Self {
+        Self {
+            name: name.into(),
+            fs: Arc::new(fs),
+        }
+    }
+
+    /// The folder's files.
+    pub fn fs(&self) -> &dyn FileSystem {
+        &*self.fs
+    }
+}
+
+impl fmt::Debug for Folder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Folder").field("name", &self.name).finish()
+    }
+}
+
+impl PartialEq for Folder {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && Arc::ptr_eq(&self.fs, &other.fs)
+    }
+}
+
+impl Eq for Folder {}
 
 impl Context {
     /// A context for an engine that holds nothing yet: the host sends a snapshot
@@ -106,6 +150,7 @@ impl Context {
             group: None,
             ids,
             engine: EngineSlots::default(),
+            folder: None,
         }
     }
 }
@@ -198,6 +243,9 @@ pub enum Undo<C> {
 pub enum ProjectEvent {
     /// The project was renamed.
     ProjectRenamed { name: String },
+    /// Another project replaced this one (`project.open`): the page reads the project, its
+    /// session and its slots again.
+    ProjectOpened { name: String },
     /// The selected track changed.
     TrackSelected { track: Option<TrackId> },
     /// A device parameter changed.
@@ -346,6 +394,72 @@ pub enum CommandError {
     Limit { entity: String, max: u64 },
     /// The command is declared but its domain does not implement it yet.
     Unsupported { command: String },
+    /// `project.open` refused the folder: nothing changed.
+    Folder { error: FolderError },
+}
+
+/// Why a project folder was refused (`project.open`). The page shows a text per variant;
+/// `message`s are for developers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "reason", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FolderError {
+    /// The host staged no folder of that name.
+    NotStaged { folder: String },
+    /// There is no `project.json`: not a Faulk project.
+    NotAProject,
+    /// Written by a newer Faulk than this build reads; never rewritten.
+    NewerFormat { found: u32, supported: u32 },
+    /// A format with no way to read it.
+    UnsupportedFormat { found: u32 },
+    /// A file the format requires is missing.
+    Missing { path: String },
+    /// A file is not what the format says.
+    Corrupt { path: String, message: String },
+    /// A file is bigger than the safety limit.
+    TooLarge { path: String, size: u64, max: u64 },
+    /// The files read fine but the project breaks its invariants: the first violations
+    /// (`total` in all).
+    Invalid { violations: Vec<String>, total: u32 },
+    /// The storage failed.
+    Io { path: String, message: String },
+    /// Migrating an older format failed.
+    Migration { from: u32, message: String },
+}
+
+/// The most violations a [`FolderError::Invalid`] lists.
+const MAX_LISTED_VIOLATIONS: usize = 20;
+
+impl From<FileError> for FolderError {
+    fn from(error: FileError) -> Self {
+        match error {
+            FileError::NotAProject => Self::NotAProject,
+            FileError::NewerFormat { found, supported } => Self::NewerFormat { found, supported },
+            FileError::UnsupportedFormat { found } => Self::UnsupportedFormat { found },
+            FileError::Missing { path } => Self::Missing { path },
+            FileError::Corrupt { path, message } => Self::Corrupt { path, message },
+            FileError::TooLarge { path, size, max } => Self::TooLarge { path, size, max },
+            FileError::Invalid { violations } => Self::Invalid {
+                total: u32::try_from(violations.len()).unwrap_or(u32::MAX),
+                violations: violations
+                    .iter()
+                    .take(MAX_LISTED_VIOLATIONS)
+                    .map(ToString::to_string)
+                    .collect(),
+            },
+            FileError::Io { path, message } => Self::Io { path, message },
+            FileError::Migration { from, message } => Self::Migration { from, message },
+            // Writing and archives are not part of opening a folder; kept total anyway.
+            FileError::Unwritable { path, message } => Self::Io { path, message },
+            FileError::BadPack { message } => Self::Corrupt {
+                path: String::new(),
+                message,
+            },
+            FileError::DestinationNotEmpty => Self::Io {
+                path: String::new(),
+                message: "the destination is not empty".into(),
+            },
+        }
+    }
 }
 
 impl CommandError {
@@ -355,6 +469,7 @@ impl CommandError {
             Self::Invalid { .. } => "invalid",
             Self::Limit { .. } => "limit",
             Self::Unsupported { .. } => "unsupported",
+            Self::Folder { .. } => "folder",
         }
     }
 }
@@ -366,6 +481,7 @@ impl fmt::Display for CommandError {
             Self::Invalid { field, message } => write!(f, "invalid {field}: {message}"),
             Self::Limit { entity, max } => write!(f, "at most {max} {entity}"),
             Self::Unsupported { command } => write!(f, "{command} is not implemented"),
+            Self::Folder { error } => write!(f, "project folder refused: {error:?}"),
         }
     }
 }

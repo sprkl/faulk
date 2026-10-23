@@ -135,7 +135,6 @@ pub fn schema_bundle() -> serde_json::Value {
         "project_core": {
             "run_report": schemars::schema_for!(commands::host::RunReport),
             "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
-            "load_report": schemars::schema_for!(commands::host::LoadReport),
             "project_view": schemars::schema_for!(commands::host::ProjectView),
             "save_report": schemars::schema_for!(commands::host::SaveReport),
             "project_changes": schemars::schema_for!(commands::host::ProjectChanges),

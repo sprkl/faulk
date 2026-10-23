@@ -231,7 +231,7 @@ fn save_gives_the_dirty_files_until_they_are_written() {
     let paths: Vec<&String> = first.as_object().unwrap().keys().collect();
     assert_eq!(
         paths,
-        [".faulk/session.json", "project.json"],
+        [".faulk/interim-project.json", ".faulk/session.json"],
         "nothing written yet"
     );
     // The write failed: the host never calls `saved`, the files stay dirty.
@@ -244,12 +244,17 @@ fn save_gives_the_dirty_files_until_they_are_written() {
     let pending = h.save();
     assert_eq!(
         pending.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["project.json"]
+        [".faulk/interim-project.json"]
     );
     h.apply(json!({"type": "project.rename", "name": "Song 2"}));
     assert_eq!(h.saved(&pending), 0);
     let dirty = h.save();
-    assert!(dirty["project.json"].as_str().unwrap().contains("Song 2"));
+    assert!(
+        dirty[".faulk/interim-project.json"]
+            .as_str()
+            .unwrap()
+            .contains("Song 2")
+    );
 
     // A session change dirties the session file only.
     assert_eq!(h.saved(&dirty), 0);
@@ -279,68 +284,170 @@ fn save_gives_the_dirty_files_until_they_are_written() {
     );
 }
 
+/// The folder `state`'s project and session make on disk (`project::file`, as SV-2 will
+/// write it), and the frame the page stages for it.
+fn folder_of(state: &State, name: &str) -> (MemFs, Vec<u8>) {
+    use project::file::{SaveOptions, SaveState, save, save_session};
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        &state.project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .expect("a valid project saves");
+    save_session(&mut fs, &state.session).expect("a session saves");
+    let frame = frame_of(name, &fs);
+    (fs, frame)
+}
+
+/// The page's folder frame (see [`parse_folder`]) of `fs`.
+fn frame_of(name: &str, fs: &MemFs) -> Vec<u8> {
+    let mut frame = Vec::new();
+    frame.extend((name.len() as u32).to_le_bytes());
+    frame.extend(name.as_bytes());
+    for (path, bytes) in fs.files() {
+        frame.extend((path.len() as u32).to_le_bytes());
+        frame.extend(path.as_bytes());
+        frame.push(ENTRY_FILE);
+        frame.extend((bytes.len() as u64).to_le_bytes());
+        frame.extend(bytes);
+    }
+    frame
+}
+
+impl Handle {
+    fn stage_raw(&self, frame: &[u8]) -> i32 {
+        let ptr = pw_inbox(frame.len() as u32);
+        assert!(!ptr.is_null());
+        // SAFETY: the inbox holds at least `frame.len()` bytes.
+        unsafe { core::ptr::copy_nonoverlapping(frame.as_ptr(), ptr, frame.len()) };
+        // SAFETY: a live core.
+        unsafe { pw_stage(self.0, frame.len() as u32) }
+    }
+
+    fn open(&self, name: &str) -> (Value, Vec<u8>) {
+        self.run(json!({"type": "project.open", "folder": name}))
+    }
+
+    fn state(&self) -> &State {
+        &self.core().synced.state
+    }
+}
+
 #[test]
-fn load_replaces_the_project_or_changes_nothing() {
+fn open_replaces_the_project_or_changes_nothing() {
     let source = Handle::new(KIND_EMPTY);
     let track =
         source.apply(
             json!({"type": "track.create", "kind": "midi", "instrument": "faulk.osc_synth"}),
         )["track"]
             .clone();
-    let files = source.save();
+    source.apply(json!({"type": "view.select_track", "track": track}));
+    let (fs, frame) = folder_of(source.state(), "song");
 
     let h = Handle::new(KIND_SINGLE_SYNTH);
     h.call0(pw_setup);
     h.apply(json!({"type": "project.rename", "name": "Before"}));
     let before = h.view();
 
-    // Refusals leave the project, the history and the epoch.
-    for bad in [
-        "not json".to_owned(),
-        json!({}).to_string(),
-        json!({"project.json": "{}"}).to_string(),
-        json!({"project.json": files["project.json"].as_str().unwrap().replace("\"format\": 1", "\"format\": 99")}).to_string(),
-    ] {
-        let (report, bytes) = h.call(&bad, pw_load);
-        assert_eq!(report["status"], "refused", "{bad}");
-        assert!(bytes.is_empty());
-    }
-    let (report, _) = h.call(&json!({}).to_string(), pw_load);
+    // Nothing staged, or another name staged: refused, nothing changes.
+    let (report, bytes) = h.open("song");
     assert_eq!(
         report["error"],
-        json!({"code": "missing_file", "file": "project.json"})
+        json!({"code": "folder", "error": {"reason": "not_staged", "folder": "song"}}),
+        "{report}"
     );
+    assert!(bytes.is_empty());
+    assert_eq!(h.stage_raw(&frame), 0);
+    let (report, _) = h.open("other");
+    assert_eq!(report["status"], "refused", "{report}");
     assert_eq!(h.view(), before);
-    assert_eq!(h.core().undo_depth(), 1);
-    assert_eq!(h.core().epoch(), 1);
 
-    let (report, bytes) = h.call(&files.to_string(), pw_load);
-    assert_eq!(
-        report,
-        json!({"status": "loaded", "snapshot": {"status": "encoded", "epoch": 2}, "session_reset": false})
-    );
-    assert!(
-        !bytes.is_empty(),
-        "the engine is reset to the loaded project"
-    );
+    // Every refusal leaves the project, the history and the epoch.
+    let mut broken = fs.clone();
+    broken.insert("project.json", b"{}".to_vec());
+    let mut other = MemFs::new();
+    other.insert("x.txt", b"hi".to_vec());
+    for (what, bad) in [
+        ("empty", MemFs::new()),
+        ("no project", other),
+        ("broken", broken),
+    ] {
+        assert_eq!(h.stage_raw(&frame_of("bad", &bad)), 0, "{what}");
+        let (report, bytes) = h.open("bad");
+        assert_eq!(report["status"], "refused", "{what}: {report}");
+        assert!(bytes.is_empty(), "{what}");
+        assert_eq!(h.view(), before, "{what}");
+        assert_eq!(h.core().undo_depth(), 1, "{what}");
+        assert_eq!(h.core().epoch(), 1, "{what}");
+    }
+
+    assert_eq!(h.stage_raw(&frame), 0);
+    let (report, bytes) = h.open("song");
+    assert_eq!(report["status"], "applied", "{report}");
+    assert_eq!(report["stream_error"], Value::Null);
+    assert_eq!(report["output"]["name"], "Untitled");
+    assert!(!bytes.is_empty(), "the engine starts over from the project");
     assert_eq!(h.view()["project"], source.view()["project"]);
+    assert_eq!(h.view()["session"], source.view()["session"]);
     assert_eq!(
         h.view()["slots"]["epoch"],
         2,
-        "the load moved the engine to the next epoch"
+        "the opening moved the engine to the next epoch"
     );
     assert_eq!(
         h.core().undo_depth(),
         0,
-        "the history is the loaded project's: empty"
+        "the history is the opened project's"
     );
     let (undo, _) = h.run(json!({"type": "history.undo"}));
     assert_eq!(undo["events"], json!([]), "nothing to undo: {undo}");
     assert_eq!(h.view()["project"], source.view()["project"]);
-    assert_eq!(h.save(), json!({}), "a loaded project is clean");
+    // The interim save forgets what it wrote for the previous project.
+    assert_eq!(h.save().as_object().unwrap().len(), 2);
     // Its ids keep coming from the page's generator.
     let next = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
     assert_ne!(next, track);
+    // The folder served once.
+    let (report, _) = h.open("song");
+    assert_eq!(report["status"], "refused");
+}
+
+#[test]
+fn a_malformed_folder_frame_stages_nothing() {
+    let h = Handle::new(KIND_EMPTY);
+    let (_, frame) = folder_of(h.state(), "p");
+    // Cut anywhere before its end: refused or, at a file boundary, a shorter folder; never
+    // a panic.
+    for len in 0..frame.len() {
+        let _ = h.stage_raw(&frame[..len]);
+    }
+    let mut fs = MemFs::new();
+    fs.insert("a.txt", b"x".to_vec());
+    let ok = frame_of("n", &fs);
+    assert_eq!(h.stage_raw(&ok), 0);
+    for bad in ["", "/a", "a//b", "a/./b", "../a", "a/..", "a\\b", "a\0b"] {
+        let mut raw = Vec::new();
+        raw.extend(1u32.to_le_bytes());
+        raw.extend(b"n");
+        raw.extend((bad.len() as u32).to_le_bytes());
+        raw.extend(bad.as_bytes());
+        raw.push(ENTRY_FILE);
+        raw.extend(0u64.to_le_bytes());
+        assert_eq!(h.stage_raw(&raw), ERR_BAD_FOLDER, "{bad:?}");
+    }
+    // A path twice, a size that runs past the frame, a name that is not UTF-8, huge lengths.
+    let twice = [ok.clone(), ok[5..].to_vec()].concat();
+    assert_eq!(h.stage_raw(&twice), ERR_BAD_FOLDER);
+    let mut long = ok.clone();
+    let at = long.len() - 1 - 8;
+    long[at..at + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+    assert_eq!(h.stage_raw(&long), ERR_BAD_FOLDER);
+    assert_eq!(h.stage_raw(&[1, 0, 0, 0, 0xFF]), ERR_BAD_FOLDER);
+    assert_eq!(h.stage_raw(&u32::MAX.to_le_bytes()), ERR_BAD_FOLDER);
+    assert_eq!(h.stage_raw(&[]), ERR_BAD_FOLDER);
 }
 
 #[test]
@@ -356,7 +463,7 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_setup(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
-        assert_eq!(pw_load(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_save(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_saved(core::ptr::null_mut(), 0), ERR_NO_CORE);
         pw_free(core::ptr::null_mut());
@@ -385,7 +492,7 @@ fn a_call_that_produces_no_bytes_never_returns_the_previous_ones() {
         assert_eq!(pw_engine_len(), 0);
     }
     h.run(note.clone());
-    let (report, bytes) = h.call("{}", pw_load);
+    let (report, bytes) = h.open("nothing staged");
     assert_eq!(report["status"], "refused");
     assert!(bytes.is_empty());
     h.run(note);
@@ -394,24 +501,17 @@ fn a_call_that_produces_no_bytes_never_returns_the_previous_ones() {
 }
 
 #[test]
-fn an_unreadable_session_loads_the_project_with_the_default_session() {
+fn an_unreadable_session_opens_the_project_with_the_default_session() {
     let source = Handle::new(KIND_SINGLE_SYNTH);
-    let mut files = source.save();
-    files[".faulk/session.json"] = json!("{\"view\": {}}");
+    let (mut fs, _) = folder_of(source.state(), "s");
+    fs.insert(".faulk/session.json", b"{\"view\": {}}".to_vec());
     let h = Handle::new(KIND_EMPTY);
-    let (report, _) = h.call(&files.to_string(), pw_load);
-    assert_eq!(report["status"], "loaded", "{report}");
-    assert_eq!(report["session_reset"], true);
-    // The slots belong to the engine the load snapshotted, not to the project.
+    assert_eq!(h.stage_raw(&frame_of("s", &fs)), 0);
+    let (report, _) = h.open("s");
+    assert_eq!(report["status"], "applied", "{report}");
+    assert_eq!(report["output"]["session_reset"], true);
     assert_eq!(h.view()["project"], source.view()["project"]);
-    assert_eq!(h.view()["session"], source.view()["session"]);
-    // The unreadable file is left as it is until the session changes.
-    assert_eq!(h.save(), json!({}));
-    h.apply(json!({"type": "view.select_track", "track": SYNTH_TRACK}));
-    assert_eq!(
-        h.save().as_object().unwrap().keys().collect::<Vec<_>>(),
-        [".faulk/session.json"]
-    );
+    assert_eq!(h.view()["session"], json!(project::SessionState::default()));
 }
 
 #[test]
@@ -469,4 +569,131 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     h.call0(pw_snapshot);
     assert_eq!(h.view()["slots"]["epoch"], 2);
     assert_eq!(h.view()["slots"]["tracks"].as_object().unwrap().len(), 2);
+}
+
+/// A project with one lane dense enough to be a blob in the folder.
+fn project_with_a_blob_lane() -> project::Project {
+    use project::*;
+    let mut ids = IdGenerator::new(1_700_000_000_000, 7);
+    let mut project = Project::new(ProjectId::generate(&mut ids), "Dense");
+    let mut track = Track::new(
+        TrackKind::Midi,
+        "Track",
+        OrderKey::between(None, None).unwrap(),
+    );
+    track.automation.insert(
+        LaneId::generate(&mut ids),
+        AutomationLane {
+            target: AutomationTarget::Mixer {
+                param: MixerParam::Pan,
+            },
+            points: (0..100_100)
+                .map(|i| {
+                    (
+                        Tick(i * 10),
+                        AutomationPoint {
+                            value: (i % 200) as f64 / 100.0 - 1.0,
+                            shape: Shape::Linear,
+                        },
+                    )
+                })
+                .collect(),
+        },
+    );
+    project.tracks.insert(TrackId::generate(&mut ids), track);
+    project
+}
+
+/// `fs` as a frame in which every blob is listed by size instead of carried.
+fn frame_with_blobs_listed(name: &str, fs: &MemFs) -> Vec<u8> {
+    let mut frame = Vec::new();
+    frame.extend((name.len() as u32).to_le_bytes());
+    frame.extend(name.as_bytes());
+    for (path, bytes) in fs.files() {
+        frame.extend((path.len() as u32).to_le_bytes());
+        frame.extend(path.as_bytes());
+        let listed = path.starts_with("blobs/");
+        frame.push(if listed { ENTRY_LISTED } else { ENTRY_FILE });
+        frame.extend((bytes.len() as u64).to_le_bytes());
+        if !listed {
+            frame.extend(bytes);
+        }
+    }
+    frame
+}
+
+#[test]
+fn blobs_are_carried_when_opening_reads_them_and_listed_when_it_only_counts_them() {
+    use project::file::{SaveOptions, SaveState, save};
+    let project = project_with_a_blob_lane();
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        &project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    let blobs: Vec<&String> = fs
+        .files()
+        .keys()
+        .filter(|p| p.starts_with("blobs/"))
+        .collect();
+    assert_eq!(blobs.len(), 1, "the dense lane is a blob");
+
+    // Carried whole: opens.
+    let h = Handle::new(KIND_EMPTY);
+    assert_eq!(h.stage_raw(&frame_of("dense", &fs)), 0);
+    let (report, _) = h.open("dense");
+    assert_eq!(report["status"], "applied", "{report}");
+    assert_eq!(h.view()["project"]["name"], "Dense");
+
+    // Listed by size only: a lane blob the project needs is missing, so it is refused and
+    // the project in the core stays.
+    let h = Handle::new(KIND_EMPTY);
+    assert_eq!(h.stage_raw(&frame_with_blobs_listed("dense", &fs)), 0);
+    let (report, bytes) = h.open("dense");
+    assert_eq!(report["status"], "refused", "{report}");
+    assert_eq!(report["error"]["error"]["reason"], "missing", "{report}");
+    assert!(bytes.is_empty());
+    assert_eq!(h.view()["project"]["name"], "Untitled");
+
+    // Listed blobs behave as a read-only folder.
+    let (_, staged) = parse_folder(&frame_with_blobs_listed("dense", &fs)).unwrap();
+    let blob = blobs[0].as_str();
+    assert!(staged.exists(blob));
+    assert_eq!(staged.read(blob), Err(FsError::NotFound));
+    assert!(
+        staged
+            .list("")
+            .unwrap()
+            .iter()
+            .any(|e| e.name == "blobs" && e.is_dir)
+    );
+    let listed = staged.list("blobs").unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].size, fs.files()[blob].len() as u64);
+    let mut staged = staged;
+    assert!(staged.write("x", b"").is_err());
+    assert!(staged.remove("x").is_err());
+
+    // Listing is for blobs only: anywhere else it is refused.
+    let mut raw = Vec::new();
+    raw.extend(1u32.to_le_bytes());
+    raw.extend(b"n");
+    for path in ["project.json", "blobs/a/b", "blobs"] {
+        let mut one = raw.clone();
+        one.extend((path.len() as u32).to_le_bytes());
+        one.extend(path.as_bytes());
+        one.push(ENTRY_LISTED);
+        one.extend(5u64.to_le_bytes());
+        assert!(parse_folder(&one).is_err(), "{path}");
+    }
+    let mut unknown = raw;
+    unknown.extend(1u32.to_le_bytes());
+    unknown.extend(b"a");
+    unknown.push(7);
+    unknown.extend(0u64.to_le_bytes());
+    assert!(parse_folder(&unknown).is_err());
 }

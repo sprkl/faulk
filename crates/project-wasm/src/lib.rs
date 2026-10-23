@@ -16,12 +16,13 @@
 
 use std::cell::RefCell;
 
+use commands::contract::Folder;
 use commands::engine_msgs::Synced;
 use commands::host::{
-    LoadError, LoadReport, ProjectChanges, ProjectFiles, ProjectView, RunReport, SaveReport,
-    SnapshotReport, load_files, save_files,
+    ProjectChanges, ProjectFiles, ProjectView, RunReport, SaveReport, SnapshotReport, save_files,
 };
 use commands::{Author, Context, State};
+use project::file::{DirEntry, FileSystem, FsError, MemFs};
 use project::{IdGenerator, Project, ProjectId};
 use serde::Serialize;
 
@@ -40,6 +41,9 @@ pub const ERR_BAD_INPUT: i32 = -2;
 /// the command, [`pw_load`] replaced the project): the engine is then behind the project
 /// until a snapshot.
 pub const ERR_SERIALIZE: i32 = -3;
+
+/// [`pw_stage`]: the folder frame is malformed (see [`parse_folder`]): nothing staged.
+pub const ERR_BAD_FOLDER: i32 = -4;
 
 /// [`pw_new`]: an empty project.
 pub const KIND_EMPTY: u32 = 0;
@@ -85,16 +89,17 @@ impl Core {
             Ok(outcome) => outcome,
             Err(error) => return (RunReport::Refused { error }, Vec::new()),
         };
-        let (bytes, stream_error) = if outcome.control.is_empty() {
-            (Vec::new(), None)
-        } else {
-            match synced.encode(&outcome.control) {
-                Ok(bytes) => (bytes, None),
-                // The project changed but the engine did not get it: behind until a
-                // snapshot.
-                Err(error) => (Vec::new(), Some(error.code())),
-            }
+        let (bytes, stream_error) = match synced.engine_bytes(&command, &outcome) {
+            Ok(bytes) => (bytes, None),
+            // The project changed but the engine did not get it: behind until a snapshot.
+            Err(error) => (Vec::new(), Some(error.code())),
         };
+        if commands::engine_msgs::replaces_project(&command) {
+            // What the interim save last wrote belongs to the previous project. Serializing the
+            // new one to compare against would cost seconds on a large project: SV-2's save
+            // replaces this and tracks dirty units instead.
+            self.saved.clear();
+        }
         let report = RunReport::Applied {
             output: outcome.output,
             events: outcome.events,
@@ -146,34 +151,13 @@ impl Core {
         }
     }
 
-    /// Replaces the project with the one in `json` (a map of path → text), with an empty
-    /// history, and snapshots it for the engine in the next epoch. The loaded project is
-    /// clean. Refused files change nothing.
-    pub fn load(&mut self, json: &[u8]) -> (LoadReport, Vec<u8>) {
-        let loaded = serde_json::from_slice::<ProjectFiles>(json)
-            .map_err(|error| LoadError::Parse {
-                file: String::new(),
-                message: error.to_string(),
-            })
-            .and_then(|files| load_files(&files));
-        let loaded = match loaded {
-            Ok(loaded) => loaded,
-            Err(error) => return (LoadReport::Refused { error }, Vec::new()),
-        };
-        // The baseline is this core's own text of the loaded project, not the text read:
-        // an unchanged project is not rewritten, even if it was formatted otherwise (SV-1's
-        // canonical reader and writer replace this). A project that does not serialize
-        // stays fully dirty rather than wrongly clean.
-        self.saved = save_files(&loaded.state).unwrap_or_default();
-        self.synced.state = loaded.state;
-        // A group opened on the previous project's history is gone with it.
-        self.synced.ctx.group = None;
-        let (snapshot, bytes) = self.snapshot();
-        let report = LoadReport::Loaded {
-            snapshot,
-            session_reset: loaded.session_reset,
-        };
-        (report, bytes)
+    /// Stages the folder in `frame` (see [`parse_folder`]) for the next `project.open` that
+    /// names it, replacing a folder staged before. Nothing is staged when the frame is
+    /// malformed.
+    pub fn stage(&mut self, frame: &[u8]) -> Result<(), FolderFrameError> {
+        let (name, fs) = parse_folder(frame)?;
+        self.synced.ctx.folder = Some(Folder::new(name, fs));
+        Ok(())
     }
 
     /// The changes since the last recorded write: the files whose text differs from it.
@@ -222,6 +206,157 @@ impl Core {
     pub fn undo_depth(&self) -> usize {
         self.synced.state.history.undo.len()
     }
+}
+
+/// Why a folder frame was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FolderFrameError;
+
+/// The most bytes of a folder's name.
+const MAX_FOLDER_NAME: usize = 1024;
+/// The most bytes of a file's path in a folder frame.
+const MAX_FOLDER_PATH: usize = 1024;
+/// The most bytes a folder frame may hold (the page's text files and automation blobs; the
+/// audio is listed by size, never carried): the inbox grows to this much.
+pub const MAX_FOLDER_FRAME: usize = 512 << 20;
+
+/// A frame entry that carries the file's bytes.
+const ENTRY_FILE: u8 = 0;
+/// A frame entry that lists a blob by size, without its bytes.
+const ENTRY_LISTED: u8 = 1;
+
+/// A staged folder: the files the page carried, and the blobs it only listed. Read only.
+///
+/// Opening reads the project's text files and the blobs of dense automation lanes, and only
+/// lists `blobs/` to find the media the project refers to that the folder lacks. So the page
+/// stages the text and the lane blobs (they start with `FKAUTO01`) whole and every other blob
+/// (audio, instrument state) by name and size: opening costs memory for the project, not for
+/// its audio.
+#[derive(Debug, Default)]
+pub struct StagedFs {
+    files: MemFs,
+    /// `blobs/<name>` to its size.
+    listed: std::collections::BTreeMap<String, u64>,
+}
+
+impl FileSystem for StagedFs {
+    fn read(&self, path: &str) -> Result<Vec<u8>, FsError> {
+        self.files.read(path)
+    }
+
+    fn write(&mut self, path: &str, _bytes: &[u8]) -> Result<(), FsError> {
+        Err(FsError::Other(format!(
+            "{path}: a staged folder is read only"
+        )))
+    }
+
+    fn remove(&mut self, path: &str) -> Result<(), FsError> {
+        Err(FsError::Other(format!(
+            "{path}: a staged folder is read only"
+        )))
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        self.files.exists(path) || self.listed.contains_key(path)
+    }
+
+    fn list(&self, dir: &str) -> Result<Vec<DirEntry>, FsError> {
+        let mut entries = self.files.list(dir)?;
+        if dir.is_empty() && !self.listed.is_empty() && !entries.iter().any(|e| e.name == "blobs") {
+            entries.push(DirEntry {
+                name: "blobs".to_owned(),
+                is_dir: true,
+                size: 0,
+                stamp: 0,
+            });
+        }
+        if dir == "blobs" {
+            for (path, size) in &self.listed {
+                if let Some(name) = path.strip_prefix("blobs/") {
+                    entries.push(DirEntry {
+                        name: name.to_owned(),
+                        is_dir: false,
+                        size: *size,
+                        stamp: 0,
+                    });
+                }
+            }
+        }
+        Ok(entries)
+    }
+}
+
+/// A folder as the page hands it over: `u32` name length, the name (UTF-8), then for each
+/// entry `u32` path length, the path (UTF-8, `/`-separated, relative), a kind byte
+/// ([`ENTRY_FILE`]: `u64` size and that many bytes; [`ENTRY_LISTED`]: `u64` size, no bytes,
+/// only for `blobs/<name>`); all integers little-endian. The page reads its storage (OPFS,
+/// the folder the user picked) into this frame because the folder is read synchronously.
+/// Every length is checked against what is left of the frame before anything is copied, and
+/// a path that is empty, absolute, has a `..`, `.` or empty segment, a backslash or a NUL,
+/// or a path given twice, refuses the whole frame; so does a frame over
+/// [`MAX_FOLDER_FRAME`].
+pub fn parse_folder(frame: &[u8]) -> Result<(String, StagedFs), FolderFrameError> {
+    fn take<'a>(rest: &mut &'a [u8], n: usize) -> Result<&'a [u8], FolderFrameError> {
+        if n > rest.len() {
+            return Err(FolderFrameError);
+        }
+        let (head, tail) = rest.split_at(n);
+        *rest = tail;
+        Ok(head)
+    }
+    fn u32_of(rest: &mut &[u8]) -> Result<usize, FolderFrameError> {
+        let bytes: [u8; 4] = take(rest, 4)?.try_into().map_err(|_| FolderFrameError)?;
+        Ok(u32::from_le_bytes(bytes) as usize)
+    }
+    if frame.len() > MAX_FOLDER_FRAME {
+        return Err(FolderFrameError);
+    }
+    let mut rest = frame;
+    let name_len = u32_of(&mut rest)?;
+    if name_len > MAX_FOLDER_NAME {
+        return Err(FolderFrameError);
+    }
+    let name = std::str::from_utf8(take(&mut rest, name_len)?)
+        .map_err(|_| FolderFrameError)?
+        .to_owned();
+    let mut staged = StagedFs::default();
+    while !rest.is_empty() {
+        let path_len = u32_of(&mut rest)?;
+        if path_len > MAX_FOLDER_PATH {
+            return Err(FolderFrameError);
+        }
+        let path = std::str::from_utf8(take(&mut rest, path_len)?).map_err(|_| FolderFrameError)?;
+        let valid = !path.is_empty()
+            && !path.contains(['\\', '\0'])
+            && path
+                .split('/')
+                .all(|segment| !segment.is_empty() && segment != "." && segment != "..");
+        if !valid || staged.exists(path) {
+            return Err(FolderFrameError);
+        }
+        let kind = take(&mut rest, 1)?[0];
+        let size: [u8; 8] = take(&mut rest, 8)?
+            .try_into()
+            .map_err(|_| FolderFrameError)?;
+        let size = u64::from_le_bytes(size);
+        match kind {
+            ENTRY_FILE => {
+                let size = usize::try_from(size).map_err(|_| FolderFrameError)?;
+                staged.files.insert(path, take(&mut rest, size)?);
+            }
+            ENTRY_LISTED => {
+                let flat_blob = path
+                    .strip_prefix("blobs/")
+                    .is_some_and(|name| !name.contains('/'));
+                if !flat_blob {
+                    return Err(FolderFrameError);
+                }
+                staged.listed.insert(path.to_owned(), size);
+            }
+            _ => return Err(FolderFrameError),
+        }
+    }
+    Ok((name, staged))
 }
 
 /// The paths [`save_files`] writes.
@@ -385,18 +520,24 @@ pub unsafe extern "C" fn pw_project(core: *mut Core) -> i32 {
     unsafe { with_core(core, |core| publish(&core.view(), Vec::new())) }
 }
 
-/// [`Core::load`] with the files' JSON in the first `len` bytes of the inbox: a
-/// [`LoadReport`] and the engine bytes.
+/// [`Core::stage`] with the folder frame in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_FOLDER`] (nothing staged). The folder is opened by running `project.open`
+/// with its name ([`pw_run`]).
 ///
 /// # Safety
 /// `core` must be null or a live pointer from [`pw_new`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_load(core: *mut Core, len: u32) -> i32 {
+pub unsafe extern "C" fn pw_stage(core: *mut Core, len: u32) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe {
         with_core(core, |core| {
-            let (report, bytes) = with_inbox(len, |json| core.load(json));
-            publish(&report, bytes)
+            let staged = with_inbox(len, |frame| core.stage(frame));
+            // A folder frame can be large and the inbox only grows: give its memory back.
+            INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+            match staged {
+                Ok(()) => 0,
+                Err(_) => ERR_BAD_FOLDER,
+            }
         })
     }
 }

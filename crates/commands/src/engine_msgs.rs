@@ -370,7 +370,10 @@ fn compile_event(
         }
         ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),
         ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
+        // `project.open` has no per-command messages: the host sends a snapshot of the
+        // new project (`Synced::run`).
         ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::ProjectOpened { .. }
         | ProjectEvent::ControlChange { .. }
         | ProjectEvent::TrackChanged { .. }
         | ProjectEvent::SceneChanged { .. }
@@ -940,6 +943,15 @@ pub fn db_to_gain(db: f64) -> f32 {
 
 // ---------------------------------------------------------------- hosts
 
+/// Whether an applied command replaced the whole project, so that the engine needs a
+/// snapshot of the new one rather than messages (`project.open`).
+pub fn replaces_project(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Project(crate::project::Command::Open { .. })
+    )
+}
+
 /// The encoder of one engine channel's stream: its epoch and the next sequence number
 /// (+1 per message, wrapping), the header fields of `engine::msg`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1034,18 +1046,32 @@ impl Synced {
         self.setup()
     }
 
-    /// Runs a command and encodes its engine messages (empty bytes when it has none).
+    /// Runs a command and encodes its engine messages (empty bytes when it has none). A
+    /// command that replaced the project (`project.open`) gives a snapshot of the new one
+    /// in the next epoch instead: the engine starts over from it.
     pub fn run(&mut self, command: &Command) -> Result<(crate::Outcome, Vec<u8>), SyncError> {
         let outcome =
             crate::run(command, &mut self.state, &mut self.ctx).map_err(SyncError::Refused)?;
-        let bytes = if outcome.control.is_empty() {
-            Vec::new()
-        } else {
-            self.stream
-                .encode(&outcome.control)
-                .map_err(SyncError::Stream)?
-        };
+        let bytes = self
+            .engine_bytes(command, &outcome)
+            .map_err(SyncError::Stream)?;
         Ok((outcome, bytes))
+    }
+
+    /// The engine bytes of an applied command: its messages, or a snapshot when it replaced
+    /// the project. On `Err` the engine is behind the project until a [`Synced::resync`].
+    pub fn engine_bytes(
+        &mut self,
+        command: &Command,
+        outcome: &crate::Outcome,
+    ) -> Result<Vec<u8>, MsgError> {
+        if replaces_project(command) {
+            return self.resync();
+        }
+        if outcome.control.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.stream.encode(&outcome.control)
     }
 
     /// Encodes raw engine messages in this stream (what no command maps, in tests).
