@@ -737,3 +737,127 @@ fn scenes_take_an_engine_slot_when_created_and_give_it_back_when_deleted() {
     assert_eq!(s.ctx.engine.scenes.get(&first), Some(0));
     let _ = clip;
 }
+
+#[test]
+fn arrangement_commands_send_the_track_table_once_and_new_clips_before_it() {
+    let (mut s, synth, _) = synced();
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": 0}}),
+    );
+    let Output::Clip(commands::clip::Output::Create {
+        placement: Some(first),
+        ..
+    }) = out
+    else {
+        panic!()
+    };
+    let uploads = |msgs: &[ControlMsg]| {
+        msgs.iter()
+            .filter(|m| matches!(m, ControlMsg::TrackPlacementsUpload { .. }))
+            .count()
+    };
+    // A placement-only edit: the table of the track, once.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.move", "placements": [first], "by": 960}),
+    );
+    assert!(
+        matches!(
+            msgs[..],
+            [ControlMsg::TrackPlacementsUpload {
+                track: TrackSlot(0),
+                total: 1,
+                ..
+            }]
+        ),
+        "{msgs:?}"
+    );
+    // A split: two placements in the table.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.split", "placement": first, "at": 1920}),
+    );
+    assert!(
+        matches!(
+            msgs[..],
+            [ControlMsg::TrackPlacementsUpload { total: 2, .. }]
+        ),
+        "{msgs:?}"
+    );
+    // An independent copy: the clip, then the table, once.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.duplicate", "placements": [first], "by": 10000}),
+    );
+    assert!(
+        matches!(
+            msgs[..],
+            [
+                ControlMsg::ClipNotesUpload { .. },
+                ControlMsg::TrackPlacementsUpload { total: 3, .. }
+            ]
+        ),
+        "{msgs:?}"
+    );
+    // Its undo: the table without the copy, then the clip goes.
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(uploads(&msgs), 1, "{msgs:?}");
+    assert!(matches!(msgs.last(), Some(ControlMsg::ClipRemove { .. })));
+    // The split and the move are undone with one table each.
+    for _ in 0..2 {
+        let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+        assert_eq!(uploads(&msgs), 1, "{msgs:?}");
+    }
+}
+
+#[test]
+fn a_command_that_removes_or_brings_back_many_clips_sends_one_table() {
+    let (mut s, synth, _) = synced();
+    let mut placements = Vec::new();
+    for start in [0, 3840, 7680] {
+        let (out, _) = run(
+            &mut s,
+            json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": start}}),
+        );
+        let Output::Clip(commands::clip::Output::Create {
+            placement: Some(p), ..
+        }) = out
+        else {
+            panic!()
+        };
+        placements.push(p);
+    }
+    let count =
+        |msgs: &[ControlMsg], f: fn(&ControlMsg) -> bool| msgs.iter().filter(|m| f(m)).count();
+    let table = |m: &ControlMsg| matches!(m, ControlMsg::TrackPlacementsUpload { .. });
+    let removal = |m: &ControlMsg| matches!(m, ControlMsg::ClipRemove { .. });
+    let upload = |m: &ControlMsg| matches!(m, ControlMsg::ClipNotesUpload { .. });
+    // Three clips go with their placements: one empty table, then the three slots freed.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.delete", "placements": placements}),
+    );
+    assert_eq!(
+        (count(&msgs, table), count(&msgs, removal)),
+        (1, 3),
+        "{msgs:?}"
+    );
+    let first_removal = msgs.iter().position(removal).unwrap();
+    let the_table = msgs.iter().position(table).unwrap();
+    assert!(
+        the_table < first_removal,
+        "the table stops using the clips first"
+    );
+    // The undo brings the three back: their uploads, then one table of three.
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(
+        (count(&msgs, upload), count(&msgs, table)),
+        (3, 1),
+        "{msgs:?}"
+    );
+    assert!(matches!(
+        msgs.last(),
+        Some(ControlMsg::TrackPlacementsUpload { total: 3, .. })
+    ));
+}

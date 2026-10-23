@@ -269,14 +269,14 @@ domain! {
 
 type Out = Outcome<Command, Output>;
 
-fn invalid(field: impl Into<String>, message: impl Into<String>) -> CommandError {
+pub(crate) fn invalid(field: impl Into<String>, message: impl Into<String>) -> CommandError {
     CommandError::Invalid {
         field: field.into(),
         message: message.into(),
     }
 }
 
-fn not_found(entity: &str, id: impl ToString) -> CommandError {
+pub(crate) fn not_found(entity: &str, id: impl ToString) -> CommandError {
     CommandError::NotFound {
         entity: entity.into(),
         id: id.to_string(),
@@ -311,11 +311,14 @@ fn changed(clip: &ClipId, part: ClipPart) -> Vec<ProjectEvent> {
 
 /// The count of a collection as the `u32` of an output; a batch is at most the safety
 /// limits, far below `u32::MAX`.
-fn count(n: usize) -> u32 {
+pub(crate) fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-fn midi_track<'a>(project: &'a Project, track: &TrackId) -> Result<&'a Track, CommandError> {
+pub(crate) fn midi_track<'a>(
+    project: &'a Project,
+    track: &TrackId,
+) -> Result<&'a Track, CommandError> {
     let found = project
         .tracks
         .get(track)
@@ -329,7 +332,7 @@ fn midi_track<'a>(project: &'a Project, track: &TrackId) -> Result<&'a Track, Co
     Ok(found)
 }
 
-fn locate(project: &Project, clip: &ClipId) -> Result<TrackId, CommandError> {
+pub(crate) fn locate(project: &Project, clip: &ClipId) -> Result<TrackId, CommandError> {
     project
         .tracks
         .iter()
@@ -358,7 +361,9 @@ fn midi_mut(clip: &mut Clip) -> Result<MidiRef<'_>, CommandError> {
     }
 }
 
-fn midi_ref(clip: &Clip) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), CommandError> {
+pub(crate) fn midi_ref(
+    clip: &Clip,
+) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), CommandError> {
     match &clip.content {
         ClipContent::Midi {
             length,
@@ -369,7 +374,7 @@ fn midi_ref(clip: &Clip) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), Co
     }
 }
 
-fn project_notes(project: &Project) -> usize {
+pub(crate) fn project_notes(project: &Project) -> usize {
     project
         .tracks
         .values()
@@ -383,7 +388,7 @@ fn project_notes(project: &Project) -> usize {
 
 /// Refuses a count beyond the safety limits: `in_clip` notes in the clip after the
 /// command, `in_project` in the whole project.
-fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandError> {
+pub(crate) fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandError> {
     if in_clip > MAX_NOTES_PER_CLIP {
         return Err(CommandError::Limit {
             entity: "notes per clip".into(),
@@ -400,7 +405,12 @@ fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandErr
 }
 
 /// Refuses `count + more` beyond `max` with a typed limit error.
-fn check_total(entity: &str, count: usize, more: usize, max: usize) -> Result<(), CommandError> {
+pub(crate) fn check_total(
+    entity: &str,
+    count: usize,
+    more: usize,
+    max: usize,
+) -> Result<(), CommandError> {
     if count.saturating_add(more) > max {
         return Err(CommandError::Limit {
             entity: entity.into(),
@@ -412,13 +422,17 @@ fn check_total(entity: &str, count: usize, more: usize, max: usize) -> Result<()
 
 /// Refuses one more clip beyond the track's limit or the project's (the engine's clip
 /// slots are project-wide).
-fn check_clips(project: &Project, track: &Track) -> Result<(), CommandError> {
+pub(crate) fn check_clips(project: &Project, track: &Track) -> Result<(), CommandError> {
     check_total("clips per track", track.clips.len(), 1, MAX_CLIPS_PER_TRACK)?;
     check_total("clips", project.counts().clips, 1, MAX_CLIPS)
 }
 
 /// Refuses `more` placements beyond the track's limit or the project's.
-fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(), CommandError> {
+pub(crate) fn check_placements(
+    project: &Project,
+    track: &Track,
+    more: usize,
+) -> Result<(), CommandError> {
     check_total(
         "placements per track",
         track.placements.len(),
@@ -433,7 +447,7 @@ fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(),
     )
 }
 
-fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
     if (1..=MAX_TICK).contains(&length.get()) {
         Ok(())
     } else {
@@ -447,7 +461,11 @@ fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
     }
 }
 
-fn check_loop(looping: &Option<TickLoop>, length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_loop(
+    looping: &Option<TickLoop>,
+    length: Tick,
+    field: &str,
+) -> Result<(), CommandError> {
     match looping {
         Some(l) if !(0 <= l.start.get() && l.start < l.end && l.end <= length) => Err(invalid(
             field,
@@ -462,7 +480,7 @@ fn check_loop(looping: &Option<TickLoop>, length: Tick, field: &str) -> Result<(
     }
 }
 
-fn check_name(name: &str, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_name(name: &str, field: &str) -> Result<(), CommandError> {
     if name.trim() != name {
         return Err(invalid(
             field,
@@ -512,7 +530,7 @@ fn check_note(note: &Note, length: Tick, field: &str) -> Result<(), CommandError
     }
 }
 
-fn check_notes(notes: &[Note], length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_notes(notes: &[Note], length: Tick, field: &str) -> Result<(), CommandError> {
     notes
         .iter()
         .enumerate()
@@ -646,7 +664,7 @@ fn previous_lengths(changes: &[(PlacementId, Tick, Tick)]) -> Vec<PlacementLengt
 }
 
 /// A launch-grid slot must name an existing scene and be free in the track.
-fn check_slot(
+pub(crate) fn check_slot(
     project: &Project,
     track: &Track,
     scene: &SceneId,
@@ -723,7 +741,7 @@ fn taken_spans(track: &Track) -> Vec<(i64, i64)> {
 }
 
 /// The snapshot `clip.restore` needs to bring a MIDI clip back.
-fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
+pub(crate) fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
     let (length, looping, notes) = midi_ref(clip)?;
     Ok(ClipSnapshot {
         name: clip.name.clone(),
