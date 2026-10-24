@@ -715,6 +715,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **AR-5 — De la grille vers l'arrangement**
 - But : glisser un clip de la grille vers la timeline ; commande `arrangement.place_from_slot { linked: bool }` (copie indépendante par défaut, décision 11).
 - Critères : la copie est indépendante de l'original (éditer l'un ne change pas l'autre) ; avec `linked`, le placement référence le clip de la grille ; tests des deux cas.
+- Réalisé (#81) : `arrangement.place_from_slot { clip, start, linked }` (le clip de la grille est posé en entier, sur sa piste, au tick `start` ; copie indépendante sans case de grille par défaut, ou placement du clip de la grille lui-même avec `linked`) et `arrangement.place_scene { scene, start, linked }` (tous les clips MIDI d'une scène, chacun sur sa piste, en une commande donc un pas d'historique ; les cases vides ne posent rien, une scène sans clip MIDI est refusée). Les deux suivent la règle de AR-1 (le dernier posé gagne) ; leur annulation est `arrangement.restore`. Dans la grille, le menu `⋯` d'un clip propose « Envoyer dans l'arrangement » et la même entrée « (lié) », celui d'une scène « Envoyer la scène dans l'arrangement » (et « (liée) ») : le placement est posé sur la mesure de la position de lecture. Pas de glisser-déposer (la grille et l'arrangement sont deux vues), pas de raccourci clavier (aucun n'est libre sans ambiguïté).
 - Touche : `crates/commands`, `web/src/views/arrangement/`.
 - Dépend de : GR-3, AR-4.
 - Phase : 4.
