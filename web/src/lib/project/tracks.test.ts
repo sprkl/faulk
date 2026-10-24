@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Device, Track } from '../generated/protocol'
 import {
-  faderValue,
   formatGain,
   formatPan,
-  gainOf,
   INSTRUMENTS,
   instrumentKind,
   instrumentName,
-  MAX_GAIN_DB,
-  MIN_GAIN_DB,
   nextColor,
   sortedTracks,
   TRACK_COLORS,
@@ -68,20 +64,7 @@ describe('the track list', () => {
   })
 })
 
-describe('the fader', () => {
-  it('stands for silence at the floor, as the project writes it (null)', () => {
-    expect(faderValue(null)).toBe(MIN_GAIN_DB)
-    expect(faderValue(undefined)).toBe(MIN_GAIN_DB)
-    expect(gainOf(MIN_GAIN_DB)).toBeNull()
-    expect(gainOf(-96.5)).toBeNull()
-  })
-
-  it('maps a gain to the fader and back, within the range the commands accept', () => {
-    for (const db of [-95.5, -12, 0, 3.5, MAX_GAIN_DB]) expect(gainOf(faderValue(db))).toBe(db)
-    expect(faderValue(40)).toBe(MAX_GAIN_DB)
-    expect(gainOf(40)).toBe(MAX_GAIN_DB)
-  })
-
+describe('the gain and the pan as text', () => {
   it('writes the gain and the pan for the screen', () => {
     expect(formatGain(null)).toBe('−∞')
     expect(formatGain(0)).toBe('0.0')

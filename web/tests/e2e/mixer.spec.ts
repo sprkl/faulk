@@ -1,6 +1,5 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { positionOf } from '../../src/views/mixer/fader'
 import { fakeWebMidi, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
@@ -55,7 +54,9 @@ test('the strips drive the tracks, and the meters show what the engine sounds', 
 
   // -6 dB on the fader, measured on the track's own meter (after the fader).
   const fader = strip.getByTestId('mixer-fader')
-  await fader.fill(String(positionOf(-6)))
+  // Seven steps down from 0 dB on the fader's curve are -6 dB.
+  await fader.focus()
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown')
   await expect(gain(page)).toHaveText('−6.0 dB')
   await expect.poll(async () => (await peaks(page))[0] / unity, { timeout: 5000 }).toBeGreaterThan(0.45)
   await expect.poll(async () => (await peaks(page))[0] / unity).toBeLessThan(0.56)
@@ -98,7 +99,8 @@ test('the strips drive the tracks, and the meters show what the engine sounds', 
   await expect.poll(masterPeak, { timeout: 5000 }).toBeGreaterThan(0.05)
   await page.waitForTimeout(300)
   const masterBefore = Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
-  await master.getByTestId('mixer-master-fader').fill(String(positionOf(-6)))
+  await master.getByTestId('mixer-master-fader').focus()
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown')
   await expect(master.getByTestId('mixer-gain')).toHaveText('−6.0 dB')
   await expect
     .poll(async () => Number(await page.getByTestId('feedback').getAttribute('data-master-peak')) / masterBefore, { timeout: 5000 })

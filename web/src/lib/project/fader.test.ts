@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_GAIN_DB, MIN_GAIN_DB } from '../../lib/project/tracks'
+import { MAX_GAIN_DB, MIN_GAIN_DB } from './tracks'
 import { FADER_MARKS, gainAt, positionOf, UNITY_POSITION } from './fader'
 
 describe('the fader taper', () => {

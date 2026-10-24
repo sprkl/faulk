@@ -227,7 +227,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
     await expect.poll(level).toBeGreaterThan(-20)
     const loud = await level()
     // The synth's gain down to its minimum: the meter falls (the report is the engine's).
-    await page.getByRole('slider', { name: /gain/i }).fill('0')
+    await page.getByRole('slider', { name: /gain/i }).press('Home')
     await expect.poll(level, { timeout: 5000 }).toBeLessThan(loud - 20)
     await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 69, 0]))
     await expect(page.getByText('Voices: 0')).toBeVisible({ timeout: 5000 })

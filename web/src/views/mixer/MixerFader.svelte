@@ -1,50 +1,18 @@
 <script lang="ts">
   /**
    * A vertical fader in dB, on the taper of `fader.ts`, with its marks (0 dB is the one drawn
-   * strong). A native range input, so the keyboard (arrows, Page keys, Home, End) and the screen
-   * reader come with it. One drag is one history group (`gesture.ts`); a double click puts it back
-   * at 0 dB. It sends the command `set` builds and holds no project state.
+   * strong). The control itself is the shared `GainControl` (magnet on 0 dB, fine mode, reset,
+   * keyboard); this draws the marks beside it.
    */
-  import { onDestroy } from 'svelte'
-  import { createGesture } from '../../lib/gesture'
+  import GainControl from '../../lib/components/GainControl.svelte'
   import type { Command } from '../../lib/generated/protocol'
-  import { formatGain } from '../../lib/project/tracks'
-  import { useStores } from '../../lib/stores'
-  import { FADER_MARKS, gainAt, positionOf } from './fader'
+  import { FADER_MARKS, positionOf } from '../../lib/project/fader'
 
   let { gainDb, label, set, testid }: { gainDb: number | null | undefined; label: string; set: (gainDb: number | null) => Command; testid: string } = $props()
-
-  const { dispatcher } = useStores()
-  const gesture = createGesture((command) => dispatcher.run(command))
-  onDestroy(() => gesture.end())
-
-  const sameGain = (a: number | null | undefined, b: number | null) => (a ?? null) === b
-
-  function onInput(event: Event & { currentTarget: HTMLInputElement }) {
-    const gain = gainAt(Number(event.currentTarget.value))
-    if (!sameGain(gainDb, gain)) dispatcher.run(set(gain))
-  }
 </script>
 
 <div class="fader">
-  <input
-    type="range"
-    min="0"
-    max="1"
-    step="0.005"
-    value={positionOf(gainDb)}
-    aria-label={label}
-    aria-orientation="vertical"
-    aria-valuetext={`${formatGain(gainDb)} dB`}
-    data-testid={testid}
-    oninput={onInput}
-    onpointerdown={gesture.begin}
-    onpointerup={gesture.end}
-    onpointercancel={gesture.end}
-    onchange={gesture.end}
-    onblur={gesture.end}
-    ondblclick={() => dispatcher.run(set(0))}
-  />
+  <GainControl {gainDb} {label} {set} {testid} orientation="vertical" />
   <div class="marks" aria-hidden="true">
     {#each FADER_MARKS as db (db)}
       <span class="mark" class:zero={db === 0} style:--at={positionOf(db)}>{db > 0 ? `+${db}` : db < 0 ? `−${-db}` : '0'}</span>
@@ -59,15 +27,6 @@
     align-items: stretch;
     gap: var(--fk-space-1);
     height: 168px;
-  }
-  input {
-    width: 22px;
-    height: 100%;
-    margin: 0;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    accent-color: var(--fk-accent-fg);
-    cursor: pointer;
   }
   .marks {
     position: relative;

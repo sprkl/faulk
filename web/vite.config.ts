@@ -67,5 +67,12 @@ export default defineConfig({
   ],
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },
-  test: { include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'] },
+  test: {
+    projects: [
+      // The tests of logic and of server-rendered views.
+      { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'], exclude: ['**/*.dom.test.ts', '**/node_modules/**'] } },
+      // The tests that mount a component in a DOM and drive it with events: Svelte must resolve to its browser build.
+      { extends: true, resolve: { conditions: ['browser'] }, test: { name: 'dom', include: ['src/**/*.dom.test.ts'], environment: 'jsdom' } },
+    ],
+  },
 })
