@@ -238,6 +238,15 @@ impl Core {
         Ok(())
     }
 
+    /// Stages the projects the page keeps, as the JSON of a [`commands::contract::StoredProjects`],
+    /// for the next `project.list_stored` to answer with (#323), replacing a list staged before.
+    /// Nothing is staged when the JSON is not that.
+    pub fn stage_stored(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let stored = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.stored = Some(stored);
+        Ok(())
+    }
+
     /// Computes the writes that bring the project's folder up to date (see [`save`]); the
     /// frame is the call's output. Pending until [`Core::saved`].
     pub fn save(&mut self, mode: Mode) -> Vec<u8> {
@@ -282,6 +291,10 @@ impl Core {
 /// Why a folder frame was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FolderFrameError;
+
+/// [`Core::stage_stored`]: the JSON is not a list of stored projects: nothing staged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StoredJsonError;
 
 /// The most bytes of a folder's name.
 const MAX_FOLDER_NAME: usize = 1024;
@@ -619,6 +632,25 @@ pub unsafe extern "C" fn pw_stage(core: *mut Core, len: u32) -> i32 {
             match staged {
                 Ok(()) => 0,
                 Err(_) => ERR_BAD_FOLDER,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_stored`] with the JSON in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (nothing staged). The list is read by running `project.list_stored`
+/// ([`pw_run`]).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_stored(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_stored(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
             }
         })
     }

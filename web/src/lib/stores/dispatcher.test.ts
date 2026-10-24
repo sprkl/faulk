@@ -1131,3 +1131,117 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.dispatcher.host.dirty()).toBe(false)
   })
 })
+
+describe('the commands for the projects the page keeps (#323)', () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  const ids = (name: string) => `${name}-id`
+
+  it('each command reaches the storage action it names, with its arguments, even when no engine plays', async () => {
+    const session = newSession()
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    const spies = {
+      reopenLast: vi.spyOn(session.storage, 'reopenLast').mockResolvedValue(true),
+      openFolder: vi.spyOn(session.storage, 'openFolder').mockResolvedValue(true),
+      openRecent: vi.spyOn(session.storage, 'openRecent').mockResolvedValue(true),
+      openBrowserProject: vi.spyOn(session.storage, 'openBrowserProject').mockResolvedValue(true),
+      deleteBrowserProject: vi.spyOn(session.storage, 'deleteBrowserProject').mockResolvedValue(true),
+      keepMine: vi.spyOn(session.storage, 'keepMine').mockResolvedValue(true),
+      loadDisk: vi.spyOn(session.storage, 'loadDisk').mockResolvedValue(true),
+      resume: vi.spyOn(session.storage, 'resume').mockResolvedValue(true),
+    }
+    session.dispatcher.run({ type: 'project.reopen_last' })
+    session.dispatcher.run({ type: 'project.open_folder' })
+    session.dispatcher.run({ type: 'project.open_recent', id: ids('r') })
+    session.dispatcher.run({ type: 'project.open_browser_project', dir: ids('d') })
+    session.dispatcher.run({ type: 'project.delete_browser_project', dir: ids('x') })
+    session.dispatcher.run({ type: 'project.keep_mine' })
+    session.dispatcher.run({ type: 'project.load_folder_version' })
+    session.dispatcher.run({ type: 'project.allow_access' })
+    expect(spies.reopenLast).toHaveBeenCalledTimes(1)
+    expect(spies.openFolder).toHaveBeenCalledTimes(1)
+    expect(spies.openRecent).toHaveBeenCalledWith('r-id')
+    expect(spies.openBrowserProject).toHaveBeenCalledWith('d-id')
+    expect(spies.deleteBrowserProject).toHaveBeenCalledWith('x-id')
+    expect(spies.keepMine).toHaveBeenCalledTimes(1)
+    expect(spies.loadDisk).toHaveBeenCalledTimes(1)
+    expect(spies.resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('a command the project refuses (a name that names nothing) never reaches the storage', async () => {
+    const session = newSession()
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    const open = vi.spyOn(session.storage, 'openBrowserProject').mockResolvedValue(true)
+    const remove = vi.spyOn(session.storage, 'deleteBrowserProject').mockResolvedValue(true)
+    const recent = vi.spyOn(session.storage, 'openRecent').mockResolvedValue(true)
+    session.dispatcher.run({ type: 'project.open_browser_project', dir: '' }, { quiet: true })
+    session.dispatcher.run({ type: 'project.delete_browser_project', dir: 'x'.repeat(129) }, { quiet: true })
+    session.dispatcher.run({ type: 'project.open_recent', id: '' }, { quiet: true })
+    expect(open).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    expect(recent).not.toHaveBeenCalled()
+  })
+
+  it('on a fresh page, before any project core exists, the commands that open a project make it and still run', async () => {
+    const session = newSession()
+    const reopen = vi.spyOn(session.storage, 'reopenLast').mockResolvedValue(true)
+    const remove = vi.spyOn(session.storage, 'deleteBrowserProject').mockResolvedValue(true)
+    expect(session.dispatcher.host.dirty()).toBeNull()
+    session.dispatcher.run({ type: 'project.reopen_last' })
+    session.dispatcher.run({ type: 'project.delete_browser_project', dir: 'draft' })
+    await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith('draft'))
+    expect(session.dispatcher.host.dirty()).toBe(false)
+    // A command that needs a project is still dropped by a page that has none.
+    const fresh = newSession()
+    const keep = vi.spyOn(fresh.storage, 'keepMine').mockResolvedValue(true)
+    fresh.dispatcher.run({ type: 'project.keep_mine' })
+    await Promise.resolve()
+    expect(keep).not.toHaveBeenCalled()
+  })
+
+  it('in Boost these commands stay in the page too', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    vi.spyOn(session.storage, 'reopenLast').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'keepMine').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'resume').mockResolvedValue(true)
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run({ type: 'project.reopen_last' })
+    session.dispatcher.run({ type: 'project.keep_mine' })
+    session.dispatcher.run({ type: 'project.allow_access' })
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.storage.reopenLast).toHaveBeenCalledTimes(1)
+  })
+
+  it('project.list_stored answers with what the storage read, and an empty list is not an old one', async () => {
+    const session = newSession()
+    const handle = { name: 'last' } as unknown as FileSystemDirectoryHandle
+    vi.spyOn(session.storage, 'refreshStored').mockImplementation(async () => {
+      session.storage.recent = [{ id: 'r1', name: 'last', handle, at: 1 }]
+      session.storage.browserProjects = [{ dir: 'd1', id: 'p1', name: 'Draft', modified: 2 }]
+    })
+    expect(await session.dispatcher.listStored()).toEqual({
+      recent: [{ id: 'r1', name: 'last' }],
+      browser: [{ dir: 'd1', name: 'Draft' }],
+    })
+    vi.spyOn(session.storage, 'refreshStored').mockImplementation(async () => {
+      session.storage.recent = []
+      session.storage.browserProjects = []
+    })
+    expect(await session.dispatcher.listStored()).toEqual({ recent: [], browser: [] })
+    // Through `run`, the command asks the storage to read again.
+    const run = vi.spyOn(session.storage, 'refreshStored')
+    session.dispatcher.run({ type: 'project.list_stored' })
+    await vi.waitFor(() => expect(run).toHaveBeenCalled())
+  })
+})
