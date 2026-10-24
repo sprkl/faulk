@@ -13,6 +13,7 @@
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
   import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
+  import { allSoundOff } from '../../lib/synth-commands'
   import {
     barTicks,
     DEFAULT_LOOP_BARS,
@@ -157,7 +158,7 @@
   >
     <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5 L12 7 L3 12.5 Z" fill="var(--fk-play)" /></svg>
   </button>
-  <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stop')} data-testid="transport-stop" onclick={press(() => run(stop()))}>
+  <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stopHint')} data-testid="transport-stop" onclick={press(() => run(stop()))} ondblclick={() => run(allSoundOff())}>
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1" fill="currentColor" /></svg>
   </button>
   <button
