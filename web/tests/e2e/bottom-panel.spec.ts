@@ -134,7 +134,7 @@ test('the height and the fold are kept per view in the page, across a reload', a
   expect(errors).toEqual([])
 })
 
-test('a bad stored value is ignored and a blocked storage does not break the panel', async ({ page }) => {
+test('a corrupt stored value is ignored (blocked storage: see panel-size.test.ts)', async ({ page }) => {
   const { errors } = watch(page)
   await page.addInitScript(() => localStorage.setItem('faulk.panelHeights', '{"devices":"tall"'))
   await page.goto('/app')
