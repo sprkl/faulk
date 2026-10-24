@@ -181,7 +181,9 @@
     const element = scrollbar
     if (!element) return
     // The echo of the view's own scroll lands within a pixel of it; anything else is the hand.
-    if (Math.abs(element.scrollLeft - shown.scrollTick * shown.pxPerTick) <= SYNC_PX) return
+    // (the browser clamps the bar when the timeline shrinks under it: that is not the hand either)
+    const expected = Math.min(shown.scrollTick * shown.pxPerTick, element.scrollWidth - element.clientWidth)
+    if (Math.abs(element.scrollLeft - expected) <= SYNC_PX) return
     follow = false
     view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: element.scrollLeft / shown.pxPerTick }, stageW, totalTicks)
   }
@@ -510,7 +512,7 @@
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
       </div>
       <div class="corner"></div>
-      <div class="hbar" bind:this={scrollbar} onscroll={onBarScroll} data-testid="arr-scrollbar" role="scrollbar" aria-controls="arr-stage-grid"aria-orientation="horizontal" aria-valuemin="0" aria-valuemax={totalTicks} aria-valuenow={Math.round(shown.scrollTick)} tabindex="0" aria-label={t('arrangement.scroll')}>
+      <div class="hbar" bind:this={scrollbar} onscroll={onBarScroll} data-testid="arr-scrollbar" role="scrollbar" aria-controls="arr-stage-grid" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax={totalTicks} aria-valuenow={Math.round(shown.scrollTick)} tabindex="0" aria-label={t('arrangement.scroll')}>
         <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
       </div>
     </div>

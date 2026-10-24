@@ -236,6 +236,8 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   const position = Number(await arr(page).getAttribute('data-position'))
   expect(position).toBeGreaterThanOrEqual(turned)
   expect(position).toBeLessThanOrEqual(turned + width / ppt)
+  // The bar is drawn: the view followed it.
+  await expect.poll(async () => (await grid.getAttribute('data-playhead-x')) ?? '').not.toBe('')
 
   // A hand scroll (Shift + wheel) stops the following: the view stays where the hand left it while the position runs on.
   const box = (await stage(page).boundingBox())!
@@ -248,11 +250,18 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   const held = await scroll()
   await expect.poll(async () => Number(await arr(page).getAttribute('data-position')), { timeout: 30_000 }).toBeGreaterThan(held + width / ppt)
   expect(await scroll()).toBe(held)
+  // The bar is out of the window: the hand scroll let it leave.
+  expect((await grid.getAttribute('data-playhead-x')) ?? '').toBe('')
 
   // Follow brings the position back into the window.
   await page.getByTestId('arr-follow').click()
   await expect(arr(page)).toHaveAttribute('data-follow', 'true')
   await expect.poll(scroll).toBeGreaterThan(held)
+  await expect.poll(async () => (await grid.getAttribute('data-playhead-x')) ?? '').not.toBe('')
+  // A zoom while following keeps the following, and the browser's clamping of the scrollbar is not taken for a hand.
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
   await stop()
 
   // The cost of a frame stays the grid's: no redraw of the grid while the position moves within a page.
