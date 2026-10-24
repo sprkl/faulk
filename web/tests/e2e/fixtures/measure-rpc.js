@@ -8,7 +8,10 @@
 //    handler threw inside `onmessage`, where nothing catches it: the awaited promise never
 //    settled and the test ran until its timeout, with no message;
 //  - a request with no reply within `ms` rejects with the name of the link and of the request,
-//    so that a stall names where it is instead of waiting for the test's timeout.
+//    so that a stall names where it is instead of waiting for the test's timeout; the link is
+//    then dead (a late reply would otherwise answer the next request);
+//  - `ask.fail(error)` kills the link from outside: the specs call it on the worklet node's
+//    `processorerror` (a trap in `process`), which a port never reports.
 (target, name, ms) => {
   const waiting = []
   let failure = null
@@ -21,18 +24,19 @@
     waiting.shift()?.resolve(event.data)
   }
   target.onerror = (event) => fail(new Error(`${name}: ${event.message ?? 'error event'}`))
-  return (message) =>
+  const ask = (message, transfer) =>
     new Promise((resolve, reject) => {
       if (failure) return reject(failure)
       const entry = {
         resolve: (data) => (clearTimeout(entry.timer), resolve(data)),
         reject: (error) => (clearTimeout(entry.timer), reject(error)),
         timer: setTimeout(() => {
-          waiting.splice(waiting.indexOf(entry), 1)
-          reject(new Error(`${name}: no reply to "${message.type}" within ${ms} ms`))
+          fail(new Error(`${name}: no reply to "${message.type}" within ${ms} ms`))
         }, ms),
       }
       waiting.push(entry)
-      target.postMessage(message)
+      target.postMessage(message, transfer ?? [])
     })
+  ask.fail = fail
+  return ask
 }

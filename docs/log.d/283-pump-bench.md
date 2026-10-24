@@ -1,0 +1,2 @@
+2026-10-25
+* **Update** (#283): the pump figures of QA-7 (268 to 499 µs) were the first pump of the bench, which runs wasm code for the first time (V8 compiles a function at its first call), and the clock of the timing specs was calibrated while its loop was still six times too slow. `spikes/QA-7-banc-de-charge-format-projet.md` gets a correction with the steady and the cold figures; `agents/verification.md` describes the clock calibration, the request deadlines (a Worker or worklet error no longer leaves the test waiting for its timeout) and the separate first pump.

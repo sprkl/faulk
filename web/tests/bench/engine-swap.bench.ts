@@ -67,7 +67,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           const clockWorker = new Worker(blob(sources.clock))
           clockWorker.postMessage(clockBuffer)
           const rpc = new Function(`return (${sources.rpc}
-)`)() as (target: unknown, name: string, ms: number) => (m: Record<string, unknown>) => Promise<Record<string, unknown>>
+)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
           const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
             Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
           // The counter's rate over a window (the Worker that spins is slow for its first few hundred ms, #283).
@@ -110,6 +110,8 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           await context.audioWorklet.addModule(blob(sources.worklet))
           const node = new AudioWorkletNode(context, 'faulk-measure', { numberOfInputs: 0, outputChannelCount: [2] })
           const ask = rpc(node.port, 'worklet', 15_000)
+          // A trap inside `process` is reported on the node, not on its port.
+          node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
           let since = mark()
           const reset = async () => {
             await ask({ type: 'reset' })
@@ -152,11 +154,13 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           }
           await sleep(300)
           const swap = await report()
+          // The rate again after the load: the counter must have kept its pace (#283).
+          const check = await calibrate(300)
           const counters = await askWorker({ type: 'counters' })
           clockWorker.terminate()
           worker.terminate()
           await deadline(`closing the audio context (state ${context.state})`, context.close())
-          return { isolated, ticksPerUs, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
+          return { isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
         },
         { sources, count: all.length },
       )
@@ -164,7 +168,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
       const s = result.swap
       console.log(
         [
-          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs, cross-origin isolated ${result.isolated}`,
+          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs (window ${s.rate.toFixed(1)}, check ${result.check.toFixed(1)}), cross-origin isolated ${result.isolated}`,
           `  prepare and apply complete in ${result.done.toFixed(0)} ms wall from the first push to an empty queue (the worklet applies at most 128 messages per block)`,
           `  worklet: ${s.applied} messages applied over ${s.blocks} blocks (at most ${s.maxApplied} per block), pump ${us(s.pumpUsPerMsg)} µs per message, longest pump ${us(s.pumpMaxUs)} µs after the first one, which cost ${us(s.firstUs)} µs for ${s.firstApplied} messages (V8 compiles a wasm function on its first call), ${us(s.pumpUsPerCall)} µs per pump incl. empty ones; skipped ${s.skipped}; render-side allocations ${s.renderAllocs}, frees ${s.renderFrees}; silent blocks ${s.silent}`,
           `  prepare side: rejected ${result.counters.rejected}, codes ${JSON.stringify(result.counters.codes)}; tracks ${s.tracksHeld} in ${s.tracksCapacity} slots`,
@@ -174,7 +178,8 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
       expect(result.isolated).toBe(true)
       expect(result.done).toBeGreaterThan(0)
       // The counter kept its pace between the calibration and the end (#283), or every figure is off.
-      expect(Math.abs(s.rate - result.ticksPerUs)).toBeLessThan(0.25 * result.ticksPerUs)
+      expect(Math.abs(s.rate - result.check)).toBeLessThan(0.25 * result.check)
+      expect(Math.abs(result.ticksPerUs - result.check)).toBeLessThan(0.25 * result.check)
       // The whole stream was applied: the worklet's count equals the engine's own, and the
       // number of messages the native bench printed when set (2403 for the shipped stream).
       expect(s.applied).toBe(s.hostApplied)

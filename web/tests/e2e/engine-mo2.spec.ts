@@ -78,7 +78,7 @@ async function measure(page: Page) {
       const clockWorker = new Worker(blob(sources.clock))
       clockWorker.postMessage(clockBuffer)
       const rpc = new Function(`return (${sources.rpc}
-)`)() as (target: unknown, name: string, ms: number) => (m: Record<string, unknown>) => Promise<Record<string, unknown>>
+)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
       const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
         Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
       // The counter's rate over a window: ticks gained divided by the µs `performance.now()` counted.
@@ -123,6 +123,8 @@ async function measure(page: Page) {
       await context.audioWorklet.addModule(blob(sources.worklet))
       const node = new AudioWorkletNode(context, 'faulk-measure', { numberOfInputs: 0, outputChannelCount: [2] })
       const ask = rpc(node.port, 'worklet', 15_000)
+      // A trap inside `process` is reported on the node, not on its port.
+      node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
       // A reset opens a measured window; its report is converted at the counter's rate over that window.
       let since = mark()
       const reset = async () => {
