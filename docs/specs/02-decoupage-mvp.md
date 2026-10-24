@@ -734,6 +734,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **PN-2 — Édition avancée**
 - But : quantification (avec force), transposition, duplication de sélection, copier/coller, raccourcis.
 - Critères : `clip.notes.quantize` testée sur des cas limites (note à cheval sur la fin du clip).
+- Réalisé (#83) : trois commandes, `clip.notes.quantize { clip, notes?, grid, strength }` (le début des notes vers la ligne de grille la plus proche, de `strength` pour cent de la distance ; sans `notes`, tout le clip ; une note que le déplacement ferait déborder du clip s'arrête où elle tient encore, sa longueur ne change jamais ; les notes qui deviennent égales fusionnent), `clip.notes.transpose { clip, notes, semitones }` (tout le lot est refusé si une note sort de 0 à 127) et `clip.notes.duplicate { clip, notes, offset? }` (par défaut la copie suit la sélection ; refusée si elle sort du clip). Copier, couper, coller passent par `clip.notes.add` et `clip.notes.remove` (le presse-papiers est un état de la page). Dans le piano roll : boutons Quantifier (grille et force), Dupliquer, ±1 demi-ton ; Ctrl ou Cmd + C, X, V, D, flèches haut et bas (Maj : octave) quand la grille a le focus ; pas de raccourci de quantification (aucune touche libre sans ambiguïté). Un collage ou une duplication qui ne tient pas allonge le clip à la mesure entière suivante, dans la même entrée d'historique. Protocole version 7.
 - Touche : `crates/commands/src/clip.rs`, `web/src/views/piano-roll/`.
 - Dépend de : PN-1.
 - Phase : 3.
