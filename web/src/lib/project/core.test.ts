@@ -2,8 +2,19 @@
 // it: a project, tracks and notes created by commands (PR-4).
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { Command, Note, ProjectChanges, RunReport } from '../generated/protocol'
-import { CoreError, coreModule, engineStep, folderFrame, MAX_FOLDER_FRAME, needsBytes, ProjectCore } from './core'
+import type { Command, Note, RunReport } from '../generated/protocol'
+import {
+  CoreError,
+  coreModule,
+  engineStep,
+  folderFrame,
+  MAX_FOLDER_FRAME,
+  needsBytes,
+  parseSaveFrame,
+  ProjectCore,
+  type FolderEntry,
+  type SaveMode,
+} from './core'
 import { readFolder, SONG_FOLDER } from './reference-folder'
 
 let module: WebAssembly.Module
@@ -22,12 +33,6 @@ function applied(report: RunReport) {
 /** Runs a command that must apply and returns its output. */
 function apply(core: ProjectCore, command: Command) {
   return applied(core.run(command).report).output
-}
-
-function changes(core: ProjectCore): ProjectChanges {
-  const report = core.save()
-  if (report.status !== 'changes') throw new Error(report.message)
-  return report.changes
 }
 
 describe('ProjectCore', () => {
@@ -88,28 +93,109 @@ describe('ProjectCore', () => {
     core.free()
   })
 
-  it('saves its files and tracks what is written', () => {
+  it('saves the folder format, only what changed, and the folder opens as the project', () => {
     const source = ProjectCore.create(module, 'empty', 1, seed)
     apply(source, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
-    const first = changes(source)
-    expect(Object.keys(first.write).sort()).toEqual(['.faulk/interim-project.json', '.faulk/session.json'])
-    expect(first.remove).toEqual([])
-    // Not recorded as written: still dirty.
-    expect(changes(source)).toEqual(first)
-    source.saved(first)
-    expect(changes(source)).toEqual({ write: {}, remove: [] })
+    expect(source.dirty()).toBe(true)
+    const folder = new Map<string, Uint8Array>()
+    const write = (mode: SaveMode) => {
+      const frame = source.save(mode)
+      if (frame.status !== 'ok') throw new Error(frame.message)
+      for (const entry of frame.entries) {
+        if (entry.type === 'write') folder.set(entry.path, entry.bytes)
+        else folder.delete(entry.path)
+      }
+      return frame.entries.map((entry) => entry.path)
+    }
 
-    expect(() => source.saved([] as unknown as ProjectChanges)).toThrow(CoreError)
+    // The whole project into an empty folder; `project.json` is not the first file.
+    const first = write('everything')
+    expect(first).toContain('project.json')
+    expect(first).toContain('.faulk/session.json')
+    expect(first.indexOf('project.json')).toBeGreaterThan(0)
+    // Not recorded as written until the page says so: still dirty, and the same changes come again.
+    expect(source.dirty()).toBe(true)
+    source.saved(false)
+    expect(write('changed')).toEqual(first)
+    source.saved(true)
+    expect(source.dirty()).toBe(false)
+    expect(write('changed')).toEqual([])
+    source.saved(true)
 
-    // An edit made between `save` and `saved` stays dirty: the written text is the reference.
+    // An edit rewrites the one file it changes; one made between `save` and `saved` stays dirty.
     apply(source, { type: 'project.rename', name: 'Song' })
-    const pending = changes(source)
+    expect(write('changed')).toEqual(['project.json'])
     apply(source, { type: 'project.rename', name: 'Song 2' })
-    source.saved(pending)
-    expect(changes(source).write['.faulk/interim-project.json']).toContain('Song 2')
-    source.saved(changes(source))
+    source.saved(true)
+    expect(source.dirty()).toBe(true)
+    expect(write('changed')).toEqual(['project.json'])
+    source.saved(true)
+    expect(source.dirty()).toBe(false)
+
+    // A solo is session state, saved in the session file alone.
+    const track = Object.keys(source.project().project.tracks)[0]!
+    apply(source, { type: 'mixer.set_solo', track, solo: true })
+    expect(source.dirty()).toBe(true)
+    expect(write('changed')).toEqual(['.faulk/session.json'])
+    source.saved(true)
+
+    // The folder opens as the project, session included.
+    const entries: FolderEntry[] = [...folder].map(([path, bytes]) => ({ path, bytes }))
+    const copy = ProjectCore.create(module, 'empty', 2, seed)
+    copy.stage('saved', entries)
+    expect(applied(copy.open('saved').report).output).toMatchObject({ type: 'project.open', name: 'Song 2' })
+    expect(copy.project()).toEqual({ ...source.project(), slots: copy.project().slots })
+    expect(copy.dirty()).toBe(false)
+    copy.free()
+
     source.free()
     expect(() => source.project()).toThrow(CoreError)
+  })
+
+  it('writes a copy under a new identity, and a new project under its own', () => {
+    const core = ProjectCore.create(module, 'single_synth', 1, seed)
+    core.setup()
+    const idOf = () => core.project().project.id
+    const first = idOf()
+    expect(core.save('everything').status).toBe('ok')
+    core.saved(true)
+    expect(core.save('copy').status).toBe('ok')
+    expect(idOf()).not.toBe(first)
+    core.saved(true)
+    const copy = idOf()
+    applied(core.run({ type: 'project.new' }).report)
+    expect(idOf()).not.toBe(copy)
+    expect(core.dirty()).toBe(false)
+    core.free()
+  })
+
+  it('parses a save frame: writes with their bytes, removals, and a failure message', () => {
+    const encoder = new TextEncoder()
+    const path = encoder.encode('a/b.json')
+    const gone = encoder.encode('c.json')
+    const body = new Uint8Array([9, 8, 7])
+    const frame = new Uint8Array(1 + 4 + 4 + (1 + 4 + path.length + 8 + body.length) + (1 + 4 + gone.length))
+    const view = new DataView(frame.buffer)
+    let at = 1
+    view.setUint32(at, 5, true)
+    view.setUint32((at += 4), 2, true)
+    at += 4
+    frame[at++] = 0
+    view.setUint32(at, path.length, true)
+    frame.set(path, (at += 4))
+    view.setBigUint64((at += path.length), BigInt(body.length), true)
+    frame.set(body, (at += 8))
+    frame[(at += body.length)] = 1
+    view.setUint32(++at, gone.length, true)
+    frame.set(gone, at + 4)
+    expect(parseSaveFrame(frame)).toEqual({
+      status: 'ok',
+      entries: [
+        { type: 'write', path: 'a/b.json', bytes: body },
+        { type: 'remove', path: 'c.json' },
+      ],
+    })
+    expect(parseSaveFrame(new Uint8Array([1, ...encoder.encode('boom')]))).toEqual({ status: 'failed', message: 'boom' })
   })
 
   describe('project.open', () => {

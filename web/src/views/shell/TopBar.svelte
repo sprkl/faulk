@@ -8,6 +8,7 @@
   import { useStores } from '../../lib/stores'
   import { viewsIn } from '../registry'
   import Transport from '../transport/Transport.svelte'
+  import ProjectMenu from './ProjectMenu.svelte'
 
   const { engine, ui, dispatcher } = useStores()
   const t = ui.t
@@ -27,6 +28,8 @@
   <h1 class="sr-only">Faulk</h1>
   <!-- Full page load: the landing page has its own theme and no client-side router. -->
   <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
+
+  <ProjectMenu />
 
   <nav class="views" aria-label={t('views.nav')}>
     {#each viewsIn('main') as view (view.id)}

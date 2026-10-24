@@ -48,6 +48,9 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::Open {
             folder: commands::testing::OPENED_FOLDER.into(),
         })),
+        on(Command::Project(project::Command::New {})),
+        on(Command::Project(project::Command::Save {})),
+        on(Command::Project(project::Command::SaveAs {})),
         on(Command::Device(device::Command::SetParam {
             device: f.device.clone(),
             param: "attack".into(),

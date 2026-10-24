@@ -6,7 +6,9 @@ import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { CoreError, coreModule, engineStep, ProjectCore, type FolderEntry } from '../project/core'
+import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry } from '../project/core'
+import { isSaveCommand, newProject as newProjectCommand } from '../project-commands'
+import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { applyEffects } from './effects'
@@ -166,6 +168,33 @@ export class Dispatcher {
       const error = report.status === 'refused' ? report.error : null
       return this.refuseOpen(error?.code === 'folder' ? error.error.reason : 'frame')
     }
+    const opened = await this.adopt(core, step)
+    this.storage?.changed()
+    return { status: 'opened', name: opened }
+  }
+
+  /**
+   * Starts a new project (`project.new`): the default one-synth project in no folder, the history
+   * emptied. Like opening, it works before audio starts. False when the core refused.
+   */
+  async newProject(): Promise<boolean> {
+    const core = await this.ensureCore()
+    const step = engineStep(() => core.run(newProjectCommand()))
+    if ('refused' in step) {
+      console.warn('the project refused project.new', step.refused)
+      return false
+    }
+    await this.adopt(core, step)
+    this.storage?.changed()
+    return true
+  }
+
+  /**
+   * The page takes the project that replaced its own (`project.open`, `project.new`): the
+   * engine starts over from it, the notes held on the old project end, the Web MIDI input is the
+   * new session's. Returns the new project's name.
+   */
+  private async adopt(core: ProjectCore, step: Exclude<EngineStep, { refused: unknown }>): Promise<string> {
     this.state.activeNotes = []
     this.state.notice = null
     this.mirror(step.events)
@@ -188,8 +217,21 @@ export class Dispatcher {
       this.web?.push(step.push)
       this.midi?.select(input)
     }
-    return { status: 'opened', name: view.project.name }
+    return view.project.name
   }
+
+  /** What the project's storage asks of the page's project: the controller in `lib/storage` drives it. */
+  readonly host: ProjectHost = {
+    dirty: () => (this.core ? this.core.dirty() : null),
+    save: (mode) => (this.core ? this.core.save(mode) : null),
+    saved: (applied) => this.core?.saved(applied),
+    openProject: (name, entries) => this.openProject(name, entries),
+    newProject: () => this.newProject(),
+    projectId: () => this.project.view?.project.id ?? null,
+  }
+
+  /** The project's storage; set once by `createStores`. */
+  storage: ProjectStorage | null = null
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
     this.state.notice = refusalNotice(reason)
@@ -281,7 +323,8 @@ export class Dispatcher {
   run(command: Command) {
     const core = this.core
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
-    if (!core || !this.engine) return
+    // Saving needs none: it is about the folder.
+    if (!core || (!this.engine && !isSaveCommand(command))) return
     const step = engineStep(() => core.run(command))
     if ('refused' in step) {
       // The views only send commands the project takes: a refusal is a page bug.
@@ -306,7 +349,12 @@ export class Dispatcher {
       rememberWebInput: (id) => (this.lastWebInput = id),
       markNote: (note, velocity) => this.markNote(note, velocity),
       clearNotes: () => (this.state.activeNotes = []),
+      save: () => void this.storage?.save(),
+      saveAs: () => void this.storage?.saveAs(),
+      projectReplaced: () => this.storage?.forgetFolder(),
     })
+    // Whatever the command did, the folder may now lack changes: the storage writes them soon.
+    this.storage?.changed()
   }
 
   /** Feeds the project store with the events of an applied command. */

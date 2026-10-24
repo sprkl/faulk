@@ -1,0 +1,2 @@
+2026-10-24
+* **Update** (#95): SV-2, project store and autosave into a real folder. The commands `project.new`, `project.save` and `project.save_as`; the core computes the writes with the folder format (`project::file::save`) and the page applies them from a Worker (`web/src/lib/storage/`), file by file, atomically; the interim save files are gone. `docs/specs/02-decoupage-mvp.md` (implementation notes of SV-2, the PR-4 notes corrected) and `docs/agents/verification.md` (commands and what stays to check by hand) updated.

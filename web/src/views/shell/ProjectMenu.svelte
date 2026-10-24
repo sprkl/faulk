@@ -1,0 +1,203 @@
+<script lang="ts">
+  /**
+   * The project in the top bar (SV-2): its name, the menu (new, open, save, save as, recent projects)
+   * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
+   * (no folder yet). A musician reads it to know whether the tab can be closed.
+   */
+  import { save, saveAs } from '../../lib/project-commands'
+  import { useStores } from '../../lib/stores'
+
+  const { ui, storage, project, dispatcher } = useStores()
+  const t = ui.t
+
+  let open = $state(false)
+  let root = $state<HTMLElement | null>(null)
+
+  const ready = $derived(project.view !== null)
+  const name = $derived(project.view?.project.name ?? t('project.untitled'))
+  const time = $derived(
+    storage.savedAt === null ? null : new Intl.DateTimeFormat(ui.lang, { timeStyle: 'short' }).format(storage.savedAt),
+  )
+  const status = $derived.by(() => {
+    switch (storage.status) {
+      case 'saved':
+        return time ? t('save.saved', { time }) : t('save.savedPlain')
+      case 'saving':
+        return t('save.saving')
+      case 'pending':
+        return t('save.pending')
+      case 'paused':
+        return t('save.paused')
+      case 'failed':
+        return t('save.failed')
+      case 'conflict':
+        return t('save.conflict')
+      default:
+        return t('save.unsaved')
+    }
+  })
+  const where = $derived(storage.folder ? t('save.folder', { name: storage.folder.name }) : t('save.noFolder'))
+
+  function choose(action: () => unknown) {
+    open = false
+    void action()
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && open) {
+      open = false
+      root?.querySelector<HTMLElement>('.trigger')?.focus()
+    }
+  }
+
+  function onPointerDown(event: PointerEvent) {
+    if (open && root && !root.contains(event.target as Node)) open = false
+  }
+</script>
+
+<svelte:window onpointerdown={onPointerDown} />
+
+<div class="project" bind:this={root} onkeydown={onKeyDown} role="presentation">
+  <button
+    class="trigger"
+    aria-haspopup="menu"
+    aria-expanded={open}
+    aria-label={t('project.menu')}
+    data-testid="project-menu"
+    onclick={() => (open = !open)}
+  >
+    <span class="name" data-testid="project-name">{name}</span>
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5 L5 6.5 L8 3.5" /></svg>
+  </button>
+  {#if ready}
+    <span class="state" data-state={storage.status} data-testid="save-state" role="status" title={where}>{status}</span>
+  {/if}
+
+  {#if open}
+    <div class="menu" role="menu" aria-label={t('project.menu')}>
+      <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => storage.newProject())}>{t('project.menu.new')}</button>
+      <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => storage.openFolder())}>{t('project.menu.open')}</button>
+      <hr />
+      <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
+        {t('project.menu.save')}<kbd>Ctrl+S</kbd>
+      </button>
+      <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
+        {t('project.menu.saveAs')}<kbd>Ctrl+Shift+S</kbd>
+      </button>
+      {#if storage.supported}
+        <hr />
+        <p class="heading">{t('project.menu.recent')}</p>
+        {#each storage.recent as entry (entry.id)}
+          <button role="menuitem" data-testid="menu-recent" onclick={() => choose(() => storage.openRecent(entry.id))}>{entry.name}</button>
+        {:else}
+          <p class="none">{t('project.menu.noRecent')}</p>
+        {/each}
+      {:else}
+        <hr />
+        <p class="none" data-testid="menu-unsupported">{t('project.menu.unsupported')}</p>
+      {/if}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .project {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    min-width: 0;
+  }
+  .trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    height: 30px;
+    max-width: 220px;
+    padding: 0 var(--fk-space-3);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    background: transparent;
+    color: var(--fk-text);
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .trigger:hover {
+    background: var(--fk-surface-2);
+  }
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .state {
+    font-size: 12px;
+    color: var(--fk-text-muted);
+    white-space: nowrap;
+  }
+  .state[data-state='pending'],
+  .state[data-state='saving'] {
+    color: var(--fk-text);
+  }
+  .state[data-state='paused'],
+  .state[data-state='failed'],
+  .state[data-state='conflict'] {
+    color: var(--fk-accent);
+    font-weight: 600;
+  }
+  .menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 240px;
+    max-width: 320px;
+    padding: var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius);
+    background: var(--fk-surface);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  }
+  .menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--fk-space-3);
+    padding: var(--fk-space-2) var(--fk-space-3);
+    border: 0;
+    border-radius: var(--fk-radius-sm, 4px);
+    background: transparent;
+    color: var(--fk-text);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu button:hover:not(:disabled) {
+    background: var(--fk-surface-2);
+  }
+  .menu button:disabled {
+    color: var(--fk-text-muted);
+    cursor: default;
+  }
+  kbd {
+    color: var(--fk-text-muted);
+    font: inherit;
+    font-size: 11px;
+  }
+  hr {
+    width: 100%;
+    margin: var(--fk-space-1) 0;
+    border: 0;
+    border-top: 1px solid var(--fk-line);
+  }
+  .heading,
+  .none {
+    margin: 0;
+    padding: var(--fk-space-1) var(--fk-space-3);
+    font-size: 12px;
+    color: var(--fk-text-muted);
+  }
+</style>

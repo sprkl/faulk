@@ -5,11 +5,9 @@
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
 import type {
   Command,
-  ProjectChanges,
   ProjectEvent,
   ProjectView,
   RunReport,
-  SaveReport,
   SnapshotReport,
 } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
@@ -27,13 +25,51 @@ interface CoreExports {
   pw_snapshot(core: number): number
   pw_project(core: number): number
   pw_stage(core: number, len: number): number
-  pw_save(core: number): number
-  pw_saved(core: number, len: number): number
+  pw_save(core: number, mode: number): number
+  pw_saved(core: number, applied: number): number
+  pw_dirty(core: number): number
 }
 
 /** Which project a new core starts with. */
 export type CoreKind = 'empty' | 'single_synth'
 const KINDS: Record<CoreKind, number> = { empty: 0, single_synth: 1 }
+
+/** Which files a save looks at (see `ProjectCore.save`). */
+export type SaveMode = 'changed' | 'forced' | 'everything' | 'copy' | 'rewrite'
+const SAVE_MODES: Record<SaveMode, number> = { changed: 0, forced: 1, everything: 2, copy: 3, rewrite: 4 }
+
+/** One thing a save asks of the folder: replace a file, or remove it. */
+export type SaveEntry = { type: 'write'; path: string; bytes: Uint8Array } | { type: 'remove'; path: string }
+
+/** What a save computed: the entries in the order to apply them, or why it could not. */
+export type SaveFrame = { status: 'ok'; entries: SaveEntry[] } | { status: 'failed'; message: string }
+
+/** Reads the frame `pw_save` returns (`crates/project-wasm/src/save.rs` documents the layout). */
+export function parseSaveFrame(frame: Uint8Array): SaveFrame {
+  const decoder = new TextDecoder()
+  if (frame[0] !== 0) return { status: 'failed', message: decoder.decode(frame.subarray(1)) }
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
+  const count = view.getUint32(5, true)
+  const entries: SaveEntry[] = []
+  let at = 9
+  for (let i = 0; i < count; i++) {
+    const kind = frame[at++]
+    const pathLength = view.getUint32(at, true)
+    at += 4
+    const path = decoder.decode(frame.subarray(at, at + pathLength))
+    at += pathLength
+    if (kind === 1) {
+      entries.push({ type: 'remove', path })
+      continue
+    }
+    const length = Number(view.getBigUint64(at, true))
+    at += 8
+    // Copied out of the core's memory: the next call reuses it.
+    entries.push({ type: 'write', path, bytes: frame.slice(at, at + length) })
+    at += length
+  }
+  return { status: 'ok', entries }
+}
 
 /** The engine bytes a call produced, beside its report: empty when it produced none. */
 export interface WithEngine<R> {
@@ -272,16 +308,31 @@ export class ProjectCore {
     if (code !== 0) throw new CoreError('stage', code)
   }
 
-  /** The changes since the last recorded write; call `saved` once they are written. */
-  save(): SaveReport {
-    return this.output<SaveReport>('save', this.exports.pw_save(this.live()))
+  /**
+   * The writes that bring the project's folder up to date, computed by `project::file::save`
+   * in the core (SV-2). `changed` does nothing when the project did not change since the last
+   * save; `forced` looks at every file anyway (the session included); `everything` writes the
+   * whole project as into an empty folder (the first write of a save as). Call `saved` once
+   * the entries are applied to the folder, or with `false` when they could not be: the next
+   * save then computes them again.
+   */
+  save(mode: SaveMode): SaveFrame {
+    const len = this.exports.pw_save(this.live(), SAVE_MODES[mode])
+    if (len < 0) throw new CoreError('save', len)
+    return parseSaveFrame(new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len))
   }
 
-  /** Records the changes written to the folder, as `save` gave them. */
-  saved(changes: ProjectChanges) {
-    const len = this.input(JSON.stringify(changes))
-    const code = this.exports.pw_saved(this.live(), len)
+  /** Says whether the folder now holds what the last `save` gave. */
+  saved(applied: boolean) {
+    const code = this.exports.pw_saved(this.live(), applied ? 1 : 0)
     if (code !== 0) throw new CoreError('saved', code)
+  }
+
+  /** Whether the project has changes (edits, solo, selection...) that the folder does not hold. */
+  dirty(): boolean {
+    const code = this.exports.pw_dirty(this.live())
+    if (code < 0) throw new CoreError('dirty', code)
+    return code === 1
   }
 
   /** Frees the core; any later call throws. */

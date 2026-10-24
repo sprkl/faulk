@@ -18,12 +18,13 @@ use std::cell::RefCell;
 
 use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{
-    ProjectChanges, ProjectFiles, ProjectView, RunReport, SaveReport, SnapshotReport, save_files,
-};
+use commands::host::{ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
 use project::file::{DirEntry, FileSystem, FsError, MemFs};
+
+mod save;
 use project::{IdGenerator, Project, ProjectId};
+pub use save::{Mode, Saver};
 use serde::Serialize;
 
 thread_local! {
@@ -50,11 +51,11 @@ pub const KIND_EMPTY: u32 = 0;
 /// [`pw_new`]: the page's one-synth project (the ids the interface uses until PR-5).
 pub const KIND_SINGLE_SYNTH: u32 = 1;
 
-/// A project in the page: the project with its engine stream, and the text of each file
-/// as last written (`save` gives the files that differ from it).
+/// A project in the page: the project with its engine stream, and what is known of the
+/// folder it is saved into ([`Saver`]).
 pub struct Core {
     synced: Synced,
-    saved: ProjectFiles,
+    saver: Saver,
 }
 
 impl Core {
@@ -65,12 +66,17 @@ impl Core {
         let mut ids = IdGenerator::new(time_ms, random);
         let state = match kind {
             KIND_EMPTY => State::new(Project::new(ProjectId::generate(&mut ids), "Untitled")),
-            KIND_SINGLE_SYNTH => commands::engine_msgs::single_synth::state(),
+            KIND_SINGLE_SYNTH => {
+                // The ids of the one synth are the interface's; the project is its own.
+                let mut state = commands::engine_msgs::single_synth::state();
+                state.project.id = ProjectId::generate(&mut ids);
+                state
+            }
             _ => return None,
         };
         Some(Core {
             synced: Synced::new(state, Context::new(Author::User, ids), epoch),
-            saved: ProjectFiles::new(),
+            saver: Saver::new(),
         })
     }
 
@@ -85,6 +91,10 @@ impl Core {
             }
         };
         let synced = &mut self.synced;
+        let kind = command.meta().kind;
+        // A live command changes no project, but the selection, solo, arming and MIDI input
+        // are saved with it (`.faulk/session.json`): a change of them is a change to save.
+        let session = (kind == commands::Kind::Live).then(|| synced.state.session.clone());
         let outcome = match commands::run(&command, &mut synced.state, &mut synced.ctx) {
             Ok(outcome) => outcome,
             Err(error) => return (RunReport::Refused { error }, Vec::new()),
@@ -95,10 +105,13 @@ impl Core {
             Err(error) => (Vec::new(), Some(error.code())),
         };
         if commands::engine_msgs::replaces_project(&command) {
-            // What the interim save last wrote belongs to the previous project. Serializing the
-            // new one to compare against would cost seconds on a large project: SV-2's save
-            // replaces this and tracks dirty units instead.
-            self.saved.clear();
+            // The folder of the previous project means nothing to this one: `project.open`
+            // brings what its own folder holds, `project.new` has none.
+            self.saver = Saver::opened(synced.ctx.opened.take());
+        } else if (kind == commands::Kind::Edit && !outcome.events.is_empty())
+            || session.is_some_and(|before| before != synced.state.session)
+        {
+            self.saver.edited();
         }
         let report = RunReport::Applied {
             output: outcome.output,
@@ -160,40 +173,28 @@ impl Core {
         Ok(())
     }
 
-    /// The changes since the last recorded write: the files whose text differs from it.
-    /// Does not record them as written: the host calls [`Core::saved`] once the write
-    /// succeeded.
-    pub fn save(&self) -> SaveReport {
-        match save_files(&self.synced.state) {
-            Ok(files) => SaveReport::Changes {
-                changes: ProjectChanges {
-                    write: files
-                        .into_iter()
-                        .filter(|(path, text)| self.saved.get(path) != Some(text))
-                        .collect(),
-                    remove: Vec::new(),
-                },
-            },
-            Err(error) => SaveReport::Failed {
-                message: error.to_string(),
-            },
+    /// Computes the writes that bring the project's folder up to date (see [`save`]); the
+    /// frame is the call's output. Pending until [`Core::saved`].
+    pub fn save(&mut self, mode: Mode) -> Vec<u8> {
+        if mode == Mode::Copy {
+            // A copy is another project: it must not share an identity with the folder it
+            // came from. Should this save not finish, the project keeps the new identity
+            // (nothing else names it) and its own folder is rewritten with it.
+            self.synced.state.project.id = ProjectId::generate(&mut self.synced.ctx.ids);
+            self.saver.edited();
         }
+        let state = &self.synced.state;
+        self.saver.start(mode, &state.project, &state.session)
     }
 
-    /// Records the changes the host made to the folder, with the text it wrote (what
-    /// [`Core::save`] gave): an edit made since stays dirty. Paths that are not project
-    /// files are ignored.
-    pub fn saved(&mut self, json: &[u8]) -> Result<(), serde_json::Error> {
-        let done = serde_json::from_slice::<ProjectChanges>(json)?;
-        for path in done.remove {
-            self.saved.remove(&path);
-        }
-        for (path, text) in done.write {
-            if is_project_file(&path) {
-                self.saved.insert(path, text);
-            }
-        }
-        Ok(())
+    /// The page applied the writes of the last [`Core::save`] to the folder, or could not.
+    pub fn saved(&mut self, applied: bool) {
+        self.saver.finish(applied);
+    }
+
+    /// Whether the project has changes the folder does not hold.
+    pub fn dirty(&self) -> bool {
+        self.saver.dirty()
     }
 
     /// The engine stream's epoch.
@@ -357,11 +358,6 @@ pub fn parse_folder(frame: &[u8]) -> Result<(String, StagedFs), FolderFrameError
         }
     }
     Ok((name, staged))
-}
-
-/// The paths [`save_files`] writes.
-fn is_project_file(path: &str) -> bool {
-    path == commands::host::PROJECT_FILE || path == commands::host::SESSION_FILE
 }
 
 // ---------------------------------------------------------------- C ABI
@@ -542,32 +538,50 @@ pub unsafe extern "C" fn pw_stage(core: *mut Core, len: u32) -> i32 {
     }
 }
 
-/// [`Core::save`]: a [`SaveReport`].
+/// [`Core::save`] in `mode` ([`Mode::from_code`]: 0 changed, 1 forced, 2 everything): the
+/// frame of [`save`] at [`pw_out`], its length returned; [`ERR_BAD_INPUT`] for another mode.
 ///
 /// # Safety
 /// `core` must be null or a live pointer from [`pw_new`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_save(core: *mut Core) -> i32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { with_core(core, |core| publish(&core.save(), Vec::new())) }
-}
-
-/// [`Core::saved`] with the `ProjectChanges` JSON the host applied in the first `len`
-/// bytes of the inbox: 0, or [`ERR_BAD_INPUT`].
-///
-/// # Safety
-/// `core` must be null or a live pointer from [`pw_new`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_saved(core: *mut Core, len: u32) -> i32 {
+pub unsafe extern "C" fn pw_save(core: *mut Core, mode: u32) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe {
         with_core(core, |core| {
-            match with_inbox(len, |json| core.saved(json)) {
-                Ok(()) => 0,
-                Err(_) => ERR_BAD_INPUT,
-            }
+            let Some(mode) = Mode::from_code(mode) else {
+                return ERR_BAD_INPUT;
+            };
+            let frame = core.save(mode);
+            let len = frame.len() as i32;
+            OUT.with_borrow_mut(|out| *out = frame);
+            len
         })
     }
+}
+
+/// [`Core::saved`]: `applied` is 1 when the page wrote every entry of the last frame.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_saved(core: *mut Core, applied: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            core.saved(applied == 1);
+            0
+        })
+    }
+}
+
+/// [`Core::dirty`]: 1 when the project has changes the folder does not hold, else 0.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_dirty(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| i32::from(core.dirty())) }
 }
 
 #[cfg(test)]

@@ -18,6 +18,12 @@ export type Command = (ProjectCommand | TrackCommand | DeviceCommand | ClipComma
  * The commands of this domain, tagged by `type`.
  */
 export type ProjectCommand = ({
+type: "project.new"
+} | {
+type: "project.save"
+} | {
+type: "project.save_as"
+} | {
 name: string
 type: "project.rename"
 } | {
@@ -677,6 +683,16 @@ export type CommandOutput = (ProjectOutput | TrackOutput | DeviceOutput | ClipOu
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
 export type ProjectOutput = ({
+/**
+ * The name of the new project.
+ */
+name: string
+type: "project.new"
+} | {
+type: "project.save"
+} | {
+type: "project.save_as"
+} | {
 /**
  * The name before the command.
  */
@@ -1539,16 +1555,6 @@ message: string
 reason: "migration"
 })
 /**
- * What asking for the project's changes gave.
- */
-export type SaveReport = ({
-changes: ProjectChanges
-status: "changes"
-} | {
-message: string
-status: "failed"
-})
-/**
  * What encoding a snapshot for the engine did: the bytes are returned beside it.
  */
 export type SnapshotReport = ({
@@ -2056,20 +2062,6 @@ export interface MidiInput {
  */
 id: string
 name: string
-}
-/**
- * What to change in the project folder: files to write (path → text) and files to
- * remove. The interim files never remove anything; the folder format of SV-1 removes
- * the files of a deleted track or clip.
- */
-export interface ProjectChanges {
-remove: string[]
-write: {
-[k: string]: string | undefined
-}
-}
-export interface ProjectFiles {
-[k: string]: string | undefined
 }
 /**
  * The page's view of the project: what it reads after an event that names an entity

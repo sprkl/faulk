@@ -6,7 +6,7 @@
  * key does both: a played key never fires a shortcut, and a shortcut never plays a note. A shortcut
  * pressed while a note is held still works (undo stays reachable); the held note goes on.
  * - A played key is a bare letter or Semicolon (the keys of `KEY_OFFSETS`, plus Z and X for the octave).
- * - An application shortcut never uses a bare letter: it carries Ctrl or Cmd (`historyShortcut`), or is
+ * - An application shortcut never uses a bare letter: it carries Ctrl or Cmd (`historyShortcut`, `saveShortcut`), or is
  *   a key that plays nothing (F2 to rename, Escape, Enter, the arrows, Delete).
  * - So playing ignores any event with Ctrl, Cmd or Alt held (`ignoreKeyEvent`) and the shortcuts ignore
  *   bare letters; a new shortcut must keep to this, and `keyboard.test.ts` enumerates both sides.
@@ -80,6 +80,16 @@ export function isTextTarget(eventTarget: EventTarget | null): boolean {
   if (!target || typeof target.closest !== 'function') return false
   if (target.closest('textarea, select, [contenteditable=""], [contenteditable="true"]')) return true
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
+}
+
+/**
+ * Save asked by the keyboard (Ctrl or Cmd + S, with Shift for save as), or null. Unlike undo, it also
+ * fires inside a text field: there the browser would offer to save the page as a file, which is
+ * never what a musician means. It carries Ctrl or Cmd, so it never plays a note.
+ */
+export function saveShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): 'save' | 'save_as' | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 's') return null
+  return event.shiftKey ? 'save_as' : 'save'
 }
 
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
