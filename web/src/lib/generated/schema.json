@@ -14187,7 +14187,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -14202,8 +14202,59 @@
                         }
                       ]
                     },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "type": {
                       "const": "clip.duplicate",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    "slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "clip.move",
                       "type": "string"
                     }
                   },
@@ -17246,6 +17297,35 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "previous_slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Its slot before the command."
+                    },
+                    "previous_track": {
+                      "$ref": "#/$defs/TrackId",
+                      "description": "The track of the clip before the command."
+                    },
+                    "type": {
+                      "const": "clip.move",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous_track"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
                     "previous": {
                       "description": "The name before the command.",
                       "type": "string"
@@ -19220,7 +19300,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -19235,8 +19315,59 @@
                         }
                       ]
                     },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "type": {
                       "const": "clip.duplicate",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    "slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "clip.move",
                       "type": "string"
                     }
                   },
@@ -22279,6 +22410,35 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "previous_slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Its slot before the command."
+                    },
+                    "previous_track": {
+                      "$ref": "#/$defs/TrackId",
+                      "description": "The track of the clip before the command."
+                    },
+                    "type": {
+                      "const": "clip.move",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous_track"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
                     "previous": {
                       "description": "The name before the command.",
                       "type": "string"
@@ -24246,7 +24406,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot of the same track: `slot` when given (it must be free),\notherwise the next free slot below the source's scene. Refused, with no effect,\nwhen the track has no free slot to give. A second placement of the same clip is\nan option of the arrangement commands, not of this one. Undo: `clip.delete` of\nthe copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -24261,8 +24421,59 @@
                         }
                       ]
                     },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "type": {
                       "const": "clip.duplicate",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    "slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "clip.move",
                       "type": "string"
                     }
                   },
@@ -27299,6 +27510,35 @@
                   "required": [
                     "type",
                     "clip"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous_slot": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/SceneId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Its slot before the command."
+                    },
+                    "previous_track": {
+                      "$ref": "#/$defs/TrackId",
+                      "description": "The track of the clip before the command."
+                    },
+                    "type": {
+                      "const": "clip.move",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous_track"
                   ],
                   "type": "object"
                 },
@@ -148850,6 +149090,57 @@
                   "x-destructive": true,
                   "x-kind": "edit",
                   "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Start a new project: the page's default one, a single synth track, in no folder yet,\nwith its own identity. It replaces the current project, its history and its session\n(the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive: the caller confirms first\nwhen the current project has changes that are not saved.",
+                  "properties": {
+                    "type": {
+                      "const": "project.new",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": true,
+                  "x-kind": "edit",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Write the project to its folder now, without waiting for the automatic save that\nfollows each change by a moment. A project that has no folder yet asks for one, as\n`project.save_as` does. Changes nothing in the project, so it never enters the\nhistory.",
+                  "properties": {
+                    "type": {
+                      "const": "project.save",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Choose an empty folder and write the whole project into it; the project then lives\nin that folder, and the automatic save keeps writing there. The folder is chosen by\nthe user (a browser needs a click for it), so an agent that is not driven by one gets\na notice in the page instead. The old folder is left as it is. Changes nothing in the\nproject, so it never enters the history.",
+                  "properties": {
+                    "type": {
+                      "const": "project.save_as",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -151064,6 +151355,50 @@
                     "name",
                     "session_reset",
                     "missing_blobs"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "description": "The name of the new project.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "project.new",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.save",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.save_as",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
                   ],
                   "type": "object"
                 }
