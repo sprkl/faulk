@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck: plain JavaScript loaded from a blob by engine-mo2.spec.ts only (MO-2, #55).
+// @ts-nocheck: plain JavaScript loaded from a blob by engine-mo2.spec.ts and tests/bench/engine-swap.bench.ts (MO-2, #55; QA-7, #130).
 /* global AudioWorkletProcessor, registerProcessor */
 // What src/lib/engine/worklet.ts does, with the pump timed apart: `fk_render` is exactly
 // `fk_pump` then `fk_render_block`, and the clock (a Worker spinning on a shared counter, as

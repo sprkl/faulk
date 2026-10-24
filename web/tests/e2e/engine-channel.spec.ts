@@ -248,6 +248,8 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
 
     clockWorker.terminate()
     worker?.terminate()
+    // The counter kept its pace between the settled calibration and the end (#283), or every figure above is off.
+    if (Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck) throw new Error(`clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`)
     await deadline(`closing the audio context (state ${context.state})`, context.close())
     return {
       mode,

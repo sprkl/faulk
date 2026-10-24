@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions -- one arrow function, evaluated by the page */
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck: plain JavaScript evaluated in the page by engine-mo2.spec.ts and engine-swap.bench.ts (#283).
+// @ts-nocheck: plain JavaScript evaluated in the page by engine-mo2.spec.ts, engine-channel.spec.ts and engine-swap.bench.ts (#283).
 // The request/reply link to a Worker or to the worklet's port, as an expression the page
 // evaluates: `new Function('return (' + source + ')')()`. Replies are matched to requests in order.
 // What it adds to the bare queue of callbacks the harness used to keep (#283):

@@ -14,9 +14,13 @@ import { expect, test } from '@playwright/test'
 //
 // A measurement, not a test: numbers are printed, the assertions prove the queue drained and the
 // stream was applied whole (count equal to the engine's own, nothing rejected, nothing skipped). The budget of MO-2 for a pump is 500 µs.
+// The first pump that applies anything is printed apart: it runs wasm code for the first time (V8 compiles a function at its first
+// call, #283). `FAULK_BENCH_WARM=<n>` sends the first n pushes before the measured window to show what a warm-up buys (the count
+// assertions are then skipped); `FAULK_BENCH_JSFLAGS` passes V8 flags to Chromium (see playwright.bench.config.ts).
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const STREAM = process.env.FAULK_BENCH_STREAM ?? ''
+const WARM = Number(process.env.FAULK_BENCH_WARM ?? 0)
 
 /** The fixture format of crates/engine-wasm/tests/parity.rs: the pushes, in order. */
 function pushes(path: string): Buffer[] {
@@ -58,7 +62,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
     try {
       await page.goto(origin + '/')
       const result = await page.evaluate(
-        async ({ sources, count }) => {
+        async ({ sources, count, warm }) => {
           const blob = (s: string) => URL.createObjectURL(new Blob([s], { type: 'text/javascript' }))
           const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
           const isolated = crossOriginIsolated
@@ -140,9 +144,13 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
             at += 5 + (stream[at] === 0 ? n : 0)
           }
 
+          if (warm > 0) {
+            await askWorker({ type: 'push', streams: pushes.slice(0, warm) })
+            await sleep(500)
+          }
           await reset()
           const start = performance.now()
-          await askWorker({ type: 'push', streams: pushes })
+          await askWorker({ type: 'push', streams: pushes.slice(warm) })
           let done = 0
           for (let i = 0; i < 600; i++) {
             const c = await askWorker({ type: 'counters' })
@@ -162,7 +170,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           await deadline(`closing the audio context (state ${context.state})`, context.close())
           return { isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
         },
-        { sources, count: all.length },
+        { sources, count: all.length, warm: WARM },
       )
       const us = (n: number) => n.toFixed(2)
       const s = result.swap
@@ -182,8 +190,8 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
       expect(Math.abs(result.ticksPerUs - result.check)).toBeLessThan(0.25 * result.check)
       // The whole stream was applied: the worklet's count equals the engine's own, and the
       // number of messages the native bench printed when set (2403 for the shipped stream).
-      expect(s.applied).toBe(s.hostApplied)
-      if (process.env.FAULK_BENCH_EXPECT_APPLIED) expect(s.applied).toBe(Number(process.env.FAULK_BENCH_EXPECT_APPLIED))
+      if (!WARM) expect(s.applied).toBe(s.hostApplied)
+      if (!WARM && process.env.FAULK_BENCH_EXPECT_APPLIED) expect(s.applied).toBe(Number(process.env.FAULK_BENCH_EXPECT_APPLIED))
       expect(result.counters.rejected).toBe(0)
       expect(result.counters.codes).toEqual([])
       expect(s.skipped).toBe(0)
