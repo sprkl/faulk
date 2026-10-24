@@ -15,16 +15,17 @@
   import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { isMidi } from '../../lib/project/tracks'
+  import { instrumentNamedKeys, isMidi } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
-  import { barTicks, beatTicks } from '../transport/time'
+  import { barTicks } from '../transport/time'
   import { clipLabel, editedClip, midiClips } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
     acceptable,
+    defaultLength,
     clampScrollY,
     drawnNote,
     hitNote,
@@ -61,6 +62,8 @@
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
   const KEYS_WIDTH = 56
+  /** The keyboard column of a drum kit, wide enough for the names of its sounds. */
+  const NAMED_KEYS_WIDTH = 96
   const LANE_HEIGHT = 56
   const ROW = DEFAULT_ROW_HEIGHT
 
@@ -77,6 +80,10 @@
   const clips = $derived(track ? midiClips(track.track) : [])
   const edited = $derived(editedClip(clips, ui.editedClip))
   const notes = $derived<readonly Note[]>(edited?.notes ?? [])
+  const keyNames = $derived.by<ReadonlyMap<number, string> | null>(() => {
+    const named = track ? instrumentNamedKeys(track.track) : []
+    return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
+  })
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
@@ -91,7 +98,8 @@
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
-  let lastLength = $state(0)
+  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
+  let lastLength = $state<number | null>(null)
   let lastVelocity = $state(DEFAULT_VELOCITY)
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -179,15 +187,21 @@
   let stage: HTMLDivElement | undefined = $state()
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) =>
-    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown })
+    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown, names: keyNames })
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames]
     grid?.invalidate()
   })
 
-  // A new clip opens with a clean selection, around its notes, and its last drawn length at one beat.
+  // A change of the snap setting gives the next drawn note the new step.
+  $effect(() => {
+    void snap
+    untrack(() => (lastLength = null))
+  })
+
+  // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
   let openedFor: string | null = null
   $effect(() => {
     const id = edited?.id ?? null
@@ -197,8 +211,8 @@
     untrack(() => {
       picked = new Set()
       gesture = null
-      scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
-      lastLength = beatTicks(signature)
+      scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT }, keyNames ? [...keyNames.keys()] : [])
+      lastLength = null
     })
   })
 
@@ -272,7 +286,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, lastLength, clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -297,7 +311,7 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), step)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, lastLength, clipLength) }
+      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -519,6 +533,7 @@
     data-note-count={notes.length}
     data-selected-count={chosenNotes.length}
     data-clip-length={clipLength}
+    data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
     data-loop={edited.looping ? `${edited.looping.start}-${edited.looping.end}` : ''}
     data-notes={notes.length <= 32 ? JSON.stringify(notes) : undefined}
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}
@@ -557,7 +572,7 @@
       <span class="count" data-testid="roll-count">{t('pianoRoll.count', { n: notes.length })}{#if chosenNotes.length > 0} · {t('pianoRoll.selected', { n: chosenNotes.length })}{/if}</span>
     </div>
 
-    <div class="board" style:--keys="{KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
+    <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
       <div
         class="keys"
         bind:this={keys}
@@ -571,7 +586,7 @@
       >
         <Surface
           label={t('pianoRoll.keyboard')}
-          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches)}
+          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)}
         />
       </div>
       <div

@@ -3,6 +3,7 @@ import type { Note } from '../../lib/generated/protocol'
 import {
   acceptable,
   clampScrollY,
+  defaultLength,
   drawnNote,
   fits,
   floorTick,
@@ -78,6 +79,26 @@ describe('pitch axis', () => {
   })
 })
 
+describe('the keys of a kit', () => {
+  it('opens on the sounds of the kit, and on the notes too when some are outside', () => {
+    const kit = initialScrollY([], 400, layout, [36, 38, 39, 42, 46])
+    const middle = pitchAt(28 + (400 - 28) / 2, { ...layout, scrollY: kit })
+    expect(middle).toBeGreaterThanOrEqual(40)
+    expect(middle).toBeLessThanOrEqual(42)
+    const wide = initialScrollY([note(0, 80)], 400, layout, [36, 46])
+    expect(wide).toBeLessThan(kit)
+  })
+})
+
+describe('the default length of a drawn note', () => {
+  it('is the last drawn or resized length, else the snap step, else a sixteenth', () => {
+    expect(defaultLength(null, 240)).toBe(240)
+    expect(defaultLength(null, null)).toBe(240)
+    expect(defaultLength(120, 960)).toBe(120)
+    expect(defaultLength(null, 960)).toBe(960)
+  })
+})
+
 describe('hit testing', () => {
   const notes = [note(0, 60, 960), note(960, 62, 960)]
   const at = (n: Note) => {
@@ -95,6 +116,13 @@ describe('hit testing', () => {
     expect(hitNote(notes, 20, pitchTop(61, layout) + 4, view, layout)).toBeNull()
     expect(hitNote(notes, 960 * 0.1 + 5, pitchTop(60, layout) + 4, view, layout)).toBeNull()
     expect(hitNote(notes, 20, 10, view, layout)).toBeNull()
+  })
+
+  it('leaves the cell right after a note free, so that a click there draws', () => {
+    const one = [note(0, 60, 240)]
+    const right = 240 * view.pxPerTick + 20 - 20
+    expect(hitNote(one, right, pitchTop(60, layout) + 4, view, layout)).toBeNull()
+    expect(hitNote(one, right - 0.5, pitchTop(60, layout) + 4, view, layout)).not.toBeNull()
   })
 
   it('takes the last of two notes that overlap, as it is drawn on top', () => {

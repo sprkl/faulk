@@ -7,6 +7,7 @@
 
 import { tickToX, type View } from '../../lib/components/timegrid/grid'
 import type { Note } from '../../lib/generated/protocol'
+import { PPQ } from '../transport/time'
 
 /** The lowest and the highest MIDI key. */
 export const MIN_PITCH = 0
@@ -17,6 +18,8 @@ export const MIN_VELOCITY = 1
 export const MAX_VELOCITY = 127
 /** The velocity of a note drawn before the user has set one. */
 export const DEFAULT_VELOCITY = 100
+/** The length of a note drawn with the snap off, before any has been drawn or resized: a sixteenth. */
+export const SIXTEENTH = PPQ / 4
 /** The grab zone at the right edge of a note, in pixels: a pointer in it resizes. */
 export const EDGE_PX = 6
 /** The least width of a note on screen, so that a very short note stays visible and hittable. */
@@ -57,15 +60,22 @@ export const maxScrollY = (height: number, layout: Pick<Layout, 'rowHeight' | 't
   Math.max(0, PITCH_COUNT * layout.rowHeight - Math.max(0, height - layout.top))
 export const clampScrollY = (scrollY: number, height: number, layout: Pick<Layout, 'rowHeight' | 'top'>): number =>
   clamp(finite(scrollY, 0), 0, maxScrollY(height, layout))
-/** The scroll that puts the middle of the clip's notes in sight: around the notes' pitches, or middle C when empty. */
-export function initialScrollY(notes: readonly Note[], height: number, layout: Pick<Layout, 'rowHeight' | 'top'>): number {
+/**
+ * The scroll that puts the middle of the clip's notes in sight: around the notes' pitches, or middle C when empty.
+ * `sounds` are the keys the instrument answers to (a drum kit's): they are in sight too, and alone when the clip is empty.
+ */
+export function initialScrollY(notes: readonly Note[], height: number, layout: Pick<Layout, 'rowHeight' | 'top'>, sounds: readonly number[] = []): number {
   let low = MAX_PITCH
   let high = MIN_PITCH
+  for (const key of sounds) {
+    low = Math.min(low, key)
+    high = Math.max(high, key)
+  }
   for (const n of notes) {
     low = Math.min(low, n.pitch)
     high = Math.max(high, n.pitch)
   }
-  const middle = notes.length === 0 ? 60 : (low + high) / 2
+  const middle = notes.length === 0 && sounds.length === 0 ? 60 : (low + high) / 2
   const y = (MAX_PITCH - middle) * layout.rowHeight - (height - layout.top) / 2
   return clampScrollY(y, height, layout)
 }
@@ -101,7 +111,8 @@ export function hitNote(notes: readonly Note[], x: number, y: number, view: View
     const n = notes[i]!
     if (n.pitch !== pitch) continue
     const r = noteRect(n, view, layout)
-    if (x < r.x || x > r.x + r.w) continue
+    // The right edge belongs to the next cell: a click right after a note draws a new one.
+    if (x < r.x || x >= r.x + r.w) continue
     return { index: i, zone: r.w >= EDGE_PX * 2 && x >= r.x + r.w - EDGE_PX ? 'end' : 'body' }
   }
   return null
@@ -223,6 +234,9 @@ export function shiftVelocity(selected: readonly Note[], delta: number): Change[
   const shift = Math.round(clamp(finite(delta, 0), MIN_VELOCITY - low, Math.max(MIN_VELOCITY - low, MAX_VELOCITY - high)))
   return selected.map((from) => ({ from, to: { ...from, velocity: from.velocity + shift } }))
 }
+
+/** The length of the next drawn note: the last one drawn or resized, else the snap step (a sixteenth when the snap is off). */
+export const defaultLength = (last: number | null, step: number | null): number => last ?? (step !== null && step > 0 ? step : SIXTEENTH)
 
 /** The tick of a grid cell: the pointer's tick rounded down to the step (a click inside a cell draws at its start). */
 export function floorTick(tick: number, step: number | null): number {

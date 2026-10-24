@@ -43,6 +43,7 @@ static PROBE: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Instrument,
     memory_bytes: 64,
     midi_output: None,
+    named_keys: &[],
     params: &NO_PARAMS,
 };
 

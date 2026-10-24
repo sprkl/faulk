@@ -423755,6 +423755,27 @@
         ],
         "type": "object"
       },
+      "NamedKey": {
+        "description": "A MIDI key an instrument gives a meaning to, with the name the UI shows on its row.",
+        "properties": {
+          "key": {
+            "description": "The MIDI key, 0 to 127.",
+            "format": "uint8",
+            "maximum": 127,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "One English name, never translated.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "type": "object"
+      },
       "ParamDescriptor": {
         "description": "One parameter of a device kind.",
         "properties": {
@@ -423900,6 +423921,13 @@
         "description": "The displayed name: one English name, never translated.",
         "type": "string"
       },
+      "named_keys": {
+        "description": "The notes an instrument answers to, each with its name, for the piano roll to label a\nrow (a drum kit: one sound per key). Empty for a pitched instrument and for the other\nroles. Sorted by key.",
+        "items": {
+          "$ref": "#/$defs/NamedKey"
+        },
+        "type": "array"
+      },
       "params": {
         "items": {
           "$ref": "#/$defs/ParamDescriptor"
@@ -423923,6 +423951,7 @@
       "name",
       "role",
       "memory_bytes",
+      "named_keys",
       "params"
     ],
     "title": "DeviceDescriptor",
@@ -423935,6 +423964,7 @@
       "memory_bytes": 968,
       "midi_output": null,
       "name": "Oscillator",
+      "named_keys": [],
       "params": [
         {
           "default": 1,
@@ -424029,6 +424059,28 @@
       "memory_bytes": 520,
       "midi_output": null,
       "name": "Drums",
+      "named_keys": [
+        {
+          "key": 36,
+          "name": "Kick"
+        },
+        {
+          "key": 38,
+          "name": "Snare"
+        },
+        {
+          "key": 39,
+          "name": "Clap"
+        },
+        {
+          "key": 42,
+          "name": "Closed Hat"
+        },
+        {
+          "key": 46,
+          "name": "Open Hat"
+        }
+      ],
       "params": [
         {
           "default": 52,
@@ -424248,6 +424300,7 @@
       "memory_bytes": 6144184,
       "midi_output": null,
       "name": "Echo",
+      "named_keys": [],
       "params": [
         {
           "default": 1,

@@ -123,6 +123,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Effect,
     memory_bytes: size_of::<Echo>() as u64 + LINES_BYTES,
     midi_output: None,
+    named_keys: &[],
     params: &[
         ParamDescriptor {
             id: ParamId(MODE),

@@ -24,6 +24,12 @@ export function instrumentKind(track: Track): string | null {
   return null
 }
 
+/** The notes the track's instrument names (a drum kit's sounds), sorted by key; empty for a pitched instrument. */
+export function instrumentNamedKeys(track: Track): readonly { key: number; name: string }[] {
+  const kind = instrumentKind(track)
+  return DEVICES.find((d) => d.kind === kind)?.named_keys ?? []
+}
+
 /** The instrument's name: its descriptor's one English name, null when the track has none the page knows. */
 export function instrumentName(track: Track): string | null {
   const kind = instrumentKind(track)
