@@ -992,6 +992,7 @@ describe('the project in a folder (SV-2)', () => {
     vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
     vi.spyOn(session.storage, 'exportPack').mockResolvedValue(true)
     vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
+    const newProject = vi.spyOn(session.storage, 'newProject').mockResolvedValue(true)
     const sent = nativeEngine.send.mock.calls.length
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
@@ -1002,6 +1003,7 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.storage.save).toHaveBeenCalledTimes(1)
     expect(session.storage.exportPack).toHaveBeenCalledTimes(1)
     expect(session.storage.importPack).toHaveBeenCalledTimes(1)
+    expect(newProject).toHaveBeenCalledTimes(1)
     // A command for the engine still reaches the helper.
     session.dispatcher.run(setParamCommand(firstParam, 0.6))
     expect(nativeEngine.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
@@ -1122,13 +1124,52 @@ describe('the project in a folder (SV-2)', () => {
     expect(webs[0].push).toHaveBeenCalledTimes(1)
   })
 
-  it('a project.new run as a command takes the folder away from the storage', async () => {
+  it('a project.new run as a command goes through the storage, which asks before the core replaces anything (#346)', async () => {
     const session = newSession()
     await session.dispatcher.start()
-    const forget = vi.spyOn(session.storage, 'forgetFolder')
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    expect(session.dispatcher.host.projectDirty()).toBe(true)
+    const pushes = webs[0].push.mock.calls.length
     session.dispatcher.run({ type: 'project.new' })
-    expect(forget).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(session.storage.confirm).toEqual({ action: 'new', name: null }))
+    // Asked, and nothing replaced yet: the changes are still in the project.
+    expect(session.project.params[firstParam]).toBe(0.6)
+    expect(webs[0].push.mock.calls.length).toBe(pushes)
+    // Cancel changes nothing, and the question is gone.
+    session.storage.respond(false)
+    await vi.waitFor(() => expect(session.storage.confirm).toBeNull())
+    expect(session.project.params[firstParam]).toBe(0.6)
+    expect(session.dispatcher.host.projectDirty()).toBe(true)
+    expect(webs[0].push.mock.calls.length).toBe(pushes)
+    // Confirm replaces the project.
+    session.dispatcher.run({ type: 'project.new' })
+    await vi.waitFor(() => expect(session.storage.confirm).not.toBeNull())
+    session.storage.respond(true)
+    await vi.waitFor(() => expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam]))
     expect(session.dispatcher.host.dirty()).toBe(false)
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    expect(session.storage.confirm).toBeNull()
+  })
+
+  it('a project.new on a project with nothing to lose asks nothing, and works before audio starts', async () => {
+    const session = newSession()
+    session.dispatcher.run({ type: 'project.new' })
+    await vi.waitFor(() => expect(session.project.view?.project.name).toBe('Untitled'))
+    expect(session.storage.confirm).toBeNull()
+  })
+
+  it('two project.new in a row ask one question after the other, and the second sees the first one done', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    session.dispatcher.run({ type: 'project.new' })
+    session.dispatcher.run({ type: 'project.new' })
+    await vi.waitFor(() => expect(session.storage.confirm).not.toBeNull())
+    session.storage.respond(true)
+    // The first replaced the project: nothing is left to lose, so the second asks nothing.
+    await vi.waitFor(() => expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam]))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(session.storage.confirm).toBeNull()
   })
 })
 

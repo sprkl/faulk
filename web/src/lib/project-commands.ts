@@ -14,6 +14,8 @@ export const importPack = (): Command => ({ type: 'project.import_pack' })
 export const listStored = (): Command => ({ type: 'project.list_stored' })
 /** Whether a command asks for the list of the stored projects: its answer comes from the storage, which reads first. */
 export const isListStored = (command: Command): boolean => command.type === 'project.list_stored'
+/** Whether a command starts a new project: the storage asks first when changes would be lost, then runs it in the core. */
+export const isNewProject = (command: Command): boolean => command.type === 'project.new'
 export const reopenLast = (): Command => ({ type: 'project.reopen_last' })
 export const openFolder = (): Command => ({ type: 'project.open_folder' })
 export const openRecent = (id: string): Command => ({ type: 'project.open_recent', id })
@@ -59,4 +61,4 @@ export const isStoredProjectCommand = (command: Command): boolean =>
  * Whether a command concerns the page's storage and never the engine: the helper does not take it (it
  * keeps no project folder of its own yet), so in Boost it stays in the page.
  */
-export const isStorageCommand = (command: Command): boolean => isSaveCommand(command) || command.type === 'project.new'
+export const isStorageCommand = (command: Command): boolean => isSaveCommand(command)

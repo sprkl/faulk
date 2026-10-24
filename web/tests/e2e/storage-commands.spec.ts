@@ -224,6 +224,46 @@ test.describe('the projects the page keeps, by command', () => {
   })
 })
 
+// #346: a new project asks before the core replaces anything, whoever asks; save as needs a click.
+for (const lang of ['en', 'fr'] as const) {
+  test.describe(`new project and save as, ${lang}`, () => {
+    test('the menu and the command ask about unsaved changes; Cancel keeps the project; save as without a click says why', async ({ page }) => {
+      const { errors } = watch(page)
+      await simulate(page, 'cmd-new', { browserStorage: false, lang: lang === 'fr' ? 'fr' : undefined })
+      await page.goto('/app')
+      await start(page)
+      await addTrack(page, 'Drums')
+      await expect(tracks(page)).toHaveCount(2)
+      const asked = page.getByTestId('confirm')
+
+      // The menu sends the command: the question, then Cancel keeps everything.
+      await page.getByTestId('project-menu').click()
+      await page.getByTestId('menu-new').click()
+      await expect(asked).toBeVisible()
+      await expect(asked).toContainText(lang === 'fr' ? 'nouveau projet' : 'new project')
+      await page.getByTestId('confirm-cancel').click()
+      await expect(asked).toHaveCount(0)
+      await expect(tracks(page)).toHaveCount(2)
+
+      // The command with no click behind it asks the same question; Cancel changes nothing, confirming replaces.
+      await runWithoutClick(page, { type: 'project.new' })
+      await expect(asked).toBeVisible()
+      await page.getByTestId('confirm-cancel').click()
+      await expect(tracks(page)).toHaveCount(2)
+      await runWithoutClick(page, { type: 'project.new' })
+      await page.getByTestId('confirm-discard').click()
+      await expect(asked).toHaveCount(0)
+      await expect(tracks(page)).toHaveCount(1)
+
+      // Save as with no click: no chooser, a notice, the project stays unsaved.
+      await runWithoutClick(page, { type: 'project.save_as' })
+      await expect(notice(page)).toContainText(lang === 'fr' ? 'après un clic' : 'only after a click')
+      await expect(state(page)).toHaveText(lang === 'fr' ? 'Non enregistré' : 'Not saved')
+      expect(errors).toEqual([])
+    })
+  })
+}
+
 test.describe('the conflict and the permission, by command', () => {
   test('keep_mine and load_folder_version change nothing without a conflict, and ask before they lose anything', async ({ page }) => {
     const { errors } = watch(page)

@@ -43,8 +43,6 @@ export interface EffectPorts {
   allowAccess(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
-  /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
-  projectReplaced(): void
 }
 
 export function applyEffects(command: Command, ports: EffectPorts) {
@@ -113,9 +111,6 @@ export function applyEffects(command: Command, ports: EffectPorts) {
         from_bar: command.from_bar ?? undefined,
         to_bar: command.to_bar ?? undefined,
       })
-      return
-    case 'project.new':
-      ports.projectReplaced()
       return
   }
 }
