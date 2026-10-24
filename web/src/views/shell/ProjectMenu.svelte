@@ -4,7 +4,7 @@
    * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
    * (no folder yet). A musician reads it to know whether the tab can be closed.
    */
-  import { save, saveAs } from '../../lib/project-commands'
+  import { exportPack, importPack, save, saveAs } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, project, dispatcher } = useStores()
@@ -26,14 +26,27 @@
     conflict: 'save.conflict',
     unsaved: 'save.unsaved',
   } as const
+  // A project kept in the browser's storage is a draft where a folder can be chosen, and the project itself where not.
+  const savedKey = $derived(storage.place === 'browser' ? (storage.supported ? 'save.savedDraft' : 'save.savedBrowser') : 'save.saved')
   const status = $derived(
-    storage.status === 'saved' ? (time ? t('save.saved', { time }) : t('save.savedPlain')) : t(LABELS[storage.status]),
+    storage.status === 'saved' ? (time ? t(savedKey, { time }) : t('save.savedPlain')) : t(LABELS[storage.status]),
   )
-  const where = $derived(storage.folder ? t('save.folder', { name: storage.folder.name }) : t('save.noFolder'))
+  const where = $derived(
+    storage.folder
+      ? t('save.folder', { name: storage.folder.name })
+      : storage.place === 'browser'
+        ? t(storage.supported ? 'save.draft' : 'save.browser')
+        : t('save.noFolder'),
+  )
 
   function choose(action: () => unknown) {
     open = false
     void action()
+  }
+
+  function toggle() {
+    open = !open
+    if (open) void storage.refreshBrowserProjects()
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -58,7 +71,7 @@
     aria-label={t('project.menu')}
     title={ready ? `${name}: ${status}. ${where}` : name}
     data-testid="project-menu"
-    onclick={() => (open = !open)}
+    onclick={toggle}
   >
     <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg>
     <span class="name" data-testid="project-name">{name}</span>
@@ -81,6 +94,8 @@
       <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
         {t('project.menu.saveAs')}<kbd>Ctrl+Shift+S</kbd>
       </button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}>{t('project.menu.exportPack')}</button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-import-pack" onclick={() => choose(() => dispatcher.run(importPack()))}>{t('project.menu.importPack')}</button>
       {#if storage.supported}
         <hr />
         <p class="heading">{t('project.menu.recent')}</p>
@@ -91,7 +106,24 @@
         {/each}
       {:else}
         <hr />
-        <p class="none" data-testid="menu-unsupported">{t('project.menu.unsupported')}</p>
+        <p class="none" data-testid="menu-unsupported">{t(storage.browserAvailable ? 'project.menu.browserOnly' : 'project.menu.unsupported')}</p>
+      {/if}
+      {#if storage.browserProjects.length > 0}
+        <hr />
+        <p class="heading">{t(storage.supported ? 'project.menu.drafts' : 'project.menu.browserProjects')}</p>
+        {#each storage.browserProjects as entry (entry.dir)}
+          <div class="entry">
+            <button role="menuitem" data-testid="menu-browser-project" onclick={() => choose(() => storage.openBrowserProject(entry.dir))}>{entry.name}</button>
+            <button
+              role="menuitem"
+              class="delete"
+              data-testid="menu-delete-browser-project"
+              aria-label={t('project.menu.deleteProject', { name: entry.name })}
+              title={t('project.menu.deleteProject', { name: entry.name })}
+              onclick={() => choose(() => storage.deleteBrowserProject(entry.dir))}>×</button
+            >
+          </div>
+        {/each}
       {/if}
     </div>
   {/if}
@@ -232,6 +264,23 @@
     color: var(--fk-text-muted);
     font: inherit;
     font-size: 11px;
+  }
+  .entry {
+    display: flex;
+  }
+  .entry > :first-child {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .menu .entry .delete {
+    flex: none;
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+    color: var(--fk-text-muted);
   }
   hr {
     width: 100%;

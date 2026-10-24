@@ -29,6 +29,10 @@ type: "project.new"
 type: "project.save"
 } | {
 type: "project.save_as"
+} | {
+type: "project.export_pack"
+} | {
+type: "project.import_pack"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -732,6 +736,10 @@ type: "project.new"
 type: "project.save"
 } | {
 type: "project.save_as"
+} | {
+type: "project.export_pack"
+} | {
+type: "project.import_pack"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.

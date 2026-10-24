@@ -963,3 +963,194 @@ fn a_new_project_has_its_own_identity_and_no_folder() {
     let all = h.paths(2);
     assert!(all.len() > 3, "a new project writes everything: {all:?}");
 }
+
+// ---------------------------------------------------------------- .faulkpack (SV-3)
+
+/// Calls a pack export with `input` in the inbox; the bytes it answers.
+fn pack_call(input: &[u8], f: extern "C" fn(u32) -> i32) -> Vec<u8> {
+    let ptr = pw_inbox(input.len() as u32);
+    assert!(!ptr.is_null());
+    // SAFETY: the inbox holds at least `input.len()` bytes.
+    unsafe { core::ptr::copy_nonoverlapping(input.as_ptr(), ptr, input.len()) };
+    let len = f(input.len() as u32);
+    assert!(len > 0, "error code {len}");
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec()
+}
+
+/// The pack of `fs`: the files in it, the blobs missing, the zip.
+fn export_of(fs: &MemFs) -> (u32, u32, Vec<u8>) {
+    let out = pack_call(&frame_of("pack", fs), pw_pack_export);
+    assert_eq!(out[0], 0, "{}", String::from_utf8_lossy(&out[1..]));
+    let files = u32::from_le_bytes(out[1..5].try_into().unwrap());
+    let missing = u32::from_le_bytes(out[5..9].try_into().unwrap());
+    (files, missing, out[9..].to_vec())
+}
+
+/// The files an import answers, or its message.
+fn import_of(zip: &[u8]) -> Result<MemFs, String> {
+    let out = pack_call(zip, pw_pack_import);
+    if out[0] != 0 {
+        return Err(String::from_utf8_lossy(&out[1..]).into_owned());
+    }
+    let (_, entries) = save::parse_frame(&out).expect("a save frame");
+    let mut fs = MemFs::new();
+    apply_entries(&mut fs, &entries);
+    Ok(fs)
+}
+
+#[test]
+fn a_pack_of_a_folder_comes_back_as_the_same_files() {
+    let fs = reference_song();
+    assert!(
+        fs.files().keys().any(|p| p.starts_with("blobs/")),
+        "a blob rides along"
+    );
+    let (files, missing, zip) = export_of(&fs);
+    // The song names an audio blob its folder does not hold: reported, not in the pack.
+    assert_eq!(missing, 1);
+    let back = import_of(&zip).expect("our own pack imports");
+    assert_eq!(files as usize, back.files().len());
+    // The pack is the project's files and its support files, not `.faulk/` (the session).
+    let expected: std::collections::BTreeMap<_, _> = fs
+        .files()
+        .iter()
+        .filter(|(path, _)| !path.starts_with(".faulk/"))
+        .collect();
+    let got: std::collections::BTreeMap<_, _> = back.files().iter().collect();
+    assert_eq!(got, expected);
+    // The pack is deterministic: the same folder, the same bytes.
+    assert_eq!(export_of(&fs).2, zip);
+    // And it opens as the same project.
+    let opened = project::file::open(&back, &project::file::OpenOptions::default()).unwrap();
+    let original = project::file::open(&fs, &project::file::OpenOptions::default()).unwrap();
+    assert_eq!(opened.project, original.project);
+}
+
+#[test]
+fn a_session_change_is_a_change_to_save_but_not_a_change_to_the_project() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    assert!(!h.dirty() && !h.core().project_dirty());
+    // A solo is the session's (it comes back with the folder, in `.faulk/session.json`).
+    h.apply(json!({"type": "mixer.set_solo", "track": SYNTH_TRACK, "solo": true}));
+    assert!(h.dirty(), "an open folder would be written");
+    assert!(
+        !h.core().project_dirty(),
+        "but a project nobody edited has no need of a home"
+    );
+    h.apply(json!({"type": "project.rename", "name": "Mine"}));
+    assert!(h.dirty() && h.core().project_dirty());
+    h.paths(1);
+    h.saved(false);
+    assert!(h.core().project_dirty(), "a write that failed leaves it");
+    h.paths(1);
+    h.saved(true);
+    assert!(!h.dirty() && !h.core().project_dirty());
+    // An edit made while a save was under way is still to write.
+    h.paths(1);
+    h.apply(json!({"type": "project.rename", "name": "Mine again"}));
+    h.saved(true);
+    assert!(h.dirty() && h.core().project_dirty());
+}
+
+#[test]
+fn a_save_cut_short_at_any_file_leaves_a_folder_that_opens() {
+    // A full quota stops a save after some of its files (each file is whole, the save is not).
+    // Whatever the prefix that got written, the folder must open: no error, no half project.
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let mut before = MemFs::new();
+    apply_entries(&mut before, &h.save(2).1);
+    h.saved(true);
+    h.apply(json!({"type": "project.rename", "name": "Changed"}));
+    let track = h.apply(json!({"type": "track.create", "kind": "midi", "instrument": "faulk.osc_synth", "name": "Bass"}))["track"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let clip = h.apply(json!({"type": "clip.create", "track": track, "at": {"at": "arrangement", "start": 0}, "length": 3840}))["clip"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    h.apply(json!({"type": "clip.notes.add", "clip": clip, "notes": [{"start": 0, "pitch": 60, "length": 480, "velocity": 100}]}));
+    h.apply(json!({"type": "track.create", "kind": "midi", "name": "Lead"}));
+    let (_, entries) = h.save(0);
+    assert!(
+        entries.len() > 3,
+        "a save of several files: {}",
+        entries.len()
+    );
+    for cut in 0..=entries.len() {
+        let mut fs = before.clone();
+        apply_entries(&mut fs, &entries[..cut]);
+        project::file::open(&fs, &project::file::OpenOptions::default()).unwrap_or_else(|e| {
+            panic!(
+                "the folder after {cut} of {} files does not open: {e}",
+                entries.len()
+            )
+        });
+    }
+}
+
+#[test]
+fn a_project_the_page_would_not_import_again_is_not_exported() {
+    // One byte over what an import accepts in total: refused up front, with a message, before
+    // anything is parsed or zipped.
+    let limit = pack::import_limits().max_total as usize;
+    assert!(pack::export_fits(limit));
+    assert!(!pack::export_fits(limit + 1));
+}
+
+#[test]
+fn a_new_project_exports_and_imports() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let mut fs = MemFs::new();
+    let (_, entries) = h.save(2);
+    apply_entries(&mut fs, &entries);
+    h.saved(true);
+    let (_, _, zip) = export_of(&fs);
+    let back = import_of(&zip).expect("a pack of a project opens");
+    let opened = project::file::open(&back, &project::file::OpenOptions::default()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&opened.project).unwrap(),
+        h.view()["project"]
+    );
+}
+
+#[test]
+fn a_bad_pack_or_folder_is_a_message_not_a_trap() {
+    // Not a zip, a truncated zip, a few bytes.
+    let (_, _, zip) = export_of(&reference_song());
+    for bad in [&b"not a zip at all"[..], &zip[..zip.len() / 2], &zip[..4]] {
+        let err = import_of(bad).expect_err("refused");
+        assert!(err.contains("faulkpack"), "{err}");
+    }
+    // A folder that is no project does not export.
+    let mut empty = MemFs::new();
+    empty.insert("README.md", b"hello".to_vec());
+    let out = pack_call(&frame_of("pack", &empty), pw_pack_export);
+    assert_eq!(out[0], 1);
+    // A malformed folder frame does not export.
+    let out = pack_call(&[1, 2, 3], pw_pack_export);
+    assert_eq!(out[0], 1);
+    // The calls leave the module able to answer the next one.
+    assert!(import_of(&zip).is_ok());
+}
+
+#[test]
+fn a_folder_that_does_not_open_does_not_export() {
+    // The automation lane's blob is part of what the project reads: without it the folder is
+    // refused, and nothing is exported from a project that would not open.
+    let mut fs = reference_song();
+    let blobs: Vec<String> = fs
+        .files()
+        .keys()
+        .filter(|p| p.starts_with("blobs/"))
+        .cloned()
+        .collect();
+    assert!(!blobs.is_empty());
+    for path in &blobs {
+        fs.remove(path).unwrap();
+    }
+    let out = pack_call(&frame_of("pack", &fs), pw_pack_export);
+    assert_eq!(out[0], 1);
+    assert!(!out[1..].is_empty(), "the message says why");
+}

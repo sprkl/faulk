@@ -1,6 +1,7 @@
 // The browser's side of the project store (SV-2): the folder picker, the list of recent projects
 // (the folders' handles live in IndexedDB), the permission calls and the single-writer lock. Each
 // is a small seam, so the controller (`storage.svelte.ts`) is tested without a dialog.
+import { OpfsProjects } from './opfs'
 import { openStore } from './rpc'
 import type { StorageDeps } from './storage.svelte'
 import { MAX_RECENT, type FolderHandle, type FolderPicker, type RecentProject, type RecentProjects } from './types'
@@ -153,7 +154,39 @@ export function watchFolder(handle: FolderHandle, onChange: () => void): () => v
   }
 }
 
-/** The controller's browser: the real picker, IndexedDB, Web Locks and a Worker per page. */
+/** The file chooser for a `.faulkpack`. Call straight from a click: the browser wants the gesture. `null` when cancelled. */
+export function pickPackFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.faulkpack,application/zip'
+    input.hidden = true
+    const done = (file: File | null) => {
+      input.remove()
+      resolve(file)
+    }
+    input.addEventListener('change', () => done(input.files?.[0] ?? null))
+    input.addEventListener('cancel', () => done(null))
+    document.body.append(input)
+    input.click()
+  })
+}
+
+/** Hands a file to the user: a download named `name`. */
+export function downloadFile(name: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.hidden = true
+  document.body.append(link)
+  link.click()
+  link.remove()
+  // The browser starts the download from the click; the address can go a moment later.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+/** The controller's browser: the real picker, IndexedDB, Web Locks, the OPFS and a Worker per page. */
 export const browserDeps: StorageDeps = {
   picker: browserPicker,
   recent: browserRecent,
@@ -163,4 +196,7 @@ export const browserDeps: StorageDeps = {
   lock: lockProject,
   watch: watchFolder,
   now: () => Date.now(),
+  browser: new OpfsProjects(),
+  pickPack: pickPackFile,
+  download: downloadFile,
 }
