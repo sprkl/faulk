@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { CommandError } from '../generated/protocol'
 import { messages } from '../i18n'
-import { refusalOf } from './refusal'
+import { ENTITY_KEYS, refusalOf } from './refusal'
 
 const ERRORS: CommandError[] = [
   { code: 'not_found', entity: 'track', id: '1' },
@@ -29,20 +29,17 @@ describe('refusalOf', () => {
     expect(refusalOf({ code: 'limit', entity: 'something new', max: 3 }).whatKey).toBe('refusal.entity.other')
   })
 
-  it('knows every entity the commands crate can name in a limit', () => {
+  it('knows every entity the commands crate can name in a limit, and only those', () => {
     const dir = `${process.cwd()}/../crates/commands/src`
     const sources = readdirSync(dir).filter((f) => f.endsWith('.rs')).map((f) => readFileSync(`${dir}/${f}`, 'utf8')).join('\n')
-    // `entity: "x".into()` and the `("x", count, ...)` / `check_total("x", ...)` forms.
     const named = new Set<string>()
-    for (const m of sources.matchAll(/entity: "([^"]+)"\.into\(\)/g)) named.add(m[1])
+    // `CommandError::Limit { entity: "x".into(), ..}`, `check_total("x", ..)` and the `("x", counts.x, ..)` rows of the per-track check.
+    for (const m of sources.matchAll(/Limit\s*\{\s*entity:\s*"([^"]+)"/g)) named.add(m[1])
     for (const m of sources.matchAll(/check_total\(\s*"([^"]+)"/g)) named.add(m[1])
-    for (const m of sources.matchAll(/\(\s*"(clips|placements|lanes)",\s*counts\./g)) named.add(m[1])
-    for (const entity of ['tracks', 'scenes', 'clips', 'notes', 'notes per clip', 'devices', 'automation points', 'placements', 'placements per track', 'clips per track', 'lanes', 'export seconds']) {
-      expect(named.has(entity), `the crate still names ${entity}`).toBe(true)
-    }
-    // Entities that are not limits (not_found: track, clip, scene...) are not in the table.
-    const limits = ['tracks', 'scenes', 'clips', 'notes', 'notes per clip', 'devices', 'automation points', 'placements', 'placements per track', 'clips per track', 'lanes', 'export seconds']
-    for (const entity of limits) expect(refusalOf({ code: 'limit', entity, max: 1 }).whatKey, entity).not.toBe('refusal.entity.other')
+    for (const m of sources.matchAll(/\(\s*"([a-z ]+)",\s*counts\./g)) named.add(m[1])
+    expect(named.size).toBeGreaterThan(8)
+    for (const entity of named) expect(ENTITY_KEYS[entity], `the table lacks the limit entity "${entity}"`).toBeDefined()
+    for (const entity of Object.keys(ENTITY_KEYS)) expect(named.has(entity), `the crate no longer names "${entity}"`).toBe(true)
   })
 
   it('never leaves a code without a text', () => {

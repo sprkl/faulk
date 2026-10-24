@@ -375,22 +375,16 @@ describe('running commands through the project core', () => {
       warn.mockRestore()
     })
 
-    it('shows nothing for an undo during an open group, nor for a caller that reports the refusal itself', async () => {
+    it('shows nothing for a caller that reports the refusal itself (quiet)', async () => {
       const warn = quiet()
       const session = newSession()
       await session.dispatcher.start()
       session.dispatcher.run({ type: 'history.begin_group' } as Command)
+      // An undo during an open group is refused; shown unless the caller asked for quiet.
+      session.dispatcher.run({ type: 'history.undo' } as Command, { quiet: true })
+      expect(session.engine.refusal).toBeNull()
       session.dispatcher.run({ type: 'history.undo' } as Command)
-      session.dispatcher.run({ type: 'history.redo' } as Command)
-      expect(session.engine.refusal).toBeNull()
-      session.dispatcher.run({ type: 'history.end_group' } as Command)
-      // The same refusal for another command is shown.
-      session.dispatcher.run(missing)
-      expect(session.engine.refusal).not.toBeNull()
-      session.engine.refusal = null
-      session.dispatcher.run(missing, { quiet: true })
-      expect(warn).toHaveBeenCalledTimes(4)
-      expect(session.engine.refusal).toBeNull()
+      expect(session.engine.refusal).toMatchObject({ key: 'refusal.invalid' })
       warn.mockRestore()
     })
 

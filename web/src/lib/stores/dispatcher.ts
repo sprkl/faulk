@@ -22,14 +22,6 @@ import { storage, TOKEN_KEY } from './storage'
 /** The epoch of the first engine stream of the page's project core (newer than a fresh engine's 0). */
 const FIRST_EPOCH = 1
 
-/**
- * A refusal because a history group is open (an undo pressed during a fader drag) is a gesture that
- * simply does nothing: it is not shown.
- */
-function isOpenGroupRefusal(report: RunReport): boolean {
-  return report.status === 'refused' && report.error.code === 'invalid' && report.error.field === 'group'
-}
-
 /** How long a refusal stays on screen, in milliseconds. */
 export const REFUSAL_TOAST_MS = 6000
 
@@ -379,7 +371,7 @@ export class Dispatcher {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
       // so a refusal is the core's: the user is told, the developer message stays in the console.
       console.warn('the project refused a command', command, step.refused)
-      if (!options.quiet && !isOpenGroupRefusal(step.refused)) this.showRefusal(step.refused)
+      if (!options.quiet) this.showRefusal(step.refused)
       return
     }
     this.mirror(step.events)

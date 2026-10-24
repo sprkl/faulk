@@ -67,7 +67,8 @@
     const action = historyShortcut(event)
     if (!action) return
     event.preventDefault()
-    dispatcher.run(action === 'undo' ? undo() : redo())
+    // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
+    dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
   }
 
   $effect(() => {

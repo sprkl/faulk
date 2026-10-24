@@ -11,7 +11,7 @@ export interface Refusal {
 }
 
 /** The entities a `limit` refusal names (`crates/commands`), by the English name the core sends. */
-const ENTITY_KEYS: Record<string, MessageKey> = {
+export const ENTITY_KEYS: Record<string, MessageKey> = {
   tracks: 'refusal.entity.tracks',
   scenes: 'refusal.entity.scenes',
   clips: 'refusal.entity.clips',
