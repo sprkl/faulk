@@ -26,6 +26,8 @@ jobs:
       - name: Select the tests
         id: changes
         shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: stable # read the workspace with the preinstalled toolchain
         run: node scripts/ci/select.mjs
 
       - uses: actions/setup-node@v4
