@@ -1,0 +1,18 @@
+import type { Command } from './generated/protocol'
+
+/** The commands of the project menu (SV-2): the page's storage runs them (`lib/storage`). */
+export const newProject = (): Command => ({ type: 'project.new' })
+export const save = (): Command => ({ type: 'project.save' })
+export const saveAs = (): Command => ({ type: 'project.save_as' })
+
+/**
+ * Whether a command is about the project's folder rather than the engine: the page runs it even
+ * when no engine plays (audio not started, or stopped after a refused stream).
+ */
+export const isSaveCommand = (command: Command): boolean => command.type === 'project.save' || command.type === 'project.save_as'
+
+/**
+ * Whether a command concerns the page's storage and never the engine: the helper does not take it (it
+ * keeps no project folder of its own yet), so in Boost it stays in the page.
+ */
+export const isStorageCommand = (command: Command): boolean => isSaveCommand(command) || command.type === 'project.new'

@@ -879,3 +879,119 @@ describe('opening a project folder (SV-4)', () => {
     open.mockRestore()
   })
 })
+
+describe('the project in a folder (SV-2)', () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  it('says whether the project has changes its folder lacks, and gives the writes', async () => {
+    const session = newSession()
+    expect(session.dispatcher.host.dirty()).toBeNull()
+    expect(session.dispatcher.host.save('changed')).toBeNull()
+    await session.dispatcher.start()
+    expect(session.dispatcher.host.dirty()).toBe(false)
+    session.dispatcher.run(setParamCommand(firstParam, 0.3))
+    expect(session.dispatcher.host.dirty()).toBe(true)
+    const frame = session.dispatcher.host.save('everything')
+    expect(frame?.status === 'ok' && frame.entries.some((e) => e.path === 'project.json')).toBe(true)
+    session.dispatcher.host.saved(true)
+    expect(session.dispatcher.host.dirty()).toBe(false)
+    expect(session.dispatcher.host.projectId()).toBe(session.project.view!.project.id)
+  })
+
+  it('in Boost the storage commands stay in the page: the helper is never sent a command it does not know', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    vi.spyOn(session.storage, 'save').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run({ type: 'project.save' })
+    session.dispatcher.run({ type: 'project.save_as' })
+    session.dispatcher.run({ type: 'project.new' })
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.storage.save).toHaveBeenCalledTimes(1)
+    // A command for the engine still reaches the helper.
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    expect(nativeEngine.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
+  })
+
+  it('a copy takes a new identity and the page sees it at once (the lock of the copy is asked for under it)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    const first = session.dispatcher.host.projectId()
+    session.dispatcher.host.save('everything')
+    session.dispatcher.host.saved(true)
+    expect(session.dispatcher.host.projectId()).toBe(first)
+    session.dispatcher.host.save('copy')
+    expect(session.dispatcher.host.projectId()).not.toBe(first)
+    expect(session.dispatcher.host.projectId()).toBe(session.dispatcher.host.projectId())
+  })
+
+  it('tells the storage after every command, and after opening or starting a project', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    const changed = vi.spyOn(session.storage, 'changed')
+    session.dispatcher.run(setParamCommand(firstParam, 0.3))
+    expect(changed).toHaveBeenCalledTimes(1)
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    expect(changed).toHaveBeenCalledTimes(2)
+    await session.dispatcher.newProject()
+    expect(changed).toHaveBeenCalledTimes(3)
+  })
+
+  it('runs Save and Save as even when no engine plays, and nothing else', async () => {
+    const session = newSession()
+    // A core without an engine: a project opened before audio starts.
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    const save = vi.spyOn(session.storage, 'save').mockResolvedValue(true)
+    const saveAs = vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
+    session.dispatcher.run({ type: 'project.save' })
+    session.dispatcher.run({ type: 'project.save_as' })
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(saveAs).toHaveBeenCalledTimes(1)
+    const name = session.project.view!.project.name
+    session.dispatcher.run({ type: 'project.rename', name: 'Not applied' })
+    expect(session.project.view!.project.name).toBe(name)
+  })
+
+  it('starts a new project: the default one, its own identity, the history empty, the engine started over', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run(setParamCommand(firstParam, 0.3))
+    const before = session.project.view!
+    const pushes = webs[0].push.mock.calls.length
+    expect(await session.dispatcher.newProject()).toBe(true)
+    const after = session.project.view!
+    expect(after.project.id).not.toBe(before.project.id)
+    expect(session.project.canUndo).toBe(false)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    expect(after.slots.epoch).toBe(before.slots.epoch + 1)
+    expect(session.dispatcher.host.dirty()).toBe(false)
+  })
+
+  it('starts a new project before audio starts, and the first engine then plays it', async () => {
+    const session = newSession()
+    expect(await session.dispatcher.newProject()).toBe(true)
+    expect(session.project.view?.project.name).toBe('Untitled')
+    await session.dispatcher.start()
+    expect(webs[0].push).toHaveBeenCalledTimes(1)
+  })
+
+  it('a project.new run as a command takes the folder away from the storage', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    const forget = vi.spyOn(session.storage, 'forgetFolder')
+    session.dispatcher.run({ type: 'project.new' })
+    expect(forget).toHaveBeenCalledTimes(1)
+    expect(session.dispatcher.host.dirty()).toBe(false)
+  })
+})
