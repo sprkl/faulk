@@ -25,6 +25,22 @@ export interface EffectPorts {
   exportPack(): void
   /** `project.import_pack`: the user picks a `.faulkpack` and its project replaces the current one. */
   importPack(): void
+  /** `project.reopen_last`: the project the banner offers (a folder, or a draft). */
+  reopenLast(): void
+  /** `project.open_folder`: the user picks a folder and it opens. */
+  openFolder(): void
+  /** `project.open_recent`: a folder of the recent list. */
+  openRecent(id: string): void
+  /** `project.open_browser_project`: a project kept in the browser. */
+  openBrowserProject(dir: string): void
+  /** `project.delete_browser_project`: delete a project kept in the browser, after the user's answer. */
+  deleteBrowserProject(dir: string): void
+  /** `project.keep_mine`: a conflict, the project's version replaces the folder's, after the user's answer. */
+  keepMine(): void
+  /** `project.load_folder_version`: a conflict, the folder's version replaces the project, after the user's answer. */
+  loadFolderVersion(): void
+  /** `project.allow_access`: ask the browser for the permission again, then write what waited. */
+  allowAccess(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
   /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
@@ -64,6 +80,30 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.import_pack':
       ports.importPack()
+      return
+    case 'project.reopen_last':
+      ports.reopenLast()
+      return
+    case 'project.open_folder':
+      ports.openFolder()
+      return
+    case 'project.open_recent':
+      ports.openRecent(command.id)
+      return
+    case 'project.open_browser_project':
+      ports.openBrowserProject(command.dir)
+      return
+    case 'project.delete_browser_project':
+      ports.deleteBrowserProject(command.dir)
+      return
+    case 'project.keep_mine':
+      ports.keepMine()
+      return
+    case 'project.load_folder_version':
+      ports.loadFolderVersion()
+      return
+    case 'project.allow_access':
+      ports.allowAccess()
       return
     case 'project.export_audio':
       ports.exportAudio({

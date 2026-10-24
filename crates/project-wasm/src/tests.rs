@@ -602,10 +602,43 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_stage_stored(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_save(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_saved(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_dirty(core::ptr::null_mut()), ERR_NO_CORE);
         pw_free(core::ptr::null_mut());
+    }
+}
+
+#[test]
+fn project_list_stored_answers_with_the_list_the_page_staged_once() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let list = json!({
+        "recent": [{"id": "r1", "name": "Song"}],
+        "browser": [{"dir": "d1", "name": "Draft"}],
+    });
+    let text = list.to_string();
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_stored(h.0, text.len() as u32) }, 0);
+    let output = h.apply(json!({"type": "project.list_stored"}));
+    assert_eq!(output["recent"], list["recent"]);
+    assert_eq!(output["browser"], list["browser"]);
+    // It served one answer: asking again gives nothing, never an old list.
+    let output = h.apply(json!({"type": "project.list_stored"}));
+    assert_eq!(output["recent"], json!([]));
+    assert_eq!(output["browser"], json!([]));
+    // A list that is not a list is refused and stages nothing (including an unknown field).
+    for bad in ["{", "[]", r#"{"recent":[],"browser":[],"extra":1}"#] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(
+            unsafe { pw_stage_stored(h.0, bad.len() as u32) },
+            ERR_BAD_INPUT,
+            "{bad}"
+        );
+        let output = h.apply(json!({"type": "project.list_stored"}));
+        assert_eq!(output["recent"], json!([]), "{bad}");
     }
 }
 

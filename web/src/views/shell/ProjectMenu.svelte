@@ -4,7 +4,7 @@
    * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
    * (no folder yet). A musician reads it to know whether the tab can be closed.
    */
-  import { exportPack, importPack, save, saveAs } from '../../lib/project-commands'
+  import { deleteBrowserProject, exportPack, importPack, openBrowserProject, openFolder, openRecent, save, saveAs } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, project, dispatcher, audioExport } = useStores()
@@ -86,7 +86,7 @@
     <div class="menu" role="menu" aria-label={t('project.menu')}>
       <p class="summary" data-testid="menu-summary">{name}{ready ? ` · ${status}` : ''}</p>
       <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => storage.newProject())}>{t('project.menu.new')}</button>
-      <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => storage.openFolder())}>{t('project.menu.open')}</button>
+      <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => dispatcher.run(openFolder()))}>{t('project.menu.open')}</button>
       <hr />
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
         {t('project.menu.save')}<kbd>Ctrl+S</kbd>
@@ -104,7 +104,7 @@
         <hr />
         <p class="heading">{t('project.menu.recent')}</p>
         {#each storage.recent as entry (entry.id)}
-          <button role="menuitem" data-testid="menu-recent" onclick={() => choose(() => storage.openRecent(entry.id))}>{entry.name}</button>
+          <button role="menuitem" data-testid="menu-recent" onclick={() => choose(() => dispatcher.run(openRecent(entry.id)))}>{entry.name}</button>
         {:else}
           <p class="none">{t('project.menu.noRecent')}</p>
         {/each}
@@ -117,14 +117,14 @@
         <p class="heading">{t(storage.supported ? 'project.menu.drafts' : 'project.menu.browserProjects')}</p>
         {#each storage.browserProjects as entry (entry.dir)}
           <div class="entry">
-            <button role="menuitem" data-testid="menu-browser-project" onclick={() => choose(() => storage.openBrowserProject(entry.dir))}>{entry.name}</button>
+            <button role="menuitem" data-testid="menu-browser-project" onclick={() => choose(() => dispatcher.run(openBrowserProject(entry.dir)))}>{entry.name}</button>
             <button
               role="menuitem"
               class="delete"
               data-testid="menu-delete-browser-project"
               aria-label={t('project.menu.deleteProject', { name: entry.name })}
               title={t('project.menu.deleteProject', { name: entry.name })}
-              onclick={() => choose(() => storage.deleteBrowserProject(entry.dir))}>×</button
+              onclick={() => choose(() => dispatcher.run(deleteBrowserProject(entry.dir)))}>×</button
             >
           </div>
         {/each}

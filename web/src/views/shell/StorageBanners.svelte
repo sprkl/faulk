@@ -4,12 +4,27 @@
    * for a click, the browser's permission gone, a write that failed, a folder edited from outside while
    * changes are unsaved, a notice (a folder refused), and the question before New or Open discards changes.
    */
-  import { exportPack, save } from '../../lib/project-commands'
+  import { allowAccess, deleteBrowserProject, exportPack, keepMine, loadFolderVersion, reopenLast, save } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, dispatcher } = useStores()
   const t = ui.t
   const name = $derived(storage.folder?.name ?? '')
+  // What each question says (the storage asks whoever started the action: a click or an agent's command).
+  const TITLES = {
+    new: 'confirm.new.title',
+    open: 'confirm.open.title',
+    delete: 'confirm.delete.title',
+    keepMine: 'confirm.keepMine.title',
+    loadFolder: 'confirm.loadFolder.title',
+  } as const
+  const CONFIRMS = {
+    new: 'confirm.discard',
+    open: 'confirm.discard',
+    delete: 'confirm.delete.confirm',
+    keepMine: 'confirm.keepMine.confirm',
+    loadFolder: 'confirm.loadFolder.confirm',
+  } as const
 
   let cancel = $state<HTMLButtonElement | null>(null)
   $effect(() => {
@@ -26,9 +41,9 @@
 {#if storage.reopen}
   <p class="banner" role="status" data-testid="reopen-banner">
     <span>{t(storage.reopen.kind === 'browser' ? 'save.banner.reopenDraft' : 'save.banner.reopen', { name: storage.reopen.name })}</span>
-    <button class="primary" data-testid="reopen" onclick={() => storage.reopenLast()}>{t('save.banner.reopenButton')}</button>
+    <button class="primary" data-testid="reopen" onclick={() => dispatcher.run(reopenLast())}>{t('save.banner.reopenButton')}</button>
     {#if storage.reopen.kind === 'browser'}
-      <button data-testid="delete-draft" onclick={() => storage.reopen && storage.deleteBrowserProject(storage.reopen.id)}>{t('save.banner.deleteDraft')}</button>
+      <button data-testid="delete-draft" onclick={() => storage.reopen && dispatcher.run(deleteBrowserProject(storage.reopen.id))}>{t('save.banner.deleteDraft')}</button>
     {/if}
     <button onclick={() => storage.dismissReopen()}>{t('save.banner.dismiss')}</button>
   </p>
@@ -45,7 +60,7 @@
 {#if storage.block === 'permission'}
   <p class="banner" role="alert" data-testid="permission-banner">
     <span>{t('save.banner.permission', { name })}</span>
-    <button class="primary" data-testid="allow" onclick={() => storage.resume()}>{t('save.banner.allow')}</button>
+    <button class="primary" data-testid="allow" onclick={() => dispatcher.run(allowAccess())}>{t('save.banner.allow')}</button>
   </p>
 {:else if storage.block === 'full'}
   <p class="banner" role="alert" data-testid="full-banner" title={storage.errorDetail ?? ''}>
@@ -61,8 +76,8 @@
 {:else if storage.block === 'external'}
   <p class="banner" role="alert" data-testid="external-banner">
     <span>{t('save.banner.external', { name })}</span>
-    <button class="primary" data-testid="keep-mine" onclick={() => storage.keepMine()}>{t('save.banner.keepMine')}</button>
-    <button data-testid="load-disk" onclick={() => storage.loadDisk()}>{t('save.banner.loadDisk')}</button>
+    <button class="primary" data-testid="keep-mine" onclick={() => dispatcher.run(keepMine())}>{t('save.banner.keepMine')}</button>
+    <button data-testid="load-disk" onclick={() => dispatcher.run(loadFolderVersion())}>{t('save.banner.loadDisk')}</button>
   </p>
 {/if}
 
@@ -76,17 +91,21 @@
 {#if storage.confirm}
   <div class="overlay">
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" data-testid="confirm">
-      <h2 id="confirm-title">{t(storage.confirm.action === 'new' ? 'confirm.new.title' : storage.confirm.action === 'delete' ? 'confirm.delete.title' : 'confirm.open.title')}</h2>
+      <h2 id="confirm-title">{t(TITLES[storage.confirm.action])}</h2>
       <p id="confirm-body">
         {#if storage.confirm.action === 'delete'}
           {t('confirm.delete.body', { name: storage.confirm.name ?? '' })}
+        {:else if storage.confirm.action === 'keepMine'}
+          {t('confirm.keepMine.body', { name: storage.confirm.name ?? '' })}
+        {:else if storage.confirm.action === 'loadFolder'}
+          {t('confirm.loadFolder.body', { name: storage.confirm.name ?? '' })}
         {:else}
           {storage.confirm.name ? t('confirm.bodyFolder', { name: storage.confirm.name }) : t('confirm.body')}
         {/if}
       </p>
       <div class="actions">
         <button bind:this={cancel} class="primary" data-testid="confirm-cancel" onclick={() => storage.respond(false)}>{t('confirm.cancel')}</button>
-        <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t(storage.confirm.action === 'delete' ? 'confirm.delete.confirm' : 'confirm.discard')}</button>
+        <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t(CONFIRMS[storage.confirm.action])}</button>
       </div>
     </div>
   </div>
