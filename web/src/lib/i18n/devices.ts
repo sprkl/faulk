@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts` and `echo.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts` and `reverb.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -52,6 +52,10 @@ export const devices = defineFeature(
     'echo.division.hint': 'Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.',
     'echo.feedback.hint': 'Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.',
     'echo.mix.hint': 'Balance between the dry sound (0) and the echoes (1).',
+    'reverb.size.hint': 'Size of the room, from 0 to 1: a small room (about 0.3 seconds of reverberation) up to a hall (about 7.5 seconds).',
+    'reverb.damping.hint': 'How fast the high frequencies die in the tail, from 0 to 1: bright and open at 0, dark and soft at 1.',
+    'reverb.predelay.hint': 'Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail.',
+    'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -96,5 +100,9 @@ export const devices = defineFeature(
     'echo.division.hint': 'Durée du retard en mode au tempo, en valeur de note du tempo du projet : du 1/32 à la ronde, avec triolets (T) et valeurs pointées (.). Au-delà de 4 secondes, la durée est ramenée à 4 secondes.',
     'echo.feedback.hint': 'Part de l’écho renvoyée dans le retard, de 0 à 0,95 : plus de répétitions, chacune plus faible.',
     'echo.mix.hint': 'Équilibre entre le son direct (0) et les échos (1).',
+    'reverb.size.hint': 'Taille de la pièce, de 0 à 1 : d’une petite pièce (environ 0,3 seconde de réverbération) à une grande salle (environ 7,5 secondes).',
+    'reverb.damping.hint': 'Vitesse à laquelle les aigus s’éteignent dans la queue, de 0 à 1 : clair et ouvert à 0, sombre et doux à 1.',
+    'reverb.predelay.hint': 'Temps entre le son direct et le début de la réverbération, de 0 à 0,2 seconde : plus de place pour entendre le son avant sa queue.',
+    'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
   },
 )
