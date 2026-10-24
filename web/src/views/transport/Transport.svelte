@@ -6,13 +6,15 @@
    * but the text being typed: it reads the stores and every control is a command (`transport-commands.ts`)
    * through the dispatcher.
    */
-  import { ignoreKeyEvent } from '../../lib/keyboard'
+  import { onMount } from 'svelte'
+  import { ignoreKeyEvent, spaceTogglesTransport, trackFocusOrigin } from '../../lib/keyboard'
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
   import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
+  import { allSoundOff } from '../../lib/synth-commands'
   import {
     barTicks,
     DEFAULT_LOOP_BARS,
@@ -129,13 +131,19 @@
     if (event.detail > 0) (event.currentTarget as HTMLElement).blur()
   }
 
+  // `:focus-visible` is not enough (it turns on at the first key press), so the origin of the focus is followed.
+  onMount(() => trackFocusOrigin())
+
   function onSpace(event: KeyboardEvent) {
     if (event.code !== 'Space' || !ready || ignoreKeyEvent(event)) return
-    // A focused control keeps the space bar for itself (a button presses, a select opens).
-    const target = event.target as HTMLElement | null
-    if (target && target !== document.body && target.closest('button, input, select, textarea, [contenteditable], a, [role="slider"]')) return
+    // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
+    if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
-    run(playing ? stop() : play())
+    if (playing) {
+      // Pause: `stop` leaves the cue where the last seek put it, so the cue goes to the playhead and the next Space resumes from here.
+      run(stop())
+      run(seek(tick))
+    } else run(play())
   }
 </script>
 
@@ -157,7 +165,7 @@
   >
     <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5 L12 7 L3 12.5 Z" fill="var(--fk-play)" /></svg>
   </button>
-  <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stop')} data-testid="transport-stop" onclick={press(() => run(stop()))}>
+  <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stopHint')} data-testid="transport-stop" onclick={press(() => run(stop()))} ondblclick={() => run(allSoundOff())}>
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1" fill="currentColor" /></svg>
   </button>
   <button

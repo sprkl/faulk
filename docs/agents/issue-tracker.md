@@ -45,7 +45,7 @@ The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE
 - **End**, before telling the user the task is finished:
   1. Tick in the issue body every acceptance criterion that is met and verified. Leave the others unticked and explain why.
   2. Post a report comment in French: branch, commits and pull request, decisions taken, verification, review findings and what became of them, deviations from the ticket, out-of-scope defects with the issues created for them.
-- **Merge and close**: once CI is green, the reviews are settled and nothing waits on the founder, merge into `develop` with a merge commit (`gh pr merge <pr> --merge`); `Closes #<n>` closes the task. A pull request carrying a founder decision or user-facing text to validate waits for the founder.
+- **Merge and close**: once CI is green, the reviews are settled and nothing waits on the founder, merge into `develop` with a merge commit (`gh pr merge <pr> --merge`), but only a pull request whose CI ran on the current `develop`: CI does not run again after the merge (`verification.md` > CI), so a pull request that is behind `develop` is first updated (`gh pr update-branch <pr>`) and its targeted CI awaited, which catches two pull requests that are green apart and red together; `Closes #<n>` closes the task. A pull request carrying a founder decision or user-facing text to validate waits for the founder.
 
 ## Pull requests as a triage surface
 

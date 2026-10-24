@@ -491,6 +491,7 @@ pub fn channel_with(
         applied: 0,
         skipped: 0,
         leaked: 0,
+        cut: None,
     };
     Ok((preparer, engine))
 }
@@ -1167,6 +1168,7 @@ impl Preparer {
             }
             ControlMsg::Play { from } => RtMsg::Transport(TransportMsg::Play { from }),
             ControlMsg::Stop => RtMsg::Transport(TransportMsg::Stop),
+            ControlMsg::AllSoundOff => RtMsg::AllSoundOff,
             ControlMsg::Seek { tick } => RtMsg::Transport(TransportMsg::Seek { tick }),
             ControlMsg::SetLoop { region } => RtMsg::Transport(TransportMsg::SetLoop { region }),
             ControlMsg::SetRecording { recording } => {
@@ -1460,6 +1462,15 @@ pub struct Engine {
     applied: u64,
     skipped: u32,
     leaked: u32,
+    /// The cut an `AllSoundOff` started, if one is running (see [`Cut`]).
+    cut: Option<Cut>,
+}
+
+/// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
+/// every device is reset and the output resumes. `done` counts the frames faded so far.
+#[derive(Clone, Copy, Debug)]
+struct Cut {
+    done: u32,
 }
 
 /// The rate an engine is built for: the setup's, rounded, or 48 kHz when it is not usable.
@@ -1583,15 +1594,61 @@ impl Engine {
                 &mut left[start..end],
                 &mut right[start..end],
             );
+            let cut_done = self.apply_cut(&mut left[start..end], &mut right[start..end]);
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
                 .meter_output(&left[start..end], &right[start..end]);
             self.transport.end_block();
+            if cut_done {
+                self.reset_devices();
+            }
             start = end;
         }
         if total > 0 {
             self.live_block.clear();
             self.release_live = false;
+        }
+    }
+
+    /// Applies the running cut (if any) to one rendered segment: a linear fade to zero over
+    /// [`Graph::fade`] frames, then silence for the rest of the segment. Returns whether
+    /// the fade ended in this segment, so that the devices are reset before the next one.
+    /// No allocation.
+    fn apply_cut(&mut self, left: &mut [f32], right: &mut [f32]) -> bool {
+        let Some(mut cut) = self.cut else {
+            return false;
+        };
+        let total = self.graph.fade().max(1);
+        let mut ended = false;
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            if cut.done >= total {
+                ended = true;
+                *l = 0.0;
+                *r = 0.0;
+            } else {
+                let gain = 1.0 - cut.done as f32 / total as f32;
+                *l *= gain;
+                *r *= gain;
+                cut.done += 1;
+            }
+        }
+        // A fade that ends on the last frame of the segment is over too: the next frame
+        // would be silent.
+        if cut.done >= total {
+            ended = true;
+        }
+        self.cut = if ended { None } else { Some(cut) };
+        ended
+    }
+
+    /// Resets every device of every track: voices die, tails (delay lines) are hidden.
+    /// Constant time per device ([`Device::reset`]), no allocation.
+    fn reset_devices(&mut self) {
+        for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
+            for entry in track.devices.as_mut_slice().iter_mut().flatten() {
+                entry.device.reset();
+            }
+            track.graph.release_notes();
         }
     }
 
@@ -2043,6 +2100,13 @@ impl Engine {
                     TransportMsg::Seek { tick } => p.cue = Some(tick),
                     TransportMsg::SetLoop { region } => p.loop_region = region,
                     TransportMsg::SetRecording { recording } => p.recording = recording,
+                }
+                None
+            }
+            RtMsg::AllSoundOff => {
+                // A cut already running is not restarted (a double order fades once).
+                if self.cut.is_none() {
+                    self.cut = Some(Cut { done: 0 });
                 }
                 None
             }
