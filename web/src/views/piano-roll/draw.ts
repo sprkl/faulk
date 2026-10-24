@@ -24,6 +24,8 @@ export interface RollFrame {
   band: Rect | null
   clipLength: number
   loop: TickLoop | null
+  /** The names of the keys the instrument answers to (a drum kit), or null for a pitched instrument: the other rows are dimmed. */
+  names: ReadonlyMap<number, string> | null
 }
 
 const VELOCITY_FLOOR = 0.3
@@ -75,6 +77,16 @@ export function drawRoll(ctx: CanvasRenderingContext2D, frame: BodyFrame, roll: 
   }
   ctx.stroke()
   ctx.globalAlpha = 1
+
+  // Rows with no sound on a drum kit stay drawn, dimmed.
+  if (roll.names) {
+    ctx.fillStyle = colors.bg
+    ctx.globalAlpha = 0.5
+    for (let pitch = high; pitch >= low; pitch--) {
+      if (!roll.names.has(pitch)) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+    }
+    ctx.globalAlpha = 1
+  }
 
   // Past the end of the clip nothing can be drawn: dim it.
   const end = tickToX(roll.clipLength, view)
@@ -169,7 +181,7 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
 }
 
 /** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit. */
-export function drawKeys(ctx: CanvasRenderingContext2D, width: number, height: number, layout: Layout, colors: Colors, font: string, active: ReadonlySet<number>): void {
+export function drawKeys(ctx: CanvasRenderingContext2D, width: number, height: number, layout: Layout, colors: Colors, font: string, active: ReadonlySet<number>, names: ReadonlyMap<number, string> | null = null): void {
   ctx.fillStyle = colors.ruler
   ctx.fillRect(0, 0, width, height)
   ctx.save()
@@ -184,9 +196,22 @@ export function drawKeys(ctx: CanvasRenderingContext2D, width: number, height: n
     const black = isBlackKey(pitch)
     ctx.fillStyle = active.has(pitch) ? colors.accent : black ? colors.line : colors.bg
     ctx.fillRect(0, y, black ? width * 0.62 : width, layout.rowHeight - 1)
-    if (pitch % 12 === 0) {
+    const name = names?.get(pitch)
+    if (name !== undefined) {
+      ctx.fillStyle = active.has(pitch) ? colors.bg : colors.text
+      ctx.textAlign = 'left'
+      ctx.fillText(name, 6, y + layout.rowHeight / 2)
+      ctx.textAlign = 'start'
+    } else if (pitch % 12 === 0) {
       ctx.fillStyle = active.has(pitch) ? colors.bg : colors.text
       ctx.fillText(pitchName(pitch), width - 28, y + layout.rowHeight / 2)
+    }
+    if (names && name === undefined) {
+      // No sound on this key: the row is dimmed.
+      ctx.fillStyle = colors.bg
+      ctx.globalAlpha = 0.5
+      ctx.fillRect(0, y, width, layout.rowHeight)
+      ctx.globalAlpha = 1
     }
   }
   ctx.restore()

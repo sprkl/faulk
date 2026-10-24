@@ -36,8 +36,8 @@ use core::f32::consts::TAU;
 use super::Builtin;
 use super::osc_synth::LinearRamp;
 use crate::device::{
-    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, ParamDescriptor,
-    Scale, Unit, event_frame,
+    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, NamedKey,
+    ParamDescriptor, Scale, Unit, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 
@@ -146,6 +146,28 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Instrument,
     memory_bytes: size_of::<Drums>() as u64,
     midi_output: None,
+    named_keys: &[
+        NamedKey {
+            key: KICK_KEY,
+            name: "Kick",
+        },
+        NamedKey {
+            key: SNARE_KEY,
+            name: "Snare",
+        },
+        NamedKey {
+            key: CLAP_KEY,
+            name: "Clap",
+        },
+        NamedKey {
+            key: CLOSED_HAT_KEY,
+            name: "Closed Hat",
+        },
+        NamedKey {
+            key: OPEN_HAT_KEY,
+            name: "Open Hat",
+        },
+    ],
     params: &[
         at_hit(
             KICK_TUNE,

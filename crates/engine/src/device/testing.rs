@@ -125,6 +125,7 @@ pub static TONE: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Instrument,
     memory_bytes: size_of::<TestTone>() as u64,
     midi_output: None,
+    named_keys: &[],
     params: &[
         ParamDescriptor {
             id: tone::GAIN,
@@ -329,6 +330,7 @@ pub static GAIN: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Effect,
     memory_bytes: size_of::<TestGain>() as u64,
     midi_output: None,
+    named_keys: &[],
     params: &[
         ParamDescriptor {
             id: gain::GAIN,
@@ -461,6 +463,7 @@ pub static TRANSPOSE: DeviceDescriptor = DeviceDescriptor {
         per_input: 1,
         per_block: 0,
     }),
+    named_keys: &[],
     params: &[
         ParamDescriptor {
             id: transpose::SEMITONES,

@@ -213,6 +213,30 @@ fn a_closed_hat_chokes_the_open_one() {
 }
 
 #[test]
+fn the_descriptor_names_exactly_the_sounding_keys() {
+    let named: Vec<(u8, &str)> = DESCRIPTOR
+        .named_keys
+        .iter()
+        .map(|k| (k.key, k.name))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (36, "Kick"),
+            (38, "Snare"),
+            (39, "Clap"),
+            (42, "Closed Hat"),
+            (46, "Open Hat")
+        ]
+    );
+    // Every named key sounds, and no other does (checked against the render below).
+    for key in 0..=127u8 {
+        let sounds = hit(key, &[], 0.05).rms_in(0.0..0.05) > 1e-4;
+        assert_eq!(sounds, named.iter().any(|(k, _)| *k == key), "key {key}");
+    }
+}
+
+#[test]
 fn every_sound_has_its_own_note_and_the_others_are_ignored() {
     let sounding = [36u8, 38, 39, 42, 46];
     for key in 0..=127u8 {

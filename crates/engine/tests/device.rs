@@ -9,7 +9,7 @@ use engine::device::testing::{
 use engine::device::{
     AudioIo, BlockCtx, DescriptorError, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event,
     EventBuffer, Factory, MAX_DESCRIPTION_LEN, MAX_KEY_LEN, MAX_PARAMS_PER_DEVICE, MidiOutput,
-    ParamDescriptor, Scale, Transport, Unit, VoiceId, builtin, builtin_descriptors,
+    NamedKey, ParamDescriptor, Scale, Transport, Unit, VoiceId, builtin, builtin_descriptors,
 };
 use engine::msg::{DeviceKind, ParamId};
 use engine::{OSC_SYNTH, Param, Synth};
@@ -169,6 +169,7 @@ fn validate_rejects_each_broken_rule() {
         role: DeviceRole::Effect,
         memory_bytes: 64,
         midi_output: None,
+        named_keys: &[],
         params: &[],
     };
     let with = |params: Vec<ParamDescriptor>| DeviceDescriptor {
@@ -256,6 +257,41 @@ fn validate_rejects_each_broken_rule() {
                 ..base
             },
             DescriptorError::BadMidiOutput,
+        ),
+        (
+            DeviceDescriptor {
+                named_keys: &[NamedKey {
+                    key: 128,
+                    name: "X",
+                }],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
+                named_keys: &[
+                    NamedKey { key: 5, name: "A" },
+                    NamedKey { key: 5, name: "B" },
+                ],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
+                named_keys: &[NamedKey { key: 5, name: " A" }],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
+                role: DeviceRole::Effect,
+                named_keys: &[NamedKey { key: 5, name: "A" }],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
         ),
         (
             with(vec![base_param; MAX_PARAMS_PER_DEVICE + 1]),

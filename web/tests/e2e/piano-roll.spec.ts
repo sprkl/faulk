@@ -213,6 +213,67 @@ test('piano roll: draws, selects, moves, resizes, sets velocity, deletes, sets l
   expect(seen.errors).toEqual([])
 })
 
+// #296: a Drums track names its sounds on the keyboard column, opens on their range and dims the other rows;
+// a click draws a note of the last drawn length (the snap step at first), so that a row of clicks draws a row of notes.
+test('piano roll: a Drums track names its sounds, and a click draws a note of the last length or the snap step', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('add-track').click()
+  await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  await page.getByTestId('panel-piano-roll').click()
+  await createClip(page)
+
+  // The names are the device's own (schema bundle), and the roll is opened on their range.
+  const names = JSON.parse((await roll(page).getAttribute('data-key-names')) ?? '{}')
+  expect(names).toEqual({ 36: 'Kick', 38: 'Snare', 39: 'Clap', 42: 'Closed Hat', 46: 'Open Hat' })
+  let g = await spot(page)
+  for (const pitch of [36, 46]) {
+    expect(g.y(pitch)).toBeGreaterThan(g.box.y + RULER)
+    expect(g.y(pitch)).toBeLessThan(g.box.y + g.box.height)
+  }
+  await page.screenshot({ path: process.env.FAULK_SHOT_DIR ? `${process.env.FAULK_SHOT_DIR}/pn296-drums.png` : undefined })
+
+  // Auto: eight clicks, one per eighth, on the closed hat draw eight notes of one step.
+  await expect(page.getByTestId('roll-snap')).toHaveValue('auto')
+  const eighth = 480
+  for (let i = 0; i < 8; i++) await page.mouse.click(g.x(i * eighth + 5), g.y(42))
+  const hats = await notes(page)
+  expect(hats).toHaveLength(8)
+  expect(hats.map((n) => n.start)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((i) => i * eighth))
+  const step = hats[0]!.length
+  expect(step).toBeLessThanOrEqual(eighth)
+  expect(hats.every((n) => n.length === step && n.pitch === 42)).toBe(true)
+
+  // An explicit step: the snap value gives the new default length.
+  await page.getByTestId('roll-snap').selectOption('beat')
+  g = await spot(page)
+  await page.mouse.click(g.x(5), g.y(36))
+  await page.mouse.click(g.x(965), g.y(36))
+  const kicks = (await notes(page)).filter((n) => n.pitch === 36)
+  expect(kicks).toEqual([
+    { start: 0, pitch: 36, length: 960, velocity: 100 },
+    { start: 960, pitch: 36, length: 960, velocity: 100 },
+  ])
+
+  // The last drawn length wins over the step: a dragged note of two beats sets it...
+  await drag(page, { x: g.x(1925), y: g.y(38) }, { x: g.x(3840), y: g.y(38) })
+  await page.mouse.click(g.x(5), g.y(39))
+  expect((await notes(page)).find((n) => n.pitch === 39)?.length).toBe(1920)
+  // ...until the snap changes, which resets it to the new step.
+  await page.getByTestId('roll-snap').selectOption('half-beat')
+  await page.mouse.click(g.x(5), g.y(46))
+  expect((await notes(page)).find((n) => n.pitch === 46)?.length).toBe(480)
+  // With the snap off the default is a sixteenth.
+  await page.getByTestId('roll-snap').selectOption('off')
+  await page.mouse.click(g.x(1000), g.y(46))
+  expect((await notes(page)).find((n) => n.pitch === 46 && n.start > 900)?.length).toBe(240)
+  expect(seen.errors).toEqual([])
+})
+
 test('piano roll: the empty states and the toolbar speak the page language', async ({ page }) => {
   const seen = watch(page)
   await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
