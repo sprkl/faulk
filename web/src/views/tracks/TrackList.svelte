@@ -5,9 +5,9 @@
    * track comes back that way. Every action is a command through the dispatcher.
    */
   import TrackHeader from '../../lib/components/TrackHeader.svelte'
-  import { INSTRUMENTS, nextColor, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
+  import { INSTRUMENTS, nextColor, OFFER_AUDIO_TRACK, type DragHooks } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { createTrack, redo, selectTrack, undo } from '../../lib/track-commands'
+  import { createTrack, moveTrack, redo, selectTrack, undo } from '../../lib/track-commands'
 
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
@@ -33,6 +33,26 @@
     const created = project.tracks.find((entry) => !before.has(entry.id))
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()
+  }
+
+  // --- reordering by drag: the grip of a header picks it up, dropping it on another header puts it at that
+  // header's place (one `track.move` on release; nothing is sent while the pointer moves). The menu's
+  // Move up and Move down are the keyboard's way.
+  let dragId = $state<string | null>(null)
+  let overId = $state<string | null>(null)
+
+  const drag: DragHooks = {
+    start: (id) => (dragId = id),
+    over: (id) => {
+      if (dragId) overId = id
+    },
+    drop: (id) => {
+      const moved = dragId
+      dragId = overId = null
+      const to = project.tracks.find((entry) => entry.id === id)
+      if (moved && to && moved !== id) dispatcher.run(moveTrack(moved, to.index))
+    },
+    end: () => (dragId = overId = null),
   }
 
   function onMenuKey(event: KeyboardEvent) {
@@ -88,7 +108,16 @@
     {:else}
       <ul class="list" aria-labelledby="fk-tracks-title">
         {#each project.tracks as entry (entry.id)}
-          <TrackHeader {entry} selected={project.selected?.id === entry.id} soloed={project.soloed.includes(entry.id)} armed={project.armed.includes(entry.id)} />
+          <TrackHeader
+            {entry}
+            count={project.tracks.length}
+            {drag}
+            dragging={dragId === entry.id}
+            dropTarget={dragId !== null && overId === entry.id && dragId !== entry.id}
+            selected={project.selected?.id === entry.id}
+            soloed={project.soloed.includes(entry.id)}
+            armed={project.armed.includes(entry.id)}
+          />
         {/each}
       </ul>
     {/if}

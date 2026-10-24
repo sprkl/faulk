@@ -3029,7 +3029,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+            "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
             "properties": {
               "name": {
                 "type": [
@@ -6396,7 +6396,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -11515,7 +11515,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -16655,7 +16655,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -21768,7 +21768,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -26874,7 +26874,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -31980,7 +31980,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -37126,7 +37126,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -42254,7 +42254,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -47370,7 +47370,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -52493,7 +52493,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -57623,7 +57623,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -62750,7 +62750,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -67866,7 +67866,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -72994,7 +72994,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -78118,7 +78118,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -83241,7 +83241,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -85385,7 +85385,7 @@
         "undo": "none"
       },
       {
-        "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+        "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -88364,7 +88364,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -93489,7 +93489,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -98618,7 +98618,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -103737,7 +103737,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -108857,7 +108857,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -113984,7 +113984,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -119100,7 +119100,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -124223,7 +124223,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -129358,7 +129358,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -134508,7 +134508,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -139629,7 +139629,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -144756,7 +144756,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -149895,7 +149895,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -155045,7 +155045,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -160168,7 +160168,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -165295,7 +165295,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -170429,7 +170429,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -175571,7 +175571,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -180699,7 +180699,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -185827,7 +185827,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -190955,7 +190955,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -196075,7 +196075,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -201196,7 +201196,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -206319,7 +206319,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -211442,7 +211442,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -216569,7 +216569,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -221685,7 +221685,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -226797,7 +226797,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -231909,7 +231909,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -237021,7 +237021,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -242127,7 +242127,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -247233,7 +247233,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -252390,7 +252390,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -257525,7 +257525,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -262661,7 +262661,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -267784,7 +267784,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -272915,7 +272915,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -278076,7 +278076,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -283191,7 +283191,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -288297,7 +288297,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -293403,7 +293403,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -298515,7 +298515,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -303638,7 +303638,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -308778,7 +308778,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -313897,7 +313897,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -319026,7 +319026,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -324139,7 +324139,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -329297,7 +329297,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -334431,7 +334431,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -339558,7 +339558,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -344681,7 +344681,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -349811,7 +349811,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -354934,7 +354934,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -360040,7 +360040,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -365161,7 +365161,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -370287,7 +370287,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -375406,7 +375406,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -380538,7 +380538,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -385663,7 +385663,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -390785,7 +390785,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -395891,7 +395891,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -401016,7 +401016,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -406141,7 +406141,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -411254,7 +411254,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -416367,7 +416367,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -421490,7 +421490,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+              "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
               "properties": {
                 "name": {
                   "type": [
