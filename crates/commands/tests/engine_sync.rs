@@ -483,6 +483,27 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
 }
 
 #[test]
+fn all_sound_off_releases_every_track_then_cuts_and_changes_no_project_data() {
+    let (mut s, _, _) = synced();
+    run(&mut s, json!({"type": "track.create", "kind": "midi"}));
+    let before = s.state.project.clone();
+    let (_, control) = run(&mut s, json!({"type": "live.all_sound_off"}));
+    assert_eq!(
+        control,
+        [
+            ControlMsg::AllNotesOff {
+                track: TrackSlot(0)
+            },
+            ControlMsg::AllNotesOff {
+                track: TrackSlot(1)
+            },
+            ControlMsg::AllSoundOff
+        ]
+    );
+    assert_eq!(s.state.project, before);
+}
+
+#[test]
 fn back_to_arrangement_is_one_engine_message_and_changes_nothing_else() {
     let (mut s, _, _) = synced();
     let before = s.state.project.clone();

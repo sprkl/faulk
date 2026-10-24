@@ -386,6 +386,7 @@ impl ControlMsg {
         match self {
             ControlMsg::Reset { .. }
             | ControlMsg::StopAll
+            | ControlMsg::AllSoundOff
             | ControlMsg::BackToArrangement
             | ControlMsg::Stop => {}
             ControlMsg::SetTransport {
@@ -775,6 +776,7 @@ impl ControlMsg {
                 pitch: r.midi()?,
             },
             Tag::AllNotesOff => ControlMsg::AllNotesOff { track: r.track()? },
+            Tag::AllSoundOff => ControlMsg::AllSoundOff,
         })
     }
 }

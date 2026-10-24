@@ -78,11 +78,12 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::SceneSet { .. } => "SceneSet",
         RtMsg::Transport(_) => "Transport",
         RtMsg::Launch(_) => "Launch",
+        RtMsg::AllSoundOff => "AllSoundOff",
     }
 }
 
-/// Every name [`variant`] returns (25 variants).
-const ALL_VARIANTS: [&str; 25] = [
+/// Every name [`variant`] returns (26 variants).
+const ALL_VARIANTS: [&str; 26] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
@@ -108,6 +109,7 @@ const ALL_VARIANTS: [&str; 25] = [
     "SceneSet",
     "Transport",
     "Launch",
+    "AllSoundOff",
 ];
 
 const T0: TrackSlot = TrackSlot(0);
@@ -259,6 +261,7 @@ fn every_rt_message_applies_without_allocating() {
         M::LaunchScene {
             scene: SceneSlot(1),
         },
+        M::AllSoundOff,
     ];
     let mut names: Vec<&str> = msgs
         .into_iter()
