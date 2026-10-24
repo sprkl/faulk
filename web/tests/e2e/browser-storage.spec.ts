@@ -45,7 +45,12 @@ const readTree = (page: Page, path: string[]) =>
         const at = base ? `${base}/${entry.name}` : entry.name
         if (entry.kind === 'directory') {
           if (at !== '.faulk') await walk(entry as FileSystemDirectoryHandle, at)
-        } else out[at] = await (await (entry as FileSystemFileHandle).getFile()).text()
+        } else {
+          // The bytes, as a hash: a text decoding would let two different binary files look alike.
+          const bytes = await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer()
+          const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+          out[at] = `${bytes.byteLength}:${Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')}`
+        }
       }
     }
     let dir = await navigator.storage.getDirectory()
@@ -298,12 +303,20 @@ test.describe('a full storage', () => {
     await expect(state(page)).toHaveText('Could not save')
     // What the failed first write made was taken away again.
     expect(await browserDirs(page)).toEqual([])
-    expect(await leaveAsks(await context.newPage().then(async (p) => {
-      await simulatePicker(p, 'song-quota-probe')
-      return p
-    }))).toBe(false)
+    // The only copy is in the tab: the browser asks before it goes.
+    expect(await leaveAsks(page)).toBe(true)
+  })
 
-    // Room again: Try again writes the draft.
+  test('Try again writes the draft once there is room', async ({ page, context }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simulatePicker(page, 'song-quota-retry')
+    await page.goto('/app')
+    await start(page)
+    const origin = new URL(page.url()).origin
+    const cdp = await context.newCDPSession(page)
+    await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 })
+    await addTrack(page, 'Drums')
+    await expect(page.getByTestId('full-banner')).toBeVisible({ timeout: 20_000 })
     await cdp.send('Storage.overrideQuotaForOrigin', { origin })
     await page.getByTestId('full-banner').getByRole('button', { name: 'Try again' }).click()
     await expect(page.getByTestId('full-banner')).toHaveCount(0)
@@ -326,13 +339,12 @@ test.describe('a full storage', () => {
     await expect(page.getByTestId('full-banner')).toBeVisible({ timeout: 20_000 })
     await expect(tracks(page)).toHaveCount(3)
 
-    // The tab goes away while the storage is still full: what is there opens, whole files only.
+    // The tab goes away with the last edit unwritten (the browser asks first); what is there opens.
     await cdp.send('Storage.overrideQuotaForOrigin', { origin })
     await page.reload()
     await page.getByTestId('reopen').click()
-    const count = await tracks(page).count()
     await expect.poll(() => tracks(page).count()).toBeGreaterThanOrEqual(2)
-    expect([2, 3]).toContain(count > 0 ? count : 2)
+    expect(await tracks(page).count()).toBeLessThanOrEqual(3)
     await expect(page.getByTestId('storage-notice')).toHaveCount(0)
     expect(errors.filter((e) => !/QuotaExceeded|quota/i.test(e))).toEqual([])
   })

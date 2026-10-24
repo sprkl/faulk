@@ -36,11 +36,18 @@ fn failure(message: impl std::fmt::Display) -> Vec<u8> {
     out
 }
 
-/// Whether a folder frame of `len` bytes is small enough that the pack made from it is one this
-/// page imports again: a backup that the same page refuses is worse than none, so the export
-/// holds to the import's total.
+/// The most bytes of a folder frame the export takes. A backup that the same page refuses is
+/// worse than none, so it stays under what the import accepts for one blob and for the whole
+/// (`import_limits`) and under the biggest pack file the page reads (`MAX_PACK_BYTES` in
+/// `storage.svelte.ts`, 192 MiB, the zip being no bigger than what it holds plus a little).
+pub const MAX_EXPORT_FRAME: u64 = 180 << 20;
+
+/// Whether a folder frame of `len` bytes is small enough to export.
 pub fn export_fits(len: usize) -> bool {
-    (len as u64) <= import_limits().max_total
+    (len as u64)
+        <= MAX_EXPORT_FRAME
+            .min(import_limits().max_blob)
+            .min(import_limits().max_total)
 }
 
 /// The pack of the folder in `folder_frame`.

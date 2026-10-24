@@ -1079,6 +1079,11 @@ export class ProjectStorage {
 
   /** Import: the user picks a `.faulkpack`; its project is kept in the browser's storage and opened. Call straight from a click. */
   async importPack(): Promise<boolean> {
+    // A file chooser opens only from a click: an agent that runs the command is told so, instead of waiting for a dialog that never comes.
+    if (typeof navigator !== 'undefined' && navigator.userActivation && !navigator.userActivation.isActive) {
+      this.notice = 'storage.needsClick'
+      return false
+    }
     const file = await this.deps.pickPack()
     if (!file) return false
     return this.enqueue(() => this.importFile(file))

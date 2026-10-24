@@ -1091,12 +1091,52 @@ fn a_save_cut_short_at_any_file_leaves_a_folder_that_opens() {
 }
 
 #[test]
+fn a_save_that_renames_and_removes_cut_short_at_any_file_still_opens() {
+    // The same for a save that changes the name and removes a track with its clip: the cut may
+    // leave a mix of the two revisions, but never a folder that does not open.
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let track = h.apply(json!({"type": "track.create", "kind": "midi", "instrument": "faulk.osc_synth", "name": "Bass"}))["track"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let clip = h.apply(json!({"type": "clip.create", "track": track, "at": {"at": "arrangement", "start": 0}, "length": 3840}))["clip"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    h.apply(json!({"type": "clip.notes.add", "clip": clip, "notes": [{"start": 0, "pitch": 60, "length": 480, "velocity": 100}]}));
+    let mut before = MemFs::new();
+    apply_entries(&mut before, &h.save(2).1);
+    h.saved(true);
+    h.apply(json!({"type": "project.rename", "name": "Renamed"}));
+    h.apply(json!({"type": "track.delete", "track": track}));
+    let (_, entries) = h.save(0);
+    assert!(
+        entries.iter().any(|e| matches!(e, Entry::Remove(_))),
+        "the save removes files"
+    );
+    for cut in 0..=entries.len() {
+        let mut fs = before.clone();
+        apply_entries(&mut fs, &entries[..cut]);
+        project::file::open(&fs, &project::file::OpenOptions::default()).unwrap_or_else(|e| {
+            panic!(
+                "the folder after {cut} of {} files does not open: {e}",
+                entries.len()
+            )
+        });
+    }
+}
+
+#[test]
 fn a_project_the_page_would_not_import_again_is_not_exported() {
     // One byte over what an import accepts in total: refused up front, with a message, before
     // anything is parsed or zipped.
-    let limit = pack::import_limits().max_total as usize;
+    let limit = pack::MAX_EXPORT_FRAME as usize;
     assert!(pack::export_fits(limit));
     assert!(!pack::export_fits(limit + 1));
+    // Under every limit of the import, and under the biggest file the page reads (192 MiB).
+    assert!(pack::MAX_EXPORT_FRAME <= pack::import_limits().max_blob);
+    assert!(pack::MAX_EXPORT_FRAME <= pack::import_limits().max_total);
+    const { assert!(pack::MAX_EXPORT_FRAME + (1 << 20) <= 192 << 20) };
 }
 
 #[test]

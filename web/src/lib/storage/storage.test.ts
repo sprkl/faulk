@@ -1467,6 +1467,20 @@ describe('import a .faulkpack', () => {
     expect(w.browser.persisted).toBe(1)
   })
 
+  it('tells a caller with no click behind it, instead of waiting for a chooser that never opens', async () => {
+    const w = world()
+    w.browser.available = true
+    vi.stubGlobal('navigator', { userActivation: { isActive: false } })
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.packs.length).toBe(1)
+    vi.stubGlobal('navigator', { userActivation: { isActive: true } })
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.importPack()).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
   it('changes nothing when the file is no pack, is too big, or the user chose nothing', async () => {
     const w = world()
     w.browser.available = true
