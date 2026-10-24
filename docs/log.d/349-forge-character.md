@@ -1,0 +1,2 @@
+2026-10-24
+* **Update** (#349): Forge spike (epic #348): prototype crate `crates/engine/spikes/forge` (outside the workspace) with PolyBLEP oscillators at 2x and a half-band decimator, a nonlinear zero-delay-feedback ladder, a state-variable filter, saturation, drift and per-voice tolerances, analog-style envelopes and chorus; three character sketches rendered to `.qa/renders/forge-sketch-{a,b,c}.wav`; cost, aliasing, self-oscillation and parity measured in `docs/spikes/349-forge-character.md`, with the proposed task breakdown and the question to the founder.
