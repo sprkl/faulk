@@ -9,9 +9,7 @@ import { watch } from './support'
 
 test.describe.configure({ timeout: 90_000 })
 // The dispatcher's hooks (`__faulkRun`, `__faulkStored`) exist in the dev server only.
-test.beforeEach((_fixtures, testInfo) => {
-  test.skip(testInfo.project.name !== 'dev', 'the dispatcher hooks exist in the dev server only')
-})
+test.skip(({ browserName }) => Boolean(browserName) && test.info().project.name !== 'dev', 'the dispatcher hooks exist in the dev server only')
 
 type Faulk = {
   __faulkRun(command: object): void
