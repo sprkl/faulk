@@ -6,7 +6,7 @@ description: "Read-only reviewer subagent that judges the lead's plan (when the 
 
 # Judge Dredd: impartial review at the task checkpoints
 
-The lead reviews its own work with the assumptions it used to write it. Judge Dredd (`.claude/agents/judge-dredd.md`) is a second, impartial reviewer: read-only (`Read, Grep, Glob`), on Opus, without `CLAUDE.md` loaded for it (it reads the rules itself), and blind to the lead's reasoning. It advises; the user decides.
+The lead reviews its own work with the assumptions it used to write it. Judge Dredd (`.claude/agents/judge-dredd.md`) is a second, impartial reviewer: read-only (`Read, Grep, Glob`), without `CLAUDE.md` loaded for it (it reads the rules itself), and blind to the lead's reasoning. It runs on Sonnet by default; the lead asks the coding agent to run it on Opus (`run.mjs --model opus`, which `record.mjs` accepts) when the task touches the real-time audio path, the engine, storage or the protocol. It advises; the user decides.
 
 ## Checkpoints
 

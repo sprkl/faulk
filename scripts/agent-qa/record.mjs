@@ -144,10 +144,12 @@ function checkReview(brief) {
   if (hashLine !== `brief-sha256: ${briefHash}`) {
     fail(`no Judge Dredd answer to this brief: run node scripts/agent-review/run.mjs ${BRIEF_DIR}/${issue}-delivery.md.`);
   }
+  // Judge Dredd's own model, or Opus when the lead asks for a stronger review of a delicate task.
   const expectedModel = agentDefinition(root)["judge-dredd"].model ?? "opus";
-  if (modelLine !== `model: ${expectedModel}`) {
+  const allowed = [...new Set([expectedModel, "opus"])];
+  if (!allowed.some((model) => modelLine === `model: ${model}`)) {
     fail(
-      `the answer was not written by Judge Dredd's model (${modelLine ?? "none"}, expected model: ${expectedModel}): run node scripts/agent-review/run.mjs ${BRIEF_DIR}/${issue}-delivery.md without --model.`,
+      `the answer was not written by Judge Dredd's model (${modelLine ?? "none"}, expected model: ${allowed.join(" or ")}): run node scripts/agent-review/run.mjs ${BRIEF_DIR}/${issue}-delivery.md without --model, or with --model opus.`,
     );
   }
   if (!answerIsComplete(answer, "delivery")) {
