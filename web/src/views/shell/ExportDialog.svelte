@@ -63,6 +63,23 @@
             <input type="radio" name="export-range" value="loop" bind:group={exporter.choices.region} disabled={!exporter.hasLoop} data-testid="export-loop" />
             {t(exporter.hasLoop ? 'export.range.loop' : 'export.range.noLoop')}
           </label>
+          <div class="bars">
+            <label>
+              <input type="radio" name="export-range" value="bars" bind:group={exporter.choices.region} data-testid="export-bars" />
+              {t('export.range.bars')}
+            </label>
+            <label class="number">
+              {t('export.range.from')}
+              <input type="number" min="1" step="1" bind:value={exporter.choices.fromBar} disabled={exporter.choices.region !== 'bars'} aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid} data-testid="export-from-bar" />
+            </label>
+            <label class="number">
+              {t('export.range.to')}
+              <input type="number" min="1" step="1" bind:value={exporter.choices.toBar} disabled={exporter.choices.region !== 'bars'} aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid} data-testid="export-to-bar" />
+            </label>
+          </div>
+          {#if exporter.choices.region === 'bars' && !exporter.barsValid}
+            <p class="warn" role="status" data-testid="export-bad-bars">{t('export.range.badBars')}</p>
+          {/if}
         </fieldset>
         <fieldset>
           <legend>{t('export.format')}</legend>
@@ -89,7 +106,7 @@
         {#if !exporter.hasContent}<p class="warn" role="status" data-testid="export-empty">{t('export.empty')}</p>{/if}
         <div class="actions">
           <button onclick={() => exporter.close()} data-testid="export-cancel">{t('export.cancel')}</button>
-          <button class="primary" disabled={!exporter.hasContent} onclick={() => exporter.start()} data-testid="export-start">{t('export.start')}</button>
+          <button class="primary" disabled={!exporter.canStart} onclick={() => exporter.start()} data-testid="export-start">{t('export.start')}</button>
         </div>
       {:else if exporter.phase === 'picking'}
         <p role="status" data-testid="export-status">{t('export.picking')}</p>
@@ -167,6 +184,28 @@
   }
   label.off {
     color: var(--fk-text-muted);
+  }
+  .bars {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fk-space-1) var(--fk-space-3);
+  }
+  .number input {
+    width: 4.5rem;
+    height: 24px;
+    padding: 0 var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-sm, 4px);
+    background: var(--fk-surface-2);
+    color: var(--fk-text);
+    font: inherit;
+  }
+  .number input[aria-invalid='true'] {
+    border-color: var(--fk-accent);
+  }
+  .number input:disabled {
+    opacity: 0.5;
   }
   .row {
     display: flex;

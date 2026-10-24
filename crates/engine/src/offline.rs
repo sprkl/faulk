@@ -7,7 +7,8 @@
 //! thread in the helper, a test):
 //!
 //! 1. **Body**: [`Plan::body_frames`] frames, the content of the song (the host computes
-//!    the length from the project). Every frame is written.
+//!    the length from the project). Every frame is written. The last block is cut short so
+//!    that the content ends on its last frame, and the transport stops there.
 //! 2. **Tail**: once the body is rendered the transport is stopped ([`Offline::set_stop`],
 //!    which cuts a loop region or what plays on past the end) and the render goes on while
 //!    the effects ring out. A frame past the body is written only up to the last one
@@ -386,7 +387,13 @@ impl Offline {
                 }
             }
             self.prepare.flush();
-            let n = self.host.render(QUANTUM);
+            // The last block of the content ends on its last frame, so that the stop lands there
+            // and not up to a block later (what follows the range must not be heard).
+            let block = match self.phase {
+                Phase::Body => (self.plan.body_frames - self.rendered).min(QUANTUM as u64) as usize,
+                _ => QUANTUM,
+            };
+            let n = self.host.render(block);
             used += n;
             self.take_block(n);
         }

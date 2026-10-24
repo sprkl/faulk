@@ -14,6 +14,7 @@ fn settings(region: ExportRegion, bit_depth: ExportBitDepth, sample_rate: u32) -
         region,
         bit_depth,
         sample_rate,
+        ..ExportSettings::default()
     }
 }
 
@@ -120,6 +121,78 @@ fn the_loop_region_is_rendered_once_and_nothing_after_it() {
         settings(ExportRegion::Song, ExportBitDepth::Pcm24, 48_000),
     );
     assert_eq!(song.body_frames, 8 * 48_000);
+}
+
+#[test]
+fn a_range_stops_on_its_last_frame_whatever_the_rate() {
+    // A bar of 88 200 frames at 44.1 kHz or 192 000 at 96 kHz is not a multiple of the
+    // engine's 128-frame blocks: the notes that start with the next bar must not be heard in
+    // the file. The same bar rendered out of a longer song and out of a song that stops there
+    // gives the same file, sample for sample.
+    for rate in [44_100, 96_000] {
+        let render = |bars: i64| {
+            let mut state = demo_song(bars, None);
+            state.project.transport.loop_region = LoopRegion::new(Tick(0), Tick(3840));
+            let loop_ = export_native(
+                &state,
+                settings(ExportRegion::Loop, ExportBitDepth::Float32, rate),
+            );
+            let bars_ = export_native(
+                &state,
+                ExportSettings {
+                    region: ExportRegion::Bars,
+                    from_bar: Some(1),
+                    to_bar: Some(1),
+                    ..settings(ExportRegion::Loop, ExportBitDepth::Float32, rate)
+                },
+            );
+            assert_eq!(
+                loop_.wav, bars_.wav,
+                "the loop region and bar 1 are the same range"
+            );
+            loop_
+        };
+        let (short, long) = (render(1), render(2));
+        assert_eq!(short.body_frames, 2 * u64::from(rate));
+        assert_eq!(
+            short.written, long.written,
+            "{rate} Hz: another note was heard"
+        );
+        assert_eq!(short.wav, long.wav, "{rate} Hz");
+    }
+}
+
+#[test]
+fn bars_are_rendered_from_their_first_to_their_last() {
+    let state = demo_song(4, None);
+    let bars = |from, to| {
+        export_native(
+            &state,
+            ExportSettings {
+                region: ExportRegion::Bars,
+                from_bar: Some(from),
+                to_bar: Some(to),
+                ..ExportSettings::default()
+            },
+        )
+    };
+    // Bars 2 and 3: four seconds.
+    let middle = bars(2, 3);
+    assert_eq!(middle.body_frames, 4 * 48_000);
+    middle.render().assert_clean();
+    // The first note of bar 2 is at the start of the file.
+    middle.render().assert_onset_at(0.0, 0.005, 0.001, 0.0);
+    // Past the end of the arrangement the range is cut to what is there? No: it renders
+    // what was asked, silence included, so the last bar of the song and the next one is two
+    // bars, the second one empty.
+    let past = bars(4, 5);
+    assert_eq!(past.body_frames, 4 * 48_000);
+    let r = past.render();
+    r.assert_audible(0.0..1.0, 0.05);
+    assert!(r.peak_in(2.5..3.9) < 1e-4, "{}", r.peak_in(2.5..3.9));
+    // The whole song as bars is the song.
+    let all = bars(1, 4);
+    assert_eq!(all.wav, song(&state).wav);
 }
 
 #[test]

@@ -14,7 +14,7 @@ import {
   type ExportWorkerPort,
   type SinkChoice,
 } from './audio-export.svelte'
-import type { FromExport, ToExport } from './export-render'
+import type { FromExport, ToExport, ToStart } from './export-render'
 
 const PLAN = {
   settings: { region: 'song', bit_depth: 'pcm24', sample_rate: 48_000 },
@@ -53,9 +53,12 @@ class FakeWorker implements ExportWorkerPort {
   onmessage: ((event: MessageEvent<FromExport>) => void) | null = null
   onerror: ((event: ErrorEvent) => void) | null = null
   terminated = false
-  started: ToExport | null = null
+  started: ToStart | null = null
+  /** The acknowledgements of written chunks the Worker received. */
+  acks = 0
   postMessage(message: ToExport) {
-    this.started = message
+    if (message.type === 'start') this.started = message
+    else this.acks++
   }
   terminate() {
     this.terminated = true
@@ -66,7 +69,7 @@ class FakeWorker implements ExportWorkerPort {
 }
 
 function setup(
-  overrides: { job?: ExportJob | null; pick?: SinkChoice; hasContent?: boolean; hasLoop?: boolean; module?: Promise<ArrayBuffer>; refuse?: boolean } = {},
+  overrides: { job?: ExportJob | null; pick?: SinkChoice; hasContent?: boolean; hasLoop?: boolean; module?: Promise<ArrayBuffer>; refuse?: boolean; canChoose?: boolean } = {},
 ) {
   const sink = new FakeSink()
   const worker = new FakeWorker()
@@ -83,13 +86,14 @@ function setup(
     projectName: () => 'My: song?',
     hasContent: () => overrides.hasContent ?? true,
     hasLoop: () => overrides.hasLoop ?? false,
+    songBars: () => 4,
     folder: () => null,
   }
   const deps: ExportDeps = {
     pick: vi.fn(async () => overrides.pick ?? ({ status: 'chosen', sink } as SinkChoice)),
     spawn: () => worker,
     engineModule: () => overrides.module ?? Promise.resolve(new ArrayBuffer(8)),
-    canChoose: true,
+    canChoose: overrides.canChoose ?? true,
     now: () => (clock += 250),
   }
   const exporter: AudioExport = new AudioExport(host, deps)
@@ -120,11 +124,11 @@ describe('the export dialog', () => {
     exporter.show()
     expect(exporter.open).toBe(true)
     expect(exporter.phase).toBe('options')
-    expect(exporter.choices).toEqual({ region: 'song', bitDepth: 'pcm24', sampleRate: 48_000 })
+    expect(exporter.choices).toMatchObject({ region: 'song', bitDepth: 'pcm24', sampleRate: 48_000 })
     exporter.request({ region: 'loop', bit_depth: 'float32', sample_rate: 96_000 })
-    expect(exporter.choices).toEqual({ region: 'loop', bitDepth: 'float32', sampleRate: 96_000 })
+    expect(exporter.choices).toMatchObject({ region: 'loop', bitDepth: 'float32', sampleRate: 96_000 })
     exporter.request({})
-    expect(exporter.choices).toEqual({ region: 'song', bitDepth: 'pcm24', sampleRate: 48_000 })
+    expect(exporter.choices).toMatchObject({ region: 'song', bitDepth: 'pcm24', sampleRate: 48_000 })
   })
 
   it('does not offer a loop that does not exist', () => {
@@ -350,6 +354,90 @@ describe('an export', () => {
     exporter.close()
     expect(exporter.open).toBe(false)
     expect(worker.terminated).toBe(true)
+  })
+
+  it('acknowledges each chunk once it is written, never after a failure', async () => {
+    const { exporter, sink, worker } = setup()
+    exporter.show()
+    exporter.start()
+    await flush()
+    worker.say(chunk(1000, [1]))
+    worker.say(chunk(2000, [2]))
+    await flush()
+    expect(sink.written).toEqual([[1], [2]])
+    expect(worker.acks).toBe(2)
+    sink.failWrite = true
+    worker.say(chunk(3000, [3]))
+    await flush()
+    expect(exporter.phase).toBe('failed')
+    expect(worker.acks).toBe(2)
+  })
+
+  it('exports bars: the command carries them, the dialog checks them, the core is asked for them', async () => {
+    const { exporter, host, commands } = setup()
+    exporter.show()
+    // The dialog starts on the whole song: from bar 1 to the last bar.
+    expect(exporter.choices).toMatchObject({ region: 'song', fromBar: 1, toBar: 4 })
+    exporter.choices.region = 'bars'
+    exporter.choices.fromBar = 2
+    exporter.choices.toBar = 3
+    expect(exporter.barsValid).toBe(true)
+    expect(exporter.canStart).toBe(true)
+    exporter.start()
+    await flush()
+    expect(commands).toEqual([{ type: 'project.export_audio', region: 'bars', bit_depth: 'pcm24', sample_rate: 48_000, from_bar: 2, to_bar: 3 }])
+    expect(host.job).toHaveBeenCalledWith({ region: 'bars', bit_depth: 'pcm24', sample_rate: 48_000, from_bar: 2, to_bar: 3 })
+    // An agent's command brings its bars into the dialog.
+    exporter.close()
+    exporter.request({ region: 'bars', from_bar: 3, to_bar: 5 })
+    expect(exporter.choices).toMatchObject({ region: 'bars', fromBar: 3, toBar: 5 })
+    // Bars that make no range cannot be exported, and none is sent for the song.
+    for (const [from, to] of [[0, 2], [3, 2], [1.5, 2], [1, Number.NaN]]) {
+      exporter.choices.fromBar = from
+      exporter.choices.toBar = to
+      expect(exporter.canStart, `${from} to ${to}`).toBe(false)
+    }
+    exporter.choices.region = 'song'
+    expect(exporter.canStart).toBe(true)
+  })
+
+  it('says why a range is too long, from what the core answers', async () => {
+    const tooLong = { status: 'refused', error: { code: 'limit', entity: 'export seconds', max: 1800 } } as unknown as ExportJob
+    const { exporter, host } = setup({ refuse: true, job: tooLong })
+    exporter.show()
+    exporter.start()
+    await flush()
+    expect(host.job).toHaveBeenCalled()
+    expect(exporter.error).toBe('export.tooLong')
+    // The same refusal met when the core is asked for the render.
+    const again = setup({ job: tooLong })
+    again.exporter.show()
+    again.exporter.start()
+    await flush()
+    expect(again.exporter.error).toBe('export.tooLong')
+  })
+
+  it('refuses a download too big to keep in memory, and writes a file of any size', async () => {
+    // 20 minutes at 48 kHz, 24 bits: 346 MB; at 96 kHz float32: 1.8 GB.
+    const big = (frames: number) => ready({ body_frames: frames })
+    const small = setup({ job: big(20 * 60 * 48_000), canChoose: false })
+    small.exporter.show()
+    small.exporter.start()
+    await flush()
+    expect(small.exporter.phase).toBe('rendering')
+    const huge = setup({ job: big(20 * 60 * 48_000), canChoose: false })
+    huge.exporter.show({ bitDepth: 'float32', sampleRate: 96_000 })
+    huge.exporter.start()
+    await flush()
+    expect(huge.exporter.phase).toBe('failed')
+    expect(huge.exporter.error).toBe('export.tooBig')
+    expect(huge.deps.pick).not.toHaveBeenCalled()
+    // With a file dialog the same song goes to the file as it is made.
+    const file = setup({ job: big(20 * 60 * 96_000) })
+    file.exporter.show({ bitDepth: 'float32', sampleRate: 96_000 })
+    file.exporter.start()
+    await flush()
+    expect(file.exporter.phase).toBe('rendering')
   })
 
   it('does not start a second export while one runs, and a request does not reset it', async () => {

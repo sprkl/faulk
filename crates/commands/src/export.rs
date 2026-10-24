@@ -17,6 +17,8 @@
 
 use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};
+
+const _: () = assert!(MAX_BODY_SECS as u64 == MAX_EXPORT_SECS);
 use project::{ClipContent, Project, SampleRate, SessionState, Span, Tick};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -40,7 +42,13 @@ pub enum ExportRegion {
     Song,
     /// The loop region, once, then the tail.
     Loop,
+    /// From the start of bar `from_bar` to the end of bar `to_bar` (both counted from 1, the
+    /// second included), then the tail.
+    Bars,
 }
+
+/// The longest export, in seconds of content (the tail comes on top).
+pub const MAX_EXPORT_SECS: u64 = 1800;
 
 /// How the samples are written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -73,6 +81,12 @@ pub struct ExportSettings {
     pub region: ExportRegion,
     pub bit_depth: ExportBitDepth,
     pub sample_rate: u32,
+    /// First bar of `ExportRegion::Bars`, from 1.
+    #[serde(default)]
+    pub from_bar: Option<u32>,
+    /// Last bar of `ExportRegion::Bars`, included.
+    #[serde(default)]
+    pub to_bar: Option<u32>,
 }
 
 impl Default for ExportSettings {
@@ -81,18 +95,51 @@ impl Default for ExportSettings {
             region: ExportRegion::default(),
             bit_depth: ExportBitDepth::default(),
             sample_rate: DEFAULT_SAMPLE_RATE,
+            from_bar: None,
+            to_bar: None,
         }
     }
 }
 
 impl ExportSettings {
-    /// The settings of a command's optional fields; a sample rate that a file cannot have
-    /// is refused.
+    /// The settings of a command's optional fields; a sample rate that a file cannot have,
+    /// bars without the `bars` region (or the region without them), or bars out of order are
+    /// refused.
     pub fn of(
         region: Option<ExportRegion>,
         bit_depth: Option<ExportBitDepth>,
         sample_rate: Option<u32>,
+        from_bar: Option<u32>,
+        to_bar: Option<u32>,
     ) -> Result<Self, CommandError> {
+        let invalid = |field: &str, message: &str| CommandError::Invalid {
+            field: field.into(),
+            message: message.into(),
+        };
+        let region = region.unwrap_or_default();
+        match (region, from_bar, to_bar) {
+            (ExportRegion::Bars, Some(from), Some(to)) => {
+                if from < 1 {
+                    return Err(invalid("from_bar", "bars are counted from 1"));
+                }
+                if to < from {
+                    return Err(invalid("to_bar", "the last bar comes after the first one"));
+                }
+            }
+            (ExportRegion::Bars, ..) => {
+                return Err(invalid(
+                    "from_bar",
+                    "the bars region needs from_bar and to_bar",
+                ));
+            }
+            (_, None, None) => {}
+            _ => {
+                return Err(invalid(
+                    "region",
+                    "from_bar and to_bar go with the bars region only",
+                ));
+            }
+        }
         let sample_rate = sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
         if !SAMPLE_RATES.contains(&sample_rate) {
             return Err(CommandError::Invalid {
@@ -101,9 +148,11 @@ impl ExportSettings {
             });
         }
         Ok(Self {
-            region: region.unwrap_or_default(),
+            region,
             bit_depth: bit_depth.unwrap_or_default(),
             sample_rate,
+            from_bar,
+            to_bar,
         })
     }
 }
@@ -152,6 +201,35 @@ pub fn arrangement_end(project: &Project) -> Tick {
 pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, CommandError> {
     let (start, end) = match settings.region {
         ExportRegion::Song => (Tick(0), arrangement_end(project)),
+        ExportRegion::Bars => {
+            let bar = project.time_signature().ticks_per_bar().0;
+            let (from, to) = (
+                i64::from(settings.from_bar.unwrap_or(1)),
+                i64::from(settings.to_bar.unwrap_or(1)),
+            );
+            let (Some(start), Some(end)) = ((from - 1).checked_mul(bar), to.checked_mul(bar))
+            else {
+                return Err(CommandError::Invalid {
+                    field: "to_bar".into(),
+                    message: "that bar is beyond the end of time".into(),
+                });
+            };
+            let ends = arrangement_end(project).0;
+            if start >= ends {
+                let bars = (ends + bar - 1) / bar;
+                return Err(CommandError::Invalid {
+                    field: "from_bar".into(),
+                    message: if ends == 0 {
+                        "the arrangement is empty: there is nothing to export".into()
+                    } else {
+                        format!(
+                            "the arrangement ends in bar {bars}: there is nothing to export from bar {from}"
+                        )
+                    },
+                });
+            }
+            (Tick(start), Tick(end))
+        }
         ExportRegion::Loop => {
             let Some(region) = project.transport.loop_region else {
                 return Err(CommandError::Invalid {
@@ -174,11 +252,10 @@ pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, C
     let frames = (tempo.tick_to_sample(end, rate) - tempo.tick_to_sample(start, rate)).ceil();
     let duration_secs = frames / f64::from(rate.hz());
     if duration_secs > MAX_BODY_SECS {
-        return Err(CommandError::Invalid {
-            field: "region".into(),
-            message: format!(
-                "the render would last {duration_secs:.0} s; the longest export is {MAX_BODY_SECS:.0} s"
-            ),
+        // The project is as it was: only this request is too long.
+        return Err(CommandError::Limit {
+            entity: "export seconds".into(),
+            max: MAX_EXPORT_SECS,
         });
     }
     Ok(ExportPlan {

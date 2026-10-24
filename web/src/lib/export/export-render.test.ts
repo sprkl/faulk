@@ -32,7 +32,7 @@ function song(): ProjectCore {
 }
 
 /** Runs the render as the Worker does and returns what it posted. */
-function render(core: ProjectCore, request: ExportRequest) {
+async function render(core: ProjectCore, request: ExportRequest, room?: () => Promise<void>) {
   const job = core.exportJob(request)
   if (job.status !== 'ready') throw new Error(`not ready: ${JSON.stringify(job)}`)
   const messages: FromExport[] = []
@@ -45,7 +45,7 @@ function render(core: ProjectCore, request: ExportRequest) {
     setup: job.setup.slice().buffer,
     stop: job.stop.slice().buffer,
   }
-  renderExport(start, (message) => messages.push(message))
+  await renderExport(start, (message) => messages.push(message), room)
   return { job, messages }
 }
 
@@ -65,8 +65,8 @@ function wav(messages: FromExport[]) {
 }
 
 describe('the export render', () => {
-  it('writes a WAV file of the song: its header, its length, its level', () => {
-    const { job, messages } = render(song(), {})
+  it('writes a WAV file of the song: its header, its length, its level', async () => {
+    const { job, messages } = await render(song(), {})
     const { file, done, view } = wav(messages)
     expect(String.fromCharCode(...file.subarray(0, 4))).toBe('RIFF')
     expect(String.fromCharCode(...file.subarray(8, 16))).toBe('WAVEfmt ')
@@ -96,8 +96,8 @@ describe('the export render', () => {
     expect(done.clipped).toBe(0)
   })
 
-  it('reports its progress up to the end of the song, then the tail', () => {
-    const { messages } = render(song(), { bit_depth: 'pcm16' })
+  it('reports its progress up to the end of the song, then the tail', async () => {
+    const { messages } = await render(song(), { bit_depth: 'pcm16' })
     const chunks = messages.filter((m) => m.type === 'chunk')
     const rendered = chunks.map((m) => m.rendered)
     expect(rendered).toEqual([...rendered].sort((a, b) => a - b))
@@ -107,14 +107,52 @@ describe('the export render', () => {
     expect(messages.at(-1)!.type).toBe('done')
   })
 
-  it('honours the format and the sample rate', () => {
-    const float = wav(render(song(), { bit_depth: 'float32', sample_rate: 44_100 }).messages)
+  it('honours the format and the sample rate', async () => {
+    const float = wav((await render(song(), { bit_depth: 'float32', sample_rate: 44_100 })).messages)
     expect(float.view.getUint16(20, true)).toBe(3)
     expect(float.view.getUint16(34, true)).toBe(32)
     expect(float.view.getUint32(24, true)).toBe(44_100)
     expect(float.file.length).toBe(58 + float.done.written * 8)
-    const small = wav(render(song(), { bit_depth: 'pcm16' }).messages)
+    const small = wav((await render(song(), { bit_depth: 'pcm16' })).messages)
     expect(small.view.getUint16(34, true)).toBe(16)
+  })
+
+  it('waits for the page after each chunk and renders nothing more than it lets', async () => {
+    // A gate that lets two chunks go, then holds the render until it is told: the render stops
+    // there, with only what was let through posted.
+    const core = song()
+    const job = core.exportJob({})
+    if (job.status !== 'ready') throw new Error('ready')
+    const messages: FromExport[] = []
+    let release: () => void = () => undefined
+    let gates = 0
+    const rendering = renderExport(
+      { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: job.plan.body_frames, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer },
+      (message) => messages.push(message),
+      () => (++gates <= 2 ? Promise.resolve() : new Promise<void>((resolve) => (release = resolve))),
+    )
+    const until = async (done: () => boolean) => {
+      for (let i = 0; i < 1000 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 2))
+    }
+    // Two chunks pass the gate, the third is posted and waits at it.
+    await until(() => gates === 3)
+    expect(gates).toBe(3)
+    expect(messages.filter((m) => m.type === 'chunk')).toHaveLength(3)
+    expect(messages.some((m) => m.type === 'done')).toBe(false)
+    // Nothing moves while it is held.
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(messages.filter((m) => m.type === 'chunk')).toHaveLength(3)
+    // One release lets one more chunk through, which waits at the gate in its turn.
+    release()
+    await until(() => gates === 4)
+    expect(messages.filter((m) => m.type === 'chunk')).toHaveLength(4)
+    // Let the rest go: the file is whole.
+    for (let i = 0; i < 1000 && !messages.some((m) => m.type === 'done'); i++) {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 2))
+    }
+    await rendering.catch(() => undefined)
+    expect(messages.at(-1)!.type).toBe('done')
   })
 
   it('is refused by the core on an empty arrangement, and posts nothing', () => {
@@ -124,13 +162,13 @@ describe('the export render', () => {
     expect(core.exportJob({ region: 'loop' }).status).toBe('refused')
   })
 
-  it('posts an error, not a file, when the engine is given a stream it refuses', () => {
+  it('posts an error, not a file, when the engine is given a stream it refuses', async () => {
     const core = song()
     const job = core.exportJob({})
     if (job.status !== 'ready') throw new Error('ready')
     const messages: FromExport[] = []
     // A truncated setup: the stream stops, nothing is rendered.
-    renderExport(
+    await renderExport(
       { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 192_000, setup: job.setup.slice(0, 30).buffer, stop: job.stop.slice().buffer },
       (message) => messages.push(message),
     )
@@ -138,7 +176,7 @@ describe('the export render', () => {
     expect(messages[0]).toMatchObject({ type: 'error' })
     // A length the engine refuses.
     const refused: FromExport[] = []
-    renderExport({ type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 0, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer }, (m) => refused.push(m))
+    await renderExport({ type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 0, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer }, (m) => refused.push(m))
     expect(refused[0]).toMatchObject({ type: 'error' })
   })
 })

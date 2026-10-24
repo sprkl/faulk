@@ -31,8 +31,10 @@ type: "project.save"
 type: "project.save_as"
 } | {
 bit_depth?: (ExportBitDepth | null)
+from_bar?: (number | null)
 region?: (ExportRegion | null)
 sample_rate?: (number | null)
+to_bar?: (number | null)
 type: "project.export_audio"
 })
 /**
@@ -42,7 +44,7 @@ export type ExportBitDepth = ("pcm16" | "pcm24" | "float32")
 /**
  * Which part of the project is rendered.
  */
-export type ExportRegion = ("song" | "loop")
+export type ExportRegion = ("song" | "loop" | "bars")
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -758,7 +760,7 @@ end_tick: number
 /**
  * Which part of the project is rendered.
  */
-region: ("song" | "loop")
+region: ("song" | "loop" | "bars")
 /**
  * The sample rate of the file, in Hz.
  */
@@ -2176,8 +2178,16 @@ start_tick: number
  */
 export interface ExportSettings {
 bit_depth: ExportBitDepth
+/**
+ * First bar of `ExportRegion::Bars`, from 1.
+ */
+from_bar?: (number | null)
 region: ExportRegion
 sample_rate: number
+/**
+ * Last bar of `ExportRegion::Bars`, included.
+ */
+to_bar?: (number | null)
 }
 /**
  * The page's view of the project: what it reads after an event that names an entity

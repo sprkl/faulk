@@ -92,8 +92,12 @@ const readWav = (page: Page, name: string): Promise<Wav | null> =>
     }
   }, name)
 
-/** A one-bar clip in the piano roll with four notes, drawn with the pointer: the same in every project of the run. */
-async function makeSong(page: Page) {
+/**
+ * A clip in the piano roll with four notes in its first bar, drawn with the pointer: the same in
+ * every project of the run. `bars` lengthens the clip afterwards, so the song lasts that long (the
+ * notes stay in bar 1: the other bars are silent).
+ */
+async function makeSong(page: Page, bars = 1) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
@@ -116,6 +120,11 @@ async function makeSong(page: Page) {
     await page.mouse.click(box.x + tick * ppt, box.y + RULER + (127 - pitch) * ROW - scrollY + ROW / 2)
   }
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '4')
+  if (bars > 1) {
+    await page.getByTestId('roll-length').fill(String(bars))
+    await page.getByTestId('roll-length').press('Enter')
+    await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-clip-length', String(bars * 3840))
+  }
 }
 
 async function openDialog(page: Page) {
@@ -160,7 +169,7 @@ test('exports the song as a 24-bit WAV file while the song plays: header, length
   expect(wav.data).toBe(wav.size - 44)
   // One bar at 120 BPM is two seconds; the synth's release (and nothing else) follows.
   expect(wav.frames).toBeGreaterThanOrEqual(2 * 48_000)
-  expect(wav.frames).toBeLessThan(5 * 48_000)
+  expect(wav.frames).toBeLessThan(3.5 * 48_000)
   // The first note is at the very start, and the file is loud enough to hear.
   expect(wav.firstPeak).toBeGreaterThan(0.01)
   expect(wav.peak).toBeGreaterThan(0.05)
@@ -172,6 +181,69 @@ test('exports the song as a 24-bit WAV file while the song plays: header, length
   expect(await tick()).toBeGreaterThan(before)
   await dialog(page).getByTestId('export-close').click()
   await expect(dialog(page)).toHaveCount(0)
+  expect(seen.errors).toEqual([])
+})
+
+test('four bars: the file lasts eight seconds and a bit, and a range of bars is that range', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await simulateSavePicker(page)
+  await makeSong(page, 4)
+  const exportAs = async (nth: number) => {
+    await page.getByTestId('export-start').click()
+    await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+    const name = await page.evaluate((n) => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[n].suggestedName, nth)
+    return (await readWav(page, name))!
+  }
+
+  // The song: four bars are eight seconds at 120 BPM, and the release of the last note follows.
+  await openDialog(page)
+  const song = await exportAs(0)
+  expect(song.frames).toBeGreaterThanOrEqual(8 * 48_000)
+  expect(song.frames).toBeLessThan(9.5 * 48_000)
+  expect(song.firstPeak).toBeGreaterThan(0.01)
+  expect(song.peak).toBeGreaterThan(0.05)
+  await page.getByTestId('export-close').click()
+
+  // Bars 2 to 3: four seconds of what is there, which is nothing (the notes are in bar 1): the file
+  // is the range and no more, and it says it is silent.
+  await openDialog(page)
+  await page.getByTestId('export-bars').check()
+  await expect(page.getByTestId('export-from-bar')).toHaveValue('1')
+  await expect(page.getByTestId('export-to-bar')).toHaveValue('4')
+  await page.getByTestId('export-from-bar').fill('2')
+  await page.getByTestId('export-to-bar').fill('3')
+  const middle = await exportAs(1)
+  expect(middle.frames).toBe(4 * 48_000)
+  expect(middle.peak).toBe(0)
+  await expect(page.getByTestId('export-peak')).toContainText('silent')
+  await page.getByTestId('export-close').click()
+
+  // Bar 1 alone: two seconds and the release of its notes, the first one at the start of the file.
+  await openDialog(page)
+  await page.getByTestId('export-bars').check()
+  await page.getByTestId('export-from-bar').fill('1')
+  await page.getByTestId('export-to-bar').fill('1')
+  const first = await exportAs(2)
+  expect(first.frames).toBeGreaterThanOrEqual(2 * 48_000)
+  expect(first.frames).toBeLessThan(3.5 * 48_000)
+  expect(first.firstPeak).toBeGreaterThan(0.01)
+  await page.getByTestId('export-close').click()
+
+  // Bars that make no range cannot be exported; bars past the end of the song are refused by the
+  // project, and the dialog says so.
+  await openDialog(page)
+  await page.getByTestId('export-bars').check()
+  await page.getByTestId('export-from-bar').fill('3')
+  await page.getByTestId('export-to-bar').fill('2')
+  await expect(page.getByTestId('export-bad-bars')).toBeVisible()
+  await expect(page.getByTestId('export-start')).toBeDisabled()
+  await page.getByTestId('export-from-bar').fill('5')
+  await page.getByTestId('export-to-bar').fill('6')
+  await page.getByTestId('export-start').click()
+  await expect(page.getByTestId('export-error')).toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { __picks: unknown[] }).__picks.length)).toBe(3)
+  // Not a page bug, but the project refusing a command is logged as a warning: that is the only one.
   expect(seen.errors).toEqual([])
 })
 

@@ -76,12 +76,15 @@ domain! {
     /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
     /// to the end of the last placement of the arrangement, then the tail, so that an
     /// effect such as the echo rings out; the file ends where the sound falls under
-    /// -90 dBFS, after 30 seconds at most) or `loop` (the loop region once, then the same
-    /// tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`; `sample_rate` is
-    /// 44100, 48000 (default) or 96000. The metronome is never in the file; the solo and
-    /// mute state are. It is refused when there is nothing to render (empty arrangement,
-    /// no loop region for `loop`) or the range lasts more than 30 minutes. The output
-    /// says what will be rendered; the page runs the render, shows its progress and asks
+    /// -90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same
+    /// tail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both
+    /// counted from 1, required with it and refused without it, the last one included,
+    /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
+    /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
+    /// file; the solo and mute state are. It is refused when there is nothing to render
+    /// (empty arrangement, no loop region for `loop`, a `bars` range that starts after the
+    /// end of the arrangement or is out of order) or the range lasts more than 30 minutes
+    /// (a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks
     /// where to save the file (a folder picker needs a click), so an agent that is not
     /// driven by a user gets the render in the page to confirm. Changes nothing in the
     /// project, so it never enters the history and has nothing to undo.
@@ -94,8 +97,14 @@ domain! {
         #[serde(default)]
         #[schemars(range(min = 44100, max = 96000))]
         sample_rate: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        from_bar: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        to_bar: Option<u32>,
     } => {
-        /// What is rendered: `song` or `loop`.
+        /// What is rendered: `song`, `loop` or `bars`.
         region: ExportRegion,
         /// The sample format of the file.
         bit_depth: ExportBitDepth,
@@ -130,8 +139,11 @@ pub fn apply(
             region,
             bit_depth,
             sample_rate,
+            from_bar,
+            to_bar,
         } => {
-            let settings = ExportSettings::of(*region, *bit_depth, *sample_rate)?;
+            let settings =
+                ExportSettings::of(*region, *bit_depth, *sample_rate, *from_bar, *to_bar)?;
             let plan = export::plan(&state.project, settings)?;
             Ok(nothing(Output::ExportAudio {
                 region: settings.region,

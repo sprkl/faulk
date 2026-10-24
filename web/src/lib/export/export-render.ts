@@ -5,8 +5,10 @@
 // page cancels by terminating the Worker, so nothing here needs to be interruptible.
 import { engineMemory, instantiate, ROLE_PREPARE, type ExportExports } from '../engine/engine-abi'
 
-/** What the page sends to start a render. */
-export interface ToExport {
+/** What the page sends: to start a render, then one `ack` per chunk it has written. */
+export type ToExport = ToStart | { type: 'ack' }
+
+export interface ToStart {
   type: 'start'
   /** The engine module (`engine.wasm`). */
   module: ArrayBuffer
@@ -33,6 +35,9 @@ export const STEP_FRAMES = 16_384
 
 export type Post = (message: FromExport, transfer?: Transferable[]) => void
 
+/** Chunks the Worker may have sent that the page has not written yet (about 3 s of audio each 8). */
+export const CHUNKS_IN_FLIGHT = 8
+
 class ExportFailure extends Error {
   constructor(
     message: string,
@@ -42,17 +47,21 @@ class ExportFailure extends Error {
   }
 }
 
-/** Renders the export, posting its chunks and then `done`; posts `error` instead when it cannot. */
-export function renderExport(message: ToExport, post: Post) {
+/**
+ * Renders the export, posting its chunks and then `done`; posts `error` instead when it cannot.
+ * `room` resolves when the page has written enough of what was sent for more to go: a render far
+ * faster than a disk would otherwise pile the whole file up in memory.
+ */
+export async function renderExport(message: ToStart, post: Post, room?: () => Promise<void>) {
   try {
-    run(message, post)
+    await run(message, post, room)
   } catch (error) {
     const code = error instanceof ExportFailure ? error.code : null
     post({ type: 'error', message: error instanceof Error ? error.message : String(error), code })
   }
 }
 
-function run(message: ToExport, post: Post) {
+async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
   const memory = engineMemory()
   const ex = instantiate(new WebAssembly.Module(message.module), memory) as ExportExports
   ex.fk_set_role(ROLE_PREPARE)
@@ -86,6 +95,7 @@ function run(message: ToExport, post: Post) {
       [bytes],
     )
     if (phase === 2) break
+    await room?.()
   }
   const at = ex.fk_export_header(handle)
   const header = new Uint8Array(memory.buffer, at, ex.fk_export_header_len(handle)).slice().buffer

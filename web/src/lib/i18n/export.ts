@@ -11,6 +11,10 @@ export const audioExport = defineFeature(
     'export.range.song': 'The song, from the start to the end of the last clip',
     'export.range.loop': 'The loop region',
     'export.range.noLoop': 'The loop region (set one in the transport first)',
+    'export.range.bars': 'Some bars',
+    'export.range.from': 'From bar',
+    'export.range.to': 'to bar',
+    'export.range.badBars': 'The last bar cannot come before the first one.',
     'export.format': 'Format',
     'export.format.pcm24': 'WAV, 24 bits',
     'export.format.pcm16': 'WAV, 16 bits',
@@ -35,7 +39,11 @@ export const audioExport = defineFeature(
     'export.tailCut': 'An effect was still ringing after 30 seconds, so the file stops there.',
 
     'export.failed': 'The export failed. Nothing was saved.',
-    'export.refused': 'Faulk cannot export the project as asked. Check that the arrangement has a clip and that the loop region exists.',
+    'export.refused':
+      'Faulk cannot export the project as asked. Check that the arrangement has a clip, that the loop region exists and that the bars are inside the song.',
+    'export.tooLong': 'This range lasts more than 30 minutes, which is the longest export. Choose fewer bars.',
+    'export.tooBig':
+      'This browser keeps the whole file in memory until the end, and this one is too big for that (more than 400 MB). Use Chrome or Edge, or choose fewer bars, 16 bits or 44.1 kHz.',
     'export.noAccess': 'The browser did not allow that file. Choose another place.',
     'export.writeFailed': 'The file could not be written. Nothing was saved.',
   },
@@ -47,6 +55,10 @@ export const audioExport = defineFeature(
     'export.range.song': 'Le morceau, du début à la fin du dernier clip',
     'export.range.loop': 'La zone de boucle',
     'export.range.noLoop': 'La zone de boucle (définis-en une dans le transport d’abord)',
+    'export.range.bars': 'Quelques mesures',
+    'export.range.from': 'De la mesure',
+    'export.range.to': 'à la mesure',
+    'export.range.badBars': 'La dernière mesure ne peut pas venir avant la première.',
     'export.format': 'Format',
     'export.format.pcm24': 'WAV, 24 bits',
     'export.format.pcm16': 'WAV, 16 bits',
@@ -71,7 +83,11 @@ export const audioExport = defineFeature(
     'export.tailCut': 'Un effet résonnait encore après 30 secondes, le fichier s’arrête donc là.',
 
     'export.failed': 'L’export a échoué. Rien n’a été enregistré.',
-    'export.refused': 'Faulk ne peut pas exporter le projet comme demandé. Vérifie que l’arrangement contient un clip et que la zone de boucle existe.',
+    'export.refused':
+      'Faulk ne peut pas exporter le projet comme demandé. Vérifie que l’arrangement contient un clip, que la zone de boucle existe et que les mesures sont dans le morceau.',
+    'export.tooLong': 'Cette plage dure plus de 30 minutes, ce qui est le plus long export possible. Choisis moins de mesures.',
+    'export.tooBig':
+      'Ce navigateur garde tout le fichier en mémoire jusqu’à la fin, et celui-ci est trop gros pour cela (plus de 400 Mo). Utilise Chrome ou Edge, ou choisis moins de mesures, le 16 bits ou 44,1 kHz.',
     'export.noAccess': 'Le navigateur n’a pas autorisé ce fichier. Choisis un autre endroit.',
     'export.writeFailed': 'Le fichier n’a pas pu être écrit. Rien n’a été enregistré.',
   },

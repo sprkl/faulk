@@ -55,7 +55,13 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       ports.saveAs()
       return
     case 'project.export_audio':
-      ports.exportAudio({ region: command.region ?? undefined, bit_depth: command.bit_depth ?? undefined, sample_rate: command.sample_rate ?? undefined })
+      ports.exportAudio({
+        region: command.region ?? undefined,
+        bit_depth: command.bit_depth ?? undefined,
+        sample_rate: command.sample_rate ?? undefined,
+        from_bar: command.from_bar ?? undefined,
+        to_bar: command.to_bar ?? undefined,
+      })
       return
     case 'project.new':
       ports.projectReplaced()

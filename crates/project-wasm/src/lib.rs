@@ -170,6 +170,10 @@ impl Core {
             bit_depth: Option<ExportBitDepth>,
             #[serde(default)]
             sample_rate: Option<u32>,
+            #[serde(default)]
+            from_bar: Option<u32>,
+            #[serde(default)]
+            to_bar: Option<u32>,
         }
         let refused = |error| (ExportReport::Refused { error }, Vec::new());
         let request = match serde_json::from_slice::<Request>(json) {
@@ -181,11 +185,16 @@ impl Core {
                 });
             }
         };
-        let settings =
-            match ExportSettings::of(request.region, request.bit_depth, request.sample_rate) {
-                Ok(settings) => settings,
-                Err(error) => return refused(error),
-            };
+        let settings = match ExportSettings::of(
+            request.region,
+            request.bit_depth,
+            request.sample_rate,
+            request.from_bar,
+            request.to_bar,
+        ) {
+            Ok(settings) => settings,
+            Err(error) => return refused(error),
+        };
         let state = &self.synced.state;
         match job(&state.project, &state.session, settings) {
             Ok(job) => {

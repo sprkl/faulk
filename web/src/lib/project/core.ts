@@ -188,9 +188,11 @@ export class CoreError extends Error {
 
 /** The settings of an export (`project.export_audio`'s fields; the core fills in the defaults). */
 export interface ExportRequest {
-  region?: 'song' | 'loop'
+  region?: 'song' | 'loop' | 'bars'
   bit_depth?: 'pcm16' | 'pcm24' | 'float32'
   sample_rate?: number
+  from_bar?: number
+  to_bar?: number
 }
 
 /** An export the core prepared: its plan and the two streams of the engine that renders it. */

@@ -32,6 +32,7 @@ fn a_song_with_an_echo_exports_alike_natively_and_in_wasm() {
         region: ExportRegion::Song,
         bit_depth: ExportBitDepth::Float32,
         sample_rate: 48_000,
+        ..ExportSettings::default()
     };
     let (native, wasm) = (
         export_native(&state, settings),
@@ -52,6 +53,7 @@ fn a_loop_region_in_integers_exports_alike_natively_and_in_wasm() {
         region: ExportRegion::Loop,
         bit_depth: ExportBitDepth::Pcm24,
         sample_rate: 44_100,
+        ..ExportSettings::default()
     };
     let (native, wasm) = (
         export_native(&state, settings),

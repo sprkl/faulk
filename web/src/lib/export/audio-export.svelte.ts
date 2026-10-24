@@ -15,12 +15,21 @@ import type { FromExport, ToExport } from './export-render'
 
 /** The settings the dialog offers. */
 export interface ExportChoices {
-  region: 'song' | 'loop'
+  region: 'song' | 'loop' | 'bars'
   bitDepth: 'pcm16' | 'pcm24' | 'float32'
   sampleRate: 44_100 | 48_000 | 96_000
+  /** The first and the last bar (counted from 1, the last one included) of the `bars` region. */
+  fromBar: number
+  toBar: number
 }
 
-export const DEFAULT_CHOICES: ExportChoices = { region: 'song', bitDepth: 'pcm24', sampleRate: 48_000 }
+export const DEFAULT_CHOICES: ExportChoices = { region: 'song', bitDepth: 'pcm24', sampleRate: 48_000, fromBar: 1, toBar: 1 }
+
+/**
+ * The most a download may weigh: the browser that has no file dialog keeps the whole file in memory
+ * until the end (a file in a folder is written as it is made).
+ */
+export const MAX_DOWNLOAD_BYTES = 400_000_000
 
 export const BITS = { pcm16: 16, pcm24: 24, float32: 32 } as const
 
@@ -63,6 +72,8 @@ export interface ExportDeps {
 export interface ExportHost {
   /** Runs a command through the dispatcher, the one entry point of every action. */
   run(command: Command): void
+  /** How many bars the arrangement holds (at least 1): where the bars of the dialog end at first. */
+  songBars(): number
   /** The render's job for these settings; `null` while there is no project core. */
   job(request: ExportRequest): ExportJob | null
   projectName(): string
@@ -144,6 +155,17 @@ export class AudioExport {
     return this.phase === 'picking' || this.phase === 'rendering'
   }
 
+  /** The bars of the dialog make a range (whole numbers, from 1, the last one not before the first). */
+  get barsValid(): boolean {
+    const { fromBar, toBar } = this.choices
+    return Number.isInteger(fromBar) && Number.isInteger(toBar) && fromBar >= 1 && toBar >= fromBar
+  }
+
+  /** Whether the dialog's settings can be exported. */
+  get canStart(): boolean {
+    return this.hasContent && (this.choices.region !== 'bars' || this.barsValid)
+  }
+
   /** Opens the dialog (the menu); `choices` fills in what a command asked for. */
   show(choices: Partial<ExportChoices> = {}) {
     if (this.busy) {
@@ -151,7 +173,11 @@ export class AudioExport {
       return
     }
     // A setting a command left out keeps its default.
-    this.choices = { ...DEFAULT_CHOICES, ...Object.fromEntries(Object.entries(choices).filter(([, value]) => value !== undefined)) }
+    this.choices = {
+      ...DEFAULT_CHOICES,
+      toBar: this.host.songBars(),
+      ...Object.fromEntries(Object.entries(choices).filter(([, value]) => value !== undefined)),
+    }
     // A loop that does not exist is not offered.
     if (this.choices.region === 'loop' && !this.hasLoop) this.choices.region = 'song'
     this.phase = 'options'
@@ -176,6 +202,8 @@ export class AudioExport {
       region: request.region,
       bitDepth: request.bit_depth,
       sampleRate: rate === 44_100 || rate === 96_000 ? rate : 48_000,
+      fromBar: request.from_bar ?? undefined,
+      toBar: request.to_bar ?? undefined,
     })
   }
 
@@ -220,31 +248,38 @@ export class AudioExport {
   start() {
     if (this.busy) return
     this.confirming = true
-    this.host.run(
-      exportAudio({
-        region: this.choices.region,
-        bit_depth: this.choices.bitDepth,
-        sample_rate: this.choices.sampleRate,
-      }),
-    )
-    // The project refused it: nothing came back.
+    this.host.run(exportAudio(this.request_()))
+    // The project refused it: nothing came back. Why, the core says again.
     if (this.confirming) {
       this.confirming = false
-      this.fail('export.refused')
+      const job = this.host.job(this.request_())
+      this.fail(job?.status === 'refused' && job.error.code === 'limit' ? 'export.tooLong' : 'export.refused')
+    }
+  }
+
+  /** The dialog's settings as the command takes them. */
+  private request_(): ExportRequest {
+    const bars = this.choices.region === 'bars' ? { from_bar: this.choices.fromBar, to_bar: this.choices.toBar } : {}
+    return {
+      region: this.choices.region,
+      bit_depth: this.choices.bitDepth,
+      sample_rate: this.choices.sampleRate,
+      ...bars,
     }
   }
 
   /** Asks the core for the render, asks for the file, renders. */
   private async begin() {
     const run = ++this.run
-    const request: ExportRequest = {
-      region: this.choices.region,
-      bit_depth: this.choices.bitDepth,
-      sample_rate: this.choices.sampleRate,
-    }
-    const job = this.host.job(request)
+    const job = this.host.job(this.request_())
     if (!job) return this.fail('export.failed')
-    if (job.status !== 'ready') return this.fail(job.status === 'refused' ? 'export.refused' : 'export.failed', job)
+    if (job.status !== 'ready') {
+      const tooLong = job.status === 'refused' && job.error.code === 'limit'
+      return this.fail(job.status === 'refused' ? (tooLong ? 'export.tooLong' : 'export.refused') : 'export.failed', job)
+    }
+    // Without a file dialog the whole file waits in memory until the end: a long one does not fit.
+    const frameBytes = (2 * BITS[this.choices.bitDepth]) / 8
+    if (!this.deps.canChoose && job.plan.body_frames * frameBytes > MAX_DOWNLOAD_BYTES) return this.fail('export.tooBig')
     this.error = null
     this.result = null
     this.fraction = 0
@@ -289,7 +324,12 @@ export class AudioExport {
         if (message.bytes.byteLength > 0) {
           const chunk = new Uint8Array(message.bytes)
           bytes += chunk.length
-          this.writing = this.writing.then(() => (run === this.run ? sink.write(chunk) : undefined))
+          // The Worker may send more once this chunk is written: what waits in memory stays bounded.
+          this.writing = this.writing.then(async () => {
+            if (run !== this.run) return
+            await sink.write(chunk)
+            if (run === this.run) worker.postMessage({ type: 'ack' })
+          })
           // A failed write (a full disk, a revoked permission) ends the export; the chain keeps the error.
           this.writing = this.writing.catch((error: unknown) => {
             if (run === this.run) this.fail('export.writeFailed', error)
