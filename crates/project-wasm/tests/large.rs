@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use project::file::{MemFs, SaveOptions, SaveState, save, save_session};
 use project::*;
-use project_wasm::{Core, KIND_EMPTY};
+use project_wasm::{Core, KIND_EMPTY, Mode};
 
 /// The QA-7 profile, scaled: `tracks` tracks of 2 clips of `notes` notes and 2 lanes of
 /// `points` points.
@@ -165,4 +165,70 @@ fn the_qa7_profile_opens_within_the_measured_envelope() {
     // second and a half. Run it on a quiet machine: other builds triple the numbers.
     let total = staged + opened;
     assert!(total < 2.45 + 1.5, "{total:.3} s is above the envelope");
+}
+
+/// Saves `project` the way the page does (SV-2): the first write into a folder, an edit, and a
+/// save with nothing to write. Returns the seconds each took in the core and the entries of the
+/// edit's save.
+fn save_costs(project: &Project) -> (f64, f64, f64, usize) {
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    save_session(&mut fs, &SessionState::default()).unwrap();
+    let mut core = Core::new(KIND_EMPTY, 1, 1_700_000_000_000, 1).unwrap();
+    core.stage(&frame("big", &fs)).expect("the frame stages");
+    let (report, _) = core.run(br#"{"type":"project.open","folder":"big"}"#);
+    assert_eq!(serde_json::to_value(&report).unwrap()["status"], "applied");
+
+    // A save as: the whole project.
+    let t = Instant::now();
+    let whole = core.save(Mode::Everything);
+    let everything = t.elapsed().as_secs_f64();
+    core.saved(true);
+    assert!(whole.len() > 1 << 20);
+
+    // An edit, then the automatic save: every unit is serialized and hashed, one file is written.
+    let (report, _) = core.run(br#"{"type":"project.rename","name":"Edited"}"#);
+    assert_eq!(serde_json::to_value(&report).unwrap()["status"], "applied");
+    let t = Instant::now();
+    let edit = core.save(Mode::Changed);
+    let edited = t.elapsed().as_secs_f64();
+    core.saved(true);
+    assert!(
+        edit.len() < 4096,
+        "an edit of the name writes only project.json"
+    );
+
+    // Nothing changed: the page's explicit Save looks at everything and writes nothing.
+    let t = Instant::now();
+    let nothing = core.save(Mode::Forced);
+    let forced = t.elapsed().as_secs_f64();
+    core.saved(true);
+    assert!(nothing.len() < 64, "nothing to write");
+    (everything, edited, forced, whole.len())
+}
+
+#[test]
+fn a_scaled_large_project_saves_only_what_changed() {
+    let project = profile(10, 100, 3_000);
+    let (_, _, _, bytes) = save_costs(&project);
+    assert!(bytes > 0);
+}
+
+#[test]
+#[ignore = "a measurement, not a test"]
+fn the_qa7_profile_saves_within_a_budget() {
+    let project = profile(100, 1000, 30_000);
+    let counts = project.counts();
+    let (everything, edited, forced, bytes) = save_costs(&project);
+    println!(
+        "QA-7 profile ({counts:?}): save as {everything:.3} s ({} MiB), autosave after an edit {edited:.3} s, forced save with nothing to write {forced:.3} s",
+        bytes >> 20
+    );
 }
