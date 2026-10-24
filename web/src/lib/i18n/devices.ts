@@ -52,7 +52,7 @@ export const devices = defineFeature(
     'echo.division.hint': 'Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds. A new value takes effect as time_change says.',
     'echo.feedback.hint': 'Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.',
     'echo.mix.hint': 'Balance between the dry sound (0) and the echoes (1).',
-    'echo.time_change.hint': 'What a new delay time, note value, tempo or mode does while the echo rings. Glide: the delay slides like a tape, bending the pitch of the repeats by up to 25% until it arrives. Fade: 50 ms crossfade, pitch kept. Jump: immediate, may click.',
+    'echo.time_change.hint': 'What a new time, note value, tempo or mode does while the echo rings. Glide: slides like a tape, pitch of repeats bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once (tempo: next block), may click.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -97,6 +97,6 @@ export const devices = defineFeature(
     'echo.division.hint': 'Durée du retard en mode au tempo, en valeur de note du tempo du projet : du 1/32 à la ronde, avec triolets (T) et valeurs pointées (.). Au-delà de 4 secondes, la durée est ramenée à 4 secondes. Une nouvelle valeur agit comme le dit « Au changement ».',
     'echo.feedback.hint': 'Part de l’écho renvoyée dans le retard, de 0 à 0,95 : plus de répétitions, chacune plus faible.',
     'echo.mix.hint': 'Équilibre entre le son direct (0) et les échos (1).',
-    'echo.time_change.hint': 'Ce que fait une nouvelle durée, valeur de note, un nouveau tempo ou mode pendant que l’écho sonne. Glissé : le retard glisse comme une bande, la hauteur des répétitions se courbe jusqu’à 25 % le temps du glissement. Fondu : fondu enchaîné de 50 ms, la hauteur est conservée. Saut : immédiat, peut claquer.',
+    'echo.time_change.hint': 'Ce que fait une nouvelle durée, valeur de note, un nouveau tempo ou mode pendant que l’écho sonne. Glissé : glisse comme une bande, la hauteur des répétitions se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat (tempo : au bloc suivant), peut claquer.',
   },
 )

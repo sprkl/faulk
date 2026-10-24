@@ -216,7 +216,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(TIME_CHANGE),
             key: "time_change",
-            description: "What a new delay time, note value, tempo or mode does while the echo rings. Glide: the delay slides like a tape, bending the pitch of the repeats by up to 25% until it arrives. Fade: 50 ms crossfade, pitch kept. Jump: immediate, may click.",
+            description: "What a new time, note value, tempo or mode does while the echo rings. Glide: slides like a tape, pitch of repeats bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once (tempo: next block), may click.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
