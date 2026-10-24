@@ -1,0 +1,26 @@
+[package]
+name = "forge-spike"
+version = "0.1.0"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+description = "Spike #349 (epic #348, Forge): prototype DSP building blocks (band-limited oscillators, nonlinear zero-delay-feedback ladder, state-variable filter, saturation, drift, analog-style envelopes, chorus), three character sketches rendered offline, and their cost natively and in WASM. Not part of the workspace, not a product crate: the Forge device starts from the report, not from this code."
+
+# Its own workspace root: the repository's workspace does not build it.
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dev-dependencies]
+assert_no_alloc = "1"
+
+# The tests render long sketches under the allocation detector, which only works with debug
+# assertions on: optimise the dev profile instead of testing in release.
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
