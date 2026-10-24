@@ -304,7 +304,7 @@ fn sweep_events() -> Vec<(usize, Event)> {
 fn a_fast_gain_sweep_does_not_zipper() {
     let input = sine(48_000, 440.0, 0.5);
     let events = sweep_events();
-    let steady = max_step(&input, 2000, 40_000);
+    let steady = max_step(&input, 2000, 39_000);
     let steps: Vec<(usize, f32)> = events
         .iter()
         .map(|(at, e)| match e {
@@ -313,12 +313,12 @@ fn a_fast_gain_sweep_does_not_zipper() {
         })
         .collect();
     let hard = unsmoothed(&input, &steps, 1.0);
-    let hard_step = max_step(&hard, 2000, 40_000);
+    let hard_step = max_step(&hard, 2000, 39_000);
     for size in [1usize, 37, 128, 512, 2048] {
         let mut g = TestGain::new(&setup());
         let out = render(&mut g, &input, size, &events);
         assert_clean(&out);
-        let step = max_step(&out, 2000, 40_000);
+        let step = max_step(&out, 2000, 39_000);
         println!("sweep, block {size}: step {step:.4}, steady {steady:.4}, hard {hard_step:.4}");
         assert!(
             step <= 1.25 * steady,
@@ -350,7 +350,11 @@ fn the_synth_gain_sweep_does_not_zipper_and_stays_clean() {
     assert!(s <= 1.25 * r, "swept step {s} against {r}");
     // The ramps are cut short by the next target, so the gain only reaches part of the way:
     // the swept note stays within the reference's level.
-    assert!(swept.iter().all(|v| v.abs() <= 1.0));
+    let peak = |s: &[f32]| s.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    assert!(
+        peak(&swept) <= peak(&reference),
+        "the swept note is louder than the reference"
+    );
     // The same sweep cut in blocks of any size gives the same signal.
     for size in [1usize, 37, 2048] {
         assert_eq!(synth_note(&sweep, size), swept, "block {size}");

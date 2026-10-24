@@ -800,7 +800,7 @@ const fn param(frame: u64, target: Target, id: ParamId, value: f32) -> Scheduled
 
 /// A fixed performance through the whole chain: notes with fine tuning, transposition,
 /// octave, smoothed gains and a mute, at odd frames.
-pub const SCENARIO: [Scheduled; 26] = [
+pub const SCENARIO: [Scheduled; 28] = [
     note_on(101, 1, 60, 0.8, 0.0),
     param(1_000, Target::Tone, tone::GAIN, 1.0),
     note_on(2_345, 2, 64, 0.6, 25.0),
@@ -828,6 +828,9 @@ pub const SCENARIO: [Scheduled; 26] = [
     param(18_688, Target::Gain, gain::GAIN, 0.0),
     param(18_899, Target::Gain, gain::GAIN, 1.0),
     note_off(20_000, 3, 67),
+    // The unsmoothed `trim` (a zero smoothing time) at an odd frame, and back.
+    param(21_001, Target::Gain, gain::TRIM, 0.5),
+    param(22_003, Target::Gain, gain::TRIM, 1.0),
     note_off(23_000, 4, 72),
 ];
 
