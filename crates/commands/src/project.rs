@@ -4,7 +4,8 @@
 //! `edit` with its inverse, its event and its output, exercised by the test rule.
 
 use crate::contract::{
-    CommandError, Context, FolderError, OpenedFolder, Outcome, ProjectEvent, State, Undo,
+    CommandError, Context, FolderError, OpenedFolder, Outcome, ProjectEvent, State,
+    StoredBrowserProject, StoredFolder, StoredProjects, Undo,
 };
 use crate::export::{self, ExportBitDepth, ExportRegion, ExportSettings};
 use crate::macros::domain;
@@ -89,6 +90,95 @@ domain! {
     "project.import_pack" (kind = "live", undo = "none", destructive = false)
     ImportPack {} => {};
 
+    /// List the projects this page can open: the folders opened recently (each with an `id`)
+    /// and the projects kept in the browser's own storage (each with a `dir`), newest first.
+    /// The page reads its storage again before it answers. The `id` and the `dir` are the
+    /// names `project.open_recent`, `project.open_browser_project` and
+    /// `project.delete_browser_project` take. Changes nothing in the project.
+    "project.list_stored" (kind = "query", undo = "none", destructive = false)
+    ListStored {} => {
+        /// The folders opened recently, newest first.
+        recent: Vec<StoredFolder>,
+        /// The projects kept in the browser's storage, newest first.
+        browser: Vec<StoredBrowserProject>,
+    };
+
+    /// Bring back the project that was open last time, the one the page offers after a reload
+    /// (a folder, which asks the browser for its permission again and so needs a click by the
+    /// user, or a draft kept in the browser). Nothing happens, with a notice, when the page
+    /// offers nothing. The current project is replaced; the page asks first when it has
+    /// changes that are kept nowhere. Not undoable: it replaces the history.
+    "project.reopen_last" (kind = "live", undo = "none", destructive = false)
+    ReopenLast {} => {};
+
+    /// Choose a project folder and open it, replacing the current project. The folder is
+    /// chosen by the user (a browser needs a click for it), so an agent that is not driven by
+    /// one gets a notice in the page instead. A folder that is not a project is refused with
+    /// the reason and nothing changes. The page asks first when the current project has
+    /// changes that are kept nowhere. Not undoable: it replaces the history.
+    "project.open_folder" (kind = "live", undo = "none", destructive = false)
+    OpenFolder {} => {};
+
+    /// Open a folder from the recent projects, by the `id` that `project.list_stored` gives,
+    /// replacing the current project. When the browser withdrew its permission on the folder,
+    /// it asks again, which needs a click by the user: an agent that is not driven by one gets
+    /// a notice in the page. An `id` the page does not know is refused with a notice. The page
+    /// asks first when the current project has changes that are kept nowhere. Not undoable: it
+    /// replaces the history.
+    "project.open_recent" (kind = "live", undo = "none", destructive = false)
+    OpenRecent {
+        #[schemars(length(min = 1, max = 128))]
+        id: String,
+    } => {};
+
+    /// Open a project kept in the browser's storage (a draft, or a project where the browser
+    /// has no folders), by the `dir` that `project.list_stored` gives, replacing the current
+    /// project. A `dir` the page does not list is refused with a notice, and so is a project
+    /// that another tab has open. The page asks first when the current project has changes
+    /// that are kept nowhere. Not undoable: it replaces the history.
+    "project.open_browser_project" (kind = "live", undo = "none", destructive = false)
+    OpenBrowserProject {
+        #[schemars(length(min = 1, max = 128))]
+        dir: String,
+    } => {};
+
+    /// Delete a project kept in the browser's storage, for good, by the `dir` that
+    /// `project.list_stored` gives. The page always asks the user to confirm first, whoever
+    /// sends the command, and nothing is deleted until the user says yes. The project that is
+    /// open, a project another tab has open and a `dir` the page does not list are refused
+    /// with a notice. The result only says the command was accepted, not what the user
+    /// answered. Not undoable: the files are gone (`project.export_pack` makes a copy first).
+    "project.delete_browser_project" (kind = "live", undo = "none", destructive = false)
+    DeleteBrowserProject {
+        #[schemars(length(min = 1, max = 128))]
+        dir: String,
+    } => {};
+
+    /// When the project's folder was edited outside Faulk while the project has unsaved
+    /// changes, keep this page's version: the folder's files are replaced by the project right
+    /// away, and the outside edits are lost. The page always asks the user to
+    /// confirm first, whoever sends the command. Refused with a notice when the folder is not
+    /// in conflict. The result only says the command was accepted, not what the user answered.
+    /// Changes nothing in the project, so it never enters the history.
+    "project.keep_mine" (kind = "live", undo = "none", destructive = false)
+    KeepMine {} => {};
+
+    /// When the project's folder was edited outside Faulk while the project has unsaved
+    /// changes, take the folder's version: the project is replaced by what the folder holds,
+    /// and the changes made since the last write are lost. The page always asks the user to
+    /// confirm first, whoever sends the command. Refused with a notice when the folder is not
+    /// in conflict. The result only says the command was accepted, not what the user answered.
+    /// Not undoable: it replaces the history.
+    "project.load_folder_version" (kind = "live", undo = "none", destructive = false)
+    LoadFolderVersion {} => {};
+
+    /// After the browser withdrew the right to write in the project's folder, ask for it
+    /// again (the browser shows a prompt, which needs a click by the user: an agent that is
+    /// not driven by one gets a notice in the page), then write the changes that waited.
+    /// Changes nothing in the project, so it never enters the history.
+    "project.allow_access" (kind = "live", undo = "none", destructive = false)
+    AllowAccess {} => {};
+
     /// Render the project to an audio file (WAV) and save it, offline: the same engine
     /// that plays the song, run faster than real time, so the file is the song as it
     /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
@@ -152,6 +242,31 @@ pub fn apply(
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
+        // The host stages what it keeps just before (`Context::stored`); with nothing staged the
+        // answer is empty rather than an old list.
+        Command::ListStored {} => {
+            let StoredProjects { recent, browser } = ctx.stored.take().unwrap_or_default();
+            Ok(nothing(Output::ListStored { recent, browser }))
+        }
+        Command::ReopenLast {} => Ok(nothing(Output::ReopenLast {})),
+        Command::OpenFolder {} => Ok(nothing(Output::OpenFolder {})),
+        Command::KeepMine {} => Ok(nothing(Output::KeepMine {})),
+        Command::LoadFolderVersion {} => Ok(nothing(Output::LoadFolderVersion {})),
+        Command::AllowAccess {} => Ok(nothing(Output::AllowAccess {})),
+        // Which stored project is named belongs to the page (it knows what it keeps): the
+        // command only checks that something is named.
+        Command::OpenRecent { id } => {
+            stored_name("id", id)?;
+            Ok(nothing(Output::OpenRecent {}))
+        }
+        Command::OpenBrowserProject { dir } => {
+            stored_name("dir", dir)?;
+            Ok(nothing(Output::OpenBrowserProject {}))
+        }
+        Command::DeleteBrowserProject { dir } => {
+            stored_name("dir", dir)?;
+            Ok(nothing(Output::DeleteBrowserProject {}))
+        }
         // Like a save, the render belongs to the host (the page's worker and file picker):
         // the command checks the request against the project and says what will be
         // rendered.
@@ -212,6 +327,27 @@ pub fn apply(
             })
         }
     }
+}
+
+/// Longest `id` or `dir` the page's lists give (identifiers it generated itself).
+const MAX_STORED_NAME_CHARS: usize = 128;
+
+/// Checks that a command names a stored project: not empty, not longer than anything the page
+/// lists. What the page does with a name it does not know is its own refusal.
+fn stored_name(field: &str, value: &str) -> Result<(), CommandError> {
+    if value.is_empty() {
+        return Err(CommandError::Invalid {
+            field: field.into(),
+            message: format!("`{field}` names a stored project, it is not empty"),
+        });
+    }
+    if value.chars().count() > MAX_STORED_NAME_CHARS {
+        return Err(CommandError::Invalid {
+            field: field.into(),
+            message: format!("`{field}` has at most {MAX_STORED_NAME_CHARS} characters"),
+        });
+    }
+    Ok(())
 }
 
 /// An outcome that changes nothing and tells the interface nothing.

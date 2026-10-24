@@ -58,6 +58,8 @@ export interface ProjectHost {
   packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport>
   /** The files of a `.faulkpack`, validated (see `ProjectCore.packImport`). */
   packImport(zip: Uint8Array): Promise<PackImport>
+  /** Makes the project core ahead of a click that will need it, so the click still has its permission to prompt. */
+  prepare?(): Promise<void>
 }
 
 /** The browser calls the controller makes, so tests run it without a dialog, a Worker or a clock. */
@@ -108,8 +110,12 @@ export type SaveStatus =
   /** The folder was edited from outside while changes were unsaved. */
   | 'conflict'
 
-/** Which action a confirmation guards. */
-export type Discard = 'new' | 'open' | 'delete'
+/**
+ * Which action a confirmation guards. The page asks whoever started the action (a click or an agent's
+ * command): `delete` a browser project, and the two ways out of a conflict, `keepMine` (the folder's
+ * files are replaced by the project) and `loadFolder` (the project is replaced by the folder's files).
+ */
+export type Discard = 'new' | 'open' | 'delete' | 'keepMine' | 'loadFolder'
 
 interface Attached {
   handle: FolderHandle
@@ -606,12 +612,31 @@ export class ProjectStorage {
     this.browserProjects = (await this.deps.browser.list()).projects
   }
 
+  /**
+   * Whether the browser would refuse a prompt or a file chooser now: they open only from a click. An
+   * agent that runs the command is told so, instead of waiting for a dialog that never comes.
+   */
+  private needsGesture(): boolean {
+    if (typeof navigator !== 'undefined' && navigator.userActivation && !navigator.userActivation.isActive) {
+      this.notice = 'storage.needsClick'
+      return true
+    }
+    return false
+  }
+
+  /** Reads the recent folders and the browser's projects again (`project.list_stored`; the menu lists them). */
+  async refreshStored(): Promise<void> {
+    this.recent = await this.deps.recent.list()
+    await this.refreshBrowserProjects()
+  }
+
   /** Open: the user picks a project folder. Call straight from a click. */
   async openFolder(): Promise<boolean> {
     if (!this.supported) {
       this.notice = 'storage.unsupported'
       return false
     }
+    if (this.needsGesture()) return false
     const picked = await this.deps.picker.pick()
     if (picked.status === 'cancelled') return false
     if (picked.status === 'refused') {
@@ -623,9 +648,23 @@ export class ProjectStorage {
 
   /** Open a recent project. Call straight from a click: the browser may ask for the permission again. */
   async openRecent(id: string): Promise<boolean> {
-    const entry = this.recent.find((recent) => recent.id === id)
-    if (!entry) return false
-    if ((await this.deps.askPermission(entry.handle)) !== 'granted') {
+    // A list read before another tab forgot or added a folder: look again before saying it is unknown.
+    let entry = this.recent.find((recent) => recent.id === id)
+    if (!entry) {
+      this.recent = await this.deps.recent.list()
+      entry = this.recent.find((recent) => recent.id === id)
+    }
+    if (!entry) {
+      this.notice = 'storage.recentGone'
+      return false
+    }
+    // The prompt is needed only when the browser withdrew the permission, and it opens only from a click.
+    let permission = await this.deps.permission(entry.handle)
+    if (permission !== 'granted') {
+      if (this.needsGesture()) return false
+      permission = await this.deps.askPermission(entry.handle)
+    }
+    if (permission !== 'granted') {
       this.notice = 'storage.permissionDenied'
       return false
     }
@@ -636,14 +675,26 @@ export class ProjectStorage {
   /** The banner after a reload: the project that was open comes back with the user's click. */
   reopenLast(): Promise<boolean> {
     const last = this.reopen
-    if (!last) return Promise.resolve(false)
+    if (!last) {
+      this.notice = 'storage.nothingToReopen'
+      return Promise.resolve(false)
+    }
     return last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id)
   }
 
-  /** Open a project kept in the browser's storage (a draft, or a project of a browser with no folder). */
+  /**
+   * Open a project kept in the browser's storage (a draft, or a project of a browser with no folder). Only one the
+   * browser lists: a name that is not in its list is never handed to the storage.
+   */
   openBrowserProject(dir: string): Promise<boolean> {
-    this.reopen = null
     return this.enqueue(async () => {
+      await this.refreshBrowserProjects()
+      if (!this.browserProjects.some((project) => project.dir === dir)) {
+        if (this.reopen?.kind === 'browser' && this.reopen.id === dir) this.reopen = null
+        this.notice = 'storage.browserGone'
+        return false
+      }
+      this.reopen = null
       const handle = await this.deps.browser.open(dir)
       if (!handle) {
         this.notice = 'storage.browserGone'
@@ -882,9 +933,21 @@ export class ProjectStorage {
 
   /** The banner's button: ask for the permission again (a prompt), then write what waited. */
   async resume(): Promise<boolean> {
+    // Not while an attach has no project for a moment.
+    while (this.attaching) await this.attaching
     const current = this.current
     if (!current) return false
-    if (current.kind === 'folder' && (await this.deps.askPermission(current.handle)) !== 'granted') return false
+    if (current.kind === 'folder') {
+      // The prompt is needed only when the permission is gone, and it opens only from a click.
+      let permission = await this.deps.permission(current.handle)
+      if (permission !== 'granted') {
+        if (this.needsGesture()) return false
+        permission = await this.deps.askPermission(current.handle)
+      }
+      if (permission !== 'granted') return false
+      // The folder may have been replaced while the permission was asked.
+      if (this.current !== current) return false
+    }
     if (this.block === 'permission') this.block = null
     return this.autosave().then(() => !this.dirty)
   }
@@ -971,17 +1034,34 @@ export class ProjectStorage {
 
   /** The conflict banner: keep the project as it is; the next write replaces the folder's files. */
   keepMine(): Promise<boolean> {
-    return this.enqueue(async () => {
-      const current = this.current
-      if (!current) return false
-      this.block = null
-      return this.write('rewrite')
-    })
+    return this.enqueue(() => this.resolveConflict('keepMine'))
   }
 
   /** The conflict banner: take the folder's version and drop the changes made since the last write. */
   loadDisk(): Promise<boolean> {
-    return this.enqueue(() => this.reload('storage.reloaded'))
+    return this.enqueue(() => this.resolveConflict('loadFolder'))
+  }
+
+  /**
+   * One way out of a conflict. Each loses something (the folder's outside edits, or the project's changes
+   * since the last write), so the user is always asked, whoever started it, and only while the folder is in
+   * conflict: a command sent with no conflict (or one the user settled meanwhile) changes nothing.
+   */
+  private async resolveConflict(choice: 'keepMine' | 'loadFolder'): Promise<boolean> {
+    const current = this.current
+    if (!current || this.block !== 'external') {
+      this.notice = 'storage.noConflict'
+      return false
+    }
+    if (!(await this.ask(choice, current.handle.name))) return false
+    // The question was open for a while: the same folder must still be in the same conflict.
+    if (this.current !== current || this.block !== 'external') {
+      this.notice = 'storage.noConflict'
+      return false
+    }
+    if (choice === 'loadFolder') return this.reload('storage.reloaded')
+    this.block = null
+    return this.write('rewrite')
   }
 
   /** A command replaced the project behind this controller's back (`project.new`): it has no folder now. */
@@ -1010,6 +1090,8 @@ export class ProjectStorage {
    * before it gives the folder back.
    */
   async restore() {
+    // The core is made now, not at the first click: a click on Open must reach the chooser while it still has its activation.
+    void this.host.prepare?.().catch((error: unknown) => console.error(error))
     this.recent = await this.deps.recent.list()
     let draft: BrowserProject | null = null
     if (this.deps.browser.available) {
@@ -1026,15 +1108,20 @@ export class ProjectStorage {
       // Where the browser has no folder, its storage is the home and the project reopens by itself;
       // otherwise it is a draft, offered with a click.
       if (!this.supported) await this.openBrowserProject(draft.dir)
-      else this.reopen = { id: draft.dir, name: draft.name, kind: 'browser' }
+      else this.offer({ id: draft.dir, name: draft.name, kind: 'browser' })
       return
     }
     if (!last) return
     if ((await this.deps.permission(last.handle)) === 'granted') {
       await this.enqueue(() => this.openHandle(last.handle, { forgetIfGone: last.id }))
     } else {
-      this.reopen = { id: last.id, name: last.name, kind: 'folder' }
+      this.offer({ id: last.id, name: last.name, kind: 'folder' })
     }
+  }
+
+  /** Offers the project of last time with a banner. */
+  private offer(reopen: { id: string; name: string; kind: 'folder' | 'browser' }) {
+    this.reopen = reopen
   }
 
   /** The newest of the projects that no other tab has open. */
@@ -1075,6 +1162,13 @@ export class ProjectStorage {
     return this.enqueue(async () => {
       if (this.current?.dir === dir) {
         this.notice = 'storage.deleteOpen'
+        return false
+      }
+      // Only a project the browser lists: a name that is not in its list is never handed to the storage.
+      await this.refreshBrowserProjects()
+      if (!this.browserProjects.some((project) => project.dir === dir)) {
+        if (this.reopen?.kind === 'browser' && this.reopen.id === dir) this.reopen = null
+        this.notice = 'storage.browserGone'
         return false
       }
       // A project that another tab has open is not ours to delete.
@@ -1154,11 +1248,7 @@ export class ProjectStorage {
 
   /** Import: the user picks a `.faulkpack`; its project is kept in the browser's storage and opened. Call straight from a click. */
   async importPack(): Promise<boolean> {
-    // A file chooser opens only from a click: an agent that runs the command is told so, instead of waiting for a dialog that never comes.
-    if (typeof navigator !== 'undefined' && navigator.userActivation && !navigator.userActivation.isActive) {
-      this.notice = 'storage.needsClick'
-      return false
-    }
+    if (this.needsGesture()) return false
     const file = await this.deps.pickPack()
     if (!file) return false
     return this.enqueue(() => this.importFile(file))

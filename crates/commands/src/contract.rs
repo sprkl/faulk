@@ -104,6 +104,41 @@ pub struct Context {
     /// What a later save needs of the folder `project.open` last read (SV-2): set by the
     /// command, taken by the host that keeps saving into that folder.
     pub opened: Option<OpenedFolder>,
+    /// The projects the host keeps, staged for `project.list_stored` (#323): taken by the
+    /// command, so a list serves one answer and a later one never shows an old list.
+    pub stored: Option<StoredProjects>,
+}
+
+/// The projects a host can open, as it lists them: what `project.list_stored` answers and the
+/// names `project.open_recent`, `project.open_browser_project` and
+/// `project.delete_browser_project` take.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoredProjects {
+    /// The folders opened recently, newest first.
+    pub recent: Vec<StoredFolder>,
+    /// The projects kept in the browser's own storage, newest first.
+    pub browser: Vec<StoredBrowserProject>,
+}
+
+/// A folder opened recently.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoredFolder {
+    /// What `project.open_recent` takes.
+    pub id: String,
+    /// The folder's name.
+    pub name: String,
+}
+
+/// A project kept in the browser's own storage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoredBrowserProject {
+    /// What `project.open_browser_project` and `project.delete_browser_project` take.
+    pub dir: String,
+    /// The project's name.
+    pub name: String,
 }
 
 /// What a save into a folder that was opened needs to know of it: the hash of each file as
@@ -169,6 +204,7 @@ impl Context {
             engine: EngineSlots::default(),
             folder: None,
             opened: None,
+            stored: None,
         }
     }
 }

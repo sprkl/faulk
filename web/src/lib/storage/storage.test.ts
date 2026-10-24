@@ -95,6 +95,7 @@ class FakeStore implements ProjectStore {
 
 /** The core, reduced to its revision counter: `save` gives one file, `project.json`, that carries the revision. */
 class FakeHost implements ProjectHost {
+  prepare?: () => Promise<void>
   revision = 0
   clean = 0
   pending = 0
@@ -321,6 +322,14 @@ function world(): World {
 
 /** Lets promise chains run without moving the clock. */
 const settle = () => vi.advanceTimersByTimeAsync(0)
+
+/** Lets a question the storage asks open, answers it (yes goes ahead), and gives what the action came to. */
+async function settling<T>(w: World, action: Promise<T>, yes: boolean): Promise<T> {
+  await settle()
+  expect(w.storage.confirm).not.toBeNull()
+  w.storage.respond(yes)
+  return action
+}
 
 /** A world whose project was saved as into a folder called `name`. */
 async function saved(name = 'song') {
@@ -843,7 +852,7 @@ describe('the folder is edited from outside', () => {
     await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
     expect(store.files.get('project.json')).toBe('from git')
 
-    expect(await w.storage.keepMine()).toBe(true)
+    expect(await settling(w, w.storage.keepMine(), true)).toBe(true)
     expect(w.host.saves.at(-1)).toBe('rewrite')
     expect(store.files.get('project.json')).toBe('rev 2')
     expect(w.storage.block).toBeNull()
@@ -853,7 +862,7 @@ describe('the folder is edited from outside', () => {
     await w.storage.wake()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.storage.block).toBe('external')
-    expect(await w.storage.loadDisk()).toBe(true)
+    expect(await settling(w, w.storage.loadDisk(), true)).toBe(true)
     expect(w.host.opened.length).toBe(1)
     expect(w.storage.block).toBeNull()
     expect(w.storage.unsaved).toBe(false)
@@ -869,7 +878,7 @@ describe('the folder is edited from outside', () => {
     await w.storage.wake()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.storage.block).toBe('external')
-    expect(await w.storage.keepMine()).toBe(true)
+    expect(await settling(w, w.storage.keepMine(), true)).toBe(true)
     expect([...store.files.keys()].sort()).toEqual(['blobs/audio', 'project.json'])
     expect(store.files.get('project.json')).toBe('rev 2')
   })
@@ -1809,5 +1818,292 @@ describe('helpers', () => {
     expect(projectIdOf([])).toBeNull()
     expect(changedPaths({ a: '1', b: '2' }, { a: '1', b: '3', c: '1' }).sort()).toEqual(['b', 'c'])
     expect(changedPaths({ a: '1' }, {})).toEqual(['a'])
+  })
+})
+
+// ---------------------------------------------------------------------- #323: commands for the storage actions
+
+/** A page whose click has gone: the browser would refuse a prompt or a chooser. */
+const withoutClick = () => vi.stubGlobal('navigator', { userActivation: { isActive: false } })
+const withClick = () => vi.stubGlobal('navigator', { userActivation: { isActive: true } })
+
+describe('the way out of a conflict, whoever asks', () => {
+  async function conflict() {
+    const { w, store } = await saved()
+    w.edit()
+    store.edit('project.json', 'from git')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBe('external')
+    return { w, store }
+  }
+
+  it('does nothing, and says so, when the folder is not in conflict', async () => {
+    const { w, store } = await saved()
+    w.edit()
+    const writes = w.host.saves.length
+    expect(await w.storage.keepMine()).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+    expect(await w.storage.loadDisk()).toBe(false)
+    // No question was asked, nothing was written over the folder, nothing was reloaded.
+    expect(w.storage.confirm).toBeNull()
+    expect(w.host.saves.length).toBe(writes)
+    expect(w.host.opened).toEqual([])
+    expect(store.files.get('project.json')).toBe('rev 1')
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('has no project to settle before any is open', async () => {
+    const w = world()
+    expect(await w.storage.keepMine()).toBe(false)
+    expect(await w.storage.loadDisk()).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+  })
+
+  it('asks before Keep mine replaces the folder, and Cancel leaves both versions as they are', async () => {
+    const { w, store } = await conflict()
+    const asking = w.storage.keepMine()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'keepMine', name: 'song' })
+    expect(store.files.get('project.json')).toBe('from git')
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.storage.block).toBe('external')
+    expect(store.files.get('project.json')).toBe('from git')
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('asks before Load replaces the project, and Cancel keeps the changes', async () => {
+    const { w } = await conflict()
+    const asking = w.storage.loadDisk()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'loadFolder', name: 'song' })
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.storage.block).toBe('external')
+    expect(w.host.opened).toEqual([])
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('looks again after the answer: a conflict settled while the question was open is not acted on', async () => {
+    const { w, store } = await conflict()
+    const asking = w.storage.keepMine()
+    await settle()
+    // The conflict went away meanwhile (the user settled it another way).
+    w.storage.block = null
+    w.storage.respond(true)
+    expect(await asking).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+    expect(store.files.get('project.json')).toBe('from git')
+
+    const other = await conflict()
+    const loading = other.w.storage.loadDisk()
+    await settle()
+    other.w.storage.block = null
+    other.w.storage.respond(true)
+    expect(await loading).toBe(false)
+    expect(other.w.host.opened).toEqual([])
+  })
+
+  it('holds the writes of the project while a question is open, and writes once it is answered', async () => {
+    const { w, dir } = await twoInBrowser()
+    const asking = w.storage.deleteBrowserProject(dir)
+    await settle()
+    expect(w.storage.confirm?.action).toBe('delete')
+    // A change made while the question is open waits: nothing is lost, and it is written after.
+    w.edit()
+    const created = w.browser.created.length
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2)
+    expect(w.browser.created.length).toBe(created)
+    expect(w.storage.unsaved).toBe(true)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.browser.created.length).toBe(created + 1)
+    expect(w.host.dirty()).toBe(false)
+  })
+})
+
+/** A draft in the browser, and the page moved on to a new project: the draft is one of the browser's projects, not the open one. */
+async function twoInBrowser() {
+  const made = await drafted()
+  expect(await made.w.storage.newProject()).toBe(true)
+  await made.w.storage.refreshBrowserProjects()
+  return made
+}
+
+describe('the commands that open a project', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function remembered(permission: PermissionState) {
+    const w = world()
+    const handle = handleOf('last')
+    const store = new FakeStore('last')
+    store.files = new Map([['project.json', JSON.stringify({ id: 'abc' })]])
+    w.stores.set(handle, store)
+    w.recents = [{ id: 'last', name: 'last', handle, at: 1 }]
+    w.permission.set(handle, permission)
+    return { w, handle }
+  }
+
+  it('Reopen with nothing to reopen says so and changes nothing', async () => {
+    const w = world()
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.nothingToReopen')
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('a folder whose permission is gone needs a click; with none, nothing is asked of the browser', async () => {
+    const { w, handle } = await remembered('prompt')
+    withoutClick()
+    expect(await w.storage.openRecent('last')).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.permission.get(handle)).toBe('prompt')
+    expect(w.host.opened).toEqual([])
+    withClick()
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+  })
+
+  it('a folder the browser still allows opens without a click', async () => {
+    const { w } = await remembered('granted')
+    withoutClick()
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.notice).toBeNull()
+  })
+
+  it('a folder that is not among the recent ones is refused, after looking at the list again', async () => {
+    const { w } = await remembered('granted')
+    // The list this page read is behind the browser's: it is read again before saying no.
+    w.storage.recent = []
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+
+    const other = await remembered('granted')
+    expect(await other.w.storage.openRecent('nothing-like-it')).toBe(false)
+    expect(other.w.storage.notice).toBe('storage.recentGone')
+    expect(other.w.host.opened).toEqual([])
+  })
+
+  it('the folder picker needs a click, and a refused call leaves the pick for the next one', async () => {
+    const w = world()
+    const picked = handleOf('picked')
+    w.stores.set(picked, Object.assign(new FakeStore('picked'), { files: new Map([['project.json', '{}']]) }))
+    w.picks.push({ status: 'chosen', handle: picked })
+    withoutClick()
+    expect(await w.storage.openFolder()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    // Nothing opened a chooser: the pick was not consumed.
+    expect(w.picks.length).toBe(1)
+    withClick()
+    expect(await w.storage.openFolder()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'picked' })
+  })
+
+  it('opens only a project of the browser’s own list, never a name made up', async () => {
+    const { w, dir } = await twoInBrowser()
+    for (const made of ['../escape', '', 'x/y', `${dir}x`]) {
+      expect(await w.storage.openBrowserProject(made)).toBe(false)
+      expect(w.storage.notice).toBe('storage.browserGone')
+    }
+    expect(w.host.opened).toEqual([])
+    expect(await w.storage.openBrowserProject(dir)).toBe(true)
+    expect(w.storage.place).toBe('browser')
+  })
+
+  it('deletes only a project of the browser’s own list, and never asks about one that is not', async () => {
+    const { w, dir } = await twoInBrowser()
+    // The banner offers a draft that is gone: no question about a nameless project, and the banner goes.
+    w.storage.reopen = { id: 'gone', name: 'Ghost', kind: 'browser' }
+    for (const made of ['gone', '../escape', '']) {
+      expect(await w.storage.deleteBrowserProject(made)).toBe(false)
+      expect(w.storage.confirm).toBeNull()
+      expect(w.storage.notice).toBe('storage.browserGone')
+    }
+    expect(w.storage.reopen).toBeNull()
+    expect(w.browser.removed).toEqual([])
+    expect(w.browser.handles.has(dir)).toBe(true)
+  })
+
+  it('the recent folders and the browser’s projects are read again on demand', async () => {
+    const { w } = await remembered('granted')
+    expect(w.storage.recent).toEqual([])
+    await w.storage.refreshStored()
+    expect(w.storage.recent.map((r) => r.id)).toEqual(['last'])
+    expect(w.storage.browserProjects).toEqual([])
+  })
+})
+
+describe('allow access after the permission is gone', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function paused() {
+    const { w, handle, store } = await saved()
+    w.permission.set(handle, 'prompt')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('permission')
+    return { w, handle, store }
+  }
+
+  it('needs a click: with none the browser is not asked and the changes wait', async () => {
+    const { w, handle, store } = await paused()
+    withoutClick()
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.storage.block).toBe('permission')
+    expect(w.permission.get(handle)).toBe('prompt')
+    expect(store.files.get('project.json')).toBe('rev 1')
+    withClick()
+    expect(await w.storage.resume()).toBe(true)
+    expect(w.storage.block).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('stays paused when the user says no', async () => {
+    const { w } = await paused()
+    w.asked = 'denied'
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.block).toBe('permission')
+  })
+
+  it('does nothing without a project', async () => {
+    const w = world()
+    expect(await w.storage.resume()).toBe(false)
+  })
+})
+
+describe('the core is ready before the first click (#323)', () => {
+  it('a page start makes the project core ahead of any click, and a failure of that is only logged', async () => {
+    const w = world()
+    const prepare = vi.fn(() => Promise.resolve())
+    w.host.prepare = prepare
+    await w.storage.restore()
+    expect(prepare).toHaveBeenCalledTimes(1)
+
+    const failing = world()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    failing.host.prepare = () => Promise.reject(new Error('no wasm'))
+    await failing.storage.restore()
+    await settle()
+    expect(log).toHaveBeenCalled()
+    log.mockRestore()
+  })
+
+  it('allow access gives up when the folder was replaced while the prompt was open', async () => {
+    const { w, handle, store } = await saved()
+    w.permission.set(handle, 'prompt')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('permission')
+    w.deps.askPermission = async () => {
+      // A new project replaces this one while the browser's prompt is open.
+      void w.storage.forgetFolder()
+      await settle()
+      return 'granted'
+    }
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.folder).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 1')
   })
 })
