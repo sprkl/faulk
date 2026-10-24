@@ -534309,6 +534309,70 @@
       "version": 1
     },
     {
+      "kind": "faulk.reverb",
+      "kind_id": 4,
+      "memory_bytes": 597832,
+      "midi_output": null,
+      "name": "Reverb",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0.5,
+          "description": "Size of the room, from 0 to 1: a small room (about 0.3 seconds of reverberation) up to a hall (about 7.5 seconds).",
+          "id": 0,
+          "key": "size",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.05,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0.5,
+          "description": "How fast the high frequencies die in the tail, from 0 to 1: bright and open at 0, dark and soft at 1.",
+          "id": 1,
+          "key": "damping",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.05,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0.01,
+          "description": "Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail.",
+          "id": 2,
+          "key": "predelay",
+          "max": 0.20000000298023224,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.25,
+          "description": "Balance between the dry sound (0) and the reverb (1).",
+          "id": 3,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
+    },
+    {
       "kind": "faulk.compressor",
       "kind_id": 5,
       "memory_bytes": 80,

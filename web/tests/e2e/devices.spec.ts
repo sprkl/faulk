@@ -93,6 +93,27 @@ for (const lang of ['en', 'fr'] as const) {
     for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
 
+    // Reverb (DV-4): inserted from the browser, one control per parameter, a knob moves, removed,
+    // then undone back to the insertion and its removal.
+    await panel.getByRole('button', { name: x.add('Reverb'), exact: true }).click()
+    const reverb = card(page, 'Reverb')
+    await expect(reverb.locator('[data-testid^=param-]')).toHaveCount(4)
+    const size = reverb.getByTestId('param-size').getByRole('slider')
+    const sizeBefore = await size.getAttribute('aria-valuetext')
+    await size.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => size.getAttribute('aria-valuetext')).not.toBe(sizeBefore)
+    await expect(reverb.getByTestId('param-mix').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
+    await reverb.getByRole('button', { name: x.remove('Reverb'), exact: true }).click()
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(reverb).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(size).toHaveAttribute('aria-valuetext', sizeBefore!)
+    await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(reverb).toHaveCount(0)
+
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)

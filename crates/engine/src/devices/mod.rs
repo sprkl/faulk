@@ -11,6 +11,7 @@ pub mod compressor;
 pub mod drums;
 pub mod echo;
 pub mod osc_synth;
+pub mod reverb;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
@@ -33,6 +34,7 @@ pub const REGISTRY: &[Builtin] = &[
     osc_synth::BUILTIN,
     drums::BUILTIN,
     echo::BUILTIN,
+    reverb::BUILTIN,
     compressor::BUILTIN,
 ];
 
