@@ -12,6 +12,7 @@
 
 pub mod contract;
 pub mod engine_msgs;
+pub mod export;
 pub mod host;
 pub(crate) mod macros;
 pub mod testing;

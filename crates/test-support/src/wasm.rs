@@ -12,7 +12,7 @@ use crate::signal::Render;
 
 /// Builds the wasm module in its own target directory, so the build does not wait on
 /// the lock of the `cargo test` that runs the test.
-fn build_wasm() -> PathBuf {
+pub(crate) fn wasm_module() -> PathBuf {
     static BUILT: OnceLock<PathBuf> = OnceLock::new();
     BUILT.get_or_init(build_wasm_once).clone()
 }
@@ -37,7 +37,7 @@ fn build_wasm_once() -> PathBuf {
 /// engine code is the same, the libm may differ. Panics when the module rejected,
 /// skipped or still holds a message at the end.
 pub fn render_wasm(scenario: &Scenario) -> Render {
-    let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
+    let bytes = std::fs::read(wasm_module()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
     let mut store = Store::new(&engine, ());

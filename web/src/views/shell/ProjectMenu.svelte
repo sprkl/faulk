@@ -7,7 +7,7 @@
   import { save, saveAs } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
-  const { ui, storage, project, dispatcher } = useStores()
+  const { ui, storage, project, dispatcher, audioExport } = useStores()
   const t = ui.t
 
   let open = $state(false)
@@ -80,6 +80,10 @@
       </button>
       <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
         {t('project.menu.saveAs')}<kbd>Ctrl+Shift+S</kbd>
+      </button>
+      <hr />
+      <button role="menuitem" disabled={!ready} data-testid="menu-export" onclick={() => choose(() => audioExport.show())}>
+        {t('project.menu.export')}
       </button>
       {#if storage.supported}
         <hr />

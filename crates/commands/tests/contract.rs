@@ -5,6 +5,7 @@
 //! covers, and `examples` are checked by the harness of `commands::testing`.
 
 use ::project::TrackId;
+use commands::export::{ExportBitDepth, ExportRegion};
 use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
 use commands::{
     Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
@@ -51,6 +52,36 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::New {})),
         on(Command::Project(project::Command::Save {})),
         on(Command::Project(project::Command::SaveAs {})),
+        (
+            Command::Project(project::Command::ExportAudio {
+                region: None,
+                bit_depth: None,
+                sample_rate: None,
+                from_bar: None,
+                to_bar: None,
+            }),
+            arrangement_examples::fx().state,
+        ),
+        (
+            Command::Project(project::Command::ExportAudio {
+                region: Some(ExportRegion::Bars),
+                bit_depth: Some(ExportBitDepth::Pcm16),
+                sample_rate: Some(44_100),
+                from_bar: Some(2),
+                to_bar: Some(3),
+            }),
+            arrangement_examples::fx().state,
+        ),
+        (
+            Command::Project(project::Command::ExportAudio {
+                region: Some(ExportRegion::Loop),
+                bit_depth: Some(ExportBitDepth::Float32),
+                sample_rate: Some(96_000),
+                from_bar: None,
+                to_bar: None,
+            }),
+            transport_examples::with_region(),
+        ),
         on(Command::Device(device::Command::SetParam {
             device: f.device.clone(),
             param: "attack".into(),
@@ -376,6 +407,111 @@ fn malformed_commands_are_refused_with_a_useful_message() {
     }
     let unknown = parse(r#"{"type":"song.rename"}"#).unwrap_err();
     assert!(unknown.contains("project, track, device"), "{unknown}");
+}
+
+#[test]
+fn export_audio_refusals_leave_the_state_untouched() {
+    let export = |region, sample_rate, from_bar, to_bar| {
+        Command::Project(project::Command::ExportAudio {
+            region,
+            bit_depth: None,
+            sample_rate,
+            from_bar,
+            to_bar,
+        })
+    };
+    let invalid = |command: &Command, state: &State, field: &str| {
+        let err = check_refusal(command, state, &context()).unwrap();
+        assert!(
+            matches!(err, CommandError::Invalid { field: ref f, .. } if f == field),
+            "{err:?}"
+        );
+    };
+    let arranged = arrangement_examples::fx().state;
+    // Nothing in the arrangement: nothing to render, for the song and for bars.
+    invalid(&export(None, None, None, None), &state(), "region");
+    invalid(
+        &export(Some(ExportRegion::Bars), None, Some(1), Some(2)),
+        &state(),
+        "from_bar",
+    );
+    // The loop region of the loop's export has to exist.
+    invalid(
+        &export(Some(ExportRegion::Loop), None, None, None),
+        &arranged,
+        "region",
+    );
+    // A sample rate a file cannot have.
+    for rate in [0, 8_000, 48_001, 192_000] {
+        invalid(
+            &export(None, Some(rate), None, None),
+            &arranged,
+            "sample_rate",
+        );
+    }
+    // The three rates a file can have.
+    for rate in [44_100, 48_000, 96_000] {
+        check(&export(None, Some(rate), None, None), &arranged, &context()).unwrap();
+    }
+    // Bars: both or neither, in order, counted from 1, and with the bars region only.
+    let bars = |from, to| export(Some(ExportRegion::Bars), None, from, to);
+    invalid(&bars(None, None), &arranged, "from_bar");
+    invalid(&bars(Some(2), None), &arranged, "from_bar");
+    invalid(&bars(Some(0), Some(2)), &arranged, "from_bar");
+    invalid(&bars(Some(3), Some(2)), &arranged, "to_bar");
+    invalid(&export(None, None, Some(1), Some(2)), &arranged, "region");
+    invalid(
+        &export(Some(ExportRegion::Loop), None, Some(1), Some(2)),
+        &arranged,
+        "region",
+    );
+    // The fixture's arrangement ends in bar 3 (11 520 ticks): from bar 4 there is nothing.
+    invalid(&bars(Some(4), Some(5)), &arranged, "from_bar");
+    check(&bars(Some(3), Some(9)), &arranged, &context()).unwrap();
+    check(&bars(Some(1), Some(1)), &arranged, &context()).unwrap();
+    // A bar so far that the export would last for days is a limit, not a failure to encode.
+    let err = check_refusal(&bars(Some(1), Some(u32::MAX)), &arranged, &context()).unwrap();
+    assert_eq!(err.code(), "limit");
+}
+
+#[test]
+fn an_export_of_more_than_thirty_minutes_is_a_limit_not_a_bug_of_the_caller() {
+    // 1 000 bars at 120 BPM in 4/4 are 2 000 s: more than the 1 800 s the export takes.
+    let arranged = arrangement_examples::fx().state;
+    let command = Command::Project(project::Command::ExportAudio {
+        region: Some(ExportRegion::Bars),
+        bit_depth: None,
+        sample_rate: None,
+        from_bar: Some(1),
+        to_bar: Some(1_000),
+    });
+    let mut long = arranged.clone();
+    // The arrangement reaches that far (a placement is only a clip and its extent).
+    let track = long.project.tracks.values_mut().next().unwrap();
+    let placement = track.placements.values_mut().next().unwrap().clone();
+    let far = ::project::Placement {
+        start: ::project::Tick(1_000 * 3840 - 960),
+        ..placement
+    };
+    track.placements.insert(
+        ::project::PlacementId::generate(&mut ::project::IdGenerator::new(1, 7)),
+        far,
+    );
+    let err = check_refusal(&command, &long, &context()).unwrap();
+    assert!(
+        matches!(err, CommandError::Limit { ref entity, max } if entity == "export seconds" && max == 1_800),
+        "{err:?}"
+    );
+    assert_eq!(err.code(), "limit");
+    // 900 bars are 1 800 s: the longest one that goes.
+    let ok = Command::Project(project::Command::ExportAudio {
+        region: Some(ExportRegion::Bars),
+        bit_depth: None,
+        sample_rate: None,
+        from_bar: Some(1),
+        to_bar: Some(900),
+    });
+    check(&ok, &long, &context()).unwrap();
 }
 
 #[test]

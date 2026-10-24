@@ -963,3 +963,35 @@ fn a_new_project_has_its_own_identity_and_no_folder() {
     let all = h.paths(2);
     assert!(all.len() > 3, "a new project writes everything: {all:?}");
 }
+
+// ---------------------------------------------------------------- the export (#297)
+
+#[test]
+fn an_export_job_is_refused_on_an_empty_arrangement_and_ready_on_a_clip() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let (report, engine) = h.call("{}", pw_export_job);
+    assert_eq!(report["status"], "refused", "{report}");
+    assert_eq!(report["error"]["code"], "invalid");
+    assert!(engine.is_empty());
+    h.apply(json!({"type": "clip.create", "track": SYNTH_TRACK, "at": {"at": "arrangement", "start": 0}, "length": 3840}));
+    let (report, engine) = h.call(
+        r#"{"bit_depth":"pcm16","sample_rate":44100}"#,
+        pw_export_job,
+    );
+    assert_eq!(report["status"], "ready", "{report}");
+    assert_eq!(
+        report["plan"]["body_frames"],
+        2 * 44_100,
+        "one bar at 120 BPM"
+    );
+    let setup = report["setup_len"].as_u64().unwrap() as usize;
+    assert!(
+        setup > 0 && setup < engine.len(),
+        "the stop stream follows the setup"
+    );
+    // A request that is not one is refused.
+    let (report, _) = h.call(r#"{"sample_rate":1}"#, pw_export_job);
+    assert_eq!(report["status"], "refused");
+    let (report, _) = h.call(r#"{"colour":1}"#, pw_export_job);
+    assert_eq!(report["status"], "refused");
+}
