@@ -30758,7 +30758,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes, not in the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
+                  "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(the next name, \"Clip 2\" gives \"Clip 3\"; same colour, length, loop and notes; not\nin the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
                   "properties": {
                     "by": {
                       "anyOf": [
@@ -31011,7 +31011,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters). Undo: `clip.delete`.",
+                  "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters): without one the clip gets the\nnext default name, \"Clip n\" with n the first number no clip of the project has; it\nis stored and never changes when other clips move, are copied or deleted. Undo:\n`clip.delete`.",
                   "properties": {
                     "at": {
                       "$ref": "#/$defs/ClipTarget"
@@ -31109,7 +31109,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: the next name (\"Clip 2\" gives\n\"Clip 3\", the first number not taken in the project; \"Bass\" gives \"Bass 2\"), same\ncolour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -31191,7 +31191,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name clears it. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -33739,7 +33739,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content, each with the next name (\"Clip 2\" gives \"Clip 3\").\n`name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
@@ -36151,7 +36151,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes, not in the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
+                  "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(the next name, \"Clip 2\" gives \"Clip 3\"; same colour, length, loop and notes; not\nin the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
                   "properties": {
                     "by": {
                       "anyOf": [
@@ -36404,7 +36404,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters). Undo: `clip.delete`.",
+                  "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters): without one the clip gets the\nnext default name, \"Clip n\" with n the first number no clip of the project has; it\nis stored and never changes when other clips move, are copied or deleted. Undo:\n`clip.delete`.",
                   "properties": {
                     "at": {
                       "$ref": "#/$defs/ClipTarget"
@@ -36502,7 +36502,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy a MIDI clip into a new, independent clip: same name, colour, length, loop\nand notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
+                  "description": "Copy a MIDI clip into a new, independent clip: the next name (\"Clip 2\" gives\n\"Clip 3\", the first number not taken in the project; \"Bass\" gives \"Bass 2\"), same\ncolour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -36584,7 +36584,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name clears it. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -39132,7 +39132,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content. `name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
+                  "description": "Duplicate a track right after the source (after any track that shares its order\nkey), with new identifiers for the track, its\ndevices, clips, placements and automation lanes. The clips are new, independent\nclips with the same content, each with the next name (\"Clip 2\" gives \"Clip 3\").\n`name` is optional (trimmed, at most 200\ncharacters): the copy has the source's name by default. The copy is never muted\n(volume and pan are copied); solo and arming are session state of the source and\nare not copied. Refused with `limit` at\nthe safety limit of tracks, notes or automation points. Undo: `track.delete` of\nthe copy.",
                   "properties": {
                     "name": {
                       "type": [
