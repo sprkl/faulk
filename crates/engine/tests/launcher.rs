@@ -320,13 +320,30 @@ fn grid(r: &Rig) -> Vec<(u32, u16, ClipState)> {
     for t in 0..8 {
         assert!(cells.iter().filter(|c| c.0 == t).count() <= 2, "{cells:?}");
     }
+    // The tracks the grid holds without a clip are in no cell: `held`.
+    cells.retain(|c| c.2 != ClipState::Held);
     cells
+}
+
+/// The tracks the engine reports as held by the grid without a clip playing.
+fn reported_held(r: &Rig) -> Vec<u32> {
+    let mut tracks = Vec::new();
+    r.e.active_clips(|c: ActiveClip| {
+        if c.state == ClipState::Held {
+            tracks.push(c.track.0);
+        }
+    });
+    tracks
 }
 
 /// The anchor each reported cell carries, as (scene, state, anchor tick).
 fn anchors(r: &Rig) -> Vec<(u16, ClipState, i64)> {
     let mut cells = Vec::new();
-    r.e.active_clips(|c: ActiveClip| cells.push((c.scene.0, c.state, c.anchor.0)));
+    r.e.active_clips(|c: ActiveClip| {
+        if c.state != ClipState::Held {
+            cells.push((c.scene.0, c.state, c.anchor.0));
+        }
+    });
     cells
 }
 
@@ -655,6 +672,36 @@ fn back_to_arrangement_releases_the_clips_at_once_and_drops_the_pending_launches
     );
     assert_nothing_held(0);
     assert_nothing_held(1);
+}
+
+#[test]
+fn a_track_the_grid_holds_without_a_clip_is_reported_held_until_back_to_arrangement() {
+    let mut r = Rig::new(48_000, 2, Quantize::None);
+    r.send(&[drone(0, LONG, 60), slot(0, 0, 0), M::Play { from: Tick(0) }]);
+    r.run(2_000, 128);
+    assert!(
+        reported_held(&r).is_empty(),
+        "nothing launched: both tracks follow their timeline"
+    );
+    r.send(&[launch(0, 0)]);
+    r.run(2_000, 128);
+    assert!(
+        reported_held(&r).is_empty(),
+        "a track that plays a clip says so by that clip"
+    );
+    r.send(&[M::StopTrack {
+        track: TrackSlot(0),
+    }]);
+    r.run(2_000, 128);
+    assert_eq!(
+        reported_held(&r),
+        vec![0],
+        "silent, held by the grid, in no cell"
+    );
+    assert!(grid(&r).is_empty());
+    r.send(&[M::BackToArrangement]);
+    r.run(2_000, 128);
+    assert!(reported_held(&r).is_empty());
 }
 
 #[test]

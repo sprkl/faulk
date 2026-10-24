@@ -18,6 +18,9 @@ export const arrangement = defineFeature(
     'arrangement.count': '{n} clips',
     'arrangement.selected': '{n} selected',
     'arrangement.lane': 'Track {name}',
+    'arrangement.offTimeline': 'Plays from the grid, not the timeline',
+    'arrangement.backTrack': 'Back to arrangement',
+    'arrangement.backTrackHint': 'Track {name} plays from the grid: give it back to its timeline.',
     'arrangement.clipDefault': 'Clip',
   },
   {
@@ -35,6 +38,9 @@ export const arrangement = defineFeature(
     'arrangement.count': '{n} clips',
     'arrangement.selected': '{n} sélectionnés',
     'arrangement.lane': 'Piste {name}',
+    'arrangement.offTimeline': 'Joue depuis la grille, pas depuis la timeline',
+    'arrangement.backTrack': 'Revenir à l’arrangement',
+    'arrangement.backTrackHint': 'La piste {name} joue depuis la grille : rends-la à sa timeline.',
     'arrangement.clipDefault': 'Clip',
   },
 )

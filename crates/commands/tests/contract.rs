@@ -108,6 +108,9 @@ fn examples() -> Vec<(Command, State)> {
         })),
         on(Command::Live(live::Command::AllNotesOff {})),
         on(Command::Launch(launch::Command::BackToArrangement {})),
+        on(Command::Launch(launch::Command::BackTrackToArrangement {
+            track: f.track.clone(),
+        })),
         on(Command::Live(live::Command::InputNoteOn {
             note: 60,
             velocity: 100,

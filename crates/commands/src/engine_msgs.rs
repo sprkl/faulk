@@ -158,6 +158,11 @@ pub fn compile(
             }
         }
         Command::Launch(launch::Command::StopAll {}) => out.push(ControlMsg::StopAll),
+        Command::Launch(launch::Command::BackTrackToArrangement { track }) => {
+            if let Some(track) = track_slot(sync, track) {
+                out.push(ControlMsg::BackTrackToArrangement { track });
+            }
+        }
         _ => {}
     }
     // The tracks whose table one `ArrangementChanged` sends at the end of the outcome:

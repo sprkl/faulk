@@ -1035,11 +1035,16 @@ fn a_stop_from_the_grid_silences_the_arrangement_until_back_to_arrangement() {
         vec![(r.at(3840), 60)],
         "the stop ran at the bar line"
     );
-    assert!(grid(&r).is_empty());
+    // The grid holds the track without a clip: reported as held, in no cell.
+    assert_eq!(grid(&r), vec![(0, u16::MAX, ClipState::Held)]);
     // Back to the arrangement in the middle of nothing: the next note plays on its tick.
     r.send(&[M::BackToArrangement]);
     r.run_to(r.at(11_000), 128);
     assert_eq!(ons(0), vec![(0, 60), (r.at(10_000), 62)]);
+    assert!(
+        grid(&r).is_empty(),
+        "a track that follows its arrangement is not reported"
+    );
     assert_nothing_held(0);
 }
 
@@ -1131,6 +1136,66 @@ fn back_to_arrangement_while_the_transport_is_stopped_gives_the_track_back() {
 }
 
 #[test]
+fn back_track_to_arrangement_gives_back_one_track_and_leaves_the_others_held() {
+    let mut r = Rig::new(48_000, 2, Quantize::None);
+    r.send(&[
+        upload(
+            0,
+            LONG,
+            None,
+            vec![
+                note(0, 3000, 60),
+                note(7000, 100, 61),
+                note(10_000, 100, 62),
+            ],
+        ),
+        drone(1, LONG, 70),
+        slot(0, 0, 0),
+        slot(1, 0, 1),
+        arrange(0, vec![placed(0, 0, 0, 0, LONG)]),
+        arrange(1, vec![placed(1, 1, 0, 0, LONG)]),
+        play(0),
+    ]);
+    r.run_to(r.at(500), 128);
+    r.send(&[launch_scene(0)]);
+    r.run_to(r.at(1000), 128);
+    r.send(&[M::StopAll]);
+    r.run_to(r.at(1500), 128);
+    assert_eq!(
+        grid(&r),
+        vec![
+            (0, u16::MAX, ClipState::Held),
+            (1, u16::MAX, ClipState::Held)
+        ]
+    );
+    let before = ons(1).len();
+    r.send(&[M::BackTrackToArrangement {
+        track: TrackSlot(0),
+    }]);
+    r.run_to(r.at(2000), 128);
+    assert_eq!(grid(&r), vec![(1, u16::MAX, ClipState::Held)]);
+    assert!(!r.e.state().track(TrackSlot(0)).unwrap().player.taken());
+    assert!(r.e.state().track(TrackSlot(1)).unwrap().player.taken());
+    // A track that follows its arrangement is left alone.
+    r.send(&[M::BackTrackToArrangement {
+        track: TrackSlot(0),
+    }]);
+    r.run_to(r.at(2500), 128);
+    assert_eq!(grid(&r), vec![(1, u16::MAX, ClipState::Held)]);
+    // The signal: track 0's timeline plays again on its own ticks, track 1 stays silent.
+    r.run_to(r.at(11_000), 128);
+    let on0 = ons(0);
+    assert_eq!(on0[on0.len() - 2..], [(r.at(7000), 61), (r.at(10_000), 62)]);
+    assert_eq!(
+        ons(1).len(),
+        before,
+        "track 1 played its grid clip and nothing since"
+    );
+    assert_nothing_held(0);
+    assert_nothing_held(1);
+}
+
+#[test]
 fn a_scene_launch_and_stop_all_leave_a_track_that_follows_its_arrangement_alone() {
     let mut r = Rig::new(48_000, 2, Quantize::None);
     r.send(&[
@@ -1149,7 +1214,8 @@ fn a_scene_launch_and_stop_all_leave_a_track_that_follows_its_arrangement_alone(
     assert!(offs(0).is_empty(), "the arrangement never stopped");
     assert_eq!(ons(1).len(), 1, "the grid track played its scene");
     assert_eq!(offs(1).len(), 1, "and stopped with StopAll");
-    assert!(grid(&r).is_empty());
+    // Track 1 is held by the grid; track 0 follows its arrangement and is not reported.
+    assert_eq!(grid(&r), vec![(1, u16::MAX, ClipState::Held)]);
 }
 
 /// The same clip in a grid slot and in a placement of one track, 6 000 notes held: the
