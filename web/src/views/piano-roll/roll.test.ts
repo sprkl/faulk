@@ -21,7 +21,12 @@ import {
   resizeNotes,
   shiftVelocity,
   stillApplies,
+  resetVelocities,
   velocityAt,
+  velocityOf,
+  velocityPosition,
+  VELOCITY_HOME,
+  DEFAULT_VELOCITY,
   type Layout,
 } from './roll'
 
@@ -156,6 +161,17 @@ describe('move and resize', () => {
     expect(resizeNotes(group, 9999, 3840).map((c) => c.to.length)).toEqual([2400, 2400])
   })
 
+  it('puts the default velocity back on the chosen notes, as one change, and nothing when they have it', () => {
+    const all = [note(0, 60, 480, 40), note(480, 62, 480, 100), note(960, 64, 480, 127)]
+    expect(resetVelocities(all, all)?.map((c) => c.to.velocity)).toEqual([100, 100])
+    expect(resetVelocities(all, [all[1]!])).toEqual([])
+    expect(resetVelocities(all, [])).toEqual([])
+    // Two stacked notes that differ only in velocity would become one: refused as a whole.
+    const stacked = [note(0, 60, 480, 80), note(0, 60, 480, 110)]
+    expect(resetVelocities(stacked, stacked)).toBeNull()
+    expect(resetVelocities(stacked, [stacked[0]!])?.length).toBe(1)
+  })
+
   it('shifts velocities together inside 1 to 127', () => {
     const pair = [note(0, 60, 480, 120), note(0, 61, 480, 40)]
     expect(shiftVelocity(pair, 5).map((c) => c.to.velocity)).toEqual([125, 45])
@@ -173,6 +189,18 @@ describe('move and resize', () => {
     expect(velocityAt(50, 0, 100)).toBe(64)
     expect(velocityAt(-40, 0, 100)).toBe(127)
     expect(velocityAt(Number.NaN, 0, 100)).toBe(1)
+  })
+
+  it('gives the lane a position for the shared drag, and the velocity back from it', () => {
+    expect(velocityPosition(0, 0, 100)).toBe(1)
+    expect(velocityPosition(100, 0, 100)).toBe(0)
+    expect(velocityPosition(-40, 0, 100)).toBe(1)
+    expect(velocityPosition(25, 0, 100)).toBeCloseTo(0.75, 10)
+    expect(velocityOf(0)).toBe(1)
+    expect(velocityOf(1)).toBe(127)
+    expect(velocityOf(Number.NaN)).toBe(1)
+    // The default velocity is a position the magnet can hold, and comes back exactly.
+    expect(velocityOf(VELOCITY_HOME)).toBe(DEFAULT_VELOCITY)
   })
 })
 

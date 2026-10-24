@@ -131,8 +131,28 @@ test('piano roll: draws, selects, moves, resizes, sets velocity, deletes, sets l
   const laneBox = (await lane(page).boundingBox())!
   const barX = g.x(960) + 1
   await drag(page, { x: barX, y: laneBox.y + 13 }, { x: barX, y: laneBox.y + 28 })
-  await expect.poll(async () => Math.abs((await notes(page))[0]!.velocity - 64)).toBeLessThanOrEqual(1)
+  // 64 would be the height of the pointer; the drag starts at the default velocity, where the magnet holds the value for 2 x 2 px of travel, which is worth about 10 velocity steps here (74).
+  await expect.poll(async () => Math.abs((await notes(page))[0]!.velocity - 74)).toBeLessThanOrEqual(1)
+  expect((await notes(page))[0]!.velocity).toBeLessThan(100)
   const afterVelocity = await notes(page)
+  // A double click on the bar puts the default velocity back, as one history entry: one undo takes it back.
+  await lane(page).dblclick({ position: { x: barX - laneBox.x, y: 20 } })
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(100)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
+  // The fine mode (Ctrl) on the lane: ten times less travel, so the bar stays near where it was grabbed (coarse, it would follow the pointer 20 px down).
+  await page.keyboard.down('Control')
+  await drag(page, { x: barX, y: laneBox.y + 13 }, { x: barX, y: laneBox.y + 33 })
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBeGreaterThan(85)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
+  // The right-click menu does the same.
+  await lane(page).click({ button: 'right', position: { x: barX - laneBox.x, y: 20 } })
+  await page.getByTestId('value-menu-default').click()
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(100)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
 
   // Delete: Delete removes the selected note, undo brings it back.
   await page.mouse.click(g.x(2500), g.y(62))

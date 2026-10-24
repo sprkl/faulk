@@ -37,7 +37,7 @@ describe('computer keyboard', () => {
   it('keeps playing while a knob, button, radio or checkbox has the focus', () => {
     const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false }
     const box = document.createElement('div')
-    box.innerHTML = '<input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
+    box.innerHTML = '<div role="slider" tabindex="0"></div><input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
     for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
   })
 })
@@ -112,12 +112,15 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     }) as Record<string, string>
     const handlers: Record<string, string[]> = {}
     for (const [file, text] of Object.entries(sources)) {
-      if (!/\bon(keydown|keyup)\b|addEventListener\(\s*'key(down|up)'/.test(text)) continue
+      if (!/\bon(keydown|keyup)\b|addEventListener\(\s*'key(down|up)'|export function keyAction\b/.test(text)) continue
       // Every literal a handler compares a key or a code with: `=== 'x'`, `!== 'x'`, `case 'x':`.
-      const reads = [...text.matchAll(/(?:\.(?:key|code)\s*[!=]==\s*|bcase\s+)'([^']+)'/g)].map((m) => m[1]!)
+      const reads = [...text.matchAll(/(?:\.(?:key|code)\s*[!=]==\s*|\bcase\s+)'([^']+)'/g)].map((m) => m[1]!)
       handlers[file.replace('/src/', '')] = reads.sort()
     }
     expect(handlers).toEqual({
+      'lib/components/Slider.svelte': [],
+      'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
+      'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'],
       'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],

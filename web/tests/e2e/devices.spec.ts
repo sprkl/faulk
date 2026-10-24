@@ -37,12 +37,12 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(osc.getByTestId('device-left')).toHaveCount(0)
     await expect(panel.getByTestId('browse-no-effects')).toHaveCount(0)
     // The tooltip of a parameter is its description, in the page's language.
-    await expect(osc.getByTestId('param-gain').locator('label')).toHaveAttribute('title', x.hint)
+    await expect(osc.getByTestId('param-gain').locator('.knob').first()).toHaveAttribute('title', x.hint)
 
     // A choice and a knob reach the project.
     await osc.getByRole('radio', { name: lang === 'en' ? 'Square' : 'Carré' }).click()
     await expect(osc.getByRole('radio', { name: lang === 'en' ? 'Square' : 'Carré' })).toHaveAttribute('aria-checked', 'true')
-    const attack = osc.getByTestId('param-attack').locator('input')
+    const attack = osc.getByTestId('param-attack').getByRole('slider')
     const before = await attack.getAttribute('aria-valuetext')
 
     // A drag of a knob is one history entry: one undo takes it back whole.
@@ -78,7 +78,7 @@ for (const lang of ['en', 'fr'] as const) {
     const quarter = echo.getByRole('radio', { name: '1/4', exact: true })
     await quarter.click()
     await expect(quarter).toHaveAttribute('aria-checked', 'true')
-    await expect(echo.getByTestId('param-feedback').locator('input')).toHaveAttribute('aria-valuetext', /%/)
+    await expect(echo.getByTestId('param-feedback').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
     await expect(echo.getByTestId('param-division').getByRole('radio')).toHaveCount(10)
     const echoBypass = echo.getByRole('button', { name: x.bypass('Echo'), exact: true })
     await echoBypass.click()
@@ -106,9 +106,9 @@ for (const lang of ['en', 'fr'] as const) {
     await addTrack(page, 'Drums')
     const kit = card(page, 'Drums')
     await expect(kit.locator('[data-testid^=param-]')).toHaveCount(16)
-    const tune = kit.getByTestId('param-kick_tune').locator('input')
+    const tune = kit.getByTestId('param-kick_tune').getByRole('slider')
     const tuneBefore = await tune.getAttribute('aria-valuetext')
-    await tune.fill('0.9')
+    await tune.press('End')
     await expect.poll(() => tune.getAttribute('aria-valuetext')).not.toBe(tuneBefore)
 
     // Nothing sticks out sideways.

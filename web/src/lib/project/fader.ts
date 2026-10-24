@@ -1,4 +1,4 @@
-import { MAX_GAIN_DB, MIN_GAIN_DB } from '../../lib/project/tracks'
+import { MAX_GAIN_DB, MIN_GAIN_DB } from './tracks'
 
 /**
  * The fader's taper: a position from 0 (bottom) to 1 (top) and the gain in dB it stands for.
