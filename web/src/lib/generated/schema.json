@@ -31574,6 +31574,64 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    "linked": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "type": {
+                      "const": "arrangement.place_from_slot",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip",
+                    "start"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every MIDI clip of the scene is placed on its own track at\nthe same tick `start`, as a copy (default) or linked to the grid clip. Empty slots\nplace nothing; audio clips are skipped. Refused when the scene has no MIDI clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+                  "properties": {
+                    "linked": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "type": {
+                      "const": "arrangement.place_scene",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "scene",
+                    "start"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). Undo: the restore of what it changed.",
                   "properties": {
                     "edits": {
@@ -35049,6 +35107,92 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "clip": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/ClipId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The independent copy created (none when `linked`)."
+                    },
+                    "clips_removed": {
+                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "overwritten": {
+                      "description": "How many other placements were carved.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "placement": {
+                      "$ref": "#/$defs/PlacementId",
+                      "description": "The new placement."
+                    },
+                    "type": {
+                      "const": "arrangement.place_from_slot",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "placement",
+                    "overwritten",
+                    "clips_removed"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clips": {
+                      "description": "The independent copies created (none when `linked`).",
+                      "items": {
+                        "$ref": "#/$defs/ClipId"
+                      },
+                      "type": "array"
+                    },
+                    "clips_removed": {
+                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "overwritten": {
+                      "description": "How many other placements were carved.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "placements": {
+                      "description": "The new placements, in the order of the tracks.",
+                      "items": {
+                        "$ref": "#/$defs/PlacementId"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "arrangement.place_scene",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "placements",
+                    "clips",
+                    "overwritten",
+                    "clips_removed"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
                     "type": {
                       "const": "arrangement.restore",
                       "type": "string"
@@ -36959,6 +37103,64 @@
                   "required": [
                     "type",
                     "placements"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    "linked": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "type": {
+                      "const": "arrangement.place_from_slot",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip",
+                    "start"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every MIDI clip of the scene is placed on its own track at\nthe same tick `start`, as a copy (default) or linked to the grid clip. Empty slots\nplace nothing; audio clips are skipped. Refused when the scene has no MIDI clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+                  "properties": {
+                    "linked": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    "type": {
+                      "const": "arrangement.place_scene",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "scene",
+                    "start"
                   ],
                   "type": "object",
                   "x-destructive": false,
@@ -40427,6 +40629,92 @@
                     },
                     "type": {
                       "const": "arrangement.duplicate",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "placements",
+                    "clips",
+                    "overwritten",
+                    "clips_removed"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clip": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/ClipId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The independent copy created (none when `linked`)."
+                    },
+                    "clips_removed": {
+                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "overwritten": {
+                      "description": "How many other placements were carved.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "placement": {
+                      "$ref": "#/$defs/PlacementId",
+                      "description": "The new placement."
+                    },
+                    "type": {
+                      "const": "arrangement.place_from_slot",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "placement",
+                    "overwritten",
+                    "clips_removed"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clips": {
+                      "description": "The independent copies created (none when `linked`).",
+                      "items": {
+                        "$ref": "#/$defs/ClipId"
+                      },
+                      "type": "array"
+                    },
+                    "clips_removed": {
+                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "overwritten": {
+                      "description": "How many other placements were carved.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "placements": {
+                      "description": "The new placements, in the order of the tracks.",
+                      "items": {
+                        "$ref": "#/$defs/PlacementId"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "arrangement.place_scene",
                       "type": "string"
                     }
                   },
@@ -322459,6 +322747,40 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Export the project as a `.faulkpack`, a zip of its folder that any Faulk reads back,\nand hand it to the user as a download. It holds the project as it is now, saved or\nnot, and the media the project refers to. This is how a project kept in the browser\n(no folder chosen) is backed up or moved. Changes nothing in the project, so it never\nenters the history.",
+                  "properties": {
+                    "type": {
+                      "const": "project.export_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Open a `.faulkpack` the user chooses: its project replaces the current one and is kept\nin the browser as a new project of its own (an import never overwrites a project that\nis already there). A file is chosen by the user (a browser needs a click for it), so\nan agent that is not driven by one gets a notice in the page instead. A file that is\nnot a valid pack is refused with the reason and nothing changes. The history of the\nreplaced project is gone; the page asks first when that project has changes that are\nnot kept anywhere.",
+                  "properties": {
+                    "type": {
+                      "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. It is refused when there is nothing to render\n(empty arrangement, no loop region for `loop`, a `bars` range that starts after the\nend of the arrangement or is out of order) or the range lasts more than 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
                   "properties": {
                     "bit_depth": {
@@ -324903,6 +325225,32 @@
                   "properties": {
                     "type": {
                       "const": "project.save_as",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.export_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.import_pack",
                       "type": "string"
                     }
                   },
@@ -327982,6 +328330,40 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Export the project as a `.faulkpack`, a zip of its folder that any Faulk reads back,\nand hand it to the user as a download. It holds the project as it is now, saved or\nnot, and the media the project refers to. This is how a project kept in the browser\n(no folder chosen) is backed up or moved. Changes nothing in the project, so it never\nenters the history.",
+                  "properties": {
+                    "type": {
+                      "const": "project.export_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Open a `.faulkpack` the user chooses: its project replaces the current one and is kept\nin the browser as a new project of its own (an import never overwrites a project that\nis already there). A file is chosen by the user (a browser needs a click for it), so\nan agent that is not driven by one gets a notice in the page instead. A file that is\nnot a valid pack is refused with the reason and nothing changes. The history of the\nreplaced project is gone; the page asks first when that project has changes that are\nnot kept anywhere.",
+                  "properties": {
+                    "type": {
+                      "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. It is refused when there is nothing to render\n(empty arrangement, no loop region for `loop`, a `bars` range that starts after the\nend of the arrangement or is out of order) or the range lasts more than 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
                   "properties": {
                     "bit_depth": {
@@ -330426,6 +330808,32 @@
                   "properties": {
                     "type": {
                       "const": "project.save_as",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.export_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.import_pack",
                       "type": "string"
                     }
                   },
