@@ -4,7 +4,7 @@ import type { FeedbackReport } from '../../lib/engine/feedback'
 import type { Clip, ProjectView } from '../../lib/generated/protocol'
 import { messages } from '../../lib/i18n'
 import { createStores, storesContext } from '../../lib/stores'
-import { activeCells, activeSignature, cellClips, clipCounts, sortedScenes, visibleRange } from './cells'
+import { activeCells, activeSignature, cellClips, clipCounts, clipHomes, clipNumbers, sortedScenes, visibleRange } from './cells'
 import GridView from './GridView.svelte'
 
 const midi = (name = ''): Clip => ({ name, slot: null, content: { midi: { length: 7680, notes: [] } } }) as unknown as Clip
@@ -42,6 +42,16 @@ describe('the cells of the grid', () => {
     expect(cells.get('t1|s1')).toMatchObject({ id: 'c1', launchable: true })
     expect(cells.get('t2|s1')).toMatchObject({ id: 'c3', launchable: false })
     expect(Object.fromEntries(clipCounts(cells))).toEqual({ s1: 2, s2: 1 })
+  })
+
+  it('numbers the clips of a track as the piano roll does, and finds where each one sits', () => {
+    const project = view().project
+    // c0 is in the arrangement only and has no placement here: the roll orders by first placement, then by id.
+    expect(Object.fromEntries(clipNumbers(project))).toEqual({ c0: 1, c1: 2, c2: 3 })
+    const homes = clipHomes(cellClips(project))
+    expect(homes.get('c2')).toMatchObject({ track: 't1', scene: 's2' })
+    expect(homes.get('c3')).toMatchObject({ track: 't2', scene: 's1' })
+    expect(homes.has('c0')).toBe(false)
   })
 
   it('reads the report by slots, back into ids', () => {
@@ -130,6 +140,8 @@ describe('what the grid shows', () => {
     expect(body).toContain('Vox, Intro: Clip, audio clip, cannot be launched yet')
     expect(body).toContain('Vox, Scene 2: empty')
     expect(body).toContain('Bass, Intro: Riff, stopped')
+    expect(body).toContain('Bass, Scene 2: Clip 3, stopped')
+    expect(html({ lang: 'fr' })).toContain('Bass, Scène 2 : Clip 3, à l’arrêt')
   })
 
   it('gives every state a glyph of its own, besides its colour and its words', () => {

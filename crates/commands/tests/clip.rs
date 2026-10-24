@@ -345,6 +345,7 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
         &c(clip::Command::Duplicate {
             clip: f.clip.clone(),
             slot: Some(f.scene_free.clone()),
+            track: None,
         }),
         &mut state,
         &mut context(),
@@ -374,10 +375,12 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
         clip::Command::Duplicate {
             clip: f.clip.clone(),
             slot: Some(f.scene_a.clone()),
+            track: None,
         },
         clip::Command::Duplicate {
             clip: f.audio_clip.clone(),
             slot: None,
+            track: None,
         },
         clip::Command::Delete {
             clip: f.audio_clip.clone(),
@@ -1060,6 +1063,7 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
         clip::Command::Duplicate {
             clip: ghost.clone(),
             slot: None,
+            track: None,
         },
         clip::Command::Rename {
             clip: ghost.clone(),
@@ -1127,6 +1131,7 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
     let into_ghost = clip::Command::Duplicate {
         clip: f.clip.clone(),
         slot: Some(ghost_scene),
+        track: None,
     };
     assert_eq!(refused(&f, into_ghost).code(), "not_found");
     // A bad name or length in a snapshot.
@@ -1196,6 +1201,7 @@ fn the_clips_and_placements_per_track_limits_refuse_with_a_limit_error() {
     let duplicate = c(clip::Command::Duplicate {
         clip: f.clip.clone(),
         slot: None,
+        track: None,
     });
     for command in [&create, &duplicate] {
         let err = check_refusal(command, &state, &context()).unwrap();
@@ -1236,6 +1242,7 @@ fn duplicate_without_a_slot_takes_the_next_free_one_below_or_is_refused() {
     let dup = c(clip::Command::Duplicate {
         clip: f.clip.clone(),
         slot: None,
+        track: None,
     });
     check(&dup, &f.state, &context()).unwrap();
     let mut state = f.state.clone();
@@ -1255,6 +1262,7 @@ fn duplicate_without_a_slot_takes_the_next_free_one_below_or_is_refused() {
     let last = c(clip::Command::Duplicate {
         clip: copy.clone(),
         slot: None,
+        track: None,
     });
     assert_eq!(
         check_refusal(&last, &state, &context()).unwrap().code(),
@@ -1284,4 +1292,139 @@ fn duplicate_without_a_slot_takes_the_next_free_one_below_or_is_refused() {
         gap.project.tracks[&f.track].clips[&copy].slot,
         Some(f.scene_b.clone())
     );
+}
+
+#[test]
+fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_cannot() {
+    let f = fx();
+    let (two, other) = clip_examples::with_other_track(&f);
+    let ghost_scene = {
+        let mut ids = ::project::IdGenerator::new(1_680_000_000_000, 9);
+        ::project::SceneId::generate(&mut ids)
+    };
+    let mv = |clip: &::project::ClipId,
+              track: Option<&::project::TrackId>,
+              slot: Option<&::project::SceneId>| {
+        c(clip::Command::Move {
+            clip: clip.clone(),
+            track: track.cloned(),
+            slot: slot.cloned(),
+        })
+    };
+    // Same track, free slot: the clip keeps its identifier and its content.
+    let mut state = two.clone();
+    let before = state.project.tracks[&f.track].clips[&f.clip].clone();
+    let out = run(
+        &mv(&f.clip, None, Some(&f.scene_free)),
+        &mut state,
+        &mut context(),
+    )
+    .unwrap();
+    let Output::Clip(clip::Output::Move {
+        previous_track,
+        previous_slot,
+    }) = out.output
+    else {
+        panic!("not a move output")
+    };
+    assert_eq!(previous_track, f.track);
+    assert_eq!(previous_slot, Some(f.scene_a.clone()));
+    let moved = &state.project.tracks[&f.track].clips[&f.clip];
+    assert_eq!(moved.slot, Some(f.scene_free.clone()));
+    assert_eq!(moved.content, before.content);
+    assert_eq!(moved.name, before.name);
+    // The engine hears the clip leave and come back (a playing clip stops).
+    assert!(matches!(out.events[0], ProjectEvent::ClipDeleted { .. }));
+    assert!(matches!(out.events[1], ProjectEvent::ClipCreated { .. }));
+    // Across tracks: the clip leaves the first track for the other one.
+    let mut state = two.clone();
+    run(
+        &mv(&f.clip, Some(&other), Some(&f.scene_a)),
+        &mut state,
+        &mut context(),
+    )
+    .unwrap();
+    assert!(!state.project.tracks[&f.track].clips.contains_key(&f.clip));
+    assert_eq!(
+        state.project.tracks[&other].clips[&f.clip].slot,
+        Some(f.scene_a.clone())
+    );
+    state.project.validate().unwrap();
+    // A move that changes nothing leaves no history entry.
+    let mut state = two.clone();
+    let out = run(
+        &mv(&f.clip, None, Some(&f.scene_a)),
+        &mut state,
+        &mut context(),
+    )
+    .unwrap();
+    assert!(matches!(out.undo, Undo::None));
+    assert!(out.events.is_empty());
+    assert_eq!(state, two);
+    // Refusals, each leaving the state intact.
+    let refuse = |command: Command, code: &str| {
+        let err = check_refusal(&command, &two, &context()).unwrap();
+        assert_eq!(err.code(), code, "{err}");
+    };
+    refuse(mv(&f.clip, None, Some(&f.scene_b)), "invalid"); // slot taken
+    refuse(mv(&f.clip, None, Some(&ghost_scene)), "not_found"); // no such scene
+    refuse(mv(&f.clip, None, None), "invalid"); // out of the grid with no placement
+    refuse(mv(&f.placed, Some(&other), Some(&f.scene_free)), "invalid"); // placed clips stay
+    refuse(
+        mv(&f.clip, Some(&f.audio_track), Some(&f.scene_free)),
+        "invalid",
+    ); // audio track
+    refuse(mv(&f.audio_clip, None, Some(&f.scene_free)), "invalid"); // audio clip
+    // Out of the grid is fine for a placed clip, and undo puts it back.
+    let mut state = two.clone();
+    let out = run(&mv(&f.placed, None, None), &mut state, &mut context()).unwrap();
+    assert_eq!(state.project.tracks[&f.track].clips[&f.placed].slot, None);
+    let Undo::Inverse(inverse) = out.undo else {
+        panic!("no inverse")
+    };
+    inverse.apply(&mut state, &mut context()).unwrap();
+    assert_eq!(state.project, two.project);
+}
+
+#[test]
+fn duplicate_into_another_track_copies_the_clip_there_and_the_source_stays() {
+    let f = fx();
+    let (two, other) = clip_examples::with_other_track(&f);
+    let dup = |slot: Option<&::project::SceneId>, track: &::project::TrackId| {
+        c(clip::Command::Duplicate {
+            clip: f.clip.clone(),
+            slot: slot.cloned(),
+            track: Some(track.clone()),
+        })
+    };
+    let mut state = two.clone();
+    let out = run(&dup(Some(&f.scene_a), &other), &mut state, &mut context()).unwrap();
+    let Output::Clip(clip::Output::Duplicate { clip: copy }) = out.output else {
+        panic!("not a duplicate output")
+    };
+    assert_eq!(
+        state.project.tracks[&other].clips[&copy].slot,
+        Some(f.scene_a.clone())
+    );
+    assert_eq!(
+        state.project.tracks[&f.track].clips[&f.clip],
+        two.project.tracks[&f.track].clips[&f.clip]
+    );
+    // Without a slot, the first free one from the top (the other track is empty).
+    let mut state = two.clone();
+    let out = run(&dup(None, &other), &mut state, &mut context()).unwrap();
+    let Output::Clip(clip::Output::Duplicate { clip: copy }) = out.output else {
+        panic!("not a duplicate output")
+    };
+    assert_eq!(
+        state.project.tracks[&other].clips[&copy].slot,
+        Some(f.scene_a.clone())
+    );
+    // Refused: an audio track, a taken slot.
+    let err = check_refusal(&dup(None, &f.audio_track), &two, &context()).unwrap();
+    assert_eq!(err.code(), "invalid");
+    let mut taken = two.clone();
+    run(&dup(Some(&f.scene_a), &other), &mut taken, &mut context()).unwrap();
+    let err = check_refusal(&dup(Some(&f.scene_a), &other), &taken, &context()).unwrap();
+    assert_eq!(err.code(), "invalid");
 }

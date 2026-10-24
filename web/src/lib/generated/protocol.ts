@@ -328,7 +328,16 @@ type: "clip.restore"
  */
 clip: string
 slot?: (string | null)
+track?: (string | null)
 type: "clip.duplicate"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+slot?: (string | null)
+track?: (string | null)
+type: "clip.move"
 } | {
 /**
  * Identifier of a clip.
@@ -847,6 +856,16 @@ type: "clip.restore"
  */
 clip: string
 type: "clip.duplicate"
+} | {
+/**
+ * Its slot before the command.
+ */
+previous_slot?: (string | null)
+/**
+ * Identifier of a track.
+ */
+previous_track: string
+type: "clip.move"
 } | {
 /**
  * The name before the command.
