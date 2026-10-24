@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts` and `reverb.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts` and `compressor.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -47,15 +47,21 @@ export const devices = defineFeature(
     'drums.hat_open_decay.hint': 'How long the open hi-hat rings, in seconds.',
     'drums.hat_level.hint': 'Loudness of the hi-hat, from 0 to 1 (linear gain).',
     'drums.gain.hint': 'Output level of the whole kit, from 0 to 1 (linear gain).',
-    'echo.mode.hint': 'Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).',
-    'echo.time.hint': 'Delay time in free mode, from 1 millisecond to 4 seconds.',
-    'echo.division.hint': 'Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.',
+    'echo.mode.hint': 'Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting). A switch takes effect as time_change says.',
+    'echo.time.hint': 'Delay time in free mode, from 1 millisecond to 4 seconds. A new value takes effect as time_change says.',
+    'echo.division.hint': 'Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds. A new value takes effect as time_change says.',
     'echo.feedback.hint': 'Share of the echo fed back into the delay, from 0 to 0.95: more repeats, each one softer.',
     'echo.mix.hint': 'Balance between the dry sound (0) and the echoes (1).',
+    'echo.time_change.hint': 'What a new time, note value, tempo or mode does while the echo rings. Glide: slides like a tape, pitch of repeats bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once (tempo: next block), may click.',
     'reverb.size.hint': 'Size of the room, from 0 to 1: a small room (about 0.3 seconds of reverberation) up to a hall (about 7.5 seconds).',
     'reverb.damping.hint': 'How fast the high frequencies die in the tail, from 0 to 1: bright and open at 0, dark and soft at 1.',
     'reverb.predelay.hint': 'Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail.',
     'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
+    'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
+    'compressor.ratio.hint': 'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
+    'compressor.attack.hint': 'Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.',
+    'compressor.release.hint': 'Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
+    'compressor.makeup.hint': 'Gain added after the compression to make up for the level it took away, from 0 to 24 dB.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -95,14 +101,20 @@ export const devices = defineFeature(
     'drums.hat_open_decay.hint': 'Durée de résonance du charleston ouvert, en secondes.',
     'drums.hat_level.hint': 'Volume du charleston, de 0 à 1 (gain linéaire).',
     'drums.gain.hint': 'Niveau de sortie de toute la batterie, de 0 à 1 (gain linéaire).',
-    'echo.mode.hint': 'Durée libre (réglage de durée, en secondes) ou calée sur le tempo du projet (réglage de valeur de note).',
-    'echo.time.hint': 'Durée du retard en mode libre, de 1 milliseconde à 4 secondes.',
-    'echo.division.hint': 'Durée du retard en mode au tempo, en valeur de note du tempo du projet : du 1/32 à la ronde, avec triolets (T) et valeurs pointées (.). Au-delà de 4 secondes, la durée est ramenée à 4 secondes.',
+    'echo.mode.hint': 'Durée libre (réglage de durée, en secondes) ou calée sur le tempo du projet (réglage de valeur de note). Un changement de mode agit comme le dit « Au changement ».',
+    'echo.time.hint': 'Durée du retard en mode libre, de 1 milliseconde à 4 secondes. Une nouvelle valeur agit comme le dit « Au changement ».',
+    'echo.division.hint': 'Durée du retard en mode au tempo, en valeur de note du tempo du projet : du 1/32 à la ronde, avec triolets (T) et valeurs pointées (.). Au-delà de 4 secondes, la durée est ramenée à 4 secondes. Une nouvelle valeur agit comme le dit « Au changement ».',
     'echo.feedback.hint': 'Part de l’écho renvoyée dans le retard, de 0 à 0,95 : plus de répétitions, chacune plus faible.',
     'echo.mix.hint': 'Équilibre entre le son direct (0) et les échos (1).',
+    'echo.time_change.hint': 'Ce que fait une nouvelle durée, valeur de note, un nouveau tempo ou mode pendant que l’écho sonne. Glissé : glisse comme une bande, la hauteur des répétitions se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat (tempo : au bloc suivant), peut claquer.',
     'reverb.size.hint': 'Taille de la pièce, de 0 à 1 : d’une petite pièce (environ 0,3 seconde de réverbération) à une grande salle (environ 7,5 secondes).',
     'reverb.damping.hint': 'Vitesse à laquelle les aigus s’éteignent dans la queue, de 0 à 1 : clair et ouvert à 0, sombre et doux à 1.',
     'reverb.predelay.hint': 'Temps entre le son direct et le début de la réverbération, de 0 à 0,2 seconde : plus de place pour entendre le son avant sa queue.',
     'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
+    'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
+    'compressor.ratio.hint': 'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',
+    'compressor.attack.hint': 'Temps que le compresseur met à baisser le son une fois le seuil dépassé, de 0,1 ms à 200 ms : court attrape le début du coup, long le laisse passer.',
+    'compressor.release.hint': 'Temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
+    'compressor.makeup.hint': 'Gain ajouté après la compression pour rattraper le niveau qu’elle a retiré, de 0 à 24 dB.',
   },
 )

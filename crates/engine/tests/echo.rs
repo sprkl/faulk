@@ -12,8 +12,8 @@ use engine::device::{
     Transport, builtin,
 };
 use engine::devices::echo::{
-    self, DESCRIPTOR, DIVISION, DIVISION_BEATS, Echo, FEEDBACK, FEEDBACK_MAX, MAX_DELAY_SECONDS,
-    MIX, MODE, TIME,
+    self, DESCRIPTOR, DIVISION, DIVISION_BEATS, Echo, FADE, FADE_SECONDS, FEEDBACK, FEEDBACK_MAX,
+    GLIDE, JUMP, MAX_DELAY_SECONDS, MIX, MODE, TIME, TIME_CHANGE,
 };
 use engine::msg::ParamId;
 use engine::time::Tempo;
@@ -620,7 +620,10 @@ fn the_descriptor_is_a_valid_effect_with_a_safe_range() {
         Some("faulk.echo")
     );
     let keys: Vec<_> = DESCRIPTOR.params.iter().map(|p| p.key).collect();
-    assert_eq!(keys, ["mode", "time", "division", "feedback", "mix"]);
+    assert_eq!(
+        keys,
+        ["mode", "time", "division", "feedback", "mix", "time_change"]
+    );
     // Defaults: the values `Echo::new` starts with (a device built and one set to every
     // default behave alike).
     let input = noise(5_000);
@@ -733,4 +736,405 @@ fn the_lines_are_allocated_by_the_factory_and_process_allocates_nothing() {
     )
     .0;
     check(&out);
+}
+
+// ---------------------------------------------------------------- the time-change setting
+
+/// FNV-1a over the bit patterns of a render.
+fn fingerprint(x: &[f32]) -> u64 {
+    x.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, s| {
+        (h ^ u64::from(s.to_bits())).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+fn param_event(at: usize, id: u32, value: f32) -> (usize, Event) {
+    (
+        at,
+        Event::ParamValue {
+            offset: 0,
+            id: ParamId(id),
+            value,
+        },
+    )
+}
+
+/// A phrase through a free then a synced echo with new times, a change of mode and a tempo
+/// move: every way the delay can move.
+fn glide_phrase(extra: &[(u32, f32)]) -> Vec<f32> {
+    let input = noise(4 * SR as usize);
+    let mut e = with(SR, &[(MODE, 0.0), (TIME, 0.3), (MIX, 0.5), (FEEDBACK, 0.6)]);
+    for (id, value) in extra {
+        set(&mut e, *id, *value);
+    }
+    let at = |s: f32| (s * SR) as usize;
+    let events = [
+        param_event(at(0.5), TIME, 0.45),
+        param_event(at(1.0), TIME, 0.12),
+        param_event(at(1.5), MODE, 1.0),
+        param_event(at(2.0), DIVISION, 3.0),
+        param_event(at(2.5), MODE, 0.0),
+        param_event(at(3.0), TIME, 1.7),
+    ];
+    let bpm = |start: usize| if start > at(2.2) { 97.0 } else { 120.0 };
+    run(&mut e, SR, &input, 300, bpm, &events).0
+}
+
+/// The render of the glide before the time-change setting existed, fingerprinted on the
+/// code of `develop` (ea0704f): the default sound did not change by one bit.
+const GLIDE_FINGERPRINT: u64 = 0xffa7_5ed7_9ccb_5001;
+
+#[test]
+fn the_default_time_change_is_the_glide_of_before_bit_for_bit() {
+    let out = glide_phrase(&[]);
+    assert_eq!(
+        fingerprint(&out),
+        GLIDE_FINGERPRINT,
+        "{:#x}",
+        fingerprint(&out)
+    );
+}
+
+// ---- Fade and Jump
+
+fn wet_only(time_change: f32, seconds: f32) -> Echo {
+    with(
+        SR,
+        &[
+            (MODE, 0.0),
+            (TIME, seconds),
+            (MIX, 1.0),
+            (FEEDBACK, 0.0),
+            (TIME_CHANGE, time_change),
+        ],
+    )
+}
+
+/// Rising zero crossings of `x`.
+fn crossings(x: &[f32]) -> usize {
+    x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+}
+
+/// Frequency of `x`, in hertz, from its rising zero crossings.
+fn frequency(x: &[f32]) -> f32 {
+    crossings(x) as f32 * SR / x.len() as f32
+}
+
+#[test]
+fn the_time_change_setting_is_appended_and_defaults_to_glide() {
+    assert_eq!(TIME_CHANGE, 5);
+    let p = DESCRIPTOR.param(ParamId(TIME_CHANGE)).unwrap();
+    assert_eq!(p.key, "time_change");
+    assert_eq!((p.min, p.max, p.default, p.step), (0.0, 2.0, 0.0, 1.0));
+    assert_eq!(p.values, ["glide", "fade", "jump"]);
+    assert_eq!(p.smoothing_seconds, 0.0);
+    // The ids of before did not move.
+    let ids: Vec<_> = DESCRIPTOR.params.iter().map(|p| p.id.0).collect();
+    assert_eq!(ids, [MODE, TIME, DIVISION, FEEDBACK, MIX, TIME_CHANGE]);
+    assert_eq!(ids, [0, 1, 2, 3, 4, 5]);
+    // The descriptor tells each mode (and `time` / `division` point at the setting).
+    for word in ["Glide", "Fade", "Jump", "25%", "50 ms"] {
+        assert!(p.description.contains(word), "{word}");
+    }
+    for key in [TIME, DIVISION] {
+        assert!(
+            DESCRIPTOR
+                .param(ParamId(key))
+                .unwrap()
+                .description
+                .contains("time_change")
+        );
+    }
+}
+
+#[test]
+fn glide_bends_the_pitch_and_fade_does_not() {
+    let input = sine(3 * SR as usize, 1_000.0, 0.5);
+    let k = SR as usize;
+    // 0.3 s to 0.12 s at one second: a glide takes about 0.7 s and plays the repeats up to
+    // 25% faster; the window is the 0.4 s after the change.
+    let window = k + 2_000..k + 2_000 + (0.4 * SR) as usize;
+    let mut results = Vec::new();
+    for mode in [GLIDE, FADE] {
+        let mut e = wet_only(mode, 0.3);
+        let events = [param_event(k, TIME, 0.12)];
+        let out = run(&mut e, SR, &input, 256, |_| 120.0, &events).0;
+        check(&out);
+        results.push(frequency(&out[window.clone()]));
+        if mode == FADE {
+            assert!(max_step(&out) < 0.1, "fade click {}", max_step(&out));
+        }
+    }
+    let (glide, fade) = (results[0], results[1]);
+    assert!(glide > 1_150.0, "the glide bends the pitch up: {glide} Hz");
+    assert!(
+        (fade - 1_000.0).abs() < 10.0,
+        "the fade keeps the pitch: {fade} Hz"
+    );
+}
+
+#[test]
+fn fade_crossfades_over_its_length_and_lands_on_the_new_delay() {
+    let input = noise(2 * SR as usize);
+    let (k, old, new) = (20_001usize, 6_000usize, 12_000usize);
+    let mut e = wet_only(FADE, 0.125);
+    let out = run(
+        &mut e,
+        SR,
+        &input,
+        256,
+        |_| 120.0,
+        &[param_event(k, TIME, 0.25)],
+    )
+    .0;
+    check(&out);
+    let fade_len = (FADE_SECONDS * SR).round() as usize;
+    for n in new..out.len() {
+        if n < k {
+            assert_eq!(out[n], input[n - old], "before the change, frame {n}");
+        } else if n >= k + fade_len {
+            assert_eq!(out[n], input[n - new], "after the fade, frame {n}");
+        }
+    }
+    // Unrelated material: the level dips by 3 dB mid-fade (gains sum to 1), never rises.
+    let mid = k + fade_len / 2..k + fade_len / 2 + 200;
+    let rms = |x: &[f32]| (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt();
+    let steady = rms(&out[k - 4_000..k - 3_800]);
+    let during = rms(&out[mid]);
+    assert!(
+        during > steady * 0.6 && during < steady * 1.02,
+        "{during} vs {steady}"
+    );
+}
+
+#[test]
+fn fade_waits_for_the_fade_that_runs_and_ends_on_the_latest_time() {
+    let input = sine(2 * SR as usize, 440.0, 0.5);
+    let k = 30_000;
+    let mut e = wet_only(FADE, 0.125);
+    let events = [
+        param_event(k, TIME, 0.25),
+        param_event(k + 700, TIME, 0.3),
+        param_event(k + 900, TIME, 0.1875),
+    ];
+    let out = run(&mut e, SR, &input, 97, |_| 120.0, &events).0;
+    check(&out);
+    assert!(max_step(&out) < STEP_BOUND, "{}", max_step(&out));
+    // Two fades in a row (0.1 to 0.2, then to the latest, 0.15), then the exact new delay.
+    let fade_len = (FADE_SECONDS * SR).round() as usize;
+    let settled = k + 2 * fade_len + 10;
+    for n in settled..out.len() {
+        assert_eq!(out[n], input[n - 9_000], "frame {n}");
+    }
+}
+
+#[test]
+fn jump_applies_at_the_exact_offset() {
+    let input = noise(2 * SR as usize);
+    for k in [20_000usize, 20_001, 20_255, 20_256, 20_300] {
+        let mut e = wet_only(JUMP, 0.125);
+        let out = run(
+            &mut e,
+            SR,
+            &input,
+            256,
+            |_| 120.0,
+            &[param_event(k, TIME, 0.25)],
+        )
+        .0;
+        check(&out);
+        for n in 12_000..out.len() {
+            let expected = if n < k {
+                input[n - 6_000]
+            } else {
+                input[n - 12_000]
+            };
+            assert_eq!(out[n], expected, "change at {k}, frame {n}");
+        }
+    }
+}
+
+#[test]
+fn jump_steps_the_signal_where_fade_does_not() {
+    let input = sine(2 * SR as usize, 440.0, 0.5);
+    let k = 30_000;
+    let mut steps = Vec::new();
+    for mode in [FADE, JUMP] {
+        let mut e = wet_only(mode, 0.125);
+        let out = run(
+            &mut e,
+            SR,
+            &input,
+            256,
+            |_| 120.0,
+            &[param_event(k, TIME, 0.1255625)],
+        )
+        .0;
+        steps.push(max_step(&out));
+    }
+    assert!(steps[0] < 0.08, "fade {}", steps[0]);
+    assert!(steps[1] > 0.2, "jump {}", steps[1]);
+}
+
+#[test]
+fn a_tempo_change_under_fade_and_jump() {
+    let input = sine(6 * SR as usize, 440.0, 0.5);
+    let sweep = |start: usize| 100.0 + 40.0 * (start as f64 / (6.0 * f64::from(SR)));
+    // Fade: a sweep block by block chains fades, never a click, and the delay settles.
+    let mut e = with(
+        SR,
+        &[
+            (MODE, 1.0),
+            (DIVISION, 6.0),
+            (MIX, 1.0),
+            (FEEDBACK, 0.0),
+            (TIME_CHANGE, FADE),
+        ],
+    );
+    let out = run(&mut e, SR, &input, 128, sweep, &[]).0;
+    check(&out);
+    assert!(max_step(&out) < STEP_BOUND, "{}", max_step(&out));
+    // Jump: the tempo, given once per block, moves the delay at the start of the block; the
+    // output stays finite and the delay is the exact one at the end.
+    let mut e = with(
+        SR,
+        &[
+            (MODE, 1.0),
+            (DIVISION, 6.0),
+            (MIX, 1.0),
+            (FEEDBACK, 0.0),
+            (TIME_CHANGE, JUMP),
+        ],
+    );
+    let noisy = noise(6 * SR as usize);
+    let out = run(&mut e, SR, &noisy, 128, sweep, &[]).0;
+    check(&out);
+    let last_bpm = sweep(6 * SR as usize - 128);
+    let delay = (60.0 / last_bpm * f64::from(SR)).clamp(1.0, 4.0 * f64::from(SR));
+    let n = out.len() - 1;
+    let whole = delay as usize;
+    let frac = (delay - whole as f64) as f32;
+    let expected = noisy[n - whole] + (noisy[n - whole - 1] - noisy[n - whole]) * frac;
+    assert!((out[n] - expected).abs() < 1e-5, "{} vs {expected}", out[n]);
+}
+
+#[test]
+fn switching_the_setting_while_the_delay_moves() {
+    let input = sine(3 * SR as usize, 440.0, 0.5);
+    let k = SR as usize;
+    // Glide to Fade half way through a glide, and Fade to Glide half way through a fade: no click.
+    for (first, second, gap) in [(GLIDE, FADE, 3_000usize), (FADE, GLIDE, 1_000)] {
+        let mut e = wet_only(first, 0.3);
+        let events = [
+            param_event(k, TIME, 0.2),
+            param_event(k + gap, TIME_CHANGE, second),
+            param_event(k + gap, TIME, 0.15),
+        ];
+        let out = run(&mut e, SR, &input, 128, |_| 120.0, &events).0;
+        check(&out);
+        assert!(
+            max_step(&out) < STEP_BOUND,
+            "{first} to {second}: {}",
+            max_step(&out)
+        );
+    }
+    // Fade to Jump cuts the fade: the delay is the target right away.
+    let noisy = noise(3 * SR as usize);
+    let mut e = wet_only(FADE, 0.3);
+    let events = [
+        param_event(k, TIME, 0.125),
+        param_event(k + 500, TIME_CHANGE, JUMP),
+    ];
+    let out = run(&mut e, SR, &noisy, 128, |_| 120.0, &events).0;
+    check(&out);
+    for n in k + 500..out.len() {
+        assert_eq!(out[n], noisy[n - 6_000], "frame {n}");
+    }
+}
+
+#[test]
+fn reset_ends_a_fade_and_silences_every_setting() {
+    for mode in [GLIDE, FADE, JUMP] {
+        let mut e = wet_only(mode, 0.3);
+        let events = [param_event(3_000, TIME, 0.125)];
+        run(&mut e, SR, &noise(3_500), 100, |_| 120.0, &events);
+        e.reset();
+        let out = run_at(&mut e, &vec![0.0; 40_000], 120.0);
+        assert!(out.iter().all(|s| *s == 0.0), "no tail after a reset");
+        // The next block starts at the target (0.1 s), no fade left over.
+        let out = run_at(&mut e, &impulse(20_000, 0), 120.0);
+        assert_eq!(argmax(&out), 6_000, "setting {mode}");
+        assert!(
+            out.iter()
+                .enumerate()
+                .all(|(i, s)| i == 6_000 || s.abs() < 1e-6)
+        );
+    }
+}
+
+#[test]
+fn every_setting_gives_the_same_signal_whatever_the_block_size() {
+    let input = noise(3 * SR as usize);
+    for mode in [GLIDE, FADE, JUMP] {
+        let events = [
+            param_event(20_000, TIME, 0.4),
+            param_event(21_000, TIME, 0.05),
+            param_event(60_000, MODE, 1.0),
+            param_event(90_000, DIVISION, 2.0),
+        ];
+        let render = |size: usize| {
+            let mut e = wet_only(mode, 0.2);
+            set(&mut e, FEEDBACK, 0.5);
+            run(&mut e, SR, &input, size, |_| 120.0, &events).0
+        };
+        let reference = render(64);
+        check(&reference);
+        assert_eq!(reference, render(1_000), "setting {mode}");
+    }
+}
+
+#[test]
+fn a_changing_delay_under_every_setting_stays_finite_with_a_hot_feedback() {
+    let input = noise(4 * SR as usize);
+    for mode in [GLIDE, FADE, JUMP] {
+        let mut e = wet_only(mode, 0.2);
+        set(&mut e, FEEDBACK, 0.95);
+        let events: Vec<_> = (0..40)
+            .map(|i| param_event(5_000 * (i + 1), TIME, 0.01 + 0.09 * ((i * 7) % 11) as f32))
+            .collect();
+        let out = run(&mut e, SR, &input, 333, |_| 120.0, &events).0;
+        check(&out);
+        assert!(peak(&out) < 50.0, "{}", peak(&out));
+    }
+}
+
+#[test]
+fn a_fade_never_makes_the_feedback_loop_louder_on_correlated_material() {
+    // A bass note, a hot feedback, and a delay that keeps moving by a few frames: the two
+    // taps of every fade are strongly correlated, where an equal-power law would add up to
+    // 3 dB per pass and the tail would grow.
+    let mut input = sine(4 * SR as usize, 55.0, 0.2);
+    for s in &mut input[SR as usize / 4..] {
+        *s = 0.0;
+    }
+    let mut e = wet_only(FADE, 0.3);
+    set(&mut e, FEEDBACK, 0.95);
+    let events: Vec<_> = (1..40)
+        .map(|i| {
+            let frames = 14_400.0 + 3.0 * (i % 5) as f32;
+            param_event(4_000 * i, TIME, frames / SR)
+        })
+        .collect();
+    let out = run(&mut e, SR, &input, 256, |_| 120.0, &events).0;
+    check(&out);
+    let early = peak(&out[SR as usize / 2..SR as usize]);
+    let late = peak(&out[3 * SR as usize..]);
+    assert!(
+        late < early * 0.9,
+        "the tail must decay: {early} then {late}"
+    );
+    assert!(
+        peak(&out) <= 0.21,
+        "never louder than the input: {}",
+        peak(&out)
+    );
 }

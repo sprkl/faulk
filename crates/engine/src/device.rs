@@ -60,7 +60,11 @@
 //! value at frame `k + i` is `start + (target − start) · min(i, n) / n`, `start` being the
 //! value at frame `k`: a linear ramp that reaches the target exactly `n` frames after the
 //! event. A new value during a ramp starts a new ramp from where the value is. Stepped and
-//! enumerated parameters are never smoothed.
+//! enumerated parameters are never smoothed. The ramp above is the only response the
+//! smoothing time describes. A parameter whose response is the device's own (the Echo's
+//! delay time: an exponential glide, a crossfade or a jump, chosen by another parameter)
+//! declares a smoothing of 0 and says in its `description` which parameter sets the response;
+//! that parameter's description tells each response (issue #342).
 //! [`Device::set_param`] (a value set by hand or by an agent, `RtMsg::ParamSet`) behaves as a
 //! [`Event::ParamValue`] at offset 0 of the next block. [`Device::reset`] snaps every
 //! smoothed value to its target.
