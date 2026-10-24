@@ -71,6 +71,24 @@ domain! {
     "project.save_as" (kind = "live", undo = "none", destructive = false)
     SaveAs {} => {};
 
+    /// Export the project as a `.faulkpack`, a zip of its folder that any Faulk reads back,
+    /// and hand it to the user as a download. It holds the project as it is now, saved or
+    /// not, and the media the project refers to. This is how a project kept in the browser
+    /// (no folder chosen) is backed up or moved. Changes nothing in the project, so it never
+    /// enters the history.
+    "project.export_pack" (kind = "live", undo = "none", destructive = false)
+    ExportPack {} => {};
+
+    /// Open a `.faulkpack` the user chooses: its project replaces the current one and is kept
+    /// in the browser as a new project of its own (an import never overwrites a project that
+    /// is already there). A file is chosen by the user (a browser needs a click for it), so
+    /// an agent that is not driven by one gets a notice in the page instead. A file that is
+    /// not a valid pack is refused with the reason and nothing changes. The history of the
+    /// replaced project is gone; the page asks first when that project has changes that are
+    /// not kept anywhere.
+    "project.import_pack" (kind = "live", undo = "none", destructive = false)
+    ImportPack {} => {};
+
     /// Render the project to an audio file (WAV) and save it, offline: the same engine
     /// that plays the song, run faster than real time, so the file is the song as it
     /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
@@ -132,6 +150,8 @@ pub fn apply(
         // the command only says it is wanted. Nothing in the project changes.
         Command::Save {} => Ok(nothing(Output::Save {})),
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
+        Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
+        Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
         // Like a save, the render belongs to the host (the page's worker and file picker):
         // the command checks the request against the project and says what will be
         // rendered.

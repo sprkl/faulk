@@ -30,7 +30,18 @@ interface CoreExports {
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
   pw_dirty(core: number): number
+  pw_project_dirty(core: number): number
+  pw_pack_export(len: number): number
+  pw_pack_import(len: number): number
 }
+
+/** A `.faulkpack` made by `ProjectCore.packExport`. */
+export type PackExport =
+  | { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number }
+  | { status: 'failed'; message: string }
+
+/** The files of a `.faulkpack` read by `ProjectCore.packImport`, in the order of a save frame. */
+export type PackImport = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string }
 
 /** Which project a new core starts with. */
 export type CoreKind = 'empty' | 'single_synth'
@@ -361,6 +372,60 @@ export class ProjectCore {
   dirty(): boolean {
     const code = this.exports.pw_dirty(this.live())
     if (code < 0) throw new CoreError('dirty', code)
+    return code === 1
+  }
+
+  /** Puts `bytes` in the core's inbox; the stateless pack calls read it from there. */
+  private inbox(bytes: Uint8Array): void {
+    const at = this.exports.pw_inbox(bytes.length)
+    if (!at) throw new CoreError('inbox', 0)
+    new Uint8Array(this.exports.memory.buffer, at, bytes.length).set(bytes)
+  }
+
+  /** The `len` bytes the last pack call left, copied out of the core's memory. */
+  private packOut(call: string, len: number): Uint8Array {
+    if (len < 0) throw new CoreError(call, len)
+    return new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len).slice()
+  }
+
+  /**
+   * The `.faulkpack` of a project folder given whole (every file with its bytes: `project.json`,
+   * the tracks, the blobs): `project::file::export_pack` in the core, so the archive is the one every
+   * host reads. A folder that is not a valid project is `failed`, with the reason. Throws a
+   * `CoreError` when the folder cannot be carried into the core at all (too big).
+   */
+  packExport(files: { path: string; bytes: Uint8Array }[]): PackExport {
+    const frame = folderFrame('pack', files)
+    this.inbox(frame)
+    const out = this.packOut('pack_export', this.exports.pw_pack_export(frame.length))
+    if (out[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+    const view = new DataView(out.buffer, out.byteOffset, out.byteLength)
+    return { status: 'ok', files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true), zip: out.subarray(9) }
+  }
+
+  /**
+   * The files of a `.faulkpack`, validated as a project folder by the strict import of the format (only
+   * the format's paths, every blob checked against its name, size limits). A pack that does not pass is
+   * `failed`, with the reason, and nothing was kept.
+   */
+  packImport(zip: Uint8Array): PackImport {
+    this.inbox(zip)
+    const out = this.packOut('pack_import', this.exports.pw_pack_import(zip.length))
+    if (out[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+    const frame = parseSaveFrame(out)
+    if (frame.status !== 'ok') return { status: 'failed', message: frame.message }
+    const files = frame.entries.flatMap((entry) => (entry.type === 'write' ? [{ path: entry.path, bytes: entry.bytes }] : []))
+    return { status: 'ok', files }
+  }
+
+  /**
+   * Whether the project itself, not only its session (selection, solo, arming, MIDI input), has
+   * changes the folder does not hold: a page only opened has selected its first track and has
+   * nothing worth a home.
+   */
+  projectDirty(): boolean {
+    const code = this.exports.pw_project_dirty(this.live())
+    if (code < 0) throw new CoreError('project_dirty', code)
     return code === 1
   }
 

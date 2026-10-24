@@ -152,6 +152,75 @@ describe('ProjectCore', () => {
     expect(() => source.project()).toThrow(CoreError)
   })
 
+  it('tells a change to the session (a solo) from a change to the project', () => {
+    const core = ProjectCore.create(module, 'single_synth', 1, seed)
+    expect([core.dirty(), core.projectDirty()]).toEqual([false, false])
+    const track = Object.keys(core.project().project.tracks)[0]!
+    apply(core, { type: 'mixer.set_solo', track, solo: true })
+    expect([core.dirty(), core.projectDirty()]).toEqual([true, false])
+    apply(core, { type: 'project.rename', name: 'Mine' })
+    expect([core.dirty(), core.projectDirty()]).toEqual([true, true])
+    core.save('everything')
+    core.saved(true)
+    expect([core.dirty(), core.projectDirty()]).toEqual([false, false])
+    core.free()
+    expect(() => core.projectDirty()).toThrow(CoreError)
+  })
+
+  describe('.faulkpack', () => {
+    /** A project with a track and a note, as the files of its folder. */
+    function folderOf(name: string) {
+      const source = ProjectCore.create(module, 'empty', 1, seed)
+      const track = apply(source, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' }) as { track: string }
+      const clip = apply(source, { type: 'clip.create', track: track.track, at: { at: 'arrangement', start: 0 }, length: 3840 }) as { clip: string }
+      apply(source, { type: 'clip.notes.add', clip: clip.clip, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] })
+      apply(source, { type: 'project.rename', name })
+      const frame = source.save('everything')
+      if (frame.status !== 'ok') throw new Error(frame.message)
+      const files = frame.entries.flatMap((e) => (e.type === 'write' ? [{ path: e.path, bytes: e.bytes }] : []))
+      return { source, files }
+    }
+
+    it('packs a folder and unpacks the same files, minus the session; the pack is the same bytes each time', () => {
+      const { source, files } = folderOf('Song')
+      const packed = source.packExport(files)
+      if (packed.status !== 'ok') throw new Error(packed.message)
+      expect(packed.missingBlobs).toBe(0)
+      expect(packed.files).toBe(files.filter((f) => !f.path.startsWith('.faulk/')).length)
+      const again = source.packExport(files)
+      expect(again.status === 'ok' && Array.from(again.zip)).toEqual(Array.from(packed.zip))
+
+      const unpacked = source.packImport(packed.zip)
+      if (unpacked.status !== 'ok') throw new Error(unpacked.message)
+      const wanted = files.filter((f) => !f.path.startsWith('.faulk/')).map((f) => f.path)
+      expect(unpacked.files.map((f) => f.path).sort()).toEqual(wanted.sort())
+      for (const file of unpacked.files) {
+        expect(Array.from(file.bytes)).toEqual(Array.from(files.find((f) => f.path === file.path)!.bytes))
+      }
+
+      // And it opens as the project it was made from.
+      const copy = ProjectCore.create(module, 'empty', 2, seed)
+      copy.stage('pack', unpacked.files)
+      expect(applied(copy.open('pack').report).output).toMatchObject({ type: 'project.open', name: 'Song' })
+      expect(copy.project().project).toEqual(source.project().project)
+      copy.free()
+      source.free()
+    })
+
+    it('says why a pack or a folder is refused, and is still able to answer after', () => {
+      const { source, files } = folderOf('Song')
+      const packed = source.packExport(files)
+      if (packed.status !== 'ok') throw new Error(packed.message)
+      expect(source.packImport(new TextEncoder().encode('not a zip'))).toMatchObject({ status: 'failed', message: expect.stringContaining('faulkpack') })
+      expect(source.packImport(packed.zip.subarray(0, 40))).toMatchObject({ status: 'failed' })
+      expect(source.packExport([{ path: 'README.md', bytes: new TextEncoder().encode('hi') }])).toMatchObject({ status: 'failed' })
+      // A path outside the folder is a malformed frame, not a trap.
+      expect(source.packExport([{ path: '../escape', bytes: new Uint8Array(1) }])).toMatchObject({ status: 'failed' })
+      expect(source.packImport(packed.zip).status).toBe('ok')
+      source.free()
+    })
+  })
+
   it('writes a copy under a new identity, and a new project under its own', () => {
     const core = ProjectCore.create(module, 'single_synth', 1, seed)
     core.setup()

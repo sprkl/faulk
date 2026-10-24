@@ -4,7 +4,7 @@ import { StoreError, type FolderHandle, type ProjectStore, type Signature, type 
 import { FolderBackend } from './backend'
 
 /** The calls of `ProjectStore` the Worker takes by name. */
-export const STORE_METHODS = ['isEmpty', 'hasProject', 'readFolder', 'read', 'apply', 'scan', 'copyBlobsFrom', 'cleanUp'] as const
+export const STORE_METHODS = ['isEmpty', 'hasProject', 'readFolder', 'readBlobs', 'read', 'apply', 'scan', 'copyBlobsFrom', 'cleanUp'] as const
 type Method = (typeof STORE_METHODS)[number]
 
 export type Request =
@@ -115,6 +115,9 @@ export class WorkerStore implements ProjectStore {
   }
   readFolder() {
     return this.call<{ entries: FolderEntry[]; signature: Signature }>('readFolder')
+  }
+  readBlobs() {
+    return this.call<{ path: string; bytes: Uint8Array }[]>('readBlobs')
   }
   read(path: string, start?: number, end?: number) {
     return this.call<Uint8Array>('read', [path, start, end])
