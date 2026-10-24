@@ -322,7 +322,8 @@ pub enum ProjectEvent {
         clip: ClipId,
         placements: Vec<PlacementId>,
     },
-    /// A clip was deleted, with its placements.
+    /// A clip was deleted, with its placements. `clip.move` also reports it (with no
+    /// placements, which the clip keeps) before the `ClipCreated` that follows.
     ClipDeleted {
         track: TrackId,
         clip: ClipId,

@@ -59,6 +59,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Instrument,
     memory_bytes: size_of::<Synth>() as u64,
     midi_output: None,
+    named_keys: &[],
     params: &[
         ParamDescriptor {
             id: ParamId(0),

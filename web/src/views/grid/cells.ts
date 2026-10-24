@@ -7,6 +7,7 @@
 
 import type { ClipState, FeedbackReport } from '../../lib/engine/feedback'
 import type { Clip, Project, ProjectView, Scene } from '../../lib/generated/protocol'
+import { midiClips } from '../piano-roll/clips'
 
 export interface SceneEntry {
   id: string
@@ -45,6 +46,35 @@ export function cellClips(project: Pick<Project, 'tracks'>): Map<string, CellCli
     }
   }
   return cells
+}
+
+/** Where a clip of the grid sits. */
+export interface ClipHome {
+  track: string
+  scene: string
+  cell: CellClip
+}
+
+/** The home of every clip of the grid, by clip identifier. */
+export function clipHomes(cells: ReadonlyMap<string, CellClip>): Map<string, ClipHome> {
+  const homes = new Map<string, ClipHome>()
+  for (const [key, cell] of cells) {
+    const cut = key.indexOf('|')
+    homes.set(cell.id, { track: key.slice(0, cut), scene: key.slice(cut + 1), cell })
+  }
+  return homes
+}
+
+/**
+ * The number of each MIDI clip in its track, the one the piano roll gives it ("Clip n" when the clip
+ * has no name): the same list, so the cell and the roll's title agree.
+ */
+export function clipNumbers(project: Pick<Project, 'tracks'>): Map<string, number> {
+  const numbers = new Map<string, number>()
+  for (const track of Object.values(project.tracks)) {
+    if (track) midiClips(track).forEach((entry, i) => numbers.set(entry.id, i + 1))
+  }
+  return numbers
 }
 
 /** How many clips a scene holds, by scene. */

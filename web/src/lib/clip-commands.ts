@@ -14,6 +14,14 @@ export const updateNotes = (clip: string, changes: { from: Note; to: Note }[]): 
 export const setClipLength = (clip: string, length: number): Command => ({ type: 'clip.set_length', clip, length, trim: true })
 export const setClipLoop = (clip: string, looping: TickLoop | null): Command => ({ type: 'clip.set_loop', clip, looping })
 
+/** The commands of a clip in the launch grid: each gesture of a cell is one of them. */
+export const deleteClip = (clip: string): Command => ({ type: 'clip.delete', clip })
+export const renameClip = (clip: string, name: string): Command => ({ type: 'clip.rename', clip, name })
+/** A copy of a clip in the cell of `scene` of `track` (null: the clip's own track); with no scene, the next free cell below. */
+export const duplicateClip = (clip: string, scene: string | null, track: string | null): Command => ({ type: 'clip.duplicate', clip, slot: scene, track })
+/** The clip itself in another cell, of its own track (`track` null) or of another MIDI track. */
+export const moveClip = (clip: string, scene: string, track: string | null): Command => ({ type: 'clip.move', clip, slot: scene, track })
+
 /**
  * Plays a note of a track to hear what is edited. It names its track: the live input would also
  * reach every armed track, and an audition belongs to the clip being edited.

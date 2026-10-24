@@ -179,6 +179,27 @@ pub fn after(mut state: State, command: &Command) -> (State, Command) {
     (state, *inverse)
 }
 
+/// The fixture's state with a second, empty MIDI track (a copy of the first one without its
+/// clips), for the commands that cross tracks.
+pub fn with_other_track(f: &ClipFx) -> (State, TrackId) {
+    let mut state = f.state.clone();
+    let mut other = state.project.tracks.get(&f.track).unwrap().clone();
+    other.clips.clear();
+    other.placements.clear();
+    other.name = "Other".into();
+    let mut ids = IdGenerator::new(1_670_000_000_000, 0x00DD_1111_0000_0000_0000);
+    let id = TrackId::generate(&mut ids);
+    let device = other.devices.keys().next().unwrap().clone();
+    let moved = other.devices.remove(&device).unwrap();
+    other.devices.insert(DeviceId::generate(&mut ids), moved);
+    state.project.tracks.insert(id.clone(), other);
+    state
+        .project
+        .validate()
+        .expect("the two-track fixture is valid");
+    (state, id)
+}
+
 /// One example of every branch of every clip command.
 pub fn examples() -> Vec<(Command, State)> {
     let f = fx();
@@ -207,10 +228,12 @@ pub fn examples() -> Vec<(Command, State)> {
         on(clip::Command::Duplicate {
             clip: f.clip.clone(),
             slot: Some(f.scene_free.clone()),
+            track: None,
         }),
         on(clip::Command::Duplicate {
             clip: f.placed.clone(),
             slot: None,
+            track: None,
         }),
         on(clip::Command::Rename {
             clip: f.audio_clip.clone(),
@@ -294,6 +317,34 @@ pub fn examples() -> Vec<(Command, State)> {
             ],
         }),
     ];
+    // Moves: within the track, out of the grid (placed clip only), and across tracks.
+    all.push(on(clip::Command::Move {
+        clip: f.clip.clone(),
+        track: None,
+        slot: Some(f.scene_free.clone()),
+    }));
+    all.push(on(clip::Command::Move {
+        clip: f.placed.clone(),
+        track: None,
+        slot: None,
+    }));
+    let (two, other) = with_other_track(&f);
+    all.push((
+        c(clip::Command::Move {
+            clip: f.clip.clone(),
+            track: Some(other.clone()),
+            slot: Some(f.scene_a.clone()),
+        }),
+        two.clone(),
+    ));
+    all.push((
+        c(clip::Command::Duplicate {
+            clip: f.clip.clone(),
+            slot: None,
+            track: Some(other),
+        }),
+        two,
+    ));
     // The inverse of a delete, from the state that delete leaves: with and without
     // placements.
     for clip in [&f.clip, &f.placed] {
