@@ -1,8 +1,7 @@
 //! DV-4 through the command layer and the engine: `device.insert` puts the reverb after the
-//! synth of a track, `device.set_param` moves its size, `device.set_bypass` silences it and
-//! the tail it left. The render is written to
-//! `.qa/renders/reverb.wav` for the ear: the same pluck dry, then with a small, a medium and
-//! a large size.
+//! synth of a track, `device.set_param` moves its size and `device.set_bypass` cuts a ringing
+//! tail. The render is written to `.qa/renders/reverb.wav` for the ear: the same hit dry,
+//! then with a small, a medium and a large size, then a large one cut by the bypass.
 
 use commands::testing::{context, fixture};
 use commands::{Command, Output, device, live};
@@ -74,6 +73,13 @@ fn the_reverb_has_a_tail_that_follows_its_size_and_the_bypass() {
     s.render_secs(0.5);
     hit(&mut s, &f.track, 8.0);
 
+    // 5. A large hit at 22 s, bypassed at 22.5 s while its tail rings: the tail is cut.
+    set(&mut s, "size", 0.95);
+    s.render_secs(0.5);
+    hit(&mut s, &f.track, 0.5);
+    bypass(&mut s, true);
+    s.render_secs(1.0);
+
     // Native only: the interpreter takes minutes on 30 s; the parity is `reverb_parity.rs`.
     let r = render_native(s.scenario());
     r.assert_clean();
@@ -95,5 +101,7 @@ fn the_reverb_has_a_tail_that_follows_its_size_and_the_bypass() {
     );
     assert!(late(4.5) < 0.1 * late(13.5));
     assert!(late(13.5) > 1e-4);
+    r.assert_audible(22.3..22.5, 0.002);
+    r.assert_silent(22.6..23.4);
     r.write_wav("reverb");
 }

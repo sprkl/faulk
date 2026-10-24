@@ -501619,7 +501619,7 @@
           "max": 0.20000000298023224,
           "min": 0,
           "scale": "linear",
-          "smoothing_seconds": 0.05,
+          "smoothing_seconds": 0,
           "step": 0,
           "unit": "seconds",
           "values": []

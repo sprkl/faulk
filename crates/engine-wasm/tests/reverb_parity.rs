@@ -110,9 +110,9 @@ fn scenario() -> Vec<Step> {
     // Size swept while the tail rings, in both directions.
     submit(&[set(reverb::SIZE, 1.0), note(64, 100)], &mut steps);
     steps.push(Step::Render(MIXED));
-    steps.push(Step::Render(&[4_800; 6]));
+    steps.push(Step::Render(&[2_048; 14]));
     submit(&[set(reverb::SIZE, 0.0)], &mut steps);
-    steps.push(Step::Render(&[4_800; 4]));
+    steps.push(Step::Render(&[2_048; 10]));
     // Damping and pre-delay moved, fully wet.
     submit(
         &[
@@ -124,17 +124,17 @@ fn scenario() -> Vec<Step> {
         &mut steps,
     );
     steps.push(Step::Render(MIXED));
-    steps.push(Step::Render(&[4_800; 6]));
+    steps.push(Step::Render(&[2_048; 14]));
     submit(
         &[set(reverb::DAMPING, 0.0), set(reverb::PREDELAY, 0.0)],
         &mut steps,
     );
-    steps.push(Step::Render(&[777, 128, 2048, 4_800]));
+    steps.push(Step::Render(&[777, 128, 2048, 2048, 2048]));
     // Switched off and on: no tail comes back.
     submit(&[enable(false)], &mut steps);
     steps.push(Step::Render(MIXED));
     submit(&[enable(true), note(55, 100)], &mut steps);
-    steps.push(Step::Render(&[4_800; 4]));
+    steps.push(Step::Render(&[2_048; 10]));
     // Every parameter moved once.
     let moves: Vec<M> = reverb::DESCRIPTOR
         .params

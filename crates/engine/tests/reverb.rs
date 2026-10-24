@@ -19,7 +19,11 @@ static ALLOCATOR: AllocDisabler = AllocDisabler;
 const SR: f32 = 48_000.0;
 
 fn with(params: &[(u32, f32)]) -> Reverb {
-    let mut r = Reverb::new(SR).expect("the lines are allocated");
+    at_rate(SR, params)
+}
+
+fn at_rate(rate: f32, params: &[(u32, f32)]) -> Reverb {
+    let mut r = Reverb::new(rate).expect("the lines are allocated");
     for (id, value) in params {
         r.set_param(ParamId(*id), *value);
     }
@@ -68,6 +72,9 @@ fn run(
         out_r.extend(right);
         start = end;
     }
+    // Every render is checked: no NaN, no infinity, no denormal.
+    check(&out_l);
+    check(&out_r);
     (out_l, out_r)
 }
 
@@ -111,7 +118,7 @@ fn noise(len: usize, seed: u32) -> Vec<f32> {
 
 /// The reverberation time of `x`, from the energy decay (Schroeder's backward integration):
 /// the time the decay takes from -5 dB to -35 dB, doubled (T30).
-fn rt60(x: &[f32]) -> f32 {
+fn rt60(x: &[f32], rate: f32) -> f32 {
     let mut edc = vec![0f64; x.len()];
     let mut acc = 0.0;
     for i in (0..x.len()).rev() {
@@ -121,7 +128,7 @@ fn rt60(x: &[f32]) -> f32 {
     let total = edc[0];
     let at = |db: f64| {
         let level = total * 10f64.powf(db / 10.0);
-        edc.iter().position(|e| *e < level).unwrap() as f32 / SR
+        edc.iter().position(|e| *e < level).unwrap() as f32 / rate
     };
     2.0 * (at(-35.0) - at(-5.0))
 }
@@ -148,13 +155,13 @@ fn the_tail_decays_as_the_size_says() {
         let (l, rr) = mono(&mut r, &impulse(len, 0));
         check(&l);
         check(&rr);
-        let measured = (rt60(&l) + rt60(&rr)) / 2.0;
+        let measured = (rt60(&l, SR) + rt60(&rr, SR)) / 2.0;
         println!("size {size}: nominal RT60 {want:.2} s, measured {measured:.2} s");
         assert!(
             (measured / want - 1.0).abs() < 0.2,
             "size {size}: {measured} s for {want} s"
         );
-        // Silence after two reverberation times (-120 dB): the tail decays for good.
+        // Silence after two reverberation times (-100 dB): the tail decays for good.
         let late = (SR * (want * 2.0 + 0.2)) as usize;
         assert!(peak(&l[late..]) < 1e-5, "size {size}: {}", peak(&l[late..]));
         assert!(peak(&rr[late..]) < 1e-5);
@@ -168,7 +175,7 @@ fn damping_shortens_the_tail_and_darkens_it() {
     for damping in [0.0f32, 0.5, 1.0] {
         let mut r = with(&[(SIZE, 0.7), (DAMPING, damping), (PREDELAY, 0.0), (MIX, 1.0)]);
         let (l, _) = mono(&mut r, &impulse(len, 0));
-        let t = rt60(&l);
+        let t = rt60(&l, SR);
         println!("damping {damping}: RT60 {t:.2} s");
         times.push(t);
     }
@@ -373,4 +380,68 @@ fn the_defaults_are_the_descriptor_values() {
     let mut r = Reverb::new(SR).unwrap();
     let (l, _) = mono(&mut r, &impulse(48_000, 0));
     assert!(peak(&l[3_000..]) > 1e-4);
+}
+
+#[test]
+fn the_cutoffs_do_not_depend_on_the_sample_rate() {
+    // The same settings give the same reverberation time at every rate, damped or not.
+    for damping in [0.0f32, 1.0] {
+        let measured: Vec<f32> = [44_100.0f32, 48_000.0, 96_000.0, 192_000.0]
+            .iter()
+            .map(|rate| {
+                let mut r = at_rate(
+                    *rate,
+                    &[(SIZE, 0.7), (DAMPING, damping), (PREDELAY, 0.0), (MIX, 1.0)],
+                );
+                let x = impulse((*rate * 6.0) as usize, 0);
+                let (l, _) = run(&mut r, (&x, &x), 256, &[]);
+                rt60(&l, *rate)
+            })
+            .collect();
+        println!("damping {damping}: RT60 at 44.1, 48, 96, 192 kHz: {measured:?}");
+        // Undamped, the time is the nominal one at every rate. Damped, the measure covers the
+        // whole band up to Nyquist: a higher rate adds high frequencies that die faster, so the
+        // time shortens a little (it is 1.35 s against 1.83 s at 192 kHz), but nowhere near the
+        // factor of 4 that a filter left unscaled gives.
+        let tolerance = if damping == 0.0 { 0.03 } else { 0.35 };
+        for t in &measured {
+            assert!((t / measured[1] - 1.0).abs() < tolerance, "{measured:?}");
+        }
+    }
+    // A 50 Hz sine passes the DC blocker at every rate (it is far above its 8 Hz cutoff).
+    for rate in [48_000.0f32, 192_000.0] {
+        let mut r = at_rate(rate, &[(MIX, 1.0), (SIZE, 0.0), (PREDELAY, 0.0)]);
+        let n = (rate * 2.0) as usize;
+        let x: Vec<f32> = (0..n)
+            .map(|k| (core::f32::consts::TAU * 50.0 * k as f32 / rate).sin())
+            .collect();
+        let (l, _) = run(&mut r, (&x, &x), 256, &[]);
+        let gain = (energy(&l[n / 2..]) / energy(&x[n / 2..])).sqrt();
+        println!("50 Hz at {rate}: gain {gain:.2}");
+        assert!(gain > 0.3, "{rate}: {gain}");
+    }
+}
+
+#[test]
+fn the_pre_delay_glides_instead_of_jumping() {
+    // From 0 to 0.2 s with no reset: the delay in use moves by at most 0.25 frame per frame,
+    // so an impulse right after the change is read almost without delay, where a jump would
+    // hold it back by 9 600 frames.
+    let onset = |input_at: usize| {
+        let mut r = with(&[(SIZE, 0.5), (DAMPING, 0.0), (PREDELAY, 0.0), (MIX, 1.0)]);
+        r.set_param(ParamId(PREDELAY), 0.2);
+        let (l, _) = mono(&mut r, &impulse(input_at + 40_000, input_at));
+        l.iter().position(|s| s.abs() > 1e-9).unwrap() - input_at
+    };
+    let early = onset(100);
+    println!("impulse 100 frames after the change: first wet sample {early} frames later");
+    assert!(early < 2_500, "{early}");
+    // Once it has arrived (9 600 / 0.25 = 38 400 frames), the pre-delay is the full 0.2 s.
+    let settled = onset(40_000);
+    let plain = {
+        let mut r = with(&[(SIZE, 0.5), (DAMPING, 0.0), (PREDELAY, 0.2), (MIX, 1.0)]);
+        let (l, _) = mono(&mut r, &impulse(40_000, 0));
+        l.iter().position(|s| s.abs() > 1e-9).unwrap()
+    };
+    assert_eq!(settled, plain);
 }

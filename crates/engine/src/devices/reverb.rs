@@ -19,7 +19,7 @@
 //! comb, `g = 10^(-3 * delay / RT60)`, so each comb loses 60 dB in exactly `RT60` at low
 //! frequencies; the lengths of the lines are fixed (a length that moved would sweep the pitch
 //! of the tail). The damping shortens the tail of the high frequencies only. The gain of every
-//! comb stays below 1 (at most `10^(-3 * 0.04 / 7.5)`), so the tail always decays. The input
+//! comb stays below 1 (at most 0.977: the shortest comb, 25 ms, at 7.5 s), so the tail always decays. The input
 //! of a comb is scaled by `sqrt(1 - g^2)`: the energy of an impulse response is the same at
 //! every size (a longer room is not louder for a drum hit), and white noise comes out at the
 //! level it went in.
@@ -47,8 +47,11 @@
 //! # Parameters and smoothing
 //!
 //! All four parameters are continuous and follow the linear ramp their descriptor declares
-//! (`mix` 20 ms, the others 50 ms). A pre-delay that moves bends the pitch of the reverb for
-//! the length of the ramp, like a tape. Every value goes through
+//! (`mix` 20 ms, `size` and `damping` 50 ms), except `predelay`: like the Echo's delay, the pre-delay in
+//! use glides toward its target by at most [`PREDELAY_SLEW`] frame per frame, so the pitch of the
+//! reverb bends by 25% at most while it moves, like a tape, and never jumps (a ramp over a fixed
+//! time would read the line several times faster than real time on a large move). The poles of the
+//! DC blocker and of the damping are scaled to the sample rate, so their cutoffs do not depend on it. Every value goes through
 //! [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
@@ -85,10 +88,14 @@ const ALLPASS_FEEDBACK: f32 = 0.5;
 /// Gain of the sum of the combs: `1 / sqrt(COMBS)`, so uncorrelated combs add up to the level
 /// of one.
 const WET_GAIN: f32 = 0.353_553_4;
-/// Largest pole of the damping filter (at `damping` 1).
+/// Largest pole of the damping filter (at `damping` 1) at [`RATE_REFERENCE`].
 const DAMPING_POLE_MAX: f32 = 0.9;
-/// Pole of the DC blocker of the input: a high-pass at about 8 Hz at 48 kHz.
-const DC_POLE: f32 = 0.999;
+/// The sample rate the per-sample constants above are tuned for.
+const RATE_REFERENCE: f32 = 48_000.0;
+/// Fastest the pre-delay moves, in frames per frame.
+const PREDELAY_SLEW: f32 = 0.25;
+/// Cutoff of the DC blocker of the input, in hertz.
+const DC_HZ: f32 = 8.0;
 /// Frames between two recomputations of the comb gains.
 const CONTROL_PERIOD: u32 = 16;
 /// The input is clamped to this magnitude; below [`DENORMAL_FLOOR`] it is flushed.
@@ -176,7 +183,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             default: 0.01,
             scale: Scale::Linear,
             step: 0.0,
-            smoothing_seconds: 0.05,
+            smoothing_seconds: 0.0,
             values: &[],
         },
         ParamDescriptor {
@@ -359,9 +366,17 @@ pub struct Reverb {
     predelay: Line,
     size: LinearRamp,
     damping: LinearRamp,
-    predelay_time: LinearRamp,
+    /// The pre-delay in use and the one it glides toward, in frames.
+    predelay_delay: f32,
+    predelay_target: f32,
+    /// The DC blocker's pole, scaled to the sample rate.
+    dc_pole: f32,
+    /// The damping filter's pole and the `damping` it was computed for. The pole is raised to
+    /// `RATE_REFERENCE / sample_rate`: the cutoff stays where it is at 48 kHz.
+    pole: f32,
+    pole_for: f32,
     mix: LinearRamp,
-    ramp_frames: [u32; 4],
+    ramp_frames: [u32; 3],
     /// The `size` the comb gains were computed for.
     decay_size: f32,
     /// Frames processed, to space the gain updates (wraps; only its remainder matters).
@@ -398,9 +413,13 @@ impl Reverb {
             predelay: Line::new(predelay_frames)?,
             size: LinearRamp::new(default(SIZE)),
             damping: LinearRamp::new(default(DAMPING)),
-            predelay_time: LinearRamp::new(default(PREDELAY)),
+            predelay_delay: default(PREDELAY) * sample_rate,
+            predelay_target: default(PREDELAY) * sample_rate,
+            dc_pole: 1.0 - core::f32::consts::TAU * DC_HZ / sample_rate,
+            pole: 0.0,
+            pole_for: -1.0,
             mix: LinearRamp::new(default(MIX)),
-            ramp_frames: [ramp(SIZE), ramp(DAMPING), ramp(PREDELAY), ramp(MIX)],
+            ramp_frames: [ramp(SIZE), ramp(DAMPING), ramp(MIX)],
             decay_size: default(SIZE),
             clock: 0,
             dc_in: 0.0,
@@ -414,10 +433,23 @@ impl Reverb {
     /// The mono input without its constant component: a steady offset would pile up in the
     /// feedback combs (their gain at 0 Hz is up to 10) and come out as a loud offset.
     fn block_dc(&mut self, x: f32) -> f32 {
-        let y = flush(x - self.dc_in + DC_POLE * self.dc_out);
+        let y = flush(x - self.dc_in + self.dc_pole * self.dc_out);
         self.dc_in = x;
         self.dc_out = y;
         y
+    }
+
+    /// Computes the damping filter's pole for `damping` (0 to 1).
+    fn set_pole(&mut self, damping: f32) {
+        let at_reference = damping * DAMPING_POLE_MAX;
+        self.pole = if at_reference > 0.0 {
+            at_reference
+                .powf(RATE_REFERENCE / self.sample_rate)
+                .min(0.999)
+        } else {
+            0.0
+        };
+        self.pole_for = damping;
     }
 
     /// Computes the comb gains for `size`.
@@ -438,8 +470,8 @@ impl Reverb {
         match id.0 {
             SIZE => self.size.set(value, self.ramp_frames[0]),
             DAMPING => self.damping.set(value, self.ramp_frames[1]),
-            PREDELAY => self.predelay_time.set(value, self.ramp_frames[2]),
-            MIX => self.mix.set(value, self.ramp_frames[3]),
+            PREDELAY => self.predelay_target = value * self.sample_rate,
+            MIX => self.mix.set(value, self.ramp_frames[2]),
             _ => {}
         }
     }
@@ -454,10 +486,16 @@ impl Reverb {
                 self.apply_decay(size);
             }
             self.clock = self.clock.wrapping_add(1);
-            let pole = self.damping.next_value().clamp(0.0, 1.0) * DAMPING_POLE_MAX;
+            let damping = self.damping.next_value().clamp(0.0, 1.0);
+            if damping != self.pole_for {
+                self.set_pole(damping);
+            }
+            let pole = self.pole;
             let mix = self.mix.next_value().clamp(0.0, 1.0);
-            let seconds = self.predelay_time.next_value();
-            let delay = (seconds * self.sample_rate).clamp(0.0, max_delay);
+            let target = self.predelay_target.clamp(0.0, max_delay);
+            let distance = target - self.predelay_delay;
+            self.predelay_delay += distance.clamp(-PREDELAY_SLEW, PREDELAY_SLEW);
+            let delay = self.predelay_delay.clamp(0.0, max_delay);
 
             let (dry_l, dry_r) = (sanitize(*l), sanitize(*r));
             self.age = self.age.saturating_add(1);
@@ -529,7 +567,11 @@ impl Device for Reverb {
         self.right.clear_filters();
         self.size.snap();
         self.damping.snap();
-        self.predelay_time.snap();
+        let damping = self.damping.next_value();
+        self.set_pole(damping);
+        self.predelay_delay = self
+            .predelay_target
+            .clamp(0.0, (self.predelay.buf.len() - GUARD_FRAMES) as f32);
         self.mix.snap();
         let size = self.size.next_value();
         self.apply_decay(size);

@@ -106,8 +106,13 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(reverb.getByTestId('param-mix').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
     await reverb.getByRole('button', { name: x.remove('Reverb'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)
-    for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+z')
+    await expect(reverb).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(size).toHaveAttribute('aria-valuetext', sizeBefore!)
+    await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(reverb).toHaveCount(0)
 
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
