@@ -79,14 +79,15 @@ The code is always right; documentation, `docs/` included, may be stale. When a 
 
 An issue is carried through autonomously, from plan to a reviewed pull request, without waiting for the user's go-ahead between steps. The detailed steps are in `docs/agents/issue-tracker.md` > Working on a task.
 
+
 1. **Plan**: read the issue, its spec and the code, write the plan, and settle Judge Dredd's findings when its review is required (task that changes a contract, the real-time audio path, the guardrails or more than ~10 files; optional otherwise).
+
 2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
 3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
-4. **Copilot review**, optional: when Copilot code review is enabled on the repository and its quota allows, request it, settle each finding (fix with a test, or reply with the reason it is rejected), until a round brings nothing to fix (three rounds at most). A quota refusal is noted in the pull request and does not block the merge.
-5. **Merge** when the pull request is ready (see below), with a merge commit.
-6. **Close the loop**: update the issue, then send the final message.
+4. **Merge** when the pull request is ready (see below), with a merge commit.
+5. **Close the loop**: update the issue, then send the final message.
 
-Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, the findings of the reviews that ran (Judge Dredd, Copilot) settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. Releases to `main` stay with the founder.
+Stop for the user only on a decision that is theirs: product behaviour, sound or scope that the issue, the spec and the code do not settle, or a destructive or irreversible action. The lead merges the pull request into `develop` itself once it is ready (founder's decision of 2026-10-13): CI green, the findings of the reviews that ran (Judge Dredd) settled, and nothing left that is the founder's to decide or validate (product, sound or scope choices, user-facing text). A pull request that carries such a decision waits for the founder. The lead also does the release from `develop` to `main` and the helper tag (founder's decision of 2026-10-14).
 
 ## Definition of done
 

@@ -36,12 +36,6 @@ The lead carries a task from plan to a reviewed pull request on its own (`CLAUDE
 - **Deliver**: implement, verify and record the verification (`verification.md`), run `/code-review`, then run Judge Dredd's `delivery` review and record it (`judge-dredd.md`). The Stop hook refuses to end a turn that changed the code without both records.
 - **Log fragment**: a task that changes `docs/` adds one file `docs/log.d/<n>-<slug>.md` with its dated log entry, and does not edit `docs/log.md` (`docs/log.d/README.md`).
 - **Pull request**: push the branch (`git push -u origin <branch>`) and open the pull request against `develop` with `gh pr create --base develop`. Title and description in French: why, what changes, verification (including the reviews and what became of their findings), out of scope, `Closes #<n>`, then the Claude Code attribution.
-- **Copilot review**, optional: run it when it is enabled on the repository and its quota allows; a quota refusal is noted in the pull request and does not block the merge. Steps:
-  1. Request it: `gh pr edit <pr> --add-reviewer @copilot`.
-  2. Wait for it without ending the turn: poll `gh api repos/sprkl/faulk/pulls/<pr>/reviews` in the background until a review by `copilot-pull-request-reviewer[bot]` newer than the last push arrives. Its findings are the inline comments: `gh api repos/sprkl/faulk/pulls/<pr>/comments`.
-  3. Settle each finding: fix it with a test that fails without the fix, or reject it with a reason. Reply on its thread in French: `gh api repos/sprkl/faulk/pulls/<pr>/comments/<id>/replies -f body="..."`.
-  4. Push the fixes as new commits, update the pull request description, request a new review.
-  5. Stop when a round brings nothing to fix, or after three rounds.
 - **End**, before telling the user the task is finished:
   1. Tick in the issue body every acceptance criterion that is met and verified. Leave the others unticked and explain why.
   2. Post a report comment in French: branch, commits and pull request, decisions taken, verification, review findings and what became of them, deviations from the ticket, out-of-scope defects with the issues created for them.
