@@ -271,8 +271,16 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
   const barsSignature = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="mixer-meter"] .bar')].map((b) => (b as HTMLElement).style.transform).join('|'))
   const measure = async (label: string, moving: boolean) => {
     await page.waitForTimeout(500)
+    if (moving) {
+      // The meters move: releasing the note makes every bar fall, playing it again brings them back.
+      const held = await barsSignature()
+      await send(page, [0x80, 69, 0])
+      await expect.poll(barsSignature, { timeout: 15000 }).not.toBe(held)
+      await send(page, [0x90, 69, 127])
+      await expect.poll(async () => (await peaks(page)).filter((p) => p > 0.01).length, { timeout: 15000 }).toBe(32)
+      await page.waitForTimeout(500)
+    }
     const before = await counters(cdp)
-    const signatureBefore = moving ? await barsSignature() : ''
     const windows = []
     for (let i = 0; i < WINDOWS; i++) {
       windows.push(await meter.measure(() => Promise.all([frames(page, WINDOW_MS), busyShare()])))
@@ -286,10 +294,8 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
     console.log(
       `mixer-cost ${label}: frames p50 ${f.p50.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, max ${f.max.toFixed(1)} ms over ${f.frames} frames, long tasks ${f.longTasks}; ` +
         `JavaScript busy share ${(share * 100).toFixed(2)} %; main thread per frame ${cost.toFixed(4)} reference units (best of ${WINDOWS}); per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
-        `nodes ${after.Nodes}, listeners ${after.JSEventListeners}` +
-        (moving ? `; bars moved: ${signatureBefore !== (await barsSignature())}` : ''),
+        `nodes ${after.Nodes}, listeners ${after.JSEventListeners}`,
     )
-    if (moving) expect(signatureBefore).not.toBe(await barsSignature())
     return { f, share, cost }
   }
 
