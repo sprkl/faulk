@@ -41,10 +41,10 @@ describe('the clips the roll offers', () => {
     const inGrid = (name: string, slot: string): Clip => ({ ...midi(name), slot }) as Clip
     const t = track({ g: inGrid('G', 's2'), p: midi('P'), both: inGrid('B', 's1'), none: midi('N') }, { p1: ['p', 0], p2: ['both', 0] })
     const by = Object.fromEntries(midiClips(t).map((c) => [c.id, c]))
-    const scene = (id: string) => `Scene ${id.slice(1)}`
-    expect(clipOrigin(by.g!, scene, 'Arrangement')).toBe('Scene 2')
-    expect(clipOrigin(by.p!, scene, 'Arrangement')).toBe('Arrangement')
-    expect(clipOrigin(by.both!, scene, 'Arrangement')).toBe('Scene 1, Arrangement')
-    expect(clipOrigin(by.none!, scene, 'Arrangement')).toBe('')
+    const labels = { grid: (id: string) => `Grid · Scene ${id.slice(1)}`, arrangement: (start: number) => `Arrangement · ${start}` }
+    expect(clipOrigin(by.g!, labels)).toBe('Grid · Scene 2')
+    expect(clipOrigin(by.p!, labels)).toBe('Arrangement · 0')
+    expect(clipOrigin(by.both!, labels)).toBe('Grid · Scene 1, Arrangement · 0')
+    expect(clipOrigin(by.none!, labels)).toBe('')
   })
 })

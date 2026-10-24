@@ -1672,6 +1672,12 @@ fn renaming_to_nothing_gives_a_midi_clip_the_default_name() {
     };
     run(&inverse, &mut state, &mut ctx).unwrap();
     assert_eq!(clip_name(&state, &f.clip), "Riff");
+    // Clearing the name of a clip that has a default one changes nothing.
+    rename(&mut state, &mut ctx, &f.clip, "");
+    assert_eq!(clip_name(&state, &f.clip), "Clip 1");
+    let again = rename(&mut state, &mut ctx, &f.clip, "");
+    assert_eq!(again.undo, Undo::None);
+    assert_eq!(clip_name(&state, &f.clip), "Clip 1");
     rename(&mut state, &mut ctx, &f.audio_clip, "");
     assert_eq!(clip_name(&state, &f.audio_clip), "");
 }

@@ -23,6 +23,11 @@ fn clip_number(name: &str) -> Option<u32> {
     (n > 0 && format!("{CLIP_PREFIX} {n}") == name).then_some(n)
 }
 
+/// Whether `name` is a default clip name ("Clip 3"): one the project hands out itself.
+pub fn is_default_clip_name(name: &str) -> bool {
+    clip_number(name).is_some()
+}
+
 /// The name of the copy of something called `label`: its trailing number plus one ("Clip 2"
 /// gives "Clip 3", "Synth" gives "Synth 2"; a number of more than two digits is part of the
 /// name), the first one that is not in `taken`. A name has at most [`MAX_NAME_CHARS`]
@@ -114,8 +119,15 @@ impl Project {
             todo.extend(unnamed.into_iter().map(|(_, id)| (tid.clone(), id)));
         }
         let named = todo.len();
+        // One pass: the numbers taken are collected once, and the counter only moves up.
+        let mut used: BTreeSet<u32> = self.clip_names().filter_map(clip_number).collect();
+        let mut next = 1u32;
         for (tid, cid) in todo {
-            let name = self.next_clip_name();
+            while used.contains(&next) && next < u32::MAX {
+                next += 1;
+            }
+            used.insert(next);
+            let name = format!("{CLIP_PREFIX} {next}");
             if let Some(clip) = self
                 .tracks
                 .get_mut(&tid)

@@ -184,8 +184,8 @@ domain! {
     };
 
     /// Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an
-    /// empty name gives a MIDI clip the next default name ("Clip n") and clears an audio
-    /// clip's. Undo: rename it back.
+    /// empty name gives a MIDI clip the next default name ("Clip n"; one that already has a
+    /// default name keeps it) and clears an audio clip's. Undo: rename it back.
     "clip.rename" (kind = "edit", undo = "inverse", destructive = false)
     Rename { clip: ClipId, name: String } => {
         /// The name before the command.
@@ -1207,8 +1207,16 @@ fn rename(state: &mut State, clip_id: &ClipId, name: &str) -> Result<Out, Comman
         .and_then(|t| state.project.tracks.get(&t))
         .and_then(|t| t.clips.get(clip_id))
         .is_some_and(|c| c.content.is_midi());
+    let own_default = clip_mut(&mut state.project, clip_id)
+        .map(|c| ::project::names::is_default_clip_name(&c.name))
+        .unwrap_or(false);
     let name = if name.is_empty() && midi {
-        state.project.next_clip_name()
+        // A clip that already carries a default name keeps it: it is the stable one.
+        if own_default {
+            clip_mut(&mut state.project, clip_id)?.name.clone()
+        } else {
+            state.project.next_clip_name()
+        }
     } else {
         name.to_owned()
     };

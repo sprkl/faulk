@@ -590,7 +590,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+            "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -4172,7 +4172,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -9578,7 +9578,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -15005,7 +15005,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -20405,7 +20405,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -25798,7 +25798,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -31191,7 +31191,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -36584,7 +36584,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -41977,7 +41977,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -47456,7 +47456,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -52889,7 +52889,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -58304,7 +58304,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -63707,7 +63707,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -69117,7 +69117,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -74534,7 +74534,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -79948,7 +79948,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -85351,7 +85351,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -90766,7 +90766,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -96177,7 +96177,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -101587,7 +101587,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -106997,7 +106997,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -112409,7 +112409,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -117825,7 +117825,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -123231,7 +123231,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -128638,7 +128638,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -134052,7 +134052,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -139455,7 +139455,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -144865,7 +144865,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -150287,7 +150287,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -155724,7 +155724,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -161132,7 +161132,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -166546,7 +166546,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -171972,7 +171972,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -176816,7 +176816,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+        "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -177409,7 +177409,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -182819,7 +182819,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -188233,7 +188233,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -193654,7 +193654,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -199083,7 +199083,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -204498,7 +204498,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -209913,7 +209913,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -215328,7 +215328,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -220735,7 +220735,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -226143,7 +226143,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -231553,7 +231553,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -236963,7 +236963,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -242377,7 +242377,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -247780,7 +247780,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -253179,7 +253179,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -258578,7 +258578,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -263977,7 +263977,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -269370,7 +269370,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -274763,7 +274763,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -280162,7 +280162,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -285606,7 +285606,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -291028,7 +291028,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -296451,7 +296451,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -301861,7 +301861,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -307279,7 +307279,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -312727,7 +312727,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -318129,7 +318129,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -323522,7 +323522,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -328915,7 +328915,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -334314,7 +334314,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -339724,7 +339724,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -345151,7 +345151,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -350557,7 +350557,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -355973,7 +355973,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -361373,7 +361373,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -366818,7 +366818,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -372239,7 +372239,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -377653,7 +377653,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -383063,7 +383063,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -388480,7 +388480,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -393890,7 +393890,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -399283,7 +399283,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -404691,7 +404691,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -410104,7 +410104,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -415510,7 +415510,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -420929,7 +420929,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -426341,7 +426341,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -431750,7 +431750,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -437143,7 +437143,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -442555,7 +442555,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -447967,7 +447967,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -453367,7 +453367,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -458767,7 +458767,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+                  "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -464177,7 +464177,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\") and clears an audio\nclip's. Undo: rename it back.",
+              "description": "Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an\nempty name gives a MIDI clip the next default name (\"Clip n\"; one that already has a\ndefault name keeps it) and clears an audio clip's. Undo: rename it back.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
