@@ -141,6 +141,38 @@ fn scenario() -> Vec<Step> {
         &mut steps,
     );
     steps.push(Step::Render(&[4_800; 10]));
+    // Each way to change the time while the echo rings: fade (with a change during the fade
+    // and a tempo move), jump, and back to glide.
+    submit(
+        &[
+            set(echo::MODE, 0.0),
+            set(echo::TIME, 0.4),
+            set(echo::FEEDBACK, 0.6),
+            set(echo::TIME_CHANGE, echo::FADE),
+            note(62, 110),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[4_800; 4]));
+    submit(&[set(echo::TIME, 0.11)], &mut steps);
+    steps.push(Step::Render(&[500, 37]));
+    submit(&[set(echo::TIME, 0.27)], &mut steps);
+    steps.push(Step::Render(MIXED));
+    steps.push(Step::Render(&[4_800; 4]));
+    submit(&[set(echo::MODE, 1.0), tempo(87.0)], &mut steps);
+    steps.push(Step::Render(&[1_000, 128, 2048]));
+    submit(
+        &[set(echo::TIME_CHANGE, echo::JUMP), tempo(143.0)],
+        &mut steps,
+    );
+    steps.push(Step::Render(MIXED));
+    submit(&[set(echo::MODE, 0.0), set(echo::TIME, 0.05)], &mut steps);
+    steps.push(Step::Render(MIXED));
+    submit(
+        &[set(echo::TIME_CHANGE, echo::GLIDE), set(echo::TIME, 0.5)],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[4_800; 4]));
     // Switched off and on: no tail comes back.
     submit(&[enable(false)], &mut steps);
     steps.push(Step::Render(MIXED));

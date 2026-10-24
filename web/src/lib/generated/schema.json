@@ -620626,14 +620626,14 @@
     {
       "kind": "faulk.echo",
       "kind_id": 3,
-      "memory_bytes": 6144184,
+      "memory_bytes": 6144208,
       "midi_output": null,
       "name": "Echo",
       "named_keys": [],
       "params": [
         {
           "default": 1,
-          "description": "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).",
+          "description": "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting). A switch takes effect as time_change says.",
           "id": 0,
           "key": "mode",
           "max": 1,
@@ -620649,7 +620649,7 @@
         },
         {
           "default": 0.3,
-          "description": "Delay time in free mode, from 1 millisecond to 4 seconds.",
+          "description": "Delay time in free mode, from 1 millisecond to 4 seconds. A new value takes effect as time_change says.",
           "id": 1,
           "key": "time",
           "max": 4,
@@ -620662,7 +620662,7 @@
         },
         {
           "default": 5,
-          "description": "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.",
+          "description": "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds. A new value takes effect as time_change says.",
           "id": 2,
           "key": "division",
           "max": 9,
@@ -620709,6 +620709,23 @@
           "step": 0,
           "unit": "none",
           "values": []
+        },
+        {
+          "default": 0,
+          "description": "What a new time, note value, tempo or mode does while the echo rings. Glide: slides like a tape, pitch of repeats bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once (tempo: next block), may click.",
+          "id": 5,
+          "key": "time_change",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "glide",
+            "fade",
+            "jump"
+          ]
         }
       ],
       "role": "effect",

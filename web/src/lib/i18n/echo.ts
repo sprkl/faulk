@@ -25,6 +25,10 @@ export const echo = defineFeature(
     'echo.whole': '1/1',
     'echo.feedback': 'Feedback',
     'echo.mix': 'Mix',
+    'echo.time_change': 'Time change',
+    'echo.glide': 'Glide',
+    'echo.fade': 'Fade',
+    'echo.jump': 'Jump',
   },
   {
     'echo.mode': 'Mode',
@@ -44,5 +48,9 @@ export const echo = defineFeature(
     'echo.whole': '1/1',
     'echo.feedback': 'Retour',
     'echo.mix': 'Mélange',
+    'echo.time_change': 'Au changement',
+    'echo.glide': 'Glissé',
+    'echo.fade': 'Fondu',
+    'echo.jump': 'Saut',
   },
 )
