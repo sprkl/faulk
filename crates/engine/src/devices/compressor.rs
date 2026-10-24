@@ -45,12 +45,12 @@
 //! value goes through [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
-use super::osc_synth::LinearRamp;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, ParamDescriptor,
     Scale, Unit, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 /// Ids of the parameters.
 pub const THRESHOLD: u32 = 0;
@@ -201,9 +201,9 @@ pub fn gain_reduction_db(x_db: f32, threshold_db: f32, slope: f32) -> f32 {
 #[derive(Debug)]
 pub struct Compressor {
     sample_rate: f32,
-    threshold: LinearRamp,
-    ratio: LinearRamp,
-    makeup: LinearRamp,
+    threshold: Smoother,
+    ratio: Smoother,
+    makeup: Smoother,
     ramp_frames: [u32; 3],
     attack: f32,
     release: f32,
@@ -228,9 +228,9 @@ impl Compressor {
         };
         Self {
             sample_rate,
-            threshold: LinearRamp::new(default(THRESHOLD) as f32),
-            ratio: LinearRamp::new(default(RATIO) as f32),
-            makeup: LinearRamp::new(default(MAKEUP) as f32),
+            threshold: Smoother::new(default(THRESHOLD) as f32),
+            ratio: Smoother::new(default(RATIO) as f32),
+            makeup: Smoother::new(default(MAKEUP) as f32),
             ramp_frames: [ramp(THRESHOLD), ramp(RATIO), ramp(MAKEUP)],
             attack: coefficient(default(ATTACK) as f32, sample_rate),
             release: coefficient(default(RELEASE) as f32, sample_rate),
