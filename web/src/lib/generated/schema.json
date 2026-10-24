@@ -31861,6 +31861,27 @@
                   "x-destructive": false,
                   "x-kind": "live",
                   "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Give one track back to its arrangement: what `launch.back_to_arrangement` does, for\nthe track alone; the other tracks are left as they are. Does nothing to a track that\nfollows its arrangement. Played live: not undoable, not saved.",
+                  "properties": {
+                    "track": {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    "type": {
+                      "const": "launch.back_track_to_arrangement",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "track"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -34559,6 +34580,19 @@
                   "properties": {
                     "type": {
                       "const": "launch.back_to_arrangement",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "launch.back_track_to_arrangement",
                       "type": "string"
                     }
                   },
@@ -259743,6 +259777,52 @@
                     "type"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "bit_depth": {
+                      "$ref": "#/$defs/ExportBitDepth",
+                      "description": "The sample format of the file."
+                    },
+                    "duration_secs": {
+                      "description": "Seconds of content, without the tail.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "end_tick": {
+                      "$ref": "#/$defs/Tick",
+                      "description": "Where the content ends, in ticks; the tail follows."
+                    },
+                    "region": {
+                      "$ref": "#/$defs/ExportRegion",
+                      "description": "What is rendered: `song`, `loop` or `bars`."
+                    },
+                    "sample_rate": {
+                      "description": "The sample rate of the file, in Hz.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "start_tick": {
+                      "$ref": "#/$defs/Tick",
+                      "description": "Where the render starts, in ticks (960 per quarter note)."
+                    },
+                    "type": {
+                      "const": "project.export_audio",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "region",
+                    "bit_depth",
+                    "sample_rate",
+                    "start_tick",
+                    "end_tick",
+                    "duration_secs"
+                  ],
+                  "type": "object"
                 }
               ]
             },
@@ -261744,6 +261824,46 @@
                 }
               ]
             },
+            "ExportBitDepth": {
+              "description": "How the samples are written.",
+              "oneOf": [
+                {
+                  "const": "pcm16",
+                  "description": "16-bit integers.",
+                  "type": "string"
+                },
+                {
+                  "const": "pcm24",
+                  "description": "24-bit integers.",
+                  "type": "string"
+                },
+                {
+                  "const": "float32",
+                  "description": "32-bit floats: nothing is clipped.",
+                  "type": "string"
+                }
+              ]
+            },
+            "ExportRegion": {
+              "description": "Which part of the project is rendered.",
+              "oneOf": [
+                {
+                  "const": "song",
+                  "description": "From the start to the end of the last placement of the arrangement, then the tail.",
+                  "type": "string"
+                },
+                {
+                  "const": "loop",
+                  "description": "The loop region, once, then the tail.",
+                  "type": "string"
+                },
+                {
+                  "const": "bars",
+                  "description": "From the start of bar `from_bar` to the end of bar `to_bar` (both counted from 1, the\nsecond included), then the tail.",
+                  "type": "string"
+                }
+              ]
+            },
             "FrameLoop": {
               "additionalProperties": false,
               "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
@@ -262626,6 +262746,73 @@
                   "properties": {
                     "type": {
                       "const": "project.save_as",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. It is refused when there is nothing to render\n(empty arrangement, no loop region for `loop`, a `bars` range that starts after the\nend of the arrangement or is out of order) or the range lasts more than 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
+                  "properties": {
+                    "bit_depth": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/ExportBitDepth"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "from_bar": {
+                      "default": null,
+                      "format": "uint32",
+                      "minimum": 1,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "region": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/ExportRegion"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "sample_rate": {
+                      "default": null,
+                      "format": "uint32",
+                      "maximum": 96000,
+                      "minimum": 44100,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "to_bar": {
+                      "default": null,
+                      "format": "uint32",
+                      "minimum": 1,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "project.export_audio",
                       "type": "string"
                     }
                   },
@@ -264337,6 +264524,46 @@
                     "value"
                   ],
                   "type": "object"
+                }
+              ]
+            },
+            "ExportBitDepth": {
+              "description": "How the samples are written.",
+              "oneOf": [
+                {
+                  "const": "pcm16",
+                  "description": "16-bit integers.",
+                  "type": "string"
+                },
+                {
+                  "const": "pcm24",
+                  "description": "24-bit integers.",
+                  "type": "string"
+                },
+                {
+                  "const": "float32",
+                  "description": "32-bit floats: nothing is clipped.",
+                  "type": "string"
+                }
+              ]
+            },
+            "ExportRegion": {
+              "description": "Which part of the project is rendered.",
+              "oneOf": [
+                {
+                  "const": "song",
+                  "description": "From the start to the end of the last placement of the arrangement, then the tail.",
+                  "type": "string"
+                },
+                {
+                  "const": "loop",
+                  "description": "The loop region, once, then the tail.",
+                  "type": "string"
+                },
+                {
+                  "const": "bars",
+                  "description": "From the start of bar `from_bar` to the end of bar `to_bar` (both counted from 1, the\nsecond included), then the tail.",
+                  "type": "string"
                 }
               ]
             },
