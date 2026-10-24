@@ -1065,6 +1065,11 @@ fn every_refusal_of_the_clip_commands_leaves_the_state_intact() {
             slot: None,
             track: None,
         },
+        clip::Command::Move {
+            clip: ghost.clone(),
+            track: None,
+            slot: Some(f.scene_free.clone()),
+        },
         clip::Command::Rename {
             clip: ghost.clone(),
             name: "x".into(),
@@ -1419,6 +1424,20 @@ fn duplicate_into_another_track_copies_the_clip_there_and_the_source_stays() {
     assert_eq!(
         state.project.tracks[&other].clips[&copy].slot,
         Some(f.scene_a.clone())
+    );
+    // Refused: an unknown track, in a move and in a copy.
+    let mut ids = ::project::IdGenerator::new(1_680_000_000_000, 11);
+    let ghost_track = ::project::TrackId::generate(&mut ids);
+    let err = check_refusal(&dup(None, &ghost_track), &two, &context()).unwrap();
+    assert_eq!(err.code(), "not_found");
+    let to_ghost = c(clip::Command::Move {
+        clip: f.clip.clone(),
+        track: Some(ghost_track),
+        slot: Some(f.scene_free.clone()),
+    });
+    assert_eq!(
+        check_refusal(&to_ghost, &two, &context()).unwrap().code(),
+        "not_found"
     );
     // Refused: an audio track, a taken slot.
     let err = check_refusal(&dup(None, &f.audio_track), &two, &context()).unwrap();

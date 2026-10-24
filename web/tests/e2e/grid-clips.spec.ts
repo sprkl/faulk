@@ -210,5 +210,27 @@ test('grid: delete, rename, duplicate, copy and move a clip from its cell', asyn
   await page.keyboard.press('Control+v')
   await expect(at(page, 0, 2)).toHaveAttribute('data-clip', before!)
 
+  // A clip the arrangement plays (made there, then moved into the grid) stays in its track: no move target on
+  // another track, but Alt (copy) offers one.
+  await run(page, { type: 'clip.create', track: midi[0], at: { at: 'arrangement', start: 0 } })
+  const placedId = Object.entries((await view()).tracks[midi[0]!]!.clips).find(([, c]) => c.slot === null)![0]
+  await run(page, { type: 'clip.move', clip: placedId, slot: scenes[3] })
+  const placed = at(page, 0, 3)
+  await expect(placed).toHaveAttribute('data-clip', placedId)
+  gesture = await drag(page, placed, at(page, 1, 2))
+  await expect(at(page, 1, 2)).not.toHaveAttribute('data-drop', /.+/)
+  await page.keyboard.down('Alt')
+  await expect(at(page, 1, 2)).toHaveAttribute('data-drop', 'copy')
+  await page.keyboard.up('Alt')
+  await expect(at(page, 1, 2)).not.toHaveAttribute('data-drop', /.+/)
+  await gesture.drop()
+  await expect(placed).toHaveAttribute('data-clip', placedId)
+  await expect(at(page, 1, 2)).toHaveAttribute('data-state', 'empty')
+  // Within its own track it moves.
+  gesture = await drag(page, placed, at(page, 0, 1))
+  await expect(at(page, 0, 1)).toHaveAttribute('data-drop', 'move')
+  await gesture.drop()
+  await expect(at(page, 0, 1)).toHaveAttribute('data-clip', placedId)
+
   expect(seen.errors).toEqual([])
 })

@@ -344,9 +344,24 @@
   }
 
   /** The empty cell of a MIDI track under the pointer, or null: nothing else is a place to drop. */
-  function dropCell(x: number, y: number): HTMLElement | null {
+  function dropCell(x: number, y: number, copy: boolean): HTMLElement | null {
     const cell = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-cell]')
-    return cell && !cell.dataset.clip && cell.dataset.midi === 'true' ? cell : null
+    if (!cell || cell.dataset.clip || cell.dataset.midi !== 'true') return null
+    // A clip the arrangement plays stays in its track: it can be copied to another one, not moved there.
+    if (!copy && press && cell.dataset.track !== press.track && isPlaced(press.track, press.clip)) return null
+    return cell
+  }
+
+  /** Whether a placement of the arrangement plays the clip. */
+  function isPlaced(track: string, clip: string): boolean {
+    const placements = project.view?.project.tracks[track]?.placements ?? {}
+    return Object.values(placements).some((placement) => placement?.clip === clip)
+  }
+
+  /** The cell the clip would land on, from the pointer's last place and the key held. */
+  function refreshDrop() {
+    const over = dropCell(dragAt.x, dragAt.y, dragCopy)
+    dropKey = over ? cellKey(over.dataset.track!, over.dataset.scene!) : null
   }
 
   function onWindowPointerMove(event: PointerEvent) {
@@ -360,8 +375,7 @@
     }
     dragAt = { x: event.clientX, y: event.clientY }
     dragCopy = event.altKey
-    const over = dropCell(event.clientX, event.clientY)
-    dropKey = over ? cellKey(over.dataset.track!, over.dataset.scene!) : null
+    refreshDrop()
   }
 
   function endPress() {
@@ -380,7 +394,7 @@
   function onWindowPointerUp(event: PointerEvent) {
     const current = press
     if (!current?.active) return endPress()
-    const over = current.aborted ? null : dropCell(event.clientX, event.clientY)
+    const over = current.aborted ? null : dropCell(event.clientX, event.clientY, event.altKey)
     endPress()
     if (!over || !homes.has(current.clip)) return
     const { track, scene } = over.dataset
@@ -390,7 +404,10 @@
 
   function onWindowKey(event: KeyboardEvent) {
     // Alt pressed or released with the pointer still: the indicator follows the key the drop will read.
-    if (press?.active) dragCopy = event.altKey
+    if (press?.active && !press.aborted) {
+      dragCopy = event.altKey
+      refreshDrop()
+    }
     if (event.key === 'Escape' && press?.active) {
       press.aborted = true
       dropKey = null
@@ -505,7 +522,7 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointer} onpointermove={onWindowPointerMove} onpointerup={onWindowPointerUp} onpointercancel={endPress} onkeydown={onWindowKey} onkeyup={onWindowKey} />
+<svelte:window onpointerdown={onWindowPointer} onpointermove={onWindowPointerMove} onpointerup={onWindowPointerUp} onpointercancel={endPress} onkeydown={onWindowKey} onkeyup={onWindowKey} onblur={endPress} />
 
 {#if !project.view}
   <p class="note" data-testid="grid-waiting">{t('tracks.waiting')}</p>
