@@ -49,8 +49,10 @@ domain! {
 
     /// Start a new project: the page's default one, a single synth track, in no folder yet,
     /// with its own identity. It replaces the current project, its history and its session
-    /// (the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive: the caller confirms first
-    /// when the current project has changes that are not saved.
+    /// (the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive:
+    /// when the current project has changes that are kept nowhere, the page asks the user first,
+    /// whoever sends the command, and nothing changes if the user cancels. The question is a
+    /// dialog of the page, so it needs no click.
     "project.new" (kind = "edit", undo = "none", destructive = true)
     New {} => {
         /// The name of the new project.
@@ -67,7 +69,7 @@ domain! {
     /// Choose an empty folder and write the whole project into it; the project then lives
     /// in that folder, and the automatic save keeps writing there. The folder is chosen by
     /// the user (a browser needs a click for it), so an agent that is not driven by one gets
-    /// a notice in the page instead. The old folder is left as it is. Changes nothing in the
+    /// a notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the
     /// project, so it never enters the history.
     "project.save_as" (kind = "live", undo = "none", destructive = false)
     SaveAs {} => {};

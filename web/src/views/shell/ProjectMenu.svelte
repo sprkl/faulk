@@ -4,7 +4,7 @@
    * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
    * (no folder yet). A musician reads it to know whether the tab can be closed.
    */
-  import { deleteBrowserProject, exportPack, importPack, openBrowserProject, openFolder, openRecent, save, saveAs } from '../../lib/project-commands'
+  import { deleteBrowserProject, exportPack, importPack, newProject, openBrowserProject, openFolder, openRecent, save, saveAs } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, project, dispatcher, audioExport } = useStores()
@@ -85,7 +85,7 @@
   {#if open}
     <div class="menu" role="menu" aria-label={t('project.menu')}>
       <p class="summary" data-testid="menu-summary">{name}{ready ? ` · ${status}` : ''}</p>
-      <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => storage.newProject())}>{t('project.menu.new')}</button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => dispatcher.run(newProject()))}>{t('project.menu.new')}</button>
       <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => dispatcher.run(openFolder()))}>{t('project.menu.open')}</button>
       <hr />
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>

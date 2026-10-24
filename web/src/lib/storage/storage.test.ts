@@ -810,14 +810,48 @@ describe('a new project', () => {
     expect(w.storage.unsaved).toBe(false)
   })
 
-  it('a project.new run as a command forgets the folder at once', async () => {
-    const { w, store } = await saved()
-    w.storage.forgetFolder()
-    await settle()
-    expect(w.storage.folder).toBeNull()
+  it('Cancel on a project with no folder leaves the project, its changes and the core untouched (#346)', async () => {
+    const w = world()
     w.edit()
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS)
-    expect(store.applied.length).toBe(1)
+    const asking = w.storage.newProject()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'new', name: null })
+    // Nothing was replaced while the question is open.
+    expect(w.host.news).toBe(0)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.host.news).toBe(0)
+    expect(w.storage.unsaved).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+  })
+
+  it('Cancel on a project in a folder keeps the folder attached and its changes written (#346)', async () => {
+    const { w, store } = await saved()
+    // A write that cannot happen: the changes are kept nowhere, so the user is asked.
+    w.permission.set(w.stores.keys().next().value!, 'prompt')
+    w.edit()
+    const asking = w.storage.newProject()
+    await settle()
+    expect(w.storage.confirm?.action).toBe('new')
+    expect(w.host.news).toBe(0)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.host.news).toBe(0)
+    expect(w.storage.folder).toEqual({ name: 'song' })
+    expect(store.closed).toBe(false)
+  })
+
+  it('a second new project waits for the first question, and asks nothing once the first replaced the project', async () => {
+    const w = world()
+    w.edit()
+    const first = w.storage.newProject()
+    const second = w.storage.newProject()
+    await settle()
+    w.storage.respond(true)
+    expect(await first).toBe(true)
+    expect(await second).toBe(true)
+    expect(w.host.news).toBe(2)
+    expect(w.storage.confirm).toBeNull()
   })
 })
 
@@ -1985,6 +2019,35 @@ describe('the commands that open a project', () => {
     expect(other.w.host.opened).toEqual([])
   })
 
+  it('save as and save of a project with no folder need a click: no chooser opens, the notice says why (#346)', async () => {
+    const w = world()
+    w.edit()
+    const picked = handleOf('picked')
+    w.stores.set(picked, new FakeStore('picked'))
+    w.picks.push({ status: 'chosen', handle: picked })
+    withoutClick()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(await w.storage.save()).toBe(false)
+    expect(w.picks.length).toBe(1)
+    expect(w.storage.folder).toBeNull()
+    expect(w.host.saves).toEqual([])
+    withClick()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'picked' })
+    expect(w.storage.notice).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('save as in a browser with no folder to offer keeps saying so, click or not', async () => {
+    const w = world()
+    w.supported = false
+    withoutClick()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.unsupported')
+    vi.unstubAllGlobals()
+  })
+
   it('the folder picker needs a click, and a refused call leaves the pick for the next one', async () => {
     const w = world()
     const picked = handleOf('picked')
@@ -2098,8 +2161,10 @@ describe('the core is ready before the first click (#323)', () => {
     expect(w.storage.block).toBe('permission')
     w.deps.askPermission = async () => {
       // A new project replaces this one while the browser's prompt is open.
-      void w.storage.forgetFolder()
+      const replacing = w.storage.newProject()
       await settle()
+      w.storage.respond(true)
+      await replacing
       return 'granted'
     }
     expect(await w.storage.resume()).toBe(false)
