@@ -383,6 +383,18 @@
   input.value:disabled {
     opacity: 0.45;
   }
+  /* The top bar is full at this width (the back-to-arrangement button joined the tools): tighter tools. */
+  @media (max-width: 1399px) {
+    .tool {
+      width: 28px;
+    }
+    select.quant {
+      width: 84px;
+    }
+    .field {
+      margin-left: 2px;
+    }
+  }
   .sr-only {
     position: absolute;
     width: 1px;
