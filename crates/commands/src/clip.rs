@@ -293,6 +293,61 @@ domain! {
         /// How many notes changed.
         updated: u32,
     };
+
+    /// Quantize the start of notes of a MIDI clip toward a grid, in one batch (one history
+    /// entry, all or nothing). `grid` is the grid step in ticks (960 per quarter note, at
+    /// least 1); `strength` is 0 to 100 percent: 100 puts a note on the nearest grid line
+    /// (halfway goes to the later line), 50 moves it half of the way, 0 changes nothing.
+    /// `notes` lists the notes to quantize, each by its whole value; leave it out to
+    /// quantize every note of the clip. A listed note that is not in the clip is refused.
+    /// Only the start moves: the length never changes. A note that the move would push past
+    /// the end of the clip stops where it still fits (its end on the clip's end), so it may
+    /// be off the grid. Notes that end up equal merge into one. Undo: the opposite moves
+    /// (the previous content of the clip when notes merged).
+    "clip.notes.quantize" (kind = "edit", undo = "inverse", destructive = false)
+    NotesQuantize {
+        clip: ClipId,
+        notes: Option<Vec<Note>>,
+        grid: Tick,
+        #[schemars(range(min = 0, max = 100))]
+        strength: u8,
+    } => {
+        /// How many notes moved.
+        quantized: u32,
+    };
+
+    /// Transpose notes of a MIDI clip by `semitones` (positive up, negative down), in one
+    /// batch (one history entry, all or nothing). Each note is addressed by its whole
+    /// value and must be in the clip. A transposition that would take one note outside
+    /// pitch 0 to 127 is refused for the whole batch, never clamped. Notes that end up
+    /// equal merge into one. 0 semitones changes nothing. Undo: transpose back (the
+    /// previous content of the clip when notes merged).
+    "clip.notes.transpose" (kind = "edit", undo = "inverse", destructive = false)
+    NotesTranspose {
+        clip: ClipId,
+        notes: Vec<Note>,
+        semitones: i32,
+    } => {
+        /// How many notes moved.
+        transposed: u32,
+    };
+
+    /// Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in
+    /// one batch (one history entry, all or nothing). Each source note is addressed by its
+    /// whole value and must be in the clip. Without `offset`, the copies follow the whole
+    /// selection (shift of the span from the first start to the last end). An `offset` of 0
+    /// is refused, and so is a copy that would lie outside `[0, clip length]` (never
+    /// truncated). A copy equal to a note already in the clip changes nothing. Undo: remove
+    /// the notes actually added.
+    "clip.notes.duplicate" (kind = "edit", undo = "inverse", destructive = false)
+    NotesDuplicate {
+        clip: ClipId,
+        notes: Vec<Note>,
+        offset: Option<Tick>,
+    } => {
+        /// How many copies were new.
+        added: u32,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -822,6 +877,22 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
         Command::NotesAdd { clip, notes } => notes_add(state, clip, notes),
         Command::NotesRemove { clip, notes } => notes_remove(state, clip, notes),
         Command::NotesUpdate { clip, changes } => notes_update(state, clip, changes),
+        Command::NotesQuantize {
+            clip,
+            notes,
+            grid,
+            strength,
+        } => notes_quantize(state, clip, notes.as_deref(), *grid, *strength),
+        Command::NotesTranspose {
+            clip,
+            notes,
+            semitones,
+        } => notes_transpose(state, clip, notes, *semitones),
+        Command::NotesDuplicate {
+            clip,
+            notes,
+            offset,
+        } => notes_duplicate(state, clip, notes, *offset),
     }
 }
 
@@ -1553,9 +1624,266 @@ fn notes_update(
     ))
 }
 
+/// Where `start` goes when quantized to `grid` ticks at `strength` percent: toward the
+/// nearest grid line (halfway goes to the later one), by that share of the distance
+/// (halfway rounds away from zero). Exact integer maths, also for a negative `start`.
+pub(crate) fn quantized_start(start: i64, grid: i64, strength: u8) -> i64 {
+    let grid = i128::from(grid.max(1));
+    let from = i128::from(start);
+    let nearest = (from + grid / 2).div_euclid(grid) * grid;
+    let scaled = (nearest - from) * i128::from(strength.min(100));
+    let share = (scaled.abs() + 50) / 100;
+    let moved = if scaled < 0 { -share } else { share };
+    i64::try_from(from + moved).unwrap_or(start)
+}
+
+/// The notes of `wanted` as they are in the clip, each once: all of them, or a refusal naming the first that is not.
+fn present_notes(
+    notes: &BTreeSet<Note>,
+    wanted: &[Note],
+    field: &str,
+) -> Result<Vec<Note>, CommandError> {
+    let mut seen = HashSet::new();
+    let mut found = Vec::with_capacity(wanted.len());
+    for (i, note) in wanted.iter().enumerate() {
+        if !notes.contains(note) {
+            return Err(not_found("note", format!("{field}[{i}] {note:?}")));
+        }
+        if seen.insert(*note) {
+            found.push(*note);
+        }
+    }
+    Ok(found)
+}
+
+/// Applies moves of notes (each `from` is in the clip, each `to` is valid) and returns how
+/// many moved with the inverse, or `None` when nothing changed. Notes that become equal
+/// merge; then the inverse is the whole previous content, otherwise the opposite moves.
+fn rewrite_notes(
+    clip_id: &ClipId,
+    length: Tick,
+    looping: Option<TickLoop>,
+    notes: &mut BTreeSet<Note>,
+    moves: Vec<NoteChange>,
+) -> Option<(usize, Command)> {
+    let moves: Vec<NoteChange> = moves.into_iter().filter(|m| m.from != m.to).collect();
+    let froms: HashSet<Note> = moves.iter().map(|m| m.from).collect();
+    let tos: HashSet<Note> = moves.iter().map(|m| m.to).collect();
+    if froms == tos {
+        return None;
+    }
+    let merged =
+        tos.len() < moves.len() || tos.iter().any(|t| notes.contains(t) && !froms.contains(t));
+    let inverse = if merged {
+        Command::SetContent {
+            clip: clip_id.clone(),
+            length,
+            looping,
+            notes: notes.iter().copied().collect(),
+            placements: None,
+        }
+    } else {
+        Command::NotesUpdate {
+            clip: clip_id.clone(),
+            changes: moves
+                .iter()
+                .map(|m| NoteChange {
+                    from: m.to,
+                    to: m.from,
+                })
+                .collect(),
+        }
+    };
+    for from in &froms {
+        notes.remove(from);
+    }
+    notes.extend(tos.iter().copied());
+    Some((moves.len(), inverse))
+}
+
+fn notes_quantize(
+    state: &mut State,
+    clip_id: &ClipId,
+    chosen: Option<&[Note]>,
+    grid: Tick,
+    strength: u8,
+) -> Result<Out, CommandError> {
+    if !(1..=MAX_TICK).contains(&grid.get()) {
+        return Err(invalid(
+            "grid",
+            format!("a grid step is 1 to {MAX_TICK} ticks, not {}", grid.get()),
+        ));
+    }
+    if strength > 100 {
+        return Err(invalid("strength", "a strength is 0 to 100 percent"));
+    }
+    let clip = clip_mut(&mut state.project, clip_id)?;
+    let (length, looping, notes) = midi_mut(clip)?;
+    let targets: Vec<Note> = match chosen {
+        Some(list) => present_notes(notes, list, "notes")?,
+        None => notes.iter().copied().collect(),
+    };
+    let moves = targets
+        .iter()
+        .map(|&from| {
+            let room = length.get().saturating_sub(from.length.get()).max(0);
+            let start = quantized_start(from.start.get(), grid.get(), strength).clamp(0, room);
+            NoteChange {
+                from,
+                to: Note {
+                    start: Tick(start),
+                    ..from
+                },
+            }
+        })
+        .collect();
+    let (length, looping) = (*length, *looping);
+    Ok(
+        match rewrite_notes(clip_id, length, looping, notes, moves) {
+            None => unchanged(Output::NotesQuantize { quantized: 0 }),
+            Some((n, inverse)) => edited(
+                Output::NotesQuantize {
+                    quantized: count(n),
+                },
+                inverse,
+                changed(clip_id, ClipPart::Notes),
+            ),
+        },
+    )
+}
+
+fn notes_transpose(
+    state: &mut State,
+    clip_id: &ClipId,
+    chosen: &[Note],
+    semitones: i32,
+) -> Result<Out, CommandError> {
+    let clip = clip_mut(&mut state.project, clip_id)?;
+    let (length, looping, notes) = midi_mut(clip)?;
+    let targets = present_notes(notes, chosen, "notes")?;
+    let mut moves = Vec::with_capacity(targets.len());
+    for (i, from) in targets.iter().enumerate() {
+        let pitch = i64::from(from.pitch) + i64::from(semitones);
+        let Some(pitch) = u8::try_from(pitch).ok().filter(|p| *p <= 127) else {
+            return Err(invalid(
+                format!("notes[{i}]"),
+                format!(
+                    "transposing pitch {} by {semitones} leaves 0 to 127; nothing is clamped",
+                    from.pitch
+                ),
+            ));
+        };
+        moves.push(NoteChange {
+            from: *from,
+            to: Note { pitch, ..*from },
+        });
+    }
+    let (length, looping) = (*length, *looping);
+    Ok(
+        match rewrite_notes(clip_id, length, looping, notes, moves) {
+            None => unchanged(Output::NotesTranspose { transposed: 0 }),
+            Some((n, inverse)) => edited(
+                Output::NotesTranspose {
+                    transposed: count(n),
+                },
+                inverse,
+                changed(clip_id, ClipPart::Notes),
+            ),
+        },
+    )
+}
+
+fn notes_duplicate(
+    state: &mut State,
+    clip_id: &ClipId,
+    chosen: &[Note],
+    offset: Option<Tick>,
+) -> Result<Out, CommandError> {
+    let in_project = project_notes(&state.project);
+    let clip = clip_mut(&mut state.project, clip_id)?;
+    let (length, _, notes) = midi_mut(clip)?;
+    let sources = present_notes(notes, chosen, "notes")?;
+    if sources.is_empty() {
+        return Ok(unchanged(Output::NotesDuplicate { added: 0 }));
+    }
+    let first = sources.iter().map(|n| n.start.get()).min().unwrap_or(0);
+    let last = sources
+        .iter()
+        .map(|n| n.start.get().saturating_add(n.length.get()))
+        .max()
+        .unwrap_or(0);
+    let shift = offset.map_or(last.saturating_sub(first), Tick::get);
+    if shift == 0 {
+        return Err(invalid(
+            "offset",
+            "an offset of 0 would copy the notes onto themselves",
+        ));
+    }
+    let copies: Vec<Note> = sources
+        .iter()
+        .map(|n| Note {
+            start: Tick(n.start.get().saturating_add(shift)),
+            ..*n
+        })
+        .collect();
+    check_notes(&copies, *length, "notes")?;
+    let fresh: Vec<Note> = copies
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|n| !notes.contains(n))
+        .collect();
+    if fresh.is_empty() {
+        return Ok(unchanged(Output::NotesDuplicate { added: 0 }));
+    }
+    check_note_limits(
+        notes.len().saturating_add(fresh.len()),
+        in_project.saturating_add(fresh.len()),
+    )?;
+    notes.extend(fresh.iter().copied());
+    Ok(edited(
+        Output::NotesDuplicate {
+            added: count(fresh.len()),
+        },
+        Command::NotesRemove {
+            clip: clip_id.clone(),
+            notes: fresh,
+        },
+        changed(clip_id, ClipPart::Notes),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quantizing_a_start_moves_a_share_of_the_way_to_the_nearest_line() {
+        // Full strength: the nearest line, halfway to the later one.
+        assert_eq!(quantized_start(150, 240, 100), 240);
+        assert_eq!(quantized_start(119, 240, 100), 0);
+        assert_eq!(quantized_start(120, 240, 100), 240);
+        assert_eq!(quantized_start(240, 240, 100), 240);
+        // Strength 0 moves nothing, 50 goes half of the way, 1 almost nothing.
+        assert_eq!(quantized_start(150, 240, 0), 150);
+        assert_eq!(quantized_start(150, 240, 50), 195);
+        assert_eq!(quantized_start(150, 240, 1), 151);
+        assert_eq!(quantized_start(20, 240, 1), 20);
+        // The share rounds away from zero when halfway: 25 % of -30 is -7.5, so -8.
+        assert_eq!(quantized_start(30, 240, 25), 22);
+        assert_eq!(quantized_start(210, 240, 25), 218);
+        // A grid of one tick, and one wider than the position, are fine.
+        assert_eq!(quantized_start(77, 1, 100), 77);
+        assert_eq!(quantized_start(77, 100_000, 100), 0);
+        // Negative positions (no note has one, but the maths is total) snap the same way.
+        assert_eq!(quantized_start(-150, 240, 100), -240);
+        assert_eq!(quantized_start(-120, 240, 100), 0);
+        assert_eq!(quantized_start(-150, 240, 50), -195);
+        // Extremes saturate instead of panicking.
+        let _ = quantized_start(i64::MAX, 960, 100);
+        let _ = quantized_start(i64::MIN, i64::MAX, 100);
+        let _ = quantized_start(5, i64::MIN, 100);
+    }
 
     #[test]
     fn a_count_past_its_limit_is_a_typed_refusal() {

@@ -12,62 +12,9 @@ use super::{
     MidiOutput, ParamDescriptor, Scale, Transport, Unit, VoiceId, clamp_tune_cents, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 // ---------------------------------------------------------------- shared pieces
-
-/// A linear ramp as the contract defines smoothing: the value at frame `k + i` after a
-/// target set at frame `k` is `start + (target − start) · min(i, n) / n`.
-#[derive(Clone, Copy, Debug)]
-pub struct Ramp {
-    start: f32,
-    target: f32,
-    frames: u32,
-    done: u32,
-}
-
-impl Ramp {
-    pub const fn new(value: f32) -> Self {
-        Self {
-            start: value,
-            target: value,
-            frames: 0,
-            done: 0,
-        }
-    }
-
-    /// The value at the next frame.
-    pub fn current(&self) -> f32 {
-        if self.done >= self.frames {
-            self.target
-        } else {
-            self.start + (self.target - self.start) * (self.done as f32 / self.frames as f32)
-        }
-    }
-
-    /// Starts a ramp from the current value to `target` over `frames` frames (0: a jump).
-    pub fn set(&mut self, target: f32, frames: u32) {
-        self.start = self.current();
-        self.target = target;
-        self.frames = frames;
-        self.done = 0;
-    }
-
-    /// Ends the ramp at its target.
-    pub fn snap(&mut self) {
-        self.start = self.target;
-        self.frames = 0;
-        self.done = 0;
-    }
-
-    /// The value of this frame, then moves one frame on.
-    pub fn next_value(&mut self) -> f32 {
-        let v = self.current();
-        if self.done < self.frames {
-            self.done += 1;
-        }
-        v
-    }
-}
 
 /// Samples below this magnitude are flushed to zero (denormal guard).
 const DENORMAL_FLOOR: f32 = 1e-20;
@@ -177,7 +124,7 @@ struct ToneVoice {
 pub struct TestTone {
     sample_rate: f32,
     voices: [ToneVoice; TONE_VOICES],
-    gain: Ramp,
+    gain: Smoother,
     octave: f32,
     counter: u64,
 }
@@ -187,7 +134,7 @@ impl TestTone {
         Self {
             sample_rate: sane_rate(setup.sample_rate),
             voices: [ToneVoice::default(); TONE_VOICES],
-            gain: Ramp::new(TONE.params[0].default as f32),
+            gain: Smoother::new(TONE.params[0].default as f32),
             octave: TONE.params[1].default as f32,
             counter: 0,
         }
@@ -319,6 +266,7 @@ pub mod gain {
     use crate::msg::ParamId;
     pub const GAIN: ParamId = ParamId(0);
     pub const MUTE: ParamId = ParamId(1);
+    pub const TRIM: ParamId = ParamId(2);
 }
 
 /// Descriptor of [`TestGain`].
@@ -358,15 +306,30 @@ pub static GAIN: DeviceDescriptor = DeviceDescriptor {
             smoothing_seconds: 0.0,
             values: &["off", "on"],
         },
+        ParamDescriptor {
+            id: gain::TRIM,
+            key: "trim",
+            description: "Test parameter trim: a continuous level that applies at its exact offset.",
+            unit: Unit::None,
+            min: 0.0,
+            max: 2.0,
+            default: 1.0,
+            scale: Scale::Linear,
+            step: 0.0,
+            smoothing_seconds: 0.0,
+            values: &[],
+        },
     ],
 };
 
-/// An audio effect: multiplies both channels by a smoothed `gain`, silenced by a stepped
-/// `mute`.
+/// An audio effect: multiplies both channels by a smoothed `gain` and by `trim`, a
+/// continuous level with a zero smoothing time (through the shared smoother), silenced by a
+/// stepped `mute`.
 #[derive(Clone, Debug)]
 pub struct TestGain {
     sample_rate: f32,
-    gain: Ramp,
+    gain: Smoother,
+    trim: Smoother,
     muted: bool,
 }
 
@@ -374,7 +337,8 @@ impl TestGain {
     pub fn new(setup: &DeviceSetup) -> Self {
         Self {
             sample_rate: sane_rate(setup.sample_rate),
-            gain: Ramp::new(GAIN.params[0].default as f32),
+            gain: Smoother::new(GAIN.params[0].default as f32),
+            trim: Smoother::new(GAIN.params[2].default as f32),
             muted: GAIN.params[1].default != 0.0,
         }
     }
@@ -386,12 +350,13 @@ impl TestGain {
     fn render(&mut self, io: &mut AudioIo<'_>, from: usize, to: usize) {
         let (left, right) = (&mut io.left[from..to], &mut io.right[from..to]);
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            let trim = self.trim.next_value();
             let g = if self.muted {
                 // The ramp still moves while muted.
                 self.gain.next_value();
                 0.0
             } else {
-                self.gain.next_value()
+                self.gain.next_value() * trim
             };
             *l = flush(sanitize_sample(*l) * g);
             *r = flush(sanitize_sample(*r) * g);
@@ -432,6 +397,9 @@ impl Device for TestGain {
         if id == gain::GAIN {
             self.gain
                 .set(value, desc.smoothing_frames(self.sample_rate));
+        } else if id == gain::TRIM {
+            self.trim
+                .set(value, desc.smoothing_frames(self.sample_rate));
         } else if id == gain::MUTE {
             self.muted = value != 0.0;
         }
@@ -439,6 +407,7 @@ impl Device for TestGain {
 
     fn reset(&mut self) {
         self.gain.snap();
+        self.trim.snap();
     }
 }
 
@@ -831,7 +800,7 @@ const fn param(frame: u64, target: Target, id: ParamId, value: f32) -> Scheduled
 
 /// A fixed performance through the whole chain: notes with fine tuning, transposition,
 /// octave, smoothed gains and a mute, at odd frames.
-pub const SCENARIO: [Scheduled; 16] = [
+pub const SCENARIO: [Scheduled; 28] = [
     note_on(101, 1, 60, 0.8, 0.0),
     param(1_000, Target::Tone, tone::GAIN, 1.0),
     note_on(2_345, 2, 64, 0.6, 25.0),
@@ -846,7 +815,22 @@ pub const SCENARIO: [Scheduled; 16] = [
     param(12_000, Target::Gain, gain::GAIN, 1.5),
     note_off(15_000, 2, 64),
     note_on(16_383, 4, 72, 1.0, 50.0),
+    // A fast sweep of the smoothed gain (AM-3): a new target every 211 frames, inside the
+    // 480-frame ramp, so every ramp is cut short and the next starts where the value is.
+    param(17_000, Target::Gain, gain::GAIN, 0.0),
+    param(17_211, Target::Gain, gain::GAIN, 1.5),
+    param(17_422, Target::Gain, gain::GAIN, 0.0),
+    param(17_633, Target::Gain, gain::GAIN, 1.5),
+    param(17_844, Target::Gain, gain::GAIN, 0.0),
+    param(18_055, Target::Gain, gain::GAIN, 1.5),
+    param(18_266, Target::Gain, gain::GAIN, 0.0),
+    param(18_477, Target::Gain, gain::GAIN, 1.5),
+    param(18_688, Target::Gain, gain::GAIN, 0.0),
+    param(18_899, Target::Gain, gain::GAIN, 1.0),
     note_off(20_000, 3, 67),
+    // The unsmoothed `trim` (a zero smoothing time) at an odd frame, and back.
+    param(21_001, Target::Gain, gain::TRIM, 0.5),
+    param(22_003, Target::Gain, gain::TRIM, 1.0),
     note_off(23_000, 4, 72),
 ];
 

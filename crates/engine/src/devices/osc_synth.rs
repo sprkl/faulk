@@ -36,6 +36,7 @@ use crate::device::{
     Scale, Unit, VoiceId, clamp_tune_cents, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 /// Number of voices allocated at construction. Notes beyond this steal a voice.
 pub const MAX_VOICES: usize = 16;
@@ -227,61 +228,6 @@ impl Param {
     }
 }
 
-/// A linear ramp under CT-5's smoothing rule: `frames` frames after a target is set, the
-/// value is the target; in between, `start + (target − start) · i / frames`. A new target
-/// starts a new ramp from the current value. (AM-3 writes the shared smoother.)
-#[derive(Clone, Copy, Debug)]
-pub(super) struct LinearRamp {
-    start: f32,
-    target: f32,
-    frames: u32,
-    done: u32,
-}
-
-impl LinearRamp {
-    pub(super) const fn new(value: f32) -> Self {
-        Self {
-            start: value,
-            target: value,
-            frames: 0,
-            done: 0,
-        }
-    }
-
-    /// The value of the next frame.
-    fn current(&self) -> f32 {
-        if self.done >= self.frames {
-            self.target
-        } else {
-            self.start + (self.target - self.start) * (self.done as f32 / self.frames as f32)
-        }
-    }
-
-    /// Aims at `target` over `frames` frames from the current value (0 frames: a jump).
-    pub(super) fn set(&mut self, target: f32, frames: u32) {
-        self.start = self.current();
-        self.target = target;
-        self.frames = frames;
-        self.done = 0;
-    }
-
-    /// Ends the ramp at its target.
-    pub(super) fn snap(&mut self) {
-        self.start = self.target;
-        self.frames = 0;
-        self.done = 0;
-    }
-
-    /// The value of this frame, then one frame on.
-    pub(super) fn next_value(&mut self) -> f32 {
-        let value = self.current();
-        if self.done < self.frames {
-            self.done += 1;
-        }
-        value
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Stage {
     Idle,
@@ -360,8 +306,8 @@ pub struct Synth {
     attack: f32,
     decay: f32,
     release: f32,
-    sustain: LinearRamp,
-    gain: LinearRamp,
+    sustain: Smoother,
+    gain: Smoother,
     /// Frames of a sustain ramp and of a gain ramp at this rate.
     sustain_frames: u32,
     gain_frames: u32,
@@ -386,8 +332,8 @@ impl Synth {
             attack: default(Param::Attack),
             decay: default(Param::Decay),
             release: default(Param::Release),
-            sustain: LinearRamp::new(default(Param::Sustain)),
-            gain: LinearRamp::new(default(Param::Gain)),
+            sustain: Smoother::new(default(Param::Sustain)),
+            gain: Smoother::new(default(Param::Gain)),
             sustain_frames: frames(Param::Sustain),
             gain_frames: frames(Param::Gain),
             note_counter: 0,
@@ -405,9 +351,9 @@ impl Synth {
             Param::Waveform => self.waveform.index() as f32,
             Param::Attack => self.attack,
             Param::Decay => self.decay,
-            Param::Sustain => self.sustain.target,
+            Param::Sustain => self.sustain.target(),
             Param::Release => self.release,
-            Param::Gain => self.gain.target,
+            Param::Gain => self.gain.target(),
         }
     }
 

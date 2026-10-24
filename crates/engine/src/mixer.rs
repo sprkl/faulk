@@ -57,8 +57,9 @@
 use core::f32::consts::FRAC_PI_2;
 
 use crate::device::Event;
-use crate::graph::{MeterAcc, Ramp};
+use crate::graph::MeterAcc;
 use crate::msg::{DeviceSlot, ParamId};
+use crate::param::Smoother;
 
 /// The pseudo device slot that addresses the strip of a track (or of the master) in a
 /// schedule: no chain has 65 535 devices ([`crate::msg::limits::MAX_DEVICES_PER_TRACK`]).
@@ -131,9 +132,9 @@ pub struct Mixer {
     /// The strip has taken a message at least once (a new strip jumps to its levels and
     /// fades in by the gate).
     synced: bool,
-    gate: Ramp,
-    left: Ramp,
-    right: Ramp,
+    gate: Smoother,
+    left: Smoother,
+    right: Smoother,
 }
 
 impl Mixer {
@@ -148,9 +149,9 @@ impl Mixer {
             seen_pan: None,
             seen_mute: None,
             synced: false,
-            gate: Ramp::new(0.0),
-            left: Ramp::new(1.0),
-            right: Ramp::new(1.0),
+            gate: Smoother::new(0.0),
+            left: Smoother::new(1.0),
+            right: Smoother::new(1.0),
         }
     }
 
@@ -165,9 +166,9 @@ impl Mixer {
             seen_pan: Some(0.0f32.to_bits()),
             seen_mute: Some(false),
             synced: true,
-            gate: Ramp::new(1.0),
-            left: Ramp::new(1.0),
-            right: Ramp::new(1.0),
+            gate: Smoother::new(1.0),
+            left: Smoother::new(1.0),
+            right: Smoother::new(1.0),
         }
     }
 
@@ -179,13 +180,13 @@ impl Mixer {
 
     /// Both levels at 0 and still.
     pub fn is_silent(&self) -> bool {
-        let still = |r: &Ramp| r.is_still() && r.target() == 0.0;
+        let still = |r: &Smoother| r.is_still() && r.target() == 0.0;
         still(&self.gate) || (still(&self.left) && still(&self.right))
     }
 
     /// Aims the gate at 0 over `fade` frames (a track that leaves).
     pub fn fade_out(&mut self, fade: u32) {
-        self.gate.set(0.0, fade);
+        self.gate.aim(0.0, fade);
     }
 
     /// Forgets the message values: the next [`Mixer::sync`] takes them again, so that a
@@ -237,14 +238,14 @@ impl Mixer {
             self.left.jump(l);
             self.right.jump(r);
         } else {
-            self.left.set(l, fade);
-            self.right.set(r, fade);
+            self.left.aim(l, fade);
+            self.right.aim(r, fade);
         }
     }
 
     fn set_gate(&mut self, fade: u32) {
         let open = self.audible && !self.muted;
-        self.gate.set(if open { 1.0 } else { 0.0 }, fade);
+        self.gate.aim(if open { 1.0 } else { 0.0 }, fade);
     }
 
     /// A timed parameter (module doc): a gain or a pan at once, a mute by a ramp of the
@@ -276,7 +277,7 @@ impl Mixer {
         frames: usize,
         events: impl Iterator<Item = TimedParam>,
         fade: u32,
-        mut piece: impl FnMut(&Ramp, &Ramp, &Ramp, usize, usize),
+        mut piece: impl FnMut(&Smoother, &Smoother, &Smoother, usize, usize),
     ) {
         let mut pos = 0;
         for (offset, id, value) in events {
@@ -296,7 +297,7 @@ impl Mixer {
         &mut self,
         from: usize,
         to: usize,
-        piece: &mut impl FnMut(&Ramp, &Ramp, &Ramp, usize, usize),
+        piece: &mut impl FnMut(&Smoother, &Smoother, &Smoother, usize, usize),
     ) {
         piece(&self.gate, &self.left, &self.right, from, to);
         let n = (to - from) as u32;

@@ -1247,6 +1247,209 @@ describe('save as from a draft', () => {
     expect(w.host.saves.at(-1)).toBe('changed')
   })
 
+  it('deletes the draft before it says saved: a reload right then cannot find the project twice', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const seen: { place: string; savedAt: number | null; status: string }[] = []
+    const remove = w.browser.remove.bind(w.browser)
+    w.browser.remove = async (d) => {
+      seen.push({ place: w.storage.place, savedAt: w.storage.savedAt, status: w.storage.status })
+      await gate
+      await remove(d)
+    }
+    const done = w.storage.saveAs()
+    for (let i = 0; i < 200 && !seen.length; i++) await Promise.resolve()
+    expect(seen.length).toBe(1)
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    // The draft is being deleted: the page does not say the folder holds the project yet.
+    expect(w.storage.place).not.toBe('folder')
+    release()
+    expect(await done).toBe(true)
+    expect(w.browser.removed).toEqual([dir])
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+    expect(w.storage.savedAt).toBe(Date.now())
+  })
+
+  it('keeps the draft when the folder did not make it into the recent projects (remember reports no failure)', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    w.deps.recent.remember = async () => undefined
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+    expect(w.browser.removed).toEqual([])
+    expect(w.browser.handles.has(dir)).toBe(true)
+  })
+
+  it('keeps the draft’s directory lock until the draft is gone, and gives it back whatever happened', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    const locked: boolean[] = []
+    const remove = w.browser.remove.bind(w.browser)
+    w.browser.remove = async (d) => {
+      locked.push([...w.locks].some((l) => l.includes(dir)))
+      await remove(d)
+    }
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(locked).toEqual([true])
+    expect([...w.locks].some((l) => l.includes(dir))).toBe(false)
+    // And when the removal throws.
+    const again = await drafted()
+    again.w.picks.push({ status: 'chosen', handle: handleOf('song2') })
+    again.w.browser.remove = async () => {
+      throw new Error('locked')
+    }
+    expect(await again.w.storage.saveAs()).toBe(true)
+    expect([...again.w.locks].some((l) => l.includes(again.dir))).toBe(false)
+  })
+
+  it('does not hold Save or the export folder back for ever when an attach fails', async () => {
+    const { w } = await saved()
+    const other = handleOf('other')
+    w.picks.push({ status: 'chosen', handle: other })
+    // A copy has its own identity (the core gives it one).
+    w.host.id = 'project-copy'
+    w.deps.openStore = async (handle) => {
+      const s = new FakeStore(handle.name)
+      s.cleanUp = async () => {
+        throw new Error('cleanup')
+      }
+      w.stores.set(handle, s)
+      return s
+    }
+    w.edit()
+    await w.storage.saveAs().catch(() => undefined)
+    // Whatever became of the failed attach, the next calls are not left waiting on it.
+    expect(await w.storage.folderHandle()).toBe(other)
+    expect(await w.storage.save()).toBe(true)
+    expect(w.host.saves.at(-1)).toBe('forced')
+  })
+
+  it('still says saved when the draft cannot be deleted (the folder holds the project, a leftover draft is harmless)', async () => {
+    const { w } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    w.browser.remove = async () => {
+      throw new Error('locked')
+    }
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+  })
+
+  it.each(['remember', 'remove'] as const)('orders Save and the export folder after a move into a folder under way (held at %s): the new folder, never a second pick', async (hold) => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    w.picks.push({ status: 'chosen', handle: folder })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached = false
+    const remove = w.browser.remove.bind(w.browser)
+    const remember = w.deps.recent.remember
+    // Held at `remember`, the draft is still the project's home; at `remove` it is detached and nobody is current.
+    if (hold === 'remember')
+      w.deps.recent.remember = async (h) => {
+        reached = true
+        await gate
+        await remember(h)
+      }
+    else
+      w.browser.remove = async (d) => {
+        reached = true
+        await gate
+        await remove(d)
+      }
+    const moving = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    // A second pick must never be needed: Save finds the folder once the move is over.
+    w.picks.push({ status: 'chosen', handle: handleOf('other') })
+    const handle = w.storage.folderHandle()
+    const saving = w.storage.save()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    release()
+    expect(await moving).toBe(true)
+    expect(await handle).toBe(folder)
+    expect(await saving).toBe(true)
+    expect(w.picks.length).toBe(1)
+    expect(w.host.saves.at(-1)).toBe('forced')
+    expect(w.storage.folder).toEqual({ name: 'song' })
+  })
+
+  it('answers the export folder: nothing without a project, and without waiting for an ordinary write (the file dialog needs the click)', async () => {
+    const w = world()
+    expect(await w.storage.folderHandle()).toBeNull()
+    const { w: s, store, handle } = await saved()
+    let release!: () => void
+    store.hold = new Promise<void>((resolve) => (release = resolve))
+    s.edit()
+    const writing = s.storage.flush()
+    let answered = false
+    const asked = s.storage.folderHandle().then((h) => ((answered = true), h))
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    expect(answered).toBe(true)
+    release()
+    await writing
+    expect(await asked).toBe(handle)
+  })
+
+  it('lets Save go on after a task of the queue failed, and cancelling the dialog it opens changes nothing', async () => {
+    const { w, dir } = await drafted()
+    const folder = w.browser.handles.get(dir)!
+    w.stores.get(folder)!.fail = new StoreError('io', 'disk')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.status).toBe('failed')
+    w.stores.get(folder)!.fail = null
+    // A failed write into the draft: Save is "try again", it writes the draft and opens no dialog.
+    expect(await w.storage.save()).toBe(true)
+    expect(w.storage.place).toBe('browser')
+    // Saved draft: Save asks for a folder; the user cancels; the draft stays the home.
+    expect(await w.storage.save()).toBe(false)
+    expect(w.storage.place).toBe('browser')
+    expect(w.browser.removed).toEqual([])
+  })
+
+  it('holds Save and the export folder for the whole move, not only its attach: no second folder dialog while the media are copied', async () => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    const target = new FakeStore('song')
+    w.stores.set(folder, target)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached = false
+    target.copyBlobsFrom = async () => {
+      reached = true
+      await gate
+    }
+    w.picks.push({ status: 'chosen', handle: folder })
+    const moving = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    // The draft is still the project's home here, and attach has not started.
+    w.picks.push({ status: 'chosen', handle: handleOf('other') })
+    const asked = w.storage.folderHandle()
+    const saving = w.storage.save()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    release()
+    expect(await moving).toBe(true)
+    expect(await asked).toBe(folder)
+    expect(await saving).toBe(true)
+    expect(w.picks.length).toBe(1)
+    expect(w.storage.folder).toEqual({ name: 'song' })
+  })
+
+  it('asks for a folder when Save is pressed on a draft that nothing is moving', async () => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    w.picks.push({ status: 'chosen', handle: folder })
+    expect(await w.storage.save()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(await w.storage.folderHandle()).toBe(folder)
+  })
+
   it('leaves the draft as it was, with its locks, when the folder is refused, not empty, or fails', async () => {
     const { w, dir, store: draft } = await drafted()
     const before = new Map(draft.files)

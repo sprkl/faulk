@@ -19,4 +19,5 @@ pub mod metronome;
 pub mod mixer;
 pub mod msg;
 pub mod offline;
+pub mod param;
 pub mod transport;
