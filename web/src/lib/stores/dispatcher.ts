@@ -8,6 +8,7 @@ import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry } from '../project/core'
 import { isSaveCommand, isStorageCommand, newProject as newProjectCommand } from '../project-commands'
+import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
@@ -239,6 +240,30 @@ export class Dispatcher {
   /** The project's storage; set once by `createStores`. */
   storage: ProjectStorage | null = null
 
+  /** The audio export (#297); set once by `createStores`. */
+  audioExport: AudioExport | null = null
+
+  /** What the audio export needs of the page's project. */
+  readonly exportHost: ExportHost = {
+    run: (command) => this.run(command),
+    songBars: () => {
+      const view = this.project.view
+      if (!view) return 1
+      const { numerator, denominator } = view.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 }
+      const bar = (numerator * 960 * 4) / denominator
+      let end = 0
+      for (const track of Object.values(view.project.tracks))
+        for (const placement of Object.values(track?.placements ?? {}))
+          if (placement && 'ticks' in placement.span) end = Math.max(end, placement.start + placement.span.ticks.length)
+      return Math.max(1, Math.ceil(end / bar))
+    },
+    job: (request) => this.core?.exportJob(request) ?? null,
+    projectName: () => this.project.view?.project.name ?? '',
+    hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
+    hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
+    folder: () => this.storage?.folderHandle() ?? null,
+  }
+
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
     this.state.notice = refusalNotice(reason)
     return { status: 'refused', reason }
@@ -358,6 +383,7 @@ export class Dispatcher {
       clearNotes: () => (this.state.activeNotes = []),
       save: () => void this.storage?.save(),
       saveAs: () => void this.storage?.saveAs(),
+      exportAudio: (request) => this.audioExport?.request(request),
       projectReplaced: () => this.storage?.forgetFolder(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.

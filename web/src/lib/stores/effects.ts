@@ -1,4 +1,5 @@
 import type { Command } from '../generated/protocol'
+import type { ExportRequest } from '../project/core'
 
 /**
  * What the page itself does for a command the project applied, beside the project and the
@@ -20,6 +21,8 @@ export interface EffectPorts {
   save(): void
   /** `project.save_as`: the user picks an empty folder and the project moves into it. */
   saveAs(): void
+  /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
+  exportAudio(request: ExportRequest): void
   /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
   projectReplaced(): void
 }
@@ -50,6 +53,15 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.save_as':
       ports.saveAs()
+      return
+    case 'project.export_audio':
+      ports.exportAudio({
+        region: command.region ?? undefined,
+        bit_depth: command.bit_depth ?? undefined,
+        sample_rate: command.sample_rate ?? undefined,
+        from_bar: command.from_bar ?? undefined,
+        to_bar: command.to_bar ?? undefined,
+      })
       return
     case 'project.new':
       ports.projectReplaced()

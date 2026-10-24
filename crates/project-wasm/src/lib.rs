@@ -18,7 +18,7 @@ use std::cell::RefCell;
 
 use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{ProjectView, RunReport, SnapshotReport};
+use commands::host::{ExportReport, ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
 use project::file::{DirEntry, FileSystem, FsError, MemFs};
 
@@ -148,6 +148,70 @@ impl Core {
             ),
             Err(error) => (
                 SnapshotReport::Failed {
+                    stream_error: error.code(),
+                },
+                Vec::new(),
+            ),
+        }
+    }
+
+    /// Prepares the render of `project.export_audio` for these settings (the command's
+    /// JSON, or just its fields): the report, and the setup and stop streams of an engine
+    /// of its own, one after the other. Changes nothing in the project nor in the page's
+    /// engine stream.
+    pub fn export_job(&self, json: &[u8]) -> (ExportReport, Vec<u8>) {
+        use commands::export::{ExportBitDepth, ExportError, ExportRegion, ExportSettings, job};
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            #[serde(default)]
+            region: Option<ExportRegion>,
+            #[serde(default)]
+            bit_depth: Option<ExportBitDepth>,
+            #[serde(default)]
+            sample_rate: Option<u32>,
+            #[serde(default)]
+            from_bar: Option<u32>,
+            #[serde(default)]
+            to_bar: Option<u32>,
+        }
+        let refused = |error| (ExportReport::Refused { error }, Vec::new());
+        let request = match serde_json::from_slice::<Request>(json) {
+            Ok(request) => request,
+            Err(error) => {
+                return refused(commands::CommandError::Invalid {
+                    field: "export".into(),
+                    message: error.to_string(),
+                });
+            }
+        };
+        let settings = match ExportSettings::of(
+            request.region,
+            request.bit_depth,
+            request.sample_rate,
+            request.from_bar,
+            request.to_bar,
+        ) {
+            Ok(settings) => settings,
+            Err(error) => return refused(error),
+        };
+        let state = &self.synced.state;
+        match job(&state.project, &state.session, settings) {
+            Ok(job) => {
+                let setup_len = job.setup.len() as u32;
+                let mut bytes = job.setup;
+                bytes.extend(job.stop);
+                (
+                    ExportReport::Ready {
+                        plan: job.plan,
+                        setup_len,
+                    },
+                    bytes,
+                )
+            }
+            Err(ExportError::Refused(error)) => refused(error),
+            Err(ExportError::Stream(error)) => (
+                ExportReport::Failed {
                     stream_error: error.code(),
                 },
                 Vec::new(),
@@ -501,6 +565,22 @@ pub unsafe extern "C" fn pw_snapshot(core: *mut Core) -> i32 {
     unsafe {
         with_core(core, |core| {
             let (report, bytes) = core.snapshot();
+            publish(&report, bytes)
+        })
+    }
+}
+
+/// [`Core::export_job`] for the JSON in the first `len` bytes of the inbox: an
+/// [`ExportReport`] at [`pw_out`], the engine bytes at [`pw_engine`].
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_export_job(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            let (report, bytes) = with_inbox(len, |json| core.export_job(json));
             publish(&report, bytes)
         })
     }

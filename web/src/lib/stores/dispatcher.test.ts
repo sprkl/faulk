@@ -962,6 +962,39 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.project.view!.project.name).toBe(name)
   })
 
+  it('the export is a command of the page: it opens the dialog with its settings, even without an engine, and never reaches the helper', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    // A core without an engine: a project opened before audio starts.
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    session.dispatcher.run({ type: 'project.export_audio', bit_depth: 'pcm16', sample_rate: 44100 })
+    expect(session.audioExport.open).toBe(true)
+    expect(session.audioExport.choices).toMatchObject({ bitDepth: 'pcm16', sampleRate: 44_100, region: 'song' })
+    session.audioExport.close()
+    // In Boost the helper is not sent it.
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run({ type: 'project.export_audio' })
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.audioExport.open).toBe(true)
+  })
+
+  it('knows what an export can render: a clip in the arrangement, a loop region', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.audioExport.hasContent).toBe(false)
+    expect(session.audioExport.hasLoop).toBe(false)
+    session.dispatcher.run({ type: 'clip.create', track: SINGLE_SYNTH.track, at: { at: 'arrangement', start: 0 } })
+    session.dispatcher.run({ type: 'transport.set_loop', loop_region: { start: 0, end: 3840 } })
+    expect(session.audioExport.hasContent).toBe(true)
+    expect(session.audioExport.hasLoop).toBe(true)
+    // The core's job for the dialog's settings: ready for the song and for the loop.
+    expect(session.dispatcher.exportHost.job({ region: 'song' })?.status).toBe('ready')
+    expect(session.dispatcher.exportHost.job({ region: 'loop' })?.status).toBe('ready')
+  })
+
   it('starts a new project: the default one, its own identity, the history empty, the engine started over', async () => {
     const session = newSession()
     await session.dispatcher.start()

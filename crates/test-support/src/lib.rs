@@ -16,6 +16,7 @@ pub mod view;
 
 pub mod arrangement;
 pub mod clips;
+pub mod export;
 pub mod reference;
 
 pub use render::{PARITY_TOLERANCE, QUANTUM, SAMPLE_RATE, parity, render_native};

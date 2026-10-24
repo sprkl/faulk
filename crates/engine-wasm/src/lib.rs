@@ -564,3 +564,209 @@ pub mod events_exports {
         scenario().len() as u32
     }
 }
+
+// ---------------------------------------------------------------- the offline export
+
+/// The offline render of a project to a WAV file (`engine::offline`, issue #297): its own
+/// engine, in the instance of the Worker that runs it (never the worklet's). The Worker
+/// writes the project's stream into the inbox ([`fk_export_inbox`]), submits it
+/// ([`fk_export_submit`]), steps ([`fk_export_step`]) and reads the PCM of each step
+/// ([`fk_export_pcm`]) and the header at the end ([`fk_export_header`]).
+pub struct Export {
+    offline: engine::offline::Offline,
+    header: Vec<u8>,
+}
+
+/// An error of the offline render as the code the exports return.
+fn export_code(error: &engine::offline::OfflineError) -> i32 {
+    use engine::offline::OfflineError;
+    match error {
+        OfflineError::Stream(error) => error.code(),
+        OfflineError::Messages { .. } => -100,
+        OfflineError::Stuck => -101,
+        OfflineError::Length => -102,
+    }
+}
+
+/// The export, or `None` when null.
+///
+/// # Safety
+/// `ptr` must be null or a live pointer from [`fk_export_new`], used by one thread.
+unsafe fn export<'a>(ptr: *mut Export) -> Option<&'a mut Export> {
+    // SAFETY: forwarded from the caller's contract.
+    unsafe { ptr.as_mut() }
+}
+
+/// A new export at `sample_rate`, of `bits` (16, 24 or 32) per sample, whose content lasts
+/// `body_lo | body_hi << 32` frames. Null when refused (a length of 0 or over 30 minutes,
+/// another format, no memory).
+#[unsafe(no_mangle)]
+pub extern "C" fn fk_export_new(
+    sample_rate: u32,
+    bits: u32,
+    body_lo: u32,
+    body_hi: u32,
+) -> *mut Export {
+    let Some(format) = engine::offline::SampleFormat::from_bits(bits) else {
+        return core::ptr::null_mut();
+    };
+    let plan = engine::offline::Plan {
+        body_frames: u64::from(body_lo) | (u64::from(body_hi) << 32),
+        format,
+    };
+    match engine::offline::Offline::new(sample_rate, plan) {
+        Ok(offline) => Box::into_raw(Box::new(Export {
+            offline,
+            header: Vec::new(),
+        })),
+        Err(_) => core::ptr::null_mut(),
+    }
+}
+
+/// Frees an export.
+///
+/// # Safety
+/// `ex` must be null or a pointer from [`fk_export_new`], freed at most once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_free(ex: *mut Export) {
+    if !ex.is_null() {
+        // SAFETY: a pointer from `fk_export_new`, freed once.
+        drop(unsafe { Box::from_raw(ex) });
+    }
+}
+
+/// The address of an inbox of at least `len` bytes to write a stream into (it may move
+/// between calls); null when the memory is refused.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_inbox(ex: *mut Export, len: u32) -> *mut u8 {
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) }.and_then(|e| e.offline.inbox(len as usize)) {
+        Some(inbox) => inbox.as_mut_ptr(),
+        None => core::ptr::null_mut(),
+    }
+}
+
+/// Submits the first `len` bytes of the inbox as the render's setup. 0, or the code of the
+/// error (`MsgError::code`, -100 a message rejected or skipped, -101 the engine stuck).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_submit(ex: *mut Export, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) }.map(|e| e.offline.submit_inbox(len as usize)) {
+        Some(Ok(())) => 0,
+        Some(Err(error)) => export_code(&error),
+        None => MsgError::NoSuchTarget.code(),
+    }
+}
+
+/// Takes the first `len` bytes of the inbox as the stream that stops the transport once the
+/// content is rendered. 0, or -1 for a null export.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_set_stop(ex: *mut Export, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) } {
+        Some(e) => {
+            e.offline.set_stop_from_inbox(len as usize);
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Renders up to `max_frames` and encodes what is to be written ([`fk_export_pcm`]).
+/// Returns the phase after the step (0 content, 1 tail, 2 done) or the code of the error.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_step(ex: *mut Export, max_frames: u32) -> i32 {
+    use engine::offline::Phase;
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) }.map(|e| e.offline.step(max_frames as usize)) {
+        Some(Ok(Phase::Body)) => 0,
+        Some(Ok(Phase::Tail)) => 1,
+        Some(Ok(Phase::Done)) => 2,
+        Some(Err(error)) => export_code(&error),
+        None => MsgError::NoSuchTarget.code(),
+    }
+}
+
+/// The address of the bytes the last step wrote; valid until the next step.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_pcm(ex: *mut Export) -> *const u8 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }.map_or(core::ptr::null(), |e| e.offline.pcm().as_ptr())
+}
+
+/// The length in bytes of the last step's output.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_pcm_len(ex: *mut Export) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }.map_or(0, |e| e.offline.pcm().len() as u32)
+}
+
+/// Builds the file's header for what was written so far and returns its address (valid
+/// until the next call); its length is [`fk_export_header_len`].
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_header(ex: *mut Export) -> *const u8 {
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) } {
+        Some(e) => {
+            e.header = e.offline.header();
+            e.header.as_ptr()
+        }
+        None => core::ptr::null(),
+    }
+}
+
+/// The length in bytes of the header [`fk_export_header`] built.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_header_len(ex: *mut Export) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }.map_or(0, |e| e.header.len() as u32)
+}
+
+/// A figure of the export, by number: 0 frames rendered, 1 frames written, 2 frames of
+/// content, 3 the peak (linear), 4 samples clipped, 5 the tail was cut (0 or 1), 6 the
+/// header's length. -1 for a null export or an unknown number.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_stat(ex: *mut Export, which: u32) -> f64 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return -1.0;
+    };
+    let o = &e.offline;
+    match which {
+        0 => o.rendered() as f64,
+        1 => o.written() as f64,
+        2 => o.body_frames() as f64,
+        3 => f64::from(o.peak()),
+        4 => o.clipped() as f64,
+        5 => f64::from(u8::from(o.tail_cut())),
+        6 => o.header_len() as f64,
+        _ => -1.0,
+    }
+}
