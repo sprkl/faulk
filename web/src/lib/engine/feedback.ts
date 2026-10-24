@@ -1,4 +1,4 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 2). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 3). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
@@ -7,10 +7,10 @@
 export const FEEDBACK_HEADER_BYTES = 56
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 16
-/** Size of one active clip (track u32, scene u16, state u8, one padding byte). */
-export const ACTIVE_CLIP_BYTES = 8
+/** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
+export const ACTIVE_CLIP_BYTES = 16
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 2
+export const FEEDBACK_VERSION = 3
 
 /** Peak and RMS of both channels, linear amplitude. */
 export interface Meter {
@@ -36,6 +36,11 @@ export interface ActiveClip {
   /** Scene slot of the cell. */
   scene: number
   state: ClipState
+  /**
+   * The transport tick of the clip's position 0 when it plays or stops (the tick of its launch
+   * boundary); for a waiting launch, its boundary when the engine knows it, else 0.
+   */
+  anchor: number
 }
 
 export interface FeedbackReport {
@@ -99,7 +104,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     const at = clipsAt + i * ACTIVE_CLIP_BYTES
     const state = CLIP_STATES[view.getUint8(at + 6)]
     if (state === undefined) return null
-    clips.push({ track: view.getUint32(at, true), scene: view.getUint16(at + 4, true), state })
+    clips.push({ track: view.getUint32(at, true), scene: view.getUint16(at + 4, true), state, anchor: Number(view.getBigInt64(at + 8, true)) })
   }
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))

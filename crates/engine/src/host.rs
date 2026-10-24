@@ -343,6 +343,8 @@ impl Host {
             if clips < 2 * tracks && (c.track.0 as usize) < tracks {
                 put(at, c.track.0);
                 put(at + 4, u32::from(c.scene.0) | (c.state as u32) << 16);
+                put(at + 8, c.anchor.0 as u64 as u32);
+                put(at + 12, ((c.anchor.0 as u64) >> 32) as u32);
                 at += ACTIVE_CLIP_BYTES;
                 clips += 1;
             }
@@ -461,6 +463,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
                 track: crate::msg::TrackSlot(u32_at(at)?),
                 scene: crate::msg::SceneSlot(scene as u16),
                 state: ClipState::from_byte((scene >> 16) as u8)?,
+                anchor: crate::time::Tick(u64_at(at + 8)? as i64),
             })
         })
         .collect::<Option<Vec<_>>>()?;

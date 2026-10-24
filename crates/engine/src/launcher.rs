@@ -41,6 +41,7 @@
 
 use crate::engine::{ClipContent, LaunchRequest, State, Track};
 use crate::msg::{ActiveClip, ClipState, SceneSlot, TrackSlot};
+use crate::time::Tick;
 
 /// Whether a track takes part in a stop: it plays, waits for a launch or has one.
 fn engaged(track: &Track) -> bool {
@@ -134,6 +135,7 @@ pub fn active_clips(state: &State, running: bool, mut push: impl FnMut(ActiveCli
                     } else {
                         ClipState::Playing
                     },
+                    anchor: playing.anchor,
                 });
             }
         }
@@ -145,6 +147,12 @@ pub fn active_clips(state: &State, running: bool, mut push: impl FnMut(ActiveCli
                     ClipState::Queued
                 } else {
                     ClipState::Armed
+                },
+                // The boundary is known only for the order the player has taken; a newer order that
+                // still waits in `track.launch` has none yet.
+                anchor: match track.launch {
+                    Some(_) => Tick(0),
+                    None => track.player.queued().and_then(|q| q.at).unwrap_or(Tick(0)),
                 },
             });
         }

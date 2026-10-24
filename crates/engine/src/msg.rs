@@ -205,7 +205,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 2;
+pub const FEEDBACK_VERSION: u8 = 3;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1530,10 +1530,14 @@ pub struct ActiveClip {
     pub track: TrackSlot,
     pub scene: SceneSlot,
     pub state: ClipState,
+    /// The transport tick of the clip's position 0 for a clip that plays or stops (the page
+    /// places a playhead in the clip from it); for a waiting launch, the boundary when the
+    /// engine knows it for the order it reports (a newer order that still waits has none: 0).
+    pub anchor: Tick,
 }
 
 /// Size of an [`ActiveClip`] on the wire.
-pub const ACTIVE_CLIP_BYTES: usize = 8;
+pub const ACTIVE_CLIP_BYTES: usize = 16;
 
 /// Meters of one track, linear amplitude.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1585,7 +1589,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///     56      TrackMeter × (tracks + 1) (16 bytes each): one per track slot below `tracks`
 ///             (zeros for an empty slot; peak and RMS after the track's fader), then the
 ///             output's meter after the master (version 2)
-///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8)
+///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8, anchor i64:
+///             16 bytes; version 3)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
 ///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
 /// ```
