@@ -600,6 +600,7 @@ pub struct DeviceDescriptor {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NamedKey {
     /// The MIDI key, 0 to 127.
+    #[cfg_attr(feature = "schema", schemars(range(max = 127)))]
     pub key: u8,
     /// One English name, never translated.
     pub name: &'static str,

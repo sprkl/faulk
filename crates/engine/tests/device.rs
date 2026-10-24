@@ -287,6 +287,33 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                named_keys: &[
+                    NamedKey { key: 6, name: "A" },
+                    NamedKey { key: 5, name: "B" },
+                ],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
+                named_keys: &[NamedKey { key: 5, name: "" }],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
+                named_keys: &[NamedKey {
+                    key: 5,
+                    name: "Café",
+                }],
+                ..base
+            },
+            DescriptorError::BadNamedKeys,
+        ),
+        (
+            DeviceDescriptor {
                 role: DeviceRole::Effect,
                 named_keys: &[NamedKey { key: 5, name: "A" }],
                 ..base

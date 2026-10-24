@@ -201,7 +201,7 @@
     untrack(() => (lastLength = null))
   })
 
-  // A new clip opens with a clean selection, around its notes, and its last drawn length at one beat.
+  // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
   let openedFor: string | null = null
   $effect(() => {
     const id = edited?.id ?? null
