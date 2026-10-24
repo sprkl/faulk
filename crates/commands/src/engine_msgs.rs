@@ -115,6 +115,14 @@ pub fn compile(
                 track: TrackSlot(slot),
             }));
         }
+        Command::Live(live::Command::AllSoundOff {}) => {
+            // Notes first (the held keys, the MIDI effects' notes), then the cut itself.
+            sync.held.clear();
+            out.extend(sync.tracks.iter().map(|(slot, _)| ControlMsg::AllNotesOff {
+                track: TrackSlot(slot),
+            }));
+            out.push(ControlMsg::AllSoundOff);
+        }
         Command::Transport(transport::Command::Play {}) => start_playback(sync, &mut out),
         Command::Transport(transport::Command::Stop {}) => {
             sync.playing = false;

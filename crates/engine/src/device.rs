@@ -464,6 +464,11 @@ pub trait Device: Send {
     /// targets; parameter values are kept. The engine also calls it on the audio thread when
     /// an audio effect is switched on or off: it must take constant time and allocate nothing
     /// (never wipe a large buffer there: hide its content with a counter or a flag).
+    ///
+    /// It is also the hard cut of `ControlMsg::AllSoundOff` (#331): after a fade of the output,
+    /// the engine calls it on every device of every track, so a device must leave no voice
+    /// and no tail (delay line, reverb tank, filter memory) behind. A device without a
+    /// `reset` does not compile, which keeps a future effect from ringing through a cut.
     fn reset(&mut self);
 
     /// Voices sounding after the last block, releasing ones included, for the visual

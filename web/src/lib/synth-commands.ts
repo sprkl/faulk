@@ -2,6 +2,7 @@ import { SINGLE_SYNTH, type Command, type SynthParam } from './generated/protoco
 
 /** Silences every sounding note (the panic button, a lost MIDI input). */
 export const allNotesOff = (): Command => ({ type: 'live.all_notes_off' })
+export const allSoundOff = (): Command => ({ type: 'live.all_sound_off' })
 
 /**
  * The live input: what a MIDI controller and the computer keyboard play. It names no

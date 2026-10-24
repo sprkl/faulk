@@ -49,6 +49,7 @@
 //! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `ClipRemove`, `LaneRemove`, `SourceRemove` |
 //! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement`, `BackTrackToArrangement` | `Launch(…)` |
 //! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
+//! | `AllSoundOff` | `AllSoundOff` |
 //! | `NoteOn`, `NoteOff`, `AllNotesOff` | a [`LiveEvent`] on the live queue, never `prepare` |
 //!
 //! Every rt message takes effect at the start of the block that applies it (a `ParamSet`
@@ -605,6 +606,11 @@ pub enum ControlMsg {
     AllNotesOff {
         track: TrackSlot,
     },
+    /// Cuts every sound of the engine at once: the output fades out over one fade
+    /// ([`crate::graph::FADE_SECONDS`]), then every device is reset (voices, tails) and
+    /// the output resumes, silent. Not a live event: it goes through `prepare` and the rt
+    /// ring, like a transport order.
+    AllSoundOff,
 }
 
 /// The `tag` of a [`Header`]: one value per [`ControlMsg`] variant, stable across versions
@@ -650,11 +656,12 @@ pub enum Tag {
     NoteOn = 90,
     NoteOff = 91,
     AllNotesOff = 92,
+    AllSoundOff = 93,
 }
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 38] = [
+    pub const ALL: [Tag; 39] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -693,6 +700,7 @@ impl Tag {
         Tag::NoteOn,
         Tag::NoteOff,
         Tag::AllNotesOff,
+        Tag::AllSoundOff,
     ];
 
     /// The tag of a wire value, `None` for a number this version does not know.
@@ -749,6 +757,7 @@ impl ControlMsg {
             ControlMsg::NoteOn { .. } => Tag::NoteOn,
             ControlMsg::NoteOff { .. } => Tag::NoteOff,
             ControlMsg::AllNotesOff { .. } => Tag::AllNotesOff,
+            ControlMsg::AllSoundOff => Tag::AllSoundOff,
         }
     }
 
@@ -914,6 +923,7 @@ impl ControlMsg {
             | ControlMsg::SetMetronome { .. }
             | ControlMsg::SetMaster { .. }
             | ControlMsg::StopAll
+            | ControlMsg::AllSoundOff
             | ControlMsg::BackToArrangement
             | ControlMsg::Play { .. }
             | ControlMsg::Stop
@@ -1439,6 +1449,8 @@ pub enum RtMsg {
         grown: Option<Slots<ClipSlot>>,
     },
     Transport(TransportMsg),
+    /// `AllSoundOff` (see [`ControlMsg::AllSoundOff`]).
+    AllSoundOff,
     Launch(LaunchMsg),
 }
 
