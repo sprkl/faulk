@@ -47,6 +47,8 @@ fn ladder_self_oscillates_and_stays_bounded() {
 
 /// Renders `seconds` of a chord of `keys` (unison included) on a fresh synth, then the
 /// release, block by block.
+/// Also checks, at the release and at the end, that no internal state is subnormal (the
+/// output alone would hide one: a subnormal added to a normal value disappears).
 fn render_chord(patch: Patch, os: Oversample, keys: &[u8], seconds: f32) -> (Vec<f32>, Vec<f32>) {
     let fs = 48_000.0;
     let chorus = ChorusSettings {
@@ -68,6 +70,10 @@ fn render_chord(patch: Patch, os: Oversample, keys: &[u8], seconds: f32) -> (Vec
     let mut released = false;
     while at < l.len() {
         if !released && at >= frames {
+            assert!(
+                !synth.has_subnormal_state(),
+                "{patch:?}: subnormal state while held"
+            );
             for &k in keys {
                 synth.note_off(k);
             }
@@ -77,6 +83,10 @@ fn render_chord(patch: Patch, os: Oversample, keys: &[u8], seconds: f32) -> (Vec
         synth.render(&mut l[at..at + n], &mut r[at..at + n]);
         at += n;
     }
+    assert!(
+        !synth.has_subnormal_state(),
+        "{patch:?}: subnormal state after release"
+    );
     (l, r)
 }
 

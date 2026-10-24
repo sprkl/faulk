@@ -62,6 +62,10 @@ impl Ladder {
         y4
     }
 
+    pub fn has_subnormal(&self) -> bool {
+        self.s.iter().any(|v| v.is_subnormal())
+    }
+
     /// Flushes the states that decayed towards denormals (once per control block).
     pub fn flush(&mut self) {
         for s in &mut self.s {
@@ -99,6 +103,10 @@ impl Svf {
         self.ic1 = 2.0 * v1 - self.ic1;
         self.ic2 = 2.0 * v2 - self.ic2;
         v2
+    }
+
+    pub fn has_subnormal(&self) -> bool {
+        self.ic1.is_subnormal() || self.ic2.is_subnormal()
     }
 
     pub fn flush(&mut self) {

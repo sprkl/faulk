@@ -65,6 +65,10 @@ impl Decimator {
         }
     }
 
+    pub fn has_subnormal(&self) -> bool {
+        self.buf.iter().any(|v| v.is_subnormal())
+    }
+
     #[inline(always)]
     fn push(&mut self, x: f32) {
         self.pos = (self.pos + 1) % RING;

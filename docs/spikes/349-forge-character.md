@@ -79,14 +79,16 @@ Charge mesurée : un synthé, *n* notes tenues pendant 10 s d'audio à 48 kHz, e
 
 | Variante | Natif, 0 voix | Natif, 16 voix | Natif, par voix | WASM, 0 voix | WASM, 16 voix | WASM, par voix |
 |---|---|---|---|---|---|---|
-| Échelle, 2× | 0,12 % | **8,6 %** | 0,53 % | 0,12 % | **6,7 %** | 0,42 % |
-| Variables d'état, 2× | 0,12 % | 3,0 % | 0,18 % | 0,12 % | 3,2 % | 0,19 % |
-| Échelle, 1× | 0,09 % | 4,3 % | 0,26 % | 0,06 % | 3,4 % | 0,21 % |
-| Variables d'état, 1× | 0,09 % | 1,6 % | 0,09 % | 0,06 % | 1,7 % | 0,10 % |
+| Échelle, 2× | 0,12 % | **7,9 %** | 0,49 % | 0,11 % | **6,3 %** | 0,39 % |
+| Variables d'état, 2× | 0,12 % | 2,6 % | 0,15 % | 0,11 % | 2,8 % | 0,17 % |
+| Échelle, 1× | 0,10 % | 4,0 % | 0,25 % | 0,06 % | 3,2 % | 0,20 % |
+| Variables d'état, 1× | 0,09 % | 1,3 % | 0,08 % | 0,06 % | 1,4 % | 0,09 % |
 
-- **Budget de #348** (16 voix sous 15 % d'un cœur à 48 kHz) : tenu dans toutes les variantes, avec une marge d'environ 2× pour la variante la plus chère (échelle à 2×). Cette marge doit couvrir ce qui manque au prototype : matrice de modulation, LFO par voix, bruit, second filtre éventuel, et une machine plus lente. Extrapolation, non mesurée : une machine deux fois plus lente mettrait l'échelle à 2× vers 13–17 %.
-- Par voix, l'échelle coûte 2,2× (WASM) à 2,9× (natif) le filtre à variables d'état : trois `tanh` et une division de Newton par échantillon.
-- Les esquisses entières (trois parties ensemble, unisson compris) : (a) 1,84 s de calcul pour 24 s d'audio, soit 7,7 % d'un cœur ; (b) 3,0 % ; (c) 2,6 % (natif).
+Ces chiffres sont ceux d'après la correction de l'état dénormal du « claquement » (voir plus bas) : avant, l'échelle à 2× mesurait 8,6 % en natif et 6,7 % en WASM.
+
+- **Budget de #348** (16 voix sous 15 % d'un cœur à 48 kHz) : tenu dans toutes les variantes, avec une marge d'environ 2× pour la variante la plus chère (échelle à 2×). Cette marge doit couvrir ce qui manque au prototype : matrice de modulation, LFO par voix, bruit, second filtre éventuel, et une machine plus lente. Extrapolation, non mesurée : une machine deux fois plus lente mettrait l'échelle à 2× vers 13–16 %.
+- Par voix, l'échelle coûte 2,3× (WASM) à 3,1× (natif) le filtre à variables d'état : trois `tanh` et une division de Newton par échantillon.
+- Les esquisses entières (trois parties ensemble, unisson compris) : (a) 1,75 s de calcul pour 24 s d'audio, soit 7,3 % d'un cœur ; (b) 2,6 % ; (c) 2,3 % (natif).
 - WASM est ici plus rapide que le natif sur l'échelle ; ce n'est pas expliqué (le natif est compilé sans `target-cpu`). Ce n'est pas un risque pour le budget, qui se juge en WASM.
 
 ### Aliasing
@@ -118,7 +120,7 @@ La saturation poussée sur une note très aiguë replie encore à −34 dBc mêm
 Tests (`cargo test` dans la crate du spike, 13 tests) :
 
 - **Auto-oscillation bornée** : l'échelle à résonance maximale, à 30 Hz, 200 Hz, 1 kHz, 5 kHz, 15 kHz et 24 kHz (= fs/4 à 96 kHz) ; une impulsion puis 3 s de silence : elle **oscille** (RMS > 0,05 sur la dernière seconde) et ne dépasse jamais 1,0 ; attaquée par un carré d'amplitude 20 : sortie toujours dans ±1. C'est aussi garanti par construction : la boucle passe par un `tanh` borné à ±1, et la coupure est plafonnée à fs/4, où chaque étage du filtre garde son état dans ±1.
-- **Extrêmes** : chaque patch des trois esquisses (9), avec les deux filtres, cinq combinaisons de coupure (10 Hz / 20 kHz), résonance (0 / 1), *drive* (0,5 / 20) et âge (0 / 1), à 1× et 2×, unisson 3 sur un accord de huit notes de 24 à 108 (24 voix demandées pour 16 emplacements : le vol de voix est exercé), en blocs de tailles irrégulières : **aucun NaN, aucun infini, aucun dénormal** dans la sortie, crête au plus 7,95 fois le niveau du patch, et **silence exact** (des zéros) à la fin du relâchement. Ce test a trouvé deux défauts du prototype, corrigés : des dénormaux en sortie (états vidés seulement par pas de contrôle) et une queue du filtre anti-continu qui ne revenait jamais à zéro.
+- **Extrêmes** : chaque patch des trois esquisses (9), avec les deux filtres, cinq combinaisons de coupure (10 Hz / 20 kHz), résonance (0 / 1), *drive* (0,5 / 20) et âge (0 / 1), à 1× et 2×, unisson 3 sur un accord de huit notes de 24 à 108, en blocs de tailles irrégulières. Pour les 5 patchs polyphoniques, 24 voix sont demandées pour 16 emplacements : le vol de voix est exercé ; les 4 patchs mono (basse et lead de (a) et de (c)) passent par la pile des notes tenues et le glide, pas par le vol. Résultat : **aucun NaN, aucun infini, aucun dénormal** dans la sortie **ni dans aucun état interne** (voix, filtres, enveloppes, décimateurs, filtre anti-continu, chorus), vérifié pendant la note et après le relâchement ; crête au plus 7,95 fois le niveau du patch ; **silence exact** (des zéros) à la fin du relâchement. Ce test a trouvé deux défauts du prototype, corrigés : des dénormaux en sortie (états vidés seulement par pas de contrôle) et une queue du filtre anti-continu qui ne revenait jamais à zéro. La relecture (Judge Dredd) en a trouvé un troisième, que la sortie seule cachait : l'état du « claquement » n'était jamais vidé et restait dénormal en permanence ; il est corrigé, et c'est ce qui a fait ajouter la vérification des états internes (rouge avant la correction, vert après).
 - **Allocation** : les trois esquisses entières rendues sous `assert_no_alloc` (détecteur d'allocation, comme les tests du moteur) : aucune allocation.
 - **Déterminisme** : chaque esquisse rendue deux fois donne les mêmes bits.
 - Réponse en fréquence : l'échelle descend de 24 dB/oct et le filtre à variables d'état de 12 dB/oct (±3 dB et ±2 dB), mesurés à 2 et 4 kHz pour une coupure à 500 Hz.
@@ -143,6 +145,8 @@ Les trois esquisses rendues en natif et en WASM sont **identiques au bit près**
 - **Synchronisation** : le PolyBLEP de la remise à zéro est exact, mais un front de l'oscillateur synchronisé dans le même échantillon que la remise est ignoré (rare tant que la fréquence reste loin de fs/2).
 - **Vol de voix sans fondu** : le prototype vole une voix sur-le-champ (clic possible). Le device doit reprendre le fondu de 3 ms d'`osc_synth`.
 - **Latence** : le demi-bande ajoute 0,32 ms à 48 kHz. Ember (#142) demande « aucune latence ajoutée » : à déclarer dans le descripteur, ou à compenser.
+- **Vérification hors CI** : la crate du spike est hors du workspace ; la CI ne lance ni ses tests ni son clippy. Ils n'ont tourné qu'en local. La tâche du module DSP partagé les fait entrer dans le workspace, donc dans la CI.
+- **Parité sans garde automatique** : l'identité au bit près entre natif et WASM est une mesure manuelle (rendu, Node, `forge compare`), pas un test. La tâche du module DSP doit ajouter un test de parité sur un rendu, et une vérification qu'aucune fonction transcendante de la bibliothèque n'entre sur le chemin du son.
 - **Le son** : personne d'autre que le fondateur ne l'a jugé. Les patchs ont été réglés sur des mesures (niveaux par mesure, crêtes), pas à l'oreille.
 
 ## Découpage proposé pour la suite de l'épopée

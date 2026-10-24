@@ -274,6 +274,24 @@ impl Voice {
         self.filt_env.gate_off();
     }
 
+    /// Whether any state of the voice is subnormal (a check for the tests).
+    pub fn has_subnormal_state(&self) -> bool {
+        let values = [
+            self.snap,
+            self.drift[0],
+            self.drift[1],
+            self.amp_env.level,
+            self.filt_env.level,
+            self.g,
+            self.g_end,
+            self.dg,
+            self.pitch,
+        ];
+        values.iter().any(|v| v.is_subnormal())
+            || self.ladder.has_subnormal()
+            || self.svf.has_subnormal()
+    }
+
     pub fn pitch(&self) -> f32 {
         self.pitch
     }
@@ -333,7 +351,7 @@ impl Voice {
                     self.drift[d] += (self.drift_target[d] - self.drift[d]) * drift_k;
                 }
                 let fenv = self.filt_env.tick();
-                self.snap -= self.snap * snap_k;
+                self.snap = flush(self.snap - self.snap * snap_k);
                 let vib = patch.vibrato * shared.lfo;
                 let base = self.pitch + (self.offset_cents + vib) / 100.0;
                 let key_a = base

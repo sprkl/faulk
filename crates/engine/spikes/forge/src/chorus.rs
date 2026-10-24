@@ -70,6 +70,12 @@ impl Chorus {
         a + (b - a) * frac
     }
 
+    pub fn has_subnormal(&self) -> bool {
+        self.lp.iter().any(|v| v.is_subnormal())
+            || self.left.iter().any(|v| v.is_subnormal())
+            || self.right.iter().any(|v| v.is_subnormal())
+    }
+
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let s = self.settings;
         if s.mix <= 0.0 {

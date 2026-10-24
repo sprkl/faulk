@@ -178,6 +178,15 @@ impl Synth {
         }
     }
 
+    /// Whether any state of the synth (voices, decimators, DC blocker, chorus) is
+    /// subnormal: a check for the tests, which only see the output otherwise.
+    pub fn has_subnormal_state(&self) -> bool {
+        self.voices.iter().any(Voice::has_subnormal_state)
+            || self.dec.iter().any(Decimator::has_subnormal)
+            || self.dc.iter().flatten().any(|v| v.is_subnormal())
+            || self.chorus.has_subnormal()
+    }
+
     pub fn active_voices(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()
     }
