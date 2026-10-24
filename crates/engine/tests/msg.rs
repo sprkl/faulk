@@ -163,6 +163,7 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::StopTrack { track: t },
         ControlMsg::StopAll,
         ControlMsg::BackToArrangement,
+        ControlMsg::BackTrackToArrangement { track: t },
         ControlMsg::Play { from: Tick(0) },
         ControlMsg::Stop,
         ControlMsg::Seek { tick: Tick(0) },

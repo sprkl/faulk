@@ -81,7 +81,8 @@ fn launch_commands_are_live_and_scenes_are_undoable_edits_none_destructive() {
             "launch.scene",
             "launch.stop_track",
             "launch.stop_all",
-            "launch.back_to_arrangement"
+            "launch.back_to_arrangement",
+            "launch.back_track_to_arrangement"
         ]
     );
     assert_eq!(

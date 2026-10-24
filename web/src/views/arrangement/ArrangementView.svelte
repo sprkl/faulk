@@ -14,6 +14,8 @@
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
+  import { offTimeline } from '../../lib/off-timeline'
+  import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
@@ -50,6 +52,8 @@
     | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number }
 
   const entries = $derived(project.tracks)
+  // The tracks the launch grid holds: their timeline is silent until they are given back.
+  const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
@@ -388,19 +392,31 @@
       <div class="heads" data-testid="arr-heads">
         <div class="slide" style:transform="translateY({-y0}px)">
           {#each entries as entry (entry.id)}
-            <button
-              class="head"
-              class:on={project.selected?.id === entry.id}
-              style:height="{LANE_HEIGHT}px"
-              style:--swatch={entry.track.color ?? 'var(--fk-text-muted)'}
-              aria-pressed={project.selected?.id === entry.id}
-              aria-label={t('arrangement.lane', { name: trackLabel(entry, t) })}
-              data-testid="arr-track"
-              onclick={() => select(entry.id)}
-            >
-              <span class="swatch"></span>
-              <span class="label">{trackLabel(entry, t)}</span>
-            </button>
+            <div class="row" title={detached.has(entry.id) ? t('arrangement.offTimeline') : undefined} style:height="{LANE_HEIGHT}px" class:off={detached.has(entry.id)} data-detached={detached.has(entry.id) ? 'true' : undefined}>
+              <button
+                class="head"
+                class:on={project.selected?.id === entry.id}
+                style:--swatch={entry.track.color ?? 'var(--fk-text-muted)'}
+                aria-pressed={project.selected?.id === entry.id}
+                aria-label={t('arrangement.lane', { name: trackLabel(entry, t) })}
+                data-testid="arr-track"
+                onclick={() => select(entry.id)}
+              >
+                <span class="swatch"></span>
+                <span class="label">{trackLabel(entry, t)}</span>
+              </button>
+              {#if detached.has(entry.id)}
+                <button
+                  class="back"
+                  title={t('arrangement.backTrackHint', { name: trackLabel(entry, t) })}
+                  aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(entry, t)}
+                  data-testid="arr-back-track"
+                  onclick={() => run(backTrackToArrangement(entry.id))}
+                >
+                  <span aria-hidden="true">↩</span>
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       </div>
@@ -501,14 +517,34 @@
   .slide {
     will-change: transform;
   }
+  .row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--fk-line);
+    box-sizing: border-box;
+  }
+  /* A track the grid holds: the lane label is dimmed and a return button sits beside it (never the dimming alone). */
+  .row.off .head {
+    opacity: 0.6;
+  }
+  .back {
+    flex: none;
+    align-self: center;
+    margin-right: var(--fk-space-1);
+    padding: 0 var(--fk-space-1);
+    border-color: var(--fk-accent-fg);
+    color: var(--fk-accent-fg);
+    background: var(--fk-accent-tint);
+  }
   .head {
     display: flex;
     align-items: center;
     gap: var(--fk-space-2);
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
     padding: 0 var(--fk-space-3);
     border: 0;
-    border-bottom: 1px solid var(--fk-line);
     border-radius: 0;
     background: transparent;
     text-align: left;

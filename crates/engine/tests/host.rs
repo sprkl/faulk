@@ -632,10 +632,28 @@ fn the_launch_grid_states_travel_in_the_report() {
     assert!(engine::host::decode_feedback(&many).is_none());
     let mut unknown = bytes.clone();
     let state_at = 56 + 2 * 16 + 6;
-    for state in [0u8, 5, 255] {
+    for state in [0u8, 6, 255] {
         unknown[state_at] = state;
         assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
     }
+    // Past the stop's boundary the grid holds the track with no clip: a Held cell in no scene,
+    // through the writer and the decoder.
+    for _ in 0..1200 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    let mut held = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut held));
+    assert_eq!(
+        engine::host::decode_feedback(&held).unwrap().active_clips,
+        vec![ActiveClip {
+            track: engine::msg::TrackSlot(0),
+            scene: engine::msg::HELD_SCENE,
+            state: ClipState::Held,
+            anchor: Tick(0),
+        }]
+    );
+    assert_eq!(held[56 + 2 * 16 + 6], ClipState::Held as u8);
     // A report with no cell (what an older engine writes) decodes with none.
     let mut none = bytes[..56 + 2 * 16].to_vec();
     none[44..48].copy_from_slice(&0u32.to_le_bytes());

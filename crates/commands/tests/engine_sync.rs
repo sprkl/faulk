@@ -496,6 +496,24 @@ fn back_to_arrangement_is_one_engine_message_and_changes_nothing_else() {
 }
 
 #[test]
+fn back_track_to_arrangement_is_one_engine_message_for_that_track() {
+    let (mut s, synth, _) = synced();
+    let before = s.state.project.clone();
+    let (output, control) = run(
+        &mut s,
+        json!({"type": "launch.back_track_to_arrangement", "track": synth.to_string()}),
+    );
+    assert_eq!(
+        control,
+        [ControlMsg::BackTrackToArrangement {
+            track: TrackSlot(0)
+        }]
+    );
+    assert!(matches!(output, Output::Launch(_)));
+    assert_eq!(s.state.project, before);
+}
+
+#[test]
 fn a_huge_parameter_value_is_clamped_by_the_command_and_a_huge_stored_one_still_encodes() {
     let (mut s, synth, _) = synced();
     let device = s.state.project.tracks[&synth]
