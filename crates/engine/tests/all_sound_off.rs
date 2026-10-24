@@ -222,3 +222,19 @@ fn a_cut_in_small_blocks_fades_across_them() {
     assert!(rig.left[at + TEN_MS..].iter().all(|s| *s == 0.0));
     assert!(max_step(&rig.left[at - 1..at + TEN_MS]) < CLICK);
 }
+
+#[test]
+fn a_fade_that_ends_on_the_last_frame_of_a_block_is_silent_after_it() {
+    let mut rig = ringing();
+    rig.cut();
+    // Blocks of exactly the fade (5 ms at 48 kHz = 240 frames).
+    rig.render_blocks(2_400, 240);
+    let at = rig.cut_at;
+    assert!(rig.left[at + 240..].iter().all(|s| *s == 0.0));
+    assert!(max_step(&rig.left[at - 1..at + 241]) < CLICK);
+    // And a note after it still plays.
+    let from = rig.left.len();
+    rig.note_on(64);
+    rig.render_blocks(14_400, 240);
+    assert!(peak(&rig.left[from..]) > 0.1);
+}

@@ -55,9 +55,9 @@ for (const lang of ['en', 'fr'] as const) {
 
     // The double-click cuts everything, and the level stays at zero.
     await stop.dblclick()
-    await expect.poll(() => master(page), { timeout: 5000 }).toBeLessThan(0.001)
+    await expect.poll(() => master(page), { timeout: 5000 }).toBe(0)
     await page.waitForTimeout(1500)
-    expect(await master(page)).toBeLessThan(0.001)
+    expect(await master(page)).toBe(0)
     expect(errors).toEqual([])
   })
 }
