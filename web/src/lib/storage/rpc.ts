@@ -17,7 +17,7 @@ type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R, 'id'> 
 export type Reply = { id: number; ok: true; value: unknown } | { id: number; ok: false; code: StoreErrorCode; message: string }
 
 /** A call the Worker has not answered after this long is lost: the Worker is dropped and the call fails. */
-export const STORE_TIMEOUT_MS = 120_000
+export const STORE_TIMEOUT_MS = 600_000
 
 /** What the page needs of a Worker (a stand-in in tests). */
 export interface WorkerLike {

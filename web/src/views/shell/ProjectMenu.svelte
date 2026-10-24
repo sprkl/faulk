@@ -155,6 +155,10 @@
   .dot[data-state='saving'] {
     background: var(--fk-text);
   }
+  .dot[data-state='unsaved'] {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--fk-accent);
+  }
   .dot[data-state='paused'],
   .dot[data-state='failed'],
   .dot[data-state='conflict'] {

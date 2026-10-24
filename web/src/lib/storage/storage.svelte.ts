@@ -610,7 +610,7 @@ export class ProjectStorage {
     const current = this.current
     if (!current) return false
     try {
-      const { entries } = await current.store.readFolder()
+      const { entries, signature } = await current.store.readFolder()
       const outcome = await this.host.openProject(current.handle.name, entries)
       if (outcome.status === 'refused') {
         // The folder cannot be read as a project now (a checkout half done, a deleted project.json):
@@ -619,7 +619,8 @@ export class ProjectStorage {
         this.cancelTimers()
         return false
       }
-      current.expected = await current.store.scan()
+      // What was read, not a later look: a file changed since is then seen by the next check.
+      current.expected = signature
       this.block = null
       this.dirty = this.host.dirty() ?? false
       this.notice = notice
