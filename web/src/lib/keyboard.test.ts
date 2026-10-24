@@ -211,7 +211,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Enter', 'Enter', 'Escape', 'Escape', 'Escape', 'Escape', 'Escape', 'F2', 'F2'],
-      'views/piano-roll/PianoRollView.svelte': ['Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
+      'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/play/PlayView.svelte': [],
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/ExportDialog.svelte': ['Escape'],

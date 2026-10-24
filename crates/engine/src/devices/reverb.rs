@@ -55,12 +55,12 @@
 //! [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
-use super::osc_synth::LinearRamp;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MAX_SAMPLE_RATE,
     ParamDescriptor, Scale, Unit, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 /// Ids of the parameters.
 pub const SIZE: u32 = 0;
@@ -364,8 +364,8 @@ pub struct Reverb {
     left: Channel,
     right: Channel,
     predelay: Line,
-    size: LinearRamp,
-    damping: LinearRamp,
+    size: Smoother,
+    damping: Smoother,
     /// The pre-delay in use and the one it glides toward, in frames.
     predelay_delay: f32,
     predelay_target: f32,
@@ -375,7 +375,7 @@ pub struct Reverb {
     /// `RATE_REFERENCE / sample_rate`: the cutoff stays where it is at 48 kHz.
     pole: f32,
     pole_for: f32,
-    mix: LinearRamp,
+    mix: Smoother,
     ramp_frames: [u32; 3],
     /// The `size` the comb gains were computed for.
     decay_size: f32,
@@ -411,14 +411,14 @@ impl Reverb {
             left: Channel::new(sample_rate, 0)?,
             right: Channel::new(sample_rate, SPREAD)?,
             predelay: Line::new(predelay_frames)?,
-            size: LinearRamp::new(default(SIZE)),
-            damping: LinearRamp::new(default(DAMPING)),
+            size: Smoother::new(default(SIZE)),
+            damping: Smoother::new(default(DAMPING)),
             predelay_delay: default(PREDELAY) * sample_rate,
             predelay_target: default(PREDELAY) * sample_rate,
             dc_pole: 1.0 - core::f32::consts::TAU * DC_HZ / sample_rate,
             pole: 0.0,
             pole_for: -1.0,
-            mix: LinearRamp::new(default(MIX)),
+            mix: Smoother::new(default(MIX)),
             ramp_frames: [ramp(SIZE), ramp(DAMPING), ramp(MIX)],
             decay_size: default(SIZE),
             clock: 0,

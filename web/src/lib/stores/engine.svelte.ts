@@ -2,6 +2,7 @@ import type { EngineStatus } from '../engine/engine'
 import type { FeedbackReport } from '../engine/feedback'
 import type { MidiInput } from '../generated/protocol'
 import type { MessageKey } from '../i18n/index'
+import type { Refusal } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 
 export type HelperState = 'checking' | 'absent' | 'incompatible' | 'available' | 'connecting' | 'connected'
@@ -32,6 +33,8 @@ export class EngineStore {
   localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))
   notice = $state<MessageKey | null>(null)
+  /** The last command the core refused, shown as a temporary toast; the dispatcher clears it. */
+  refusal = $state<Refusal | null>(null)
   /**
    * The Web engine stopped taking the stream (`MsgError` code, byte offset): it is behind the
    * project. The dispatcher stopped it; the shell shows the message and the Start button
