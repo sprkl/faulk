@@ -9,6 +9,7 @@ import { WebMidiHost } from '../midi/web-midi'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
   isListStored,
+  isNewProject,
   isSaveCommand,
   isStorageCommand,
   isStoredProjectCommand,
@@ -375,6 +376,13 @@ export class Dispatcher {
       void this.listStored().catch((error: unknown) => console.error(error))
       return
     }
+    // Replaces the project: the storage asks before the core does, whoever sends it (a click or an agent).
+    // The question is a dialog of the page and needs no click. Works before audio starts, like opening.
+    if (isNewProject(command)) {
+      // Without a storage (a bare dispatcher) nothing is kept anywhere, so there is nothing to ask about.
+      void (this.storage ? this.storage.newProject() : this.newProject()).catch((error: unknown) => console.error(error))
+      return
+    }
     const core = this.core
     // The banner that offers the project of last time shows on a fresh page, before any core exists: the
     // core is made, then the command runs (a click's permission to prompt outlasts the few milliseconds).
@@ -428,7 +436,6 @@ export class Dispatcher {
       loadFolderVersion: () => void this.storage?.loadDisk(),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
-      projectReplaced: () => this.storage?.forgetFolder(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()

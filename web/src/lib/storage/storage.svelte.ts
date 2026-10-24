@@ -462,6 +462,8 @@ export class ProjectStorage {
       this.notice = 'storage.unsupported'
       return false
     }
+    // The chooser opens only from a click: an agent without one is told so, and nothing is chosen.
+    if (this.needsGesture()) return false
     const picked = await this.deps.picker.pick()
     if (picked.status === 'cancelled') return false
     if (picked.status === 'refused') {
@@ -1062,14 +1064,6 @@ export class ProjectStorage {
     if (choice === 'loadFolder') return this.reload('storage.reloaded')
     this.block = null
     return this.write('rewrite')
-  }
-
-  /** A command replaced the project behind this controller's back (`project.new`): it has no folder now. */
-  forgetFolder() {
-    void this.enqueue(async () => {
-      await this.detach()
-      this.reset()
-    })
   }
 
   /** The user does not want the project of last time back. */
