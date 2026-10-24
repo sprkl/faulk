@@ -6,6 +6,7 @@ import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
+import { REFUSAL_TOAST_MS } from './dispatcher'
 import { TOKEN_KEY } from './storage'
 
 const pairHelper = vi.fn()
@@ -326,6 +327,76 @@ describe('running commands through the project core', () => {
     session.dispatcher.run({ type: 'device.set_param', device: '00000000000000000000000009', param: firstParam, value: 1 } as Command)
     expect(webs[0].send.mock.calls.length).toBe(before)
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  describe('a command the core refuses', () => {
+    const missing = { type: 'track.rename', track: '00000000000000000000000009', name: 'x' } as Command
+    const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    it('is shown to the user by its code, and nothing else changes', async () => {
+      const warn = quiet()
+      const session = newSession()
+      await session.dispatcher.start()
+      const before = webs[0].send.mock.calls.length
+      expect(session.engine.refusal).toBeNull()
+      session.dispatcher.run(missing)
+      expect(session.engine.refusal).toMatchObject({ key: 'refusal.not_found', count: 1 })
+      expect(webs[0].send.mock.calls.length).toBe(before)
+      warn.mockRestore()
+    })
+
+    it('replaces the toast, counts the same refusal, and goes away after a while', async () => {
+      const warn = quiet()
+      const session = newSession()
+      await session.dispatcher.start()
+      vi.useFakeTimers()
+      try {
+        session.dispatcher.run(missing)
+        session.dispatcher.run(missing)
+        session.dispatcher.run(missing)
+        expect(session.engine.refusal).toMatchObject({ key: 'refusal.not_found', count: 3 })
+        // A malformed command is a page bug, not a refusal of the core: the toast is left as it is.
+        session.dispatcher.run({ type: 'nope' } as unknown as Command)
+        expect(session.engine.refusal).toMatchObject({ key: 'refusal.not_found', count: 3 })
+        vi.advanceTimersByTime(REFUSAL_TOAST_MS - 1)
+        expect(session.engine.refusal).not.toBeNull()
+        // A new refusal restarts the delay.
+        session.dispatcher.run(missing)
+        vi.advanceTimersByTime(REFUSAL_TOAST_MS - 1)
+        expect(session.engine.refusal).toMatchObject({ count: 4 })
+        vi.advanceTimersByTime(1)
+        expect(session.engine.refusal).toBeNull()
+        // After the delay the count starts over.
+        session.dispatcher.run(missing)
+        expect(session.engine.refusal).toMatchObject({ count: 1 })
+      } finally {
+        vi.useRealTimers()
+      }
+      warn.mockRestore()
+    })
+
+    it('shows nothing for a caller that reports the refusal itself (quiet)', async () => {
+      const warn = quiet()
+      const session = newSession()
+      await session.dispatcher.start()
+      session.dispatcher.run({ type: 'history.begin_group' } as Command)
+      // An undo during an open group is refused; shown unless the caller asked for quiet.
+      session.dispatcher.run({ type: 'history.undo' } as Command, { quiet: true })
+      expect(session.engine.refusal).toBeNull()
+      session.dispatcher.run({ type: 'history.undo' } as Command)
+      expect(session.engine.refusal).toMatchObject({ key: 'refusal.invalid' })
+      warn.mockRestore()
+    })
+
+    it('shows nothing for a command that applies, and nothing for a malformed one', async () => {
+      const warn = quiet()
+      const session = newSession()
+      await session.dispatcher.start()
+      session.dispatcher.run(setParamCommand(firstParam, 0.4))
+      session.dispatcher.run({ type: 'nope' } as unknown as Command)
+      expect(session.engine.refusal).toBeNull()
+      warn.mockRestore()
+    })
   })
 
   it('stops the engine on a refused stream, shows the error, and restarts from a snapshot that keeps the project', async () => {

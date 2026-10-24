@@ -82,7 +82,7 @@ export interface ExportHost {
   /** Whether a loop region is set. */
   hasLoop(): boolean
   /** The project's folder, where the file dialog opens. */
-  folder(): FolderHandle | null
+  folder(): Promise<FolderHandle | null>
 }
 
 /** What a finished export tells the user. */
@@ -243,7 +243,8 @@ export class AudioExport {
   /**
    * The Export button: runs `project.export_audio` with the dialog's settings, which the project
    * checks (and, accepted, hands back to `request`, which begins). Call straight from the click:
-   * the file dialog of the browser needs it, and it opens within this call.
+   * the file dialog of the browser needs it, and it opens right after the project's folder is known
+   * (at once, unless a move of the project into a folder is under way).
    */
   start() {
     if (this.busy) return
@@ -287,7 +288,10 @@ export class AudioExport {
     this.phase = 'picking'
     const headerBytes = headerLength(this.choices.bitDepth)
     // First: the browser lets a page ask for a file only straight after a click.
-    const choice = await this.deps.pick(fileNameOf(this.host.projectName()), headerBytes, this.host.folder())
+    // The folder waits for a save under way; a cancel in the meantime must not open the dialog afterwards.
+    const folder = await this.host.folder()
+    if (run !== this.run) return
+    const choice = await this.deps.pick(fileNameOf(this.host.projectName()), headerBytes, folder)
     if (run !== this.run) {
       if (choice.status === 'chosen') void choice.sink.abort().catch(() => undefined)
       return

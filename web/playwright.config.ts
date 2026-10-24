@@ -21,6 +21,11 @@ if (process.env.FAULK_E2E_HELPER_PORT) process.env.VITE_FAULK_HELPER_PORT = proc
 const devPort = Number(process.env.FAULK_E2E_DEV_PORT) || 5180
 const previewPort = Number(process.env.FAULK_E2E_PREVIEW_PORT) || 4180
 
+// `FAULK_E2E_PROJECTS=dev` (or `preview`) runs one project and starts only its server: CI runs `dev` on
+// a task pull request and both on the pull request against main. Unset: both.
+const wanted = (process.env.FAULK_E2E_PROJECTS || 'dev,preview').split(',').map((s) => s.trim())
+for (const name of wanted) if (name !== 'dev' && name !== 'preview') throw new Error(`FAULK_E2E_PROJECTS: unknown project "${name}"`)
+
 export default defineConfig({
   testDir: 'tests/e2e',
   workers: 1,
@@ -32,10 +37,10 @@ export default defineConfig({
   projects: [
     { name: 'dev', use: { baseURL: `http://localhost:${devPort}` } },
     { name: 'preview', use: { baseURL: `http://localhost:${previewPort}` } },
-  ],
+  ].filter((p) => wanted.includes(p.name)),
   webServer: [
-    { command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 },
+    ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),
     // The e2e build also carries the test surfaces under /dev (the time grid's, AR-3); a production build has them empty.
-    { command: `pnpm build && pnpm exec vite preview --port ${previewPort}`, url: `http://localhost:${previewPort}/app`, timeout: 300_000, env: { VITE_FAULK_DEV_ROUTES: '1' } },
+    ...(wanted.includes('preview') ? [{ command: `pnpm build && pnpm exec vite preview --port ${previewPort}`, url: `http://localhost:${previewPort}/app`, timeout: 300_000, env: { VITE_FAULK_DEV_ROUTES: '1' } }] : []),
   ],
 })
