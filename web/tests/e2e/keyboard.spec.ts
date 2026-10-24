@@ -15,11 +15,16 @@ const peaks = async (page: Page) => ((await page.getByTestId('feedback').getAttr
 const startPeakHold = (page: Page) =>
   page.evaluate(() => {
     const el = document.querySelector('[data-testid=feedback]')!
-    const held: number[] = []
+    const w = window as unknown as { __heldPeaks?: number[] }
+    // Called again, it starts a new hold: the crest of the previous key must not stand for the next.
+    const held = (w.__heldPeaks ??= [])
+    held.fill(0)
     const read = () => (el.getAttribute('data-track-peaks') ?? '').split(',').forEach((v, i) => (held[i] = Math.max(held[i] ?? 0, Number(v) || 0)))
-    new MutationObserver(read).observe(el, { attributes: true, attributeFilter: ['data-track-peaks'] })
+    if (!(w as { __holdObserver?: boolean }).__holdObserver) {
+      new MutationObserver(read).observe(el, { attributes: true, attributeFilter: ['data-track-peaks'] })
+      ;(w as { __holdObserver?: boolean }).__holdObserver = true
+    }
     read()
-    ;(window as unknown as { __heldPeaks: number[] }).__heldPeaks = held
   })
 const heldPeak = (page: Page, track: number) => page.evaluate((i) => (window as unknown as { __heldPeaks: number[] }).__heldPeaks[i] ?? 0, track)
 const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
@@ -72,8 +77,8 @@ for (const lang of ['en', 'fr'] as const) {
     await page.keyboard.up('KeyA')
     await expect.poll(() => masterPeak(page), { timeout: 5000 }).toBeLessThan(0.001)
     // The snare, the clap and the open hat answer on the same row.
-    await startPeakHold(page)
     for (const code of ['KeyS', 'KeyE', 'KeyU']) {
+      await startPeakHold(page)
       await page.keyboard.down(code)
       await expect.poll(() => heldPeak(page, 1), { message: code }).toBeGreaterThan(0.01)
       await page.keyboard.up(code)

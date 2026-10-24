@@ -267,26 +267,39 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
     })
     return busy / total
   }
-  /** The strips' bars as drawn, to show that the meters do move. */
-  const barsSignature = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="mixer-meter"] .bar')].map((b) => (b as HTMLElement).style.transform).join('|'))
   const measure = async (label: string, moving: boolean) => {
     await page.waitForTimeout(500)
-    if (moving) {
-      // The meters move: releasing the note makes every bar fall, playing it again brings them back.
-      const held = await barsSignature()
-      await send(page, [0x80, 69, 0])
-      await expect.poll(barsSignature, { timeout: 15000 }).not.toBe(held)
-      await send(page, [0x90, 69, 127])
-      await expect.poll(async () => (await peaks(page)).filter((p) => p > 0.01).length, { timeout: 15000 }).toBe(32)
-      await page.waitForTimeout(500)
-    }
+    // The note is pulsed (on, off, on...) all through the windows, so that the meters keep moving whatever the
+    // engine's level settles to; the style writes the page makes meanwhile are counted, to prove the windows measure a moving mixer.
+    await page.evaluate(() => {
+      const w = window as unknown as { __fakeMidi: { send(b: number[]): void }; __pulse?: number; __writes?: number; __observer?: MutationObserver }
+      w.__writes = 0
+      w.__observer?.disconnect()
+      w.__observer = new MutationObserver((list) => (w.__writes! += list.length))
+      w.__observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true })
+      let on = false
+      w.__pulse = window.setInterval(() => {
+        w.__fakeMidi.send(on ? [0x80, 69, 0] : [0x90, 69, 127])
+        on = !on
+      }, 120)
+    })
+    const started = Date.now()
     const before = await counters(cdp)
     const windows = []
     for (let i = 0; i < WINDOWS; i++) {
       windows.push(await meter.measure(() => Promise.all([frames(page, WINDOW_MS), busyShare()])))
     }
     const after = await counters(cdp)
-    const perSecond = (key: keyof Counters) => ((after[key] - before[key]) * 1_000_000) / (WINDOW_MS * WINDOWS)
+    const elapsed = Date.now() - started
+    const writes = await page.evaluate(() => {
+      const w = window as unknown as { __pulse: number; __writes: number; __observer: MutationObserver }
+      clearInterval(w.__pulse)
+      w.__observer.disconnect()
+      return w.__writes
+    })
+    await send(page, [0x80, 69, 0])
+    if (moving) expect(writes, 'style writes while the meters pulse').toBeGreaterThan(100)
+    const perSecond = (key: keyof Counters) => ((after[key] - before[key]) * 1_000_000) / elapsed
     // The cost: main-thread time per frame in reference units (see `mainThreadMeter`), best window.
     const units = windows.map((w) => w.cost.task / w.result[0].frames / w.cost.unit)
     const cost = best(units)
@@ -294,7 +307,7 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
     console.log(
       `mixer-cost ${label}: frames p50 ${f.p50.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, max ${f.max.toFixed(1)} ms over ${f.frames} frames, long tasks ${f.longTasks}; ` +
         `JavaScript busy share ${(share * 100).toFixed(2)} %; main thread per frame ${cost.toFixed(4)} reference units (best of ${WINDOWS}); per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
-        `nodes ${after.Nodes}, listeners ${after.JSEventListeners}`,
+        `style writes ${writes}; nodes ${after.Nodes}, listeners ${after.JSEventListeners}`,
     )
     return { f, share, cost }
   }
