@@ -394269,7 +394269,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 3,
+  "protocol_version": 4,
   "server_message": {
     "$defs": {
       "MidiInput": {

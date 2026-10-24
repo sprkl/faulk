@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ACTIVE_CLIP_BYTES, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES, decodeFeedback, peakOf, readFeedback } from './feedback'
 
-/** An active clip as the engine writes it: track u32, scene u16, state u8, padding. */
-type Cell = [track: number, scene: number, state: number]
+/** An active clip as the engine writes it: track u32, scene u16, state u8, padding, anchor i64. */
+type Cell = [track: number, scene: number, state: number, anchor?: number]
 
 /** A report as the engine lays it out (crates/engine/src/msg.rs), for `tracks` track meters and the grid `cells`. */
 function report(tracks: number, edit?: (view: DataView) => void, cells: Cell[] = []): ArrayBuffer {
@@ -13,11 +13,12 @@ function report(tracks: number, edit?: (view: DataView) => void, cells: Cell[] =
   view.setUint32(4, 8, true) // seq
   view.setUint32(40, tracks, true)
   view.setUint32(44, cells.length, true)
-  cells.forEach(([track, scene, state], i) => {
+  cells.forEach(([track, scene, state, anchor = 0], i) => {
     const at = clipsAt + i * ACTIVE_CLIP_BYTES
     view.setUint32(at, track, true)
     view.setUint16(at + 4, scene, true)
     view.setUint8(at + 6, state)
+    view.setBigInt64(at + 8, BigInt(anchor), true)
   })
   for (let i = 0; i <= tracks; i++) {
     const at = FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES
@@ -105,17 +106,17 @@ describe('decodeFeedback, the launch grid', () => {
   it('reads every cell that is not idle, with its state', () => {
     const r = decodeFeedback(
       report(2, undefined, [
-        [0, 3, 2],
-        [0, 4, 1],
-        [1, 300, 3],
+        [0, 3, 2, 3840],
+        [0, 4, 1, 7680],
+        [1, 300, 3, -960],
         [1, 0, 4],
       ]),
     )!
     expect(r.clips).toEqual([
-      { track: 0, scene: 3, state: 'playing' },
-      { track: 0, scene: 4, state: 'queued' },
-      { track: 1, scene: 300, state: 'stopping' },
-      { track: 1, scene: 0, state: 'armed' },
+      { track: 0, scene: 3, state: 'playing', anchor: 3840 },
+      { track: 0, scene: 4, state: 'queued', anchor: 7680 },
+      { track: 1, scene: 300, state: 'stopping', anchor: -960 },
+      { track: 1, scene: 0, state: 'armed', anchor: 0 },
     ])
   })
 
@@ -151,7 +152,7 @@ describe('readFeedback', () => {
     const region = new SharedArrayBuffer(r.byteLength + 8 + 4 * ACTIVE_CLIP_BYTES)
     new Uint8Array(region, 8).set(new Uint8Array(r))
     new DataView(region, 8).setUint32(4, 10, true)
-    expect(readFeedback(region, 8, region.byteLength - 8)!.clips).toEqual([{ track: 1, scene: 2, state: 'playing' }])
+    expect(readFeedback(region, 8, region.byteLength - 8)!.clips).toEqual([{ track: 1, scene: 2, state: 'playing', anchor: 0 }])
     // A count above the room (two per track) is refused, never read past the region.
     new DataView(region, 8).setUint32(44, 4_000_000_000, true)
     expect(readFeedback(region, 8, region.byteLength - 8)).toBeNull()

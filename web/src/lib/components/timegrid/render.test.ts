@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { barTicks } from '../../../views/transport/time'
 import { DEFAULT_PX_PER_TICK, totalTicksOf } from './grid'
-import { RULER_HEIGHT, drawGrid, type Colors, type Frame, type Surface } from './render'
+import { RULER_HEIGHT, drawGrid, drawPlayhead, type Colors, type Frame, type Surface } from './render'
 
 const colors: Colors = { bg: '#bg', ruler: '#ruler', line: '#line', barLine: '#bar', text: '#text', accent: '#accent', play: '#play' }
 const signature = { numerator: 4, denominator: 4 }
@@ -55,7 +55,6 @@ const frame = (overrides: Partial<Frame> = {}): Frame => ({
   view: { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 },
   signature,
   totalTicks: totalTicksOf(200, signature),
-  playhead: null,
   hover: null,
   colors,
   font: '12px mono',
@@ -99,16 +98,10 @@ describe('drawGrid', () => {
     for (const line of out.lines) expect((line.x * 2) % 1, `x ${line.x}`).toBeCloseTo(0.5, 9)
   })
 
-  it('draws the hover guide in the accent colour and the play position in the play colour', () => {
+  it('draws the hover guide in the accent colour, and no play position (that is the overlay pass)', () => {
     const { ctx, out } = surface()
-    drawGrid(ctx, frame({ hover: 960, playhead: barTicks(signature) }), 1)
+    drawGrid(ctx, frame({ hover: 960 }), 1)
     expect(out.lines.filter((l) => l.style === '#accent').map((l) => l.x)).toEqual([96.5])
-    expect(out.lines.filter((l) => l.style === '#play').map((l) => l.x)).toEqual([384.5])
-  })
-
-  it('leaves a play position outside the view undrawn', () => {
-    const { ctx, out } = surface()
-    drawGrid(ctx, frame({ playhead: barTicks(signature) * 50 }), 1)
     expect(out.lines.some((l) => l.style === '#play')).toBe(false)
   })
 
@@ -119,5 +112,39 @@ describe('drawGrid', () => {
     const dimmed = out.fills.filter((f) => f.rect[1] === RULER_HEIGHT)
     expect(dimmed).toHaveLength(1)
     expect(dimmed[0].rect[0]).toBe(768)
+  })
+})
+
+describe('drawPlayhead', () => {
+  const playFrame = (playhead: number, over: Partial<Parameters<typeof drawPlayhead>[1]> = {}) => ({
+    width: 1000,
+    height: 300,
+    view: { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 },
+    playhead,
+    colors,
+    ...over,
+  })
+
+  it('draws one line of two CSS pixels in the play colour, over the whole height', () => {
+    const { ctx, out } = surface()
+    const x = drawPlayhead(ctx, playFrame(barTicks(signature)), 1)
+    expect(x).toBe(384)
+    expect(out.strokes).toBe(1)
+    expect(out.lines).toEqual([{ style: '#play', x: 384, from: 0, to: 300 }])
+    expect(ctx.lineWidth).toBe(1)
+  })
+
+  it('follows the scroll and the pixel ratio', () => {
+    const { ctx, out } = surface()
+    expect(drawPlayhead(ctx, playFrame(1000, { view: { pxPerTick: 0.1, scrollTick: 500 } }), 2)).toBe(50)
+    expect(out.lines.map((l) => l.x)).toEqual([50])
+  })
+
+  it('draws nothing for a position outside the view', () => {
+    const { ctx, out } = surface()
+    expect(drawPlayhead(ctx, playFrame(barTicks(signature) * 50), 1)).toBeNull()
+    expect(drawPlayhead(ctx, playFrame(-100000), 1)).toBeNull()
+    expect(drawPlayhead(ctx, playFrame(Number.NaN), 1)).toBeNull()
+    expect(out.strokes).toBe(0)
   })
 })
