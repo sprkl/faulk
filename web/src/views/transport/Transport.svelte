@@ -138,7 +138,11 @@
     // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
-    run(playing ? stop() : play())
+    if (playing) {
+      // Pause: `stop` leaves the cue where the last seek put it, so the cue goes to the playhead and the next Space resumes from here.
+      run(stop())
+      run(seek(tick))
+    } else run(play())
   }
 </script>
 

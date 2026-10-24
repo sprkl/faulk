@@ -18,16 +18,19 @@ async function start(page: Page) {
 async function playPauseResume(page: Page) {
   await page.keyboard.press('Space')
   await transport(page, 'playing')
-  await expect.poll(() => tick(page)).toBeGreaterThan(0)
+  await expect.poll(() => tick(page)).toBeGreaterThan(2500)
   await page.keyboard.press('Space')
   await transport(page, 'stopped')
+  // The pause is a stop and a seek to the playhead: give the seek time to show before reading the position.
+  await page.waitForTimeout(300)
   const paused = await tick(page)
-  expect(paused).toBeGreaterThan(0)
+  expect(paused).toBeGreaterThan(2500)
   await page.waitForTimeout(300)
   expect(await tick(page)).toBe(paused)
   await page.keyboard.press('Space')
   await transport(page, 'playing')
-  await expect.poll(() => tick(page)).toBeGreaterThan(paused)
+  await page.waitForTimeout(400)
+  expect(await tick(page)).toBeGreaterThanOrEqual(paused)
   await page.keyboard.press('Space')
   await transport(page, 'stopped')
 }

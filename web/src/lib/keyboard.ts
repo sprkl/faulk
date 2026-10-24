@@ -90,36 +90,37 @@ const SPACE_CONTROLS = 'button, input, select, textarea, [contenteditable], a, [
  * this: a browser turns it on at the first key press, Space included, on a button the mouse just clicked.
  */
 let pointerFocused: Element | null = null
-let pointerDown = false
+/** The last device the user acted with: a focus that follows a pointer press (even from a script, in a click handler, or on a window refocus) is the pointer's. */
+let lastInput: 'pointer' | 'keyboard' = 'keyboard'
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])
 
 /**
- * Starts following where the focus came from (a pointer press, or anything else: Tab, arrows, a script);
- * returns the function that stops it. `spaceTogglesTransport` reads it.
+ * Starts following where the focus came from: the last input before it was a pointer press (mouse, touch,
+ * pen) or a key (Tab, arrows; Space and modifiers do not count). Returns the function that stops it.
+ * `spaceTogglesTransport` reads it.
  */
 export function trackFocusOrigin(doc: Document = document): () => void {
   const down = (event: Event) => {
-    pointerDown = true
+    lastInput = 'pointer'
     // A press on the element that already has the focus gives no focus event: it is pointer-focused from now on.
     const active = doc.activeElement
     pointerFocused = active && active !== doc.body && active.contains(event.target as Node | null) ? active : null
   }
-  const up = () => {
-    pointerDown = false
+  const key = (event: KeyboardEvent) => {
+    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) lastInput = 'keyboard'
   }
   const focus = (event: Event) => {
-    pointerFocused = pointerDown ? (event.target as Element) : null
+    pointerFocused = lastInput === 'pointer' ? (event.target as Element) : null
   }
   doc.addEventListener('pointerdown', down, true)
-  doc.addEventListener('pointerup', up, true)
-  doc.addEventListener('pointercancel', up, true)
+  doc.addEventListener('keydown', key, true)
   doc.addEventListener('focusin', focus, true)
   return () => {
     doc.removeEventListener('pointerdown', down, true)
-    doc.removeEventListener('pointerup', up, true)
-    doc.removeEventListener('pointercancel', up, true)
+    doc.removeEventListener('keydown', key, true)
     doc.removeEventListener('focusin', focus, true)
     pointerFocused = null
-    pointerDown = false
+    lastInput = 'keyboard'
   }
 }
 

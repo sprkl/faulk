@@ -78,18 +78,28 @@ describe('space bar and the transport', () => {
       ;(target as HTMLElement).focus()
       target.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     }
+    const tab = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }))
     const b = el('b') as HTMLElement
+    const a = el('a') as HTMLElement
     press(b)
     expect(spaceTogglesTransport(b)).toBe(true)
+    // Space and modifiers do not turn the origin into the keyboard's.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
     b.blur()
-    b.focus() // a script or Tab
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(true)
+    // A focus a click handler gives by script (a menu giving it back), or the window giving it back, is still the pointer's.
+    a.focus()
+    expect(spaceTogglesTransport(a)).toBe(true)
+    // Tab: the keyboard's.
+    tab()
+    b.focus()
     expect(spaceTogglesTransport(b)).toBe(false)
     // A press on the control that already has the focus makes it pointer-focused again.
     b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     expect(spaceTogglesTransport(b)).toBe(true)
-    // The focus moves on by the keyboard: the new control is keyboard-focused, the old one no longer matters.
-    const a = el('a') as HTMLElement
+    tab()
     a.focus()
     expect(spaceTogglesTransport(a)).toBe(false)
     stop()
@@ -193,6 +203,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       handlers[file.replace('/src/', '')] = reads.sort()
     }
     expect(handlers).toEqual({
+      'lib/keyboard.ts': ['Space'], // trackFocusOrigin only notes that a key was pressed; it triggers nothing
       'lib/components/Slider.svelte': [],
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
