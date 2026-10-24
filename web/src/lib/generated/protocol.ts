@@ -29,7 +29,20 @@ type: "project.new"
 type: "project.save"
 } | {
 type: "project.save_as"
+} | {
+bit_depth?: (ExportBitDepth | null)
+region?: (ExportRegion | null)
+sample_rate?: (number | null)
+type: "project.export_audio"
 })
+/**
+ * How the samples are written.
+ */
+export type ExportBitDepth = ("pcm16" | "pcm24" | "float32")
+/**
+ * Which part of the project is rendered.
+ */
+export type ExportRegion = ("song" | "loop")
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -726,6 +739,38 @@ type: "project.new"
 type: "project.save"
 } | {
 type: "project.save_as"
+} | {
+/**
+ * How the samples are written.
+ */
+bit_depth: ("pcm16" | "pcm24" | "float32")
+/**
+ * Seconds of content, without the tail.
+ */
+duration_secs: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+end_tick: number
+/**
+ * Which part of the project is rendered.
+ */
+region: ("song" | "loop")
+/**
+ * The sample rate of the file, in Hz.
+ */
+sample_rate: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start_tick: number
+type: "project.export_audio"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1304,6 +1349,86 @@ message: string
 type: "error"
 })
 /**
+ * What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
+ * engine bytes returned beside it (the setup stream, then the stream that stops the
+ * transport, `setup_len` bytes then the rest).
+ */
+export type ExportReport = ({
+plan: ExportPlan
+setup_len: number
+status: "ready"
+} | {
+error: CommandError
+status: "refused"
+} | {
+status: "failed"
+stream_error: number
+})
+/**
+ * Why a command was refused. `code()` is stable for the interface and the agents;
+ * the message is for developers.
+ */
+export type CommandError = ({
+code: "not_found"
+entity: string
+id: string
+} | {
+code: "invalid"
+field: string
+message: string
+} | {
+code: "limit"
+entity: string
+max: number
+} | {
+code: "unsupported"
+command: string
+} | {
+code: "folder"
+error: FolderError
+})
+/**
+ * Why a project folder was refused (`project.open`). The page shows a text per variant;
+ * `message`s are for developers.
+ */
+export type FolderError = ({
+folder: string
+reason: "not_staged"
+} | {
+reason: "not_a_project"
+} | {
+found: number
+reason: "newer_format"
+supported: number
+} | {
+found: number
+reason: "unsupported_format"
+} | {
+path: string
+reason: "missing"
+} | {
+message: string
+path: string
+reason: "corrupt"
+} | {
+max: number
+path: string
+reason: "too_large"
+size: number
+} | {
+reason: "invalid"
+total: number
+violations: string[]
+} | {
+message: string
+path: string
+reason: "io"
+} | {
+from: number
+message: string
+reason: "migration"
+})
+/**
  * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
  * 
  * Constant per project at the MVP. Carries every conversion between ticks, seconds,
@@ -1509,70 +1634,6 @@ export type TrackPart = (("name" | "color") | "order")
  * Which part of a scene a [`ProjectEvent::SceneChanged`] reports.
  */
 export type ScenePart = ("name" | "order")
-/**
- * Why a command was refused. `code()` is stable for the interface and the agents;
- * the message is for developers.
- */
-export type CommandError = ({
-code: "not_found"
-entity: string
-id: string
-} | {
-code: "invalid"
-field: string
-message: string
-} | {
-code: "limit"
-entity: string
-max: number
-} | {
-code: "unsupported"
-command: string
-} | {
-code: "folder"
-error: FolderError
-})
-/**
- * Why a project folder was refused (`project.open`). The page shows a text per variant;
- * `message`s are for developers.
- */
-export type FolderError = ({
-folder: string
-reason: "not_staged"
-} | {
-reason: "not_a_project"
-} | {
-found: number
-reason: "newer_format"
-supported: number
-} | {
-found: number
-reason: "unsupported_format"
-} | {
-path: string
-reason: "missing"
-} | {
-message: string
-path: string
-reason: "corrupt"
-} | {
-max: number
-path: string
-reason: "too_large"
-size: number
-} | {
-reason: "invalid"
-total: number
-violations: string[]
-} | {
-message: string
-path: string
-reason: "io"
-} | {
-from: number
-message: string
-reason: "migration"
-})
 /**
  * What encoding a snapshot for the engine did: the bytes are returned beside it.
  */
@@ -2081,6 +2142,42 @@ export interface MidiInput {
  */
 id: string
 name: string
+}
+/**
+ * What a render covers, before its tail.
+ */
+export interface ExportPlan {
+/**
+ * Frames of the content, at the sample rate.
+ */
+body_frames: number
+/**
+ * Seconds of the content.
+ */
+duration_secs: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+end_tick: number
+settings: ExportSettings
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start_tick: number
+}
+/**
+ * The choices of `project.export_audio`, with their defaults filled in.
+ */
+export interface ExportSettings {
+bit_depth: ExportBitDepth
+region: ExportRegion
+sample_rate: number
 }
 /**
  * The page's view of the project: what it reads after an event that names an entity

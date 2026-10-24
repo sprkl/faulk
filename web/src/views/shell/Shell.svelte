@@ -13,6 +13,7 @@
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, viewById } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
+  import ExportDialog from './ExportDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
@@ -85,6 +86,7 @@
 <div class="shell">
   <TopBar />
   <StorageBanners />
+  <ExportDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}

@@ -5,6 +5,7 @@
 //! covers, and `examples` are checked by the harness of `commands::testing`.
 
 use ::project::TrackId;
+use commands::export::{ExportBitDepth, ExportRegion};
 use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
 use commands::{
     Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
@@ -51,6 +52,22 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::New {})),
         on(Command::Project(project::Command::Save {})),
         on(Command::Project(project::Command::SaveAs {})),
+        (
+            Command::Project(project::Command::ExportAudio {
+                region: None,
+                bit_depth: None,
+                sample_rate: None,
+            }),
+            arrangement_examples::fx().state,
+        ),
+        (
+            Command::Project(project::Command::ExportAudio {
+                region: Some(ExportRegion::Loop),
+                bit_depth: Some(ExportBitDepth::Float32),
+                sample_rate: Some(96_000),
+            }),
+            transport_examples::with_region(),
+        ),
         on(Command::Device(device::Command::SetParam {
             device: f.device.clone(),
             param: "attack".into(),
@@ -373,6 +390,38 @@ fn malformed_commands_are_refused_with_a_useful_message() {
     }
     let unknown = parse(r#"{"type":"song.rename"}"#).unwrap_err();
     assert!(unknown.contains("project, track, device"), "{unknown}");
+}
+
+#[test]
+fn export_audio_refusals_leave_the_state_untouched() {
+    let export = |region, sample_rate| {
+        Command::Project(project::Command::ExportAudio {
+            region,
+            bit_depth: None,
+            sample_rate,
+        })
+    };
+    let arranged = arrangement_examples::fx().state;
+    // Nothing in the arrangement: nothing to render.
+    let err = check_refusal(&export(None, None), &state(), &context()).unwrap();
+    assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "region"));
+    // The loop region of the song's export has to exist.
+    let err = check_refusal(
+        &export(Some(ExportRegion::Loop), None),
+        &arranged,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "region"));
+    // A sample rate a file cannot have.
+    for rate in [0, 8_000, 48_001, 192_000] {
+        let err = check_refusal(&export(None, Some(rate)), &arranged, &context()).unwrap();
+        assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "sample_rate"));
+    }
+    // The three rates a file can have.
+    for rate in [44_100, 48_000, 96_000] {
+        check(&export(None, Some(rate)), &arranged, &context()).unwrap();
+    }
 }
 
 #[test]

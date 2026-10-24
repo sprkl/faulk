@@ -140,6 +140,7 @@ pub fn schema_bundle() -> serde_json::Value {
             "run_report": schemars::schema_for!(commands::host::RunReport),
             "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
             "project_view": schemars::schema_for!(commands::host::ProjectView),
+            "export_report": schemars::schema_for!(commands::host::ExportReport),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.
