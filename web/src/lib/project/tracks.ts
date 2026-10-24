@@ -90,9 +90,10 @@ export function copyName(label: string, taken: readonly string[]): string {
   const base = label.replace(/\s+\d+$/, '').trim() || label
   const used = new Set(taken)
   for (let n = 2; ; n++) {
-    const candidate = `${base} ${n}`
     // A name has at most 200 characters (the command refuses more): shorten the base, never the number.
-    if (!used.has(candidate)) return candidate.length <= 200 ? candidate : `${[...base].slice(0, 190).join('')} ${n}`
+    const whole = `${base} ${n}`
+    const candidate = [...whole].length <= 200 ? whole : `${[...base].slice(0, 190).join('')} ${n}`
+    if (!used.has(candidate)) return candidate
   }
 }
 

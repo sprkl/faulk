@@ -78,6 +78,10 @@ describe('the name of a duplicate', () => {
     const long = 'é'.repeat(200)
     expect([...copyName(long, [long])].length).toBeLessThanOrEqual(200)
     expect(copyName('7', ['7'])).toBe('7 2')
+    const first = copyName(long, [long])
+    const second = copyName(long, [long, first])
+    expect(second).not.toBe(first)
+    expect([...second].length).toBeLessThanOrEqual(200)
   })
 })
 
