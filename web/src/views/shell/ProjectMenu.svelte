@@ -63,6 +63,7 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label={t('project.menu')}
+    title={ready ? `${name}: ${status}. ${where}` : name}
     data-testid="project-menu"
     onclick={() => (open = !open)}
   >

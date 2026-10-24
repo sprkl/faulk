@@ -263,6 +263,8 @@ export class ProjectStorage {
     } catch (error) {
       this.host.saved(false)
       this.saving = false
+      // Some of the files may have been written before it failed: they are ours, not an outside change.
+      current.expected = await current.store.scan().catch(() => current.expected)
       return this.fail(current, error)
     }
     this.saving = false
@@ -420,6 +422,8 @@ export class ProjectStorage {
   }
 
   private async openHandle(handle: FolderHandle, forgetIfGone?: string): Promise<boolean> {
+    // The project that is open already: nothing to open, and its own lock must not refuse it.
+    if (this.current && (await this.current.handle.isSameEntry?.(handle)?.catch(() => false))) return true
     if (!(await this.makeRoom('open'))) return false
     let store: ProjectStore | null = null
     let release: (() => void) | null = null

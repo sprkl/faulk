@@ -139,7 +139,8 @@ interface World {
 }
 
 function handleOf(name: string): FolderHandle {
-  return { name } as unknown as FolderHandle
+  const handle = { name, isSameEntry: async (other: unknown) => other === handle }
+  return handle as unknown as FolderHandle
 }
 
 function world(): World {
@@ -445,6 +446,22 @@ describe('a write that fails', () => {
     expect(store.files.get('project.json')).toBe('rev 2')
   })
 
+  it('files written before a write failed are its own: not an outside change', async () => {
+    const { w, store } = await saved()
+    store.apply = async (entries) => {
+      store.files.set(entries[0]!.path, 'half')
+      store.stamp++
+      throw new StoreError('io', 'died after the first file')
+    }
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('error')
+    w.watchers.forEach((f) => f())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBe('error')
+    expect(w.host.opened).toEqual([])
+  })
+
   it('the retry button saves again', async () => {
     const { w, store } = await saved()
     store.fail = new StoreError('io', 'locked')
@@ -521,6 +538,16 @@ describe('opening a folder', () => {
     w.edit()
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
     expect(store.files.get('project.json')).toBe('rev 1')
+  })
+
+  it('opening the project that is open is a no-op, not "open in another tab"', async () => {
+    const { w, handle } = await saved('here')
+    w.picks.push({ status: 'chosen', handle })
+    expect(await w.storage.openFolder()).toBe(true)
+    expect(w.storage.notice).toBeNull()
+    expect(w.storage.folder).toEqual({ name: 'here' })
+    expect(w.host.opened).toEqual([])
+    expect(w.locks).toEqual(new Set(['project-1']))
   })
 
   it('says a folder is not a project, and does not touch the current one', async () => {
