@@ -61,4 +61,4 @@ export const isStoredProjectCommand = (command: Command): boolean =>
  * Whether a command concerns the page's storage and never the engine: the helper does not take it (it
  * keeps no project folder of its own yet), so in Boost it stays in the page.
  */
-export const isStorageCommand = (command: Command): boolean => isSaveCommand(command) || command.type === 'project.new'
+export const isStorageCommand = (command: Command): boolean => isSaveCommand(command)

@@ -50,9 +50,10 @@ domain! {
     /// Start a new project: the page's default one, a single synth track, in no folder yet,
     /// with its own identity. It replaces the current project, its history and its session
     /// (the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive:
-    /// when the current project has changes that are kept nowhere, the page asks the user first,
-    /// whoever sends the command, and nothing changes if the user cancels. The question is a
-    /// dialog of the page, so it needs no click.
+    /// the page first keeps the current project's changes where it can (written into its folder,
+    /// or kept as a draft in the browser's storage, which stays listed). Only when they cannot
+    /// be kept anywhere does it ask the user, whoever sends the command, and nothing changes if
+    /// the user cancels. The question is a dialog of the page, so it needs no click.
     "project.new" (kind = "edit", undo = "none", destructive = true)
     New {} => {
         /// The name of the new project.
