@@ -7,6 +7,7 @@ import {
   MAX_TICK,
   blocksOf,
   clampScrollY,
+  copyShift,
   hitBlock,
   isFree,
   laneTop,
@@ -205,5 +206,18 @@ describe('free place', () => {
   it('is not free before the start or past the last tick', () => {
     expect(isFree([], 0, -1, 10)).toBe(false)
     expect(isFree([], 0, MAX_TICK - 5, MAX_TICK + 5)).toBe(false)
+  })
+})
+
+describe('copy shift', () => {
+  it('puts the copies right after the selection', () => {
+    expect(copyShift([get('p1')])).toBe(3840)
+    expect(copyShift([get('p1'), get('q1')])).toBe(3840)
+    expect(copyShift([get('p2'), get('p3')])).toBe(8960 - 3840)
+  })
+
+  it('is none for nothing, or when the copy would leave the timeline', () => {
+    expect(copyShift([])).toBeNull()
+    expect(copyShift([{ ...get('p1'), start: MAX_TICK - 10, end: MAX_TICK }])).toBeNull()
   })
 })

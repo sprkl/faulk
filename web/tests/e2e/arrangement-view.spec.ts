@@ -147,10 +147,37 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   await expect(arr(page)).toHaveAttribute('data-loop-on', 'true')
   await page.keyboard.press('Control+z')
   await expect(arr(page)).toHaveAttribute('data-loop-on', 'false')
+  // One undo took the region back with the switch: the region and the switch were one history group.
+  await expect(arr(page)).toHaveAttribute('data-loop', '')
+
+  // Shift-click adds to the selection and takes out; a click under the lanes clears it.
+  const now = await blocks(page)
+  await page.mouse.click(g.x(now[0]!.start + 100), g.y(0))
+  await page.keyboard.down('Shift')
+  await page.mouse.click(g.x(now[1]!.start + 100), g.y(0))
+  await expect(arr(page)).toHaveAttribute('data-selected-count', '2')
+  await page.mouse.click(g.x(now[1]!.start + 100), g.y(0))
+  await page.keyboard.up('Shift')
+  await expect(arr(page)).toHaveAttribute('data-selected-count', '1')
+  await page.mouse.click(g.x(1000), g.y(1))
+  await expect(arr(page)).toHaveAttribute('data-selected-count', '0')
+
+  // An Alt+Shift drag copies as linked clips; Escape in the middle of a drag sends nothing.
+  const base = (await blocks(page)).length
+  await drag(page, { x: g.x(BAR + 1000), y: g.y(0) }, { x: g.x(BAR + 1000 + 8 * BAR), y: g.y(0) }, { alt: true, shift: true })
+  await expect(arr(page)).toHaveAttribute('data-block-count', String(base + 1))
+  const linked = await blocks(page)
+  expect(linked.filter((b) => b.clip === linked.find((c) => c.start === BAR)!.clip).length).toBe(3)
+  await page.mouse.move(g.x(BAR + 1000), g.y(0))
+  await page.mouse.down()
+  await page.mouse.move(g.x(BAR + 2000), g.y(0), { steps: 3 })
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  expect((await blocks(page)).map((b) => b.start)).toEqual(linked.map((b) => b.start))
 
   // A double-click on an empty place of the lane makes a one-bar clip; on a clip it opens the piano roll.
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
-  await expect(arr(page)).toHaveAttribute('data-block-count', '5')
+  await expect(arr(page)).toHaveAttribute('data-block-count', '6')
   await page.getByTestId('panel-devices').click()
   await page.mouse.dblclick(g.x(3 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()

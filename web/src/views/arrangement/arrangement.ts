@@ -128,8 +128,8 @@ export function hitBlock(blocks: readonly Block[], x: number, y: number, view: V
 export function moveDelta(selection: readonly Block[], grabbed: Block, pointerTick: number, grabTick: number, step: number | null): number {
   if (selection.length === 0) return 0
   const wanted = snapTick(grabbed.start + (pointerTick - grabTick), step) - grabbed.start
-  const lowest = Math.min(...selection.map((b) => b.start))
-  const highest = Math.max(...selection.map((b) => b.end))
+  const lowest = selection.reduce((low, b) => Math.min(low, b.start), Infinity)
+  const highest = selection.reduce((high, b) => Math.max(high, b.end), 0)
   // `+ 0` turns a -0 into 0.
   return Math.round(Math.min(MAX_TICK - highest, Math.max(-lowest, wanted))) + 0
 }
@@ -177,3 +177,14 @@ export const splittable = (selection: readonly Block[], at: number): Block[] => 
 /** Whether `[start, end)` is free on a lane (`clip.create` into the arrangement refuses an overlap). */
 export const isFree = (blocks: readonly Block[], row: number, start: number, end: number): boolean =>
   start >= 0 && end <= MAX_TICK && !blocks.some((b) => b.row === row && b.start < end && start < b.end)
+
+/**
+ * The shift of a copy that puts the selection right after itself (the default of `arrangement.duplicate`), or `null`
+ * when the copy would end past the last tick (the command refuses it).
+ */
+export function copyShift(selection: readonly Block[]): number | null {
+  if (selection.length === 0) return null
+  const first = selection.reduce((low, b) => Math.min(low, b.start), Infinity)
+  const last = selection.reduce((high, b) => Math.max(high, b.end), 0)
+  return last + (last - first) <= MAX_TICK ? last - first : null
+}

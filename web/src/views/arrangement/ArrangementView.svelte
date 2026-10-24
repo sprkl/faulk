@@ -23,6 +23,7 @@
     LANE_HEIGHT,
     blocksOf,
     clampScrollY,
+    copyShift,
     hitBlock,
     isFree,
     lastEnd,
@@ -278,7 +279,8 @@
   }
 
   function duplicate(linked: boolean) {
-    if (selection.length > 0) copyAndSelect(selection.map((b) => b.id), linked)
+    const by = copyShift(selection)
+    if (by !== null) copyAndSelect(selection.map((b) => b.id), linked, by)
   }
 
   function removeSelected() {
