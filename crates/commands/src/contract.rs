@@ -12,13 +12,14 @@
 //!   [`Meta::check`] which the test rule enforces on every command.
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
-use project::file::{FileError, FileSystem};
+use project::file::{FileError, FileSystem, SaveState};
 use project::{
     ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SceneId,
     SessionState, TickLoop, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -100,6 +101,22 @@ pub struct Context {
     /// The project folder the host staged for `project.open` (SV-4): taken by the command,
     /// so a folder serves one opening.
     pub folder: Option<Folder>,
+    /// What a later save needs of the folder `project.open` last read (SV-2): set by the
+    /// command, taken by the host that keeps saving into that folder.
+    pub opened: Option<OpenedFolder>,
+}
+
+/// What a save into a folder that was opened needs to know of it: the hash of each file as
+/// read (so that a save writes only what changed) and the blobs it holds (so that a lane
+/// blob already there is not written again).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedFolder {
+    pub state: SaveState,
+    /// The names of the files under `blobs/`, without the directory.
+    pub blobs: BTreeSet<String>,
+    /// The names of the files at the folder's root (`.gitignore` and `.gitattributes` are
+    /// written only when absent).
+    pub root: BTreeSet<String>,
 }
 
 /// A project folder a host read access to, staged in the [`Context`] for `project.open`.
@@ -151,6 +168,7 @@ impl Context {
             ids,
             engine: EngineSlots::default(),
             folder: None,
+            opened: None,
         }
     }
 }
