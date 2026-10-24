@@ -495,6 +495,12 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - But : réverbération algorithmique (taille, amortissement, mélange).
 - Critères : queue qui décroît vers le silence ; coût processeur mesuré.
 - Touche : `crates/engine/src/devices/reverb.rs`.
+- **Réalisé (#66, 2026-10-24)** : le device `faulk.reverb`, affiché « Reverb » (identifiant de type 4, effet) :
+  - **Signal** : réseau classique en stéréo : l'entrée est sommée en mono, passe par un filtre coupe-continu (sous 10 Hz), le pré-délai, puis deux bancs de 8 filtres en peigne à contre-réaction (le banc droit a des lignes plus longues de 23 images à 44,1 kHz, ce qui décorrèle les deux sorties) dont la boucle contient un passe-bas à un pôle (l'amortissement), puis 4 filtres passe-tout en série. Sortie `sec × (1 − mélange) + réverbération × mélange`.
+  - **Réglages** (identifiants stables) : 0 `size` (0 à 1, défaut 0,5), 1 `damping` (0 à 1, défaut 0,5), 2 `predelay` (0 à 0,2 s, défaut 10 ms), 3 `mix` (0 à 1, défaut 0,25) ; lissage linéaire de 50 ms (20 ms pour `mix`). La largeur stéréo n'est pas un réglage (décision du chef : la réverbération est toujours large).
+  - **Taille et durée** : la taille règle le temps de réverbération `RT60 = 0,3 s × 25^taille` (0,3 s, 1,5 s par défaut, 7,5 s), par le gain de contre-réaction de chaque peigne (`10^(−3 × retard / RT60)`, toujours sous 1) ; les longueurs des lignes sont fixes. L'entrée de chaque peigne est multipliée par `√(1 − g²)` : l'énergie de la réponse impulsionnelle est la même à toute taille et un bruit blanc ressort au niveau où il est entré.
+  - **Mémoire** : toutes les lignes sont allouées dans la fabrique, `process` n'alloue rien ; `memory_bytes` est déclaré à 192 kHz. `reset` est en temps constant (un compteur d'âge masque le contenu des lignes ; seuls les 16 états des passe-bas sont remis à zéro).
+  - **Mesures** : `crates/engine/tests/reverb.rs` (RT60 mesuré par intégration de Schroeder pour cinq tailles, queue sous −100 dB après deux RT60, amortissement, début de la queue avec et sans pré-délai, énergie constante, sortie bornée aux 16 coins des réglages pour une entrée pleine échelle, balayage en jouant, entrées hostiles, indépendance du découpage en blocs, `reset`), `crates/engine/tests/reverb_cost.rs` (coût, en release), `crates/engine-wasm/tests/reverb_parity.rs` (parité natif / WASM), `crates/test-support/tests/reverb.rs` (par les commandes ; écrit `.qa/renders/reverb.wav`).
 - Dépend de : DV-1.
 - Phase : 4.
 - Étiquettes : hardware: non, founder: non.
