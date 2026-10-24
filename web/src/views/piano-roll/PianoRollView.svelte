@@ -9,20 +9,23 @@
   import { onDestroy, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
   import { addNotes, auditionOff, auditionOn, createClipAtStart, removeNotes, setClipLength, setClipLoop, updateNotes } from '../../lib/clip-commands'
+  import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
+  import ValueMenu from '../../lib/components/ValueMenu.svelte'
   import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { isMidi } from '../../lib/project/tracks'
+  import { instrumentNamedKeys, isMidi } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
-  import { barTicks, beatTicks } from '../transport/time'
+  import { barTicks } from '../transport/time'
   import { clipLabel, editedClip, midiClips } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
     acceptable,
+    defaultLength,
     clampScrollY,
     drawnNote,
     hitNote,
@@ -38,15 +41,19 @@
     stillApplies,
     fits,
     toggled,
-    velocityAt,
+    resetVelocities,
+    velocityOf,
+    velocityPosition,
+    VELOCITY_HOME,
     afterChanges,
     type Change,
     type Layout,
     type Rect,
   } from './roll'
+  import { liveTick, playheadIn, settle } from './playhead'
   import Surface from './Surface.svelte'
 
-  const { project, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -55,6 +62,8 @@
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
   const KEYS_WIDTH = 56
+  /** The keyboard column of a drum kit, wide enough for the names of its sounds. */
+  const NAMED_KEYS_WIDTH = 96
   const LANE_HEIGHT = 56
   const ROW = DEFAULT_ROW_HEIGHT
 
@@ -62,7 +71,7 @@
   type Gesture =
     | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null }
     | { kind: 'move' | 'resize'; clip: string; grabbed: Note; key: string; startX: number; startY: number; changes: Change[] }
-    | { kind: 'velocity'; clip: string; grabbed: Note; key: string; changes: Change[] }
+    | { kind: 'velocity'; clip: string; grabbed: Note; key: string; startX: number; startY: number; moved: boolean; drag: Drag; changes: Change[] }
     | { kind: 'band'; clip: string; x0: number; y0: number; base: ReadonlySet<string>; rect: Rect }
     | { kind: 'loop'; clip: string; from: number; to: number }
 
@@ -71,6 +80,10 @@
   const clips = $derived(track ? midiClips(track.track) : [])
   const edited = $derived(editedClip(clips, ui.editedClip))
   const notes = $derived<readonly Note[]>(edited?.notes ?? [])
+  const keyNames = $derived.by<ReadonlyMap<number, string> | null>(() => {
+    const named = track ? instrumentNamedKeys(track.track) : []
+    return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
+  })
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
@@ -85,7 +98,8 @@
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
-  let lastLength = $state(0)
+  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
+  let lastLength = $state<number | null>(null)
   let lastVelocity = $state(DEFAULT_VELOCITY)
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -112,19 +126,82 @@
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
   const loopShown = $derived(gesture?.kind === 'loop' ? (gesture.from === gesture.to ? edited?.looping ?? null : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }) : (edited?.looping ?? null))
 
+  // The play position inside the edited clip (#293). The engine reports about 30 times a second; while the transport
+  // runs, the tick is carried on from the last report at each animation frame, so that the bar moves at the screen's pace.
+  const report = $derived(engine.started ? engine.feedback : null)
+  const running = $derived(report?.transport === 'playing' || report?.transport === 'recording')
+  const bpm = $derived(project.view?.project.tempo[0]?.bpm ?? null)
+  const transport = $derived(project.view?.project.transport ?? null)
+  const transportLoop = $derived(transport?.loop_enabled ? (transport.loop_region ?? null) : null)
+  let reportAt = 0
+  /** The transport tick shown: the report's, carried on at each frame while the transport runs. */
+  let shownTick = $state<number | null>(null)
+  function advance() {
+    if (!report) {
+      shownTick = null
+      return
+    }
+    const target = liveTick(report.playheadTick, running, performance.now() - reportAt, bpm, transportLoop)
+    shownTick = running ? settle(shownTick, target, bpm, transportLoop) : target
+  }
+  $effect(() => {
+    void engine.feedback
+    reportAt = performance.now()
+    untrack(advance)
+  })
+  $effect(() => {
+    if (!running) return
+    let id = 0
+    const frame = () => {
+      advance()
+      id = requestAnimationFrame(frame)
+    }
+    id = requestAnimationFrame(frame)
+    return () => cancelAnimationFrame(id)
+  })
+  const live = $derived.by<number | null>(() => {
+    if (shownTick === null || !report || !track || !edited || !project.view) return null
+    const tick = shownTick
+    return playheadIn({
+      report,
+      slots: project.view.slots,
+      trackId: track.id,
+      track: track.track,
+      clipId: edited.id,
+      clip: edited.clip,
+      length: edited.length,
+      looping: edited.looping,
+      tick,
+    })
+  })
+  // Stopped, the bar stays where it was last seen (it moves with a seek that lands in the clip); while the transport runs
+  // and this clip does not sound, there is none. A new clip starts without one.
+  // The position is kept with the clip it was seen in, so that another clip never inherits it, whatever the order of the updates.
+  let lastSeen = $state<{ clip: string; at: number } | null>(null)
+  $effect(() => {
+    if (live !== null && edited) lastSeen = { clip: edited.id, at: live }
+  })
+  const playhead = $derived(running ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
+
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) =>
-    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown })
+    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown, names: keyNames })
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames]
     grid?.invalidate()
   })
 
-  // A new clip opens with a clean selection, around its notes, and its last drawn length at one beat.
+  // A change of the snap setting gives the next drawn note the new step.
+  $effect(() => {
+    void snap
+    untrack(() => (lastLength = null))
+  })
+
+  // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
   let openedFor: string | null = null
   $effect(() => {
     const id = edited?.id ?? null
@@ -134,8 +211,8 @@
     untrack(() => {
       picked = new Set()
       gesture = null
-      scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
-      lastLength = beatTicks(signature)
+      scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT }, keyNames ? [...keyNames.keys()] : [])
+      lastLength = null
     })
   })
 
@@ -209,7 +286,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, lastLength, clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -234,7 +311,7 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), step)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, lastLength, clipLength) }
+      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -319,7 +396,7 @@
 
   function laneDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || gesture) return
-    const { x } = local(event, lane)
+    const { x, y } = local(event, lane)
     const index = hitVelocity(notes, x, shown)
     if (index === null) return
     const grabbed = notes[index]!
@@ -330,7 +407,9 @@
       if (!next.on) return
     } else if (!picked.has(key)) picked = new Set([key])
     lane!.setPointerCapture(event.pointerId)
-    gesture = { kind: 'velocity', clip: edited.id, grabbed, key, changes: [] }
+    // Absolute under the pointer, then relative: the fine mode (Ctrl, Cmd) carries on from where the value is.
+    const drag = createDrag({ position: velocityPosition(y, 2, laneH - 4), home: VELOCITY_HOME, travel: laneH - 4 })
+    gesture = { kind: 'velocity', clip: edited.id, grabbed, key, startX: x, startY: y, moved: false, drag, changes: [] }
     sound(grabbed.pitch, grabbed.velocity)
   }
 
@@ -338,9 +417,39 @@
     const g = gesture
     if (!g || g.kind !== 'velocity') return
     if (!edited || edited.id !== g.clip || !chosenKeys.has(g.key)) return cancel()
-    const { y } = local(event, lane)
-    const velocity = velocityAt(y, 2, laneH - 4)
-    gesture = { ...g, changes: shiftVelocity(chosenNotes, velocity - g.grabbed.velocity) }
+    const { x, y } = local(event, lane)
+    // A click or a double click moves nothing: the drag starts after a few pixels.
+    if (!g.moved && Math.hypot(x - g.startX, y - g.startY) < DRAG_SLOP_PX) return
+    const velocity = velocityOf(g.drag.move(g.startY - y, fineKey(event)))
+    gesture = { ...g, moved: true, changes: shiftVelocity(chosenNotes, velocity - g.grabbed.velocity) }
+  }
+
+  /** The default-velocity reset: the chosen notes take it as one command (nothing when they already have it). */
+  function resetVelocity() {
+    if (!edited) return
+    const changes = resetVelocities(notes, chosenNotes)
+    if (!changes || changes.length === 0 || !stillApplies(notes, changes, clipLength)) return
+    run(updateNotes(edited.id, changes))
+    picked = afterChanges(picked, changes)
+    lastVelocity = DEFAULT_VELOCITY
+  }
+
+  /** The bar under a pointer of the lane becomes the chosen note when it is not one already; false when there is none. */
+  function chooseBar(event: MouseEvent): boolean {
+    if (!edited || gesture) return false
+    const index = hitVelocity(notes, local(event, lane).x, shown)
+    if (index === null) return false
+    const key = noteKey(notes[index]!)
+    if (!picked.has(key)) picked = new Set([key])
+    return true
+  }
+
+  let laneMenu = $state<{ x: number; y: number } | null>(null)
+
+  function laneContext(event: MouseEvent) {
+    event.preventDefault()
+    if (!chooseBar(event)) return
+    laneMenu = { x: Math.max(0, Math.min(event.clientX, window.innerWidth - 220)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 56)) }
   }
 
   // --- the keyboard column ----------------------------------------------------------------------
@@ -424,6 +533,7 @@
     data-note-count={notes.length}
     data-selected-count={chosenNotes.length}
     data-clip-length={clipLength}
+    data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
     data-loop={edited.looping ? `${edited.looping.start}-${edited.looping.end}` : ''}
     data-notes={notes.length <= 32 ? JSON.stringify(notes) : undefined}
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}
@@ -462,7 +572,7 @@
       <span class="count" data-testid="roll-count">{t('pianoRoll.count', { n: notes.length })}{#if chosenNotes.length > 0} · {t('pianoRoll.selected', { n: chosenNotes.length })}{/if}</span>
     </div>
 
-    <div class="board" style:--keys="{KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
+    <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
       <div
         class="keys"
         bind:this={keys}
@@ -476,7 +586,7 @@
       >
         <Surface
           label={t('pianoRoll.keyboard')}
-          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches)}
+          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)}
         />
       </div>
       <div
@@ -495,7 +605,7 @@
         onlostpointercapture={() => gesture && finish(false)}
         onkeydown={onKeyDown}
       >
-        <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
+        <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} {playhead} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
       </div>
       <div class="corner"></div>
       <div
@@ -508,6 +618,10 @@
         onpointermove={laneMove}
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
+        ondblclick={(event) => {
+          if (chooseBar(event)) resetVelocity()
+        }}
+        oncontextmenu={laneContext}
       >
         <Surface
           label={t('pianoRoll.velocity')}
@@ -516,6 +630,19 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if laneMenu}
+  <ValueMenu
+    x={laneMenu.x}
+    y={laneMenu.y}
+    value={String(DEFAULT_VELOCITY)}
+    onreset={() => {
+      laneMenu = null
+      resetVelocity()
+    }}
+    onclose={() => (laneMenu = null)}
+  />
 {/if}
 
 <style>

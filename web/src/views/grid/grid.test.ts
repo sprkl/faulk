@@ -4,7 +4,7 @@ import type { FeedbackReport } from '../../lib/engine/feedback'
 import type { Clip, ProjectView } from '../../lib/generated/protocol'
 import { messages } from '../../lib/i18n'
 import { createStores, storesContext } from '../../lib/stores'
-import { activeCells, activeSignature, cellClips, clipCounts, sortedScenes, visibleRange } from './cells'
+import { activeCells, activeSignature, cellClips, clipCounts, clipHomes, clipNumbers, sortedScenes, visibleRange } from './cells'
 import GridView from './GridView.svelte'
 
 const midi = (name = ''): Clip => ({ name, slot: null, content: { midi: { length: 7680, notes: [] } } }) as unknown as Clip
@@ -44,8 +44,18 @@ describe('the cells of the grid', () => {
     expect(Object.fromEntries(clipCounts(cells))).toEqual({ s1: 2, s2: 1 })
   })
 
+  it('numbers the clips of a track as the piano roll does, and finds where each one sits', () => {
+    const project = view().project
+    // c0 is in the arrangement only and has no placement here: the roll orders by first placement, then by id.
+    expect(Object.fromEntries(clipNumbers(project))).toEqual({ c0: 1, c1: 2, c2: 3 })
+    const homes = clipHomes(cellClips(project))
+    expect(homes.get('c2')).toMatchObject({ track: 't1', scene: 's2' })
+    expect(homes.get('c3')).toMatchObject({ track: 't2', scene: 's1' })
+    expect(homes.has('c0')).toBe(false)
+  })
+
   it('reads the report by slots, back into ids', () => {
-    const states = activeCells(report([{ track: 0, scene: 1, state: 'playing' }, { track: 1, scene: 0, state: 'queued' }]), slots)
+    const states = activeCells(report([{ track: 0, scene: 1, state: 'playing', anchor: 0 }, { track: 1, scene: 0, state: 'queued', anchor: 0 }]), slots)
     expect(Object.fromEntries(states)).toEqual({
       't1|s2': { state: 'playing', restarting: false },
       't2|s1': { state: 'queued', restarting: false },
@@ -53,28 +63,28 @@ describe('the cells of the grid', () => {
   })
 
   it('ignores a cell the page has no slot for, and a report of another epoch', () => {
-    expect(activeCells(report([{ track: 5, scene: 0, state: 'playing' }, { track: 0, scene: 9, state: 'playing' }]), slots).size).toBe(0)
-    expect(activeCells(report([{ track: 0, scene: 0, state: 'playing' }], 2), slots).size).toBe(0)
+    expect(activeCells(report([{ track: 5, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 9, state: 'playing', anchor: 0 }]), slots).size).toBe(0)
+    expect(activeCells(report([{ track: 0, scene: 0, state: 'playing', anchor: 0 }], 2), slots).size).toBe(0)
     expect(activeCells(null, slots).size).toBe(0)
   })
 
   it('marks a playing clip that was launched again, in either order, instead of losing one of its two entries', () => {
     for (const clips of [
-      [{ track: 0, scene: 0, state: 'playing' }, { track: 0, scene: 0, state: 'queued' }],
-      [{ track: 0, scene: 0, state: 'queued' }, { track: 0, scene: 0, state: 'playing' }],
-      [{ track: 0, scene: 0, state: 'playing' }, { track: 0, scene: 0, state: 'armed' }],
+      [{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'queued', anchor: 0 }],
+      [{ track: 0, scene: 0, state: 'queued', anchor: 0 }, { track: 0, scene: 0, state: 'playing', anchor: 0 }],
+      [{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'armed', anchor: 0 }],
     ] as FeedbackReport['clips'][]) {
       expect(activeCells(report(clips), slots).get('t1|s1')).toEqual({ state: 'playing', restarting: true })
     }
     // A stopping clip stays a stopping clip.
-    expect(activeCells(report([{ track: 0, scene: 0, state: 'stopping' }]), slots).get('t1|s1')).toEqual({ state: 'stopping', restarting: false })
+    expect(activeCells(report([{ track: 0, scene: 0, state: 'stopping', anchor: 0 }]), slots).get('t1|s1')).toEqual({ state: 'stopping', restarting: false })
   })
 
   it('changes its signature with a state or an epoch, and with nothing else', () => {
-    const a = activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'queued' }] })
-    expect(activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'queued' }] })).toBe(a)
-    expect(activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'playing' }] })).not.toBe(a)
-    expect(activeSignature({ epoch: 2, clips: [{ track: 0, scene: 0, state: 'queued' }] })).not.toBe(a)
+    const a = activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'queued', anchor: 0 }] })
+    expect(activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'queued', anchor: 0 }] })).toBe(a)
+    expect(activeSignature({ epoch: 1, clips: [{ track: 0, scene: 0, state: 'playing', anchor: 0 }] })).not.toBe(a)
+    expect(activeSignature({ epoch: 2, clips: [{ track: 0, scene: 0, state: 'queued', anchor: 0 }] })).not.toBe(a)
     expect(activeSignature(null)).toBe('')
   })
 })
@@ -130,17 +140,19 @@ describe('what the grid shows', () => {
     expect(body).toContain('Vox, Intro: Clip, audio clip, cannot be launched yet')
     expect(body).toContain('Vox, Scene 2: empty')
     expect(body).toContain('Bass, Intro: Riff, stopped')
+    expect(body).toContain('Bass, Scene 2: Clip 3, stopped')
+    expect(html({ lang: 'fr' })).toContain('Bass, Scène 2 : Clip 3, à l’arrêt')
   })
 
   it('gives every state a glyph of its own, besides its colour and its words', () => {
     const shapes = new Map<string, string>()
     for (const [clips, state, words] of [
       [[], 'idle', 'stopped'],
-      [[{ track: 0, scene: 0, state: 'queued' }], 'queued', 'queued'],
-      [[{ track: 0, scene: 0, state: 'playing' }], 'playing', 'playing'],
-      [[{ track: 0, scene: 0, state: 'stopping' }], 'stopping', 'stopping'],
-      [[{ track: 0, scene: 0, state: 'armed' }], 'armed', 'ready, starts with the transport'],
-      [[{ track: 0, scene: 0, state: 'playing' }, { track: 0, scene: 0, state: 'queued' }], 'restarting', 'playing, restarts at the next boundary'],
+      [[{ track: 0, scene: 0, state: 'queued', anchor: 0 }], 'queued', 'queued'],
+      [[{ track: 0, scene: 0, state: 'playing', anchor: 0 }], 'playing', 'playing'],
+      [[{ track: 0, scene: 0, state: 'stopping', anchor: 0 }], 'stopping', 'stopping'],
+      [[{ track: 0, scene: 0, state: 'armed', anchor: 0 }], 'armed', 'ready, starts with the transport'],
+      [[{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'queued', anchor: 0 }], 'restarting', 'playing, restarts at the next boundary'],
     ] as [FeedbackReport['clips'], string, string][]) {
       const body = html({ clips })
       expect(states(body)['t1|s1']).toBe(state)
@@ -154,11 +166,11 @@ describe('what the grid shows', () => {
   })
 
   it('shows no state while the engine is not started, whatever its last report says', () => {
-    expect(states(html({ started: false, clips: [{ track: 0, scene: 0, state: 'playing' }] }))['t1|s1']).toBe('idle')
+    expect(states(html({ started: false, clips: [{ track: 0, scene: 0, state: 'playing', anchor: 0 }] }))['t1|s1']).toBe('idle')
   })
 
   it('reads the engine report by the ids of the slots', () => {
-    const found = states(html({ clips: [{ track: 0, scene: 1, state: 'playing' }] }))
+    const found = states(html({ clips: [{ track: 0, scene: 1, state: 'playing', anchor: 0 }] }))
     expect(found['t1|s2']).toBe('playing')
     expect(found['t1|s1']).toBe('idle')
   })

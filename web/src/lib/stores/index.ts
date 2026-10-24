@@ -7,6 +7,8 @@
 import { getContext, setContext } from 'svelte'
 import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
+import { browserDeps } from '../storage/browser'
+import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { Dispatcher } from './dispatcher'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
@@ -15,6 +17,7 @@ import { UiStore } from './ui.svelte'
 export { Dispatcher } from './dispatcher'
 export { EngineStore, type HelperState } from './engine.svelte'
 export { ProjectStore } from './project.svelte'
+export { ProjectStorage } from '../storage/storage.svelte'
 export { UiStore } from './ui.svelte'
 
 export interface Stores {
@@ -22,19 +25,35 @@ export interface Stores {
   engine: EngineStore
   ui: UiStore
   dispatcher: Dispatcher
+  /** The project's folder: saved, saving or not, and the dialogs of opening and saving. */
+  storage: ProjectStorage
 }
 
-export function createStores(view: MainViewId, panel: PanelViewId): Stores {
+/** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
+export function createStores(view: MainViewId, panel: PanelViewId, deps: StorageDeps = browserDeps): Stores {
   const project = new ProjectStore()
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)
+  const storage = new ProjectStorage(dispatcher.host, deps)
+  dispatcher.storage = storage
   // Dev server only: lets the browser checks send a command through the one entry point
   // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
   // the project back (the ids of what they made, for the next command).
   if (import.meta.env.DEV && typeof window !== 'undefined') {
-    Object.assign(window, { __faulkRun: (command: Command) => dispatcher.run(command), __faulkView: () => project.view })
+    Object.assign(window, {
+      __faulkRun: (command: Command) => dispatcher.run(command),
+      __faulkView: () => project.view,
+      // What the last write of the project cost (`project-save.spec.ts`).
+      __faulkWrite: () => storage.lastWrite,
+      // The folder store of SV-2 does not exist yet: a check hands the folder's files over (bytes as numbers).
+      __faulkOpen: (name: string, files: { path: string; bytes?: number[]; size?: number }[]) =>
+        dispatcher.openProject(
+          name,
+          files.map((f) => (f.bytes ? { path: f.path, bytes: Uint8Array.from(f.bytes) } : { path: f.path, size: f.size ?? 0 })),
+        ),
+    })
   }
-  return { project, engine, ui: new UiStore(view, panel), dispatcher }
+  return { project, engine, ui: new UiStore(view, panel), dispatcher, storage }
 }
 
 const KEY = Symbol('faulk.stores')

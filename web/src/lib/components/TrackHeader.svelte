@@ -1,28 +1,24 @@
 <script lang="ts">
   /**
    * A track's header: colour, name (renamed from the keyboard with F2, Enter to confirm), kind and
-   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid,
-   * the timeline and the mixer. It holds no project state: it reads the stores and every action
+   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid
+   * and the timeline (the mixer draws its own vertical strips from the same commands). It holds no project state: it reads the stores and every action
    * is a command (`track-commands.ts`) through the dispatcher. An armed track receives the live
    * input (MIDI controller) besides the selected one; recording itself comes with RE-2.
    */
-  import { onDestroy, tick } from 'svelte'
-  import { createGesture } from '../gesture'
+  import { tick } from 'svelte'
+  import GainControl from './GainControl.svelte'
+  import PanControl from './PanControl.svelte'
   import {
-    faderValue,
     formatGain,
     formatPan,
-    gainOf,
-    GAIN_STEP_DB,
     instrumentName,
-    MAX_GAIN_DB,
-    MIN_GAIN_DB,
     NO_COLOR,
     trackLabel,
     type TrackEntry,
   } from '../project/tracks'
   import { useStores } from '../stores'
-  import { armTrack, deleteTrack, renameTrack, selectTrack, setMute, setPan, setSolo, setTrackColor, setVolume } from '../track-commands'
+  import { armTrack, deleteTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
 
   let {
     entry,
@@ -84,8 +80,6 @@
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
 
-  const gesture = createGesture((command) => dispatcher.run(command))
-  onDestroy(() => gesture.end())
 </script>
 
 <!-- A click anywhere on the header selects the track; each control is also reachable from the keyboard. -->
@@ -175,44 +169,12 @@
           onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
         >
       {/if}
-      <input
-        class="fader"
-        type="range"
-        min={MIN_GAIN_DB}
-        max={MAX_GAIN_DB}
-        step={GAIN_STEP_DB}
-        value={faderValue(mixer.gain_db)}
-        aria-label={t('tracks.volume', { name: label })}
-        aria-valuetext={`${formatGain(mixer.gain_db)} dB`}
-        oninput={(e) => dispatcher.run(setVolume(entry.id, gainOf(Number(e.currentTarget.value))))}
-        onpointerdown={gesture.begin}
-        onpointerup={gesture.end}
-        onpointercancel={gesture.end}
-        onchange={gesture.end}
-        onblur={gesture.end}
-        ondblclick={() => dispatcher.run(setVolume(entry.id, 0))}
-      />
+      <GainControl gainDb={mixer.gain_db} label={t('tracks.volume', { name: label })} set={(gain) => setVolume(entry.id, gain)} />
       <span class="value readout">{formatGain(mixer.gain_db)}</span>
     </div>
     <div class="strip pan">
       <span class="label">{t('tracks.panShort')}</span>
-      <input
-        class="fader"
-        type="range"
-        min="-1"
-        max="1"
-        step="0.01"
-        value={mixer.pan}
-        aria-label={t('tracks.pan', { name: label })}
-        aria-valuetext={formatPan(mixer.pan)}
-        oninput={(e) => dispatcher.run(setPan(entry.id, Number(e.currentTarget.value)))}
-        onpointerdown={gesture.begin}
-        onpointerup={gesture.end}
-        onpointercancel={gesture.end}
-        onchange={gesture.end}
-        onblur={gesture.end}
-        ondblclick={() => dispatcher.run(setPan(entry.id, 0))}
-      />
+      <PanControl track={entry.id} pan={mixer.pan} label={t('tracks.pan', { name: label })} />
       <span class="value readout">{formatPan(mixer.pan)}</span>
     </div>
   {/if}
@@ -350,13 +312,6 @@
     background: var(--fk-rec);
     border-color: var(--fk-rec);
     color: #131211;
-  }
-  .fader {
-    flex: 1;
-    min-width: 0;
-    height: var(--fk-row);
-    margin: 0;
-    accent-color: var(--fk-accent-fg);
   }
   .readout {
     flex: none;

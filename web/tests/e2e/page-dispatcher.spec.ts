@@ -19,9 +19,9 @@ test('a played key makes sound and a synth change reaches the project store', as
   const square = page.getByRole('radio', { name: 'Square' })
   await square.click()
   await expect(square).toHaveAttribute('aria-checked', 'true')
-  const knob = page.getByTestId('bottom-panel').locator('input[type=range]').first()
+  const knob = page.getByTestId('bottom-panel').getByRole('slider').first()
   const before = await knob.getAttribute('aria-valuetext')
-  await knob.fill('0.9')
+  await knob.press('End')
   await expect.poll(() => knob.getAttribute('aria-valuetext')).not.toBe(before)
 
   // A key: the engine renders it, the meter reads a non-zero level.

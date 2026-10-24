@@ -2,8 +2,20 @@
 // it: a project, tracks and notes created by commands (PR-4).
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { Command, Note, ProjectChanges, RunReport } from '../generated/protocol'
-import { CoreError, coreModule, engineStep, ProjectCore } from './core'
+import type { Command, Note, RunReport } from '../generated/protocol'
+import {
+  CoreError,
+  coreModule,
+  engineStep,
+  folderFrame,
+  MAX_FOLDER_FRAME,
+  needsBytes,
+  parseSaveFrame,
+  ProjectCore,
+  type FolderEntry,
+  type SaveMode,
+} from './core'
+import { readFolder, SONG_FOLDER } from './reference-folder'
 
 let module: WebAssembly.Module
 
@@ -21,12 +33,6 @@ function applied(report: RunReport) {
 /** Runs a command that must apply and returns its output. */
 function apply(core: ProjectCore, command: Command) {
   return applied(core.run(command).report).output
-}
-
-function changes(core: ProjectCore): ProjectChanges {
-  const report = core.save()
-  if (report.status !== 'changes') throw new Error(report.message)
-  return report.changes
 }
 
 describe('ProjectCore', () => {
@@ -87,46 +93,186 @@ describe('ProjectCore', () => {
     core.free()
   })
 
-  it('saves its files, loads them into another core, and tracks what is written', () => {
+  it('saves the folder format, only what changed, and the folder opens as the project', () => {
     const source = ProjectCore.create(module, 'empty', 1, seed)
     apply(source, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
-    const first = changes(source)
-    expect(Object.keys(first.write).sort()).toEqual(['.faulk/session.json', 'project.json'])
-    expect(first.remove).toEqual([])
-    // Not recorded as written: still dirty.
-    expect(changes(source)).toEqual(first)
-    source.saved(first)
-    expect(changes(source)).toEqual({ write: {}, remove: [] })
+    expect(source.dirty()).toBe(true)
+    const folder = new Map<string, Uint8Array>()
+    const write = (mode: SaveMode) => {
+      const frame = source.save(mode)
+      if (frame.status !== 'ok') throw new Error(frame.message)
+      for (const entry of frame.entries) {
+        if (entry.type === 'write') folder.set(entry.path, entry.bytes)
+        else folder.delete(entry.path)
+      }
+      return frame.entries.map((entry) => entry.path)
+    }
 
-    const target = ProjectCore.create(module, 'single_synth', 1, { ...seed, random: [4, 5, 6] })
-    target.setup()
-    const loaded = target.load(first.write)
-    expect(loaded.report).toEqual({ status: 'loaded', snapshot: { status: 'encoded', epoch: 2 }, session_reset: false })
-    expect(loaded.engine.length).toBeGreaterThan(0)
-    // The project and the session are the source's; the slots are the engine's, in the epoch the load moved to.
-    expect(target.project().project).toEqual(source.project().project)
-    expect(target.project().session).toEqual(source.project().session)
-    expect(target.project().slots.epoch).toBe(2)
-    expect(changes(target)).toEqual({ write: {}, remove: [] })
+    // The whole project into an empty folder; `project.json` is not the first file.
+    const first = write('everything')
+    expect(first).toContain('project.json')
+    expect(first).toContain('.faulk/session.json')
+    expect(first.indexOf('project.json')).toBeGreaterThan(0)
+    // Not recorded as written until the page says so: still dirty, and the same changes come again.
+    expect(source.dirty()).toBe(true)
+    source.saved(false)
+    expect(write('changed')).toEqual(first)
+    source.saved(true)
+    expect(source.dirty()).toBe(false)
+    expect(write('changed')).toEqual([])
+    source.saved(true)
 
-    const refused = target.load({})
-    expect(refused.report).toEqual({ status: 'refused', error: { code: 'missing_file', file: 'project.json' } })
-    expect(refused.engine.length).toBe(0)
-    expect(target.project().project).toEqual(source.project().project)
-    expect(target.project().slots.epoch).toBe(2)
-
-    expect(() => target.saved([] as unknown as ProjectChanges)).toThrow(CoreError)
-
-    // An edit made between `save` and `saved` stays dirty: the written text is the reference.
+    // An edit rewrites the one file it changes; one made between `save` and `saved` stays dirty.
     apply(source, { type: 'project.rename', name: 'Song' })
-    const pending = changes(source)
+    expect(write('changed')).toEqual(['project.json'])
     apply(source, { type: 'project.rename', name: 'Song 2' })
-    source.saved(pending)
-    expect(changes(source).write['project.json']).toContain('Song 2')
-    source.saved(changes(source))
+    source.saved(true)
+    expect(source.dirty()).toBe(true)
+    expect(write('changed')).toEqual(['project.json'])
+    source.saved(true)
+    expect(source.dirty()).toBe(false)
+
+    // A solo is session state, saved in the session file alone.
+    const track = Object.keys(source.project().project.tracks)[0]!
+    apply(source, { type: 'mixer.set_solo', track, solo: true })
+    expect(source.dirty()).toBe(true)
+    expect(write('changed')).toEqual(['.faulk/session.json'])
+    source.saved(true)
+
+    // The folder opens as the project, session included.
+    const entries: FolderEntry[] = [...folder].map(([path, bytes]) => ({ path, bytes }))
+    const copy = ProjectCore.create(module, 'empty', 2, seed)
+    copy.stage('saved', entries)
+    expect(applied(copy.open('saved').report).output).toMatchObject({ type: 'project.open', name: 'Song 2' })
+    expect(copy.project()).toEqual({ ...source.project(), slots: copy.project().slots })
+    expect(copy.dirty()).toBe(false)
+    copy.free()
+
     source.free()
-    target.free()
-    expect(() => target.project()).toThrow(CoreError)
+    expect(() => source.project()).toThrow(CoreError)
+  })
+
+  it('writes a copy under a new identity, and a new project under its own', () => {
+    const core = ProjectCore.create(module, 'single_synth', 1, seed)
+    core.setup()
+    const idOf = () => core.project().project.id
+    const first = idOf()
+    expect(core.save('everything').status).toBe('ok')
+    core.saved(true)
+    expect(core.save('copy').status).toBe('ok')
+    expect(idOf()).not.toBe(first)
+    core.saved(true)
+    const copy = idOf()
+    applied(core.run({ type: 'project.new' }).report)
+    expect(idOf()).not.toBe(copy)
+    expect(core.dirty()).toBe(false)
+    core.free()
+  })
+
+  it('parses a save frame: writes with their bytes, removals, and a failure message', () => {
+    const encoder = new TextEncoder()
+    const path = encoder.encode('a/b.json')
+    const gone = encoder.encode('c.json')
+    const body = new Uint8Array([9, 8, 7])
+    const frame = new Uint8Array(1 + 4 + 4 + (1 + 4 + path.length + 8 + body.length) + (1 + 4 + gone.length))
+    const view = new DataView(frame.buffer)
+    let at = 1
+    view.setUint32(at, 5, true)
+    view.setUint32((at += 4), 2, true)
+    at += 4
+    frame[at++] = 0
+    view.setUint32(at, path.length, true)
+    frame.set(path, (at += 4))
+    view.setBigUint64((at += path.length), BigInt(body.length), true)
+    frame.set(body, (at += 8))
+    frame[(at += body.length)] = 1
+    view.setUint32(++at, gone.length, true)
+    frame.set(gone, at + 4)
+    expect(parseSaveFrame(frame)).toEqual({
+      status: 'ok',
+      entries: [
+        { type: 'write', path: 'a/b.json', bytes: body },
+        { type: 'remove', path: 'c.json' },
+      ],
+    })
+    expect(parseSaveFrame(new Uint8Array([1, ...encoder.encode('boom')]))).toEqual({ status: 'failed', message: 'boom' })
+  })
+
+  describe('project.open', () => {
+    const open = (core: ProjectCore, folder: string) => core.open(folder)
+
+    it('replaces the project with a folder, starts the engine over, and refuses what it cannot read', () => {
+      const entries = readFolder(SONG_FOLDER)
+      expect(entries.some((e) => 'size' in e)).toBe(false) // the reference blob is a lane's: its bytes are needed
+      const core = ProjectCore.create(module, 'single_synth', 1, seed)
+      core.setup()
+      apply(core, { type: 'project.rename', name: 'Before' })
+      const before = core.project()
+
+      // Nothing staged under that name: a typed refusal, the project stays.
+      const refused = open(core, 'song')
+      expect(refused.report).toMatchObject({ status: 'refused', error: { code: 'folder', error: { reason: 'not_staged', folder: 'song' } } })
+      expect(refused.engine.length).toBe(0)
+      expect(core.project()).toEqual(before)
+
+      core.stage('song', entries)
+      const opened = open(core, 'song')
+      const report = applied(opened.report)
+      expect(report.output).toMatchObject({ type: 'project.open', name: 'Song "one"', migrated_from: null, session_reset: false })
+      expect(report.events).toContainEqual({ type: 'project_opened', name: 'Song "one"' })
+      expect(report.events).toContainEqual({ type: 'history_changed', can_undo: false, can_redo: false })
+      expect(report.stream_error ?? null).toBeNull()
+      expect(opened.engine.length).toBeGreaterThan(0)
+      const view = core.project()
+      expect(view.project.name).toBe('Song "one"')
+      expect(Object.keys(view.project.tracks)).toHaveLength(2)
+      expect(view.slots.epoch).toBe(2) // the engine starts over in the next epoch
+      expect(Object.keys(view.slots.tracks)).toHaveLength(2)
+      expect(applied(core.run({ type: 'history.undo' }).report).events).toEqual([])
+
+      // The folder served once.
+      expect(open(core, 'song').report.status).toBe('refused')
+
+      // A folder that is not a project, or is a newer one: refused, with the reason.
+      core.stage('empty', [{ path: 'readme.txt', bytes: new TextEncoder().encode('hi') }])
+      expect(open(core, 'empty').report).toMatchObject({ status: 'refused', error: { error: { reason: 'not_a_project' } } })
+      const newer = entries.map((e) =>
+        e.path === 'project.json' && 'bytes' in e
+          ? { path: e.path, bytes: new TextEncoder().encode(new TextDecoder().decode(e.bytes).replace('"format": 1', '"format": 99')) }
+          : e,
+      )
+      core.stage('newer', newer)
+      expect(open(core, 'newer').report).toMatchObject({ status: 'refused', error: { error: { reason: 'newer_format', found: 99 } } })
+      expect(core.project()).toEqual(view)
+      core.free()
+    })
+
+    it('lists the blobs it does not read by size, and refuses a lane blob left out', () => {
+      const entries = readFolder(SONG_FOLDER)
+      const core = ProjectCore.create(module, 'single_synth', 1, seed)
+      core.setup()
+      const asSizes = entries.map((e) => (e.path.startsWith('blobs/') && 'bytes' in e ? { path: e.path, size: e.bytes.length } : e))
+      core.stage('song', asSizes)
+      expect(open(core, 'song').report).toMatchObject({ status: 'refused', error: { error: { reason: 'missing' } } })
+      core.free()
+    })
+
+    it('decides which files to carry, and refuses a frame that is not a folder', () => {
+      const magic = new TextEncoder().encode('FKAUTO01')
+      expect(needsBytes('project.json', new Uint8Array())).toBe(true)
+      expect(needsBytes('blobs/ab', magic)).toBe(true)
+      expect(needsBytes('blobs/ab', new TextEncoder().encode('RIFF....'))).toBe(false)
+      expect(needsBytes('blobs/ab', new Uint8Array())).toBe(false)
+      const core = ProjectCore.create(module, 'empty', 1, seed)
+      for (const path of ['', '/a', 'a//b', '../a', 'a/./b', 'a\\b']) {
+        expect(() => core.stage('x', [{ path, bytes: new Uint8Array() }])).toThrow(CoreError)
+      }
+      expect(() => core.stage('x', [{ path: 'a', size: 3 }])).toThrow(CoreError) // only blobs are listed
+      expect(() => core.stage('x', [{ path: 'a', bytes: new Uint8Array() }, { path: 'a', bytes: new Uint8Array() }])).toThrow(CoreError)
+      expect(folderFrame('x', []).length).toBe(5)
+      expect(MAX_FOLDER_FRAME).toBe(512 * 1024 * 1024)
+      core.free()
+    })
   })
 
   it('tells what a run means for the engine', () => {

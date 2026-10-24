@@ -1,0 +1,2 @@
+2026-10-24
+* **Update** (#300): continuous controls (device knobs, mixer and track list faders and pans, piano roll velocity) share one behaviour (`web/src/lib/continuous.ts`, `Slider.svelte`) in place of the native range inputs: magnet on the default value, fine mode with Ctrl (Cmd on macOS), reset to the default by double click, context menu or Delete as one history entry, keyboard steps. The track list fader now follows the mixer's curve. Described in `docs/specs/02-decoupage-mvp.md`, mixer slice.

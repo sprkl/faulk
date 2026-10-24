@@ -142,18 +142,41 @@ domain! {
 
     /// Copy a MIDI clip into a new, independent clip: same name, colour, length, loop
     /// and notes; editing one never changes the other. The copy always sits in a
-    /// launch-grid slot of the same track: `slot` when given (it must be free),
-    /// otherwise the next free slot below the source's scene. Refused, with no effect,
-    /// when the track has no free slot to give. A second placement of the same clip is
-    /// an option of the arrangement commands, not of this one. Undo: `clip.delete` of
-    /// the copy.
+    /// launch-grid slot: of the source's track, or of `track` when given (another MIDI
+    /// track). `slot` when given must be free in that track, otherwise the copy takes
+    /// the first free slot (below the source's scene in the same track, from the top in
+    /// another). Refused, with no effect, when the track has no free slot to give. A
+    /// second placement of the same clip is an option of the arrangement commands, not
+    /// of this one. Undo: `clip.delete` of the copy.
     "clip.duplicate" (kind = "edit", undo = "inverse", destructive = false)
     Duplicate {
         clip: ClipId,
         slot: Option<SceneId>,
+        track: Option<TrackId>,
     } => {
         /// The new clip.
         clip: ClipId,
+    };
+
+    /// Move a MIDI clip to another launch-grid slot, of the same track or of `track`
+    /// (another MIDI track), keeping its identifier, its name and its content. `slot`
+    /// is the scene of the target slot, which must be free; `null` takes the clip out of
+    /// the grid, which is refused when no placement of the arrangement plays it. A clip
+    /// that has placements stays in its track: moving it to another track is refused.
+    /// A move that changes nothing does nothing and leaves no history entry. Leaving
+    /// `slot` out is the same as `null`. The engine frees the clip and takes it again, so
+    /// a clip that is playing stops, and so does the arrangement's playback of its
+    /// placements (they play again from the next note). Undo: move it back.
+    "clip.move" (kind = "edit", undo = "inverse", destructive = false)
+    Move {
+        clip: ClipId,
+        track: Option<TrackId>,
+        slot: Option<SceneId>,
+    } => {
+        /// The track of the clip before the command.
+        previous_track: TrackId,
+        /// Its slot before the command.
+        previous_slot: Option<SceneId>,
     };
 
     /// Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an
@@ -269,14 +292,14 @@ domain! {
 
 type Out = Outcome<Command, Output>;
 
-fn invalid(field: impl Into<String>, message: impl Into<String>) -> CommandError {
+pub(crate) fn invalid(field: impl Into<String>, message: impl Into<String>) -> CommandError {
     CommandError::Invalid {
         field: field.into(),
         message: message.into(),
     }
 }
 
-fn not_found(entity: &str, id: impl ToString) -> CommandError {
+pub(crate) fn not_found(entity: &str, id: impl ToString) -> CommandError {
     CommandError::NotFound {
         entity: entity.into(),
         id: id.to_string(),
@@ -311,11 +334,14 @@ fn changed(clip: &ClipId, part: ClipPart) -> Vec<ProjectEvent> {
 
 /// The count of a collection as the `u32` of an output; a batch is at most the safety
 /// limits, far below `u32::MAX`.
-fn count(n: usize) -> u32 {
+pub(crate) fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-fn midi_track<'a>(project: &'a Project, track: &TrackId) -> Result<&'a Track, CommandError> {
+pub(crate) fn midi_track<'a>(
+    project: &'a Project,
+    track: &TrackId,
+) -> Result<&'a Track, CommandError> {
     let found = project
         .tracks
         .get(track)
@@ -329,7 +355,7 @@ fn midi_track<'a>(project: &'a Project, track: &TrackId) -> Result<&'a Track, Co
     Ok(found)
 }
 
-fn locate(project: &Project, clip: &ClipId) -> Result<TrackId, CommandError> {
+pub(crate) fn locate(project: &Project, clip: &ClipId) -> Result<TrackId, CommandError> {
     project
         .tracks
         .iter()
@@ -358,7 +384,9 @@ fn midi_mut(clip: &mut Clip) -> Result<MidiRef<'_>, CommandError> {
     }
 }
 
-fn midi_ref(clip: &Clip) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), CommandError> {
+pub(crate) fn midi_ref(
+    clip: &Clip,
+) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), CommandError> {
     match &clip.content {
         ClipContent::Midi {
             length,
@@ -369,7 +397,7 @@ fn midi_ref(clip: &Clip) -> Result<(Tick, Option<TickLoop>, &BTreeSet<Note>), Co
     }
 }
 
-fn project_notes(project: &Project) -> usize {
+pub(crate) fn project_notes(project: &Project) -> usize {
     project
         .tracks
         .values()
@@ -383,7 +411,7 @@ fn project_notes(project: &Project) -> usize {
 
 /// Refuses a count beyond the safety limits: `in_clip` notes in the clip after the
 /// command, `in_project` in the whole project.
-fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandError> {
+pub(crate) fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandError> {
     if in_clip > MAX_NOTES_PER_CLIP {
         return Err(CommandError::Limit {
             entity: "notes per clip".into(),
@@ -400,7 +428,12 @@ fn check_note_limits(in_clip: usize, in_project: usize) -> Result<(), CommandErr
 }
 
 /// Refuses `count + more` beyond `max` with a typed limit error.
-fn check_total(entity: &str, count: usize, more: usize, max: usize) -> Result<(), CommandError> {
+pub(crate) fn check_total(
+    entity: &str,
+    count: usize,
+    more: usize,
+    max: usize,
+) -> Result<(), CommandError> {
     if count.saturating_add(more) > max {
         return Err(CommandError::Limit {
             entity: entity.into(),
@@ -412,13 +445,17 @@ fn check_total(entity: &str, count: usize, more: usize, max: usize) -> Result<()
 
 /// Refuses one more clip beyond the track's limit or the project's (the engine's clip
 /// slots are project-wide).
-fn check_clips(project: &Project, track: &Track) -> Result<(), CommandError> {
+pub(crate) fn check_clips(project: &Project, track: &Track) -> Result<(), CommandError> {
     check_total("clips per track", track.clips.len(), 1, MAX_CLIPS_PER_TRACK)?;
     check_total("clips", project.counts().clips, 1, MAX_CLIPS)
 }
 
 /// Refuses `more` placements beyond the track's limit or the project's.
-fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(), CommandError> {
+pub(crate) fn check_placements(
+    project: &Project,
+    track: &Track,
+    more: usize,
+) -> Result<(), CommandError> {
     check_total(
         "placements per track",
         track.placements.len(),
@@ -433,7 +470,7 @@ fn check_placements(project: &Project, track: &Track, more: usize) -> Result<(),
     )
 }
 
-fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
     if (1..=MAX_TICK).contains(&length.get()) {
         Ok(())
     } else {
@@ -447,7 +484,11 @@ fn check_length(length: Tick, field: &str) -> Result<(), CommandError> {
     }
 }
 
-fn check_loop(looping: &Option<TickLoop>, length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_loop(
+    looping: &Option<TickLoop>,
+    length: Tick,
+    field: &str,
+) -> Result<(), CommandError> {
     match looping {
         Some(l) if !(0 <= l.start.get() && l.start < l.end && l.end <= length) => Err(invalid(
             field,
@@ -462,7 +503,7 @@ fn check_loop(looping: &Option<TickLoop>, length: Tick, field: &str) -> Result<(
     }
 }
 
-fn check_name(name: &str, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_name(name: &str, field: &str) -> Result<(), CommandError> {
     if name.trim() != name {
         return Err(invalid(
             field,
@@ -512,7 +553,7 @@ fn check_note(note: &Note, length: Tick, field: &str) -> Result<(), CommandError
     }
 }
 
-fn check_notes(notes: &[Note], length: Tick, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_notes(notes: &[Note], length: Tick, field: &str) -> Result<(), CommandError> {
     notes
         .iter()
         .enumerate()
@@ -646,7 +687,7 @@ fn previous_lengths(changes: &[(PlacementId, Tick, Tick)]) -> Vec<PlacementLengt
 }
 
 /// A launch-grid slot must name an existing scene and be free in the track.
-fn check_slot(
+pub(crate) fn check_slot(
     project: &Project,
     track: &Track,
     scene: &SceneId,
@@ -723,7 +764,7 @@ fn taken_spans(track: &Track) -> Vec<(i64, i64)> {
 }
 
 /// The snapshot `clip.restore` needs to bring a MIDI clip back.
-fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
+pub(crate) fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
     let (length, looping, notes) = midi_ref(clip)?;
     Ok(ClipSnapshot {
         name: clip.name.clone(),
@@ -752,7 +793,12 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             snapshot,
             placements,
         } => restore(state, track, clip, snapshot, placements),
-        Command::Duplicate { clip, slot } => duplicate(state, ctx, clip, slot.as_ref()),
+        Command::Duplicate { clip, slot, track } => {
+            duplicate(state, ctx, clip, slot.as_ref(), track.as_ref())
+        }
+        Command::Move { clip, track, slot } => {
+            move_clip(state, clip, track.as_ref(), slot.as_ref())
+        }
         Command::Rename { clip, name } => rename(state, clip, name),
         Command::SetLength {
             clip,
@@ -999,11 +1045,14 @@ fn duplicate(
     ctx: &mut Context,
     clip_id: &ClipId,
     slot: Option<&SceneId>,
+    to: Option<&TrackId>,
 ) -> Result<Out, CommandError> {
-    let track_id = locate(&state.project, clip_id)?;
+    let from_id = locate(&state.project, clip_id)?;
+    let track_id = to.cloned().unwrap_or_else(|| from_id.clone());
     let project = &state.project;
+    let from = midi_track(project, &from_id)?;
     let track = midi_track(project, &track_id)?;
-    let source = track
+    let source = from
         .clips
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
@@ -1018,7 +1067,10 @@ fn duplicate(
             check_slot(project, track, scene, "slot")?;
             scene.clone()
         }
-        None => next_free_slot(project, track, source.slot.as_ref())?,
+        None => {
+            let after = source.slot.as_ref().filter(|_| track_id == from_id);
+            next_free_slot(project, track, after)?
+        }
     };
     let mut copy = source.clone();
     copy.slot = Some(target);
@@ -1042,6 +1094,88 @@ fn duplicate(
             clip: new_id,
             placements: vec![],
         }],
+    ))
+}
+
+fn move_clip(
+    state: &mut State,
+    clip_id: &ClipId,
+    to: Option<&TrackId>,
+    slot: Option<&SceneId>,
+) -> Result<Out, CommandError> {
+    let from_id = locate(&state.project, clip_id)?;
+    let to_id = to.cloned().unwrap_or_else(|| from_id.clone());
+    let project = &state.project;
+    let from = midi_track(project, &from_id)?;
+    let target = midi_track(project, &to_id)?;
+    let clip = from
+        .clips
+        .get(clip_id)
+        .ok_or_else(|| not_found("clip", clip_id))?;
+    midi_ref(clip)?;
+    let previous_slot = clip.slot.clone();
+    let placed = from.placements.values().any(|p| p.clip == *clip_id);
+    let output = Output::Move {
+        previous_track: from_id.clone(),
+        previous_slot: previous_slot.clone(),
+    };
+    if to_id == from_id && previous_slot.as_ref() == slot {
+        return Ok(unchanged(output));
+    }
+    if to_id != from_id && placed {
+        return Err(invalid(
+            "track",
+            "a clip placed in the arrangement stays in its track",
+        ));
+    }
+    match slot {
+        Some(scene) => check_slot(project, target, scene, "slot")?,
+        None if !placed => {
+            return Err(invalid(
+                "slot",
+                "a clip outside the grid needs a placement in the arrangement",
+            ));
+        }
+        None => {}
+    }
+    if to_id != from_id {
+        check_total(
+            "clips per track",
+            target.clips.len(),
+            1,
+            MAX_CLIPS_PER_TRACK,
+        )?;
+    }
+    let tracks = &mut state.project.tracks;
+    let mut moved = tracks
+        .get_mut(&from_id)
+        .and_then(|t| t.clips.remove(clip_id))
+        .ok_or_else(|| not_found("clip", clip_id))?;
+    moved.slot = slot.cloned();
+    tracks
+        .get_mut(&to_id)
+        .ok_or_else(|| not_found("track", &to_id))?
+        .clips
+        .insert(clip_id.clone(), moved);
+    Ok(edited(
+        output,
+        Command::Move {
+            clip: clip_id.clone(),
+            track: Some(from_id.clone()),
+            slot: previous_slot,
+        },
+        vec![
+            ProjectEvent::ClipDeleted {
+                track: from_id,
+                clip: clip_id.clone(),
+                placements: vec![],
+            },
+            ProjectEvent::ClipCreated {
+                track: to_id,
+                clip: clip_id.clone(),
+                placements: vec![],
+            },
+        ],
     ))
 }
 

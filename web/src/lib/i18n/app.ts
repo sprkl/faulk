@@ -4,10 +4,12 @@
  * `messages`. Every key must exist in both languages and in one feature only (`i18n.test.ts`).
  */
 
+import { arrangement } from './arrangement'
 import { engine } from './engine'
 import type { FeatureMessages } from './feature'
 import { grid } from './grid'
 import { helper } from './helper'
+import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
 import { echo } from './echo'
@@ -15,7 +17,9 @@ import { keys } from './keys'
 import { layout } from './layout'
 import { fill, type Lang } from './lang'
 import { midi } from './midi'
+import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
+import { project } from './project'
 import { shell } from './shell'
 import { synth } from './synth'
 import { tracks } from './tracks'
@@ -24,7 +28,7 @@ import { transport } from './transport'
 export { DEVICE_NAME_KEYS } from './synth'
 
 /** Every feature of the DAW, in the order of the screen. One line per feature. */
-export const features = { shell, layout, tracks, transport, engine, helper, midi, synth, drums, echo, devices, keys, pianoRoll, grid } as const satisfies Record<string, FeatureMessages>
+export const features = { shell, layout, tracks, transport, engine, helper, midi, synth, drums, echo, devices, keys, pianoRoll, grid, project, mixer, controls, arrangement } as const satisfies Record<string, FeatureMessages>
 
 type Features = typeof features
 type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (i: infer I) => void ? I : never

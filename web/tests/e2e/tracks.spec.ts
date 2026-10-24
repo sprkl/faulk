@@ -110,13 +110,16 @@ for (const lang of ['en', 'fr'] as const) {
 
       // Volume and pan: a value, and a drag that one undo takes back whole.
       const volume = kit.getByRole('slider', { name: x.volume('Kit'), exact: true })
-      await volume.fill('-12')
+      // On the mixer's curve: 14 steps down from 0 dB are -12 dB, and Home is silence.
+      await volume.focus()
+      await volume.press('Delete')
+      for (let i = 0; i < 14; i++) await volume.press('ArrowDown')
       await expect(volume).toHaveAttribute('aria-valuetext', '−12.0 dB')
-      await volume.fill('-96')
+      await volume.press('Home')
       await expect(volume).toHaveAttribute('aria-valuetext', '−∞ dB')
       const pan = kit.getByRole('slider', { name: x.pan('Kit'), exact: true })
-      await pan.fill('0.5')
-      await expect(pan).toHaveAttribute('aria-valuetext', 'R50')
+      for (let i = 0; i < 12; i++) await pan.press('ArrowRight')
+      await expect(pan).toHaveAttribute('aria-valuetext', 'R48')
       await volume.dblclick()
       await expect(volume).toHaveAttribute('aria-valuetext', '0.0 dB')
       const box = (await volume.boundingBox())!
@@ -153,7 +156,7 @@ for (const lang of ['en', 'fr'] as const) {
       await header(page, x.track(3)).getByTestId('track-name').click()
       await page.keyboard.down('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
-      await header(page, 'Kit').getByRole('slider', { name: x.pan('Kit'), exact: true }).fill('0.2')
+      await header(page, 'Kit').getByRole('slider', { name: x.pan('Kit'), exact: true }).press('ArrowLeft')
       await header(page, 'Kit').getByRole('button', { name: x.solo('Kit'), exact: true }).click()
       await header(page, 'Kit').getByRole('button', { name: x.solo('Kit'), exact: true }).click()
       await expect(header(page, x.track(3))).toHaveAttribute('aria-current', 'true')

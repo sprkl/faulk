@@ -7,23 +7,27 @@
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
-  import { historyShortcut } from '../../lib/keyboard'
+  import { historyShortcut, saveShortcut } from '../../lib/keyboard'
+  import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, viewById } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
+  import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
 
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
-  const { engine, ui, dispatcher } = provideStores(stores)
+  const { engine, ui, dispatcher, storage } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
   onMount(() => {
     void dispatcher.checkHelper()
+    // The project of last time comes back (or a banner offers it).
+    void storage.restore()
     // The first probe may wait behind the browser's local network prompt: probe again on Allow.
     const stopLocalAccess = watchLocalAccess(
       () => void dispatcher.onLocalAccessGranted(),
@@ -44,6 +48,13 @@
   })
 
   function onKeyDown(event: KeyboardEvent) {
+    const save = saveShortcut(event)
+    if (save) {
+      // The browser would offer to save the page as a file.
+      event.preventDefault()
+      dispatcher.run(save === 'save' ? saveCommand() : saveAsCommand())
+      return
+    }
     const action = historyShortcut(event)
     if (!action) return
     event.preventDefault()
@@ -53,12 +64,27 @@
   $effect(() => {
     document.documentElement.lang = ui.lang
   })
+
+  /** Leaving with changes no folder holds loses them: the browser asks first (its own words). */
+  function onBeforeUnload(event: BeforeUnloadEvent) {
+    if (!storage.unsaved) return
+    event.preventDefault()
+    event.returnValue = ''
+  }
+
+  /** In the background a tab may be frozen or closed without notice: write what waits; coming back, look at the folder again. */
+  function onVisibility() {
+    if (document.visibilityState === 'hidden') storage.sleep()
+    else void storage.wake()
+  }
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} onbeforeunload={onBeforeUnload} onfocus={() => void storage.wake()} />
+<svelte:document onvisibilitychange={onVisibility} />
 
 <div class="shell">
   <TopBar />
+  <StorageBanners />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}

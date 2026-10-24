@@ -43,6 +43,7 @@ static PROBE: DeviceDescriptor = DeviceDescriptor {
     role: DeviceRole::Instrument,
     memory_bytes: 64,
     midi_output: None,
+    named_keys: &[],
     params: &NO_PARAMS,
 };
 
@@ -319,6 +320,13 @@ fn grid(r: &Rig) -> Vec<(u32, u16, ClipState)> {
     for t in 0..8 {
         assert!(cells.iter().filter(|c| c.0 == t).count() <= 2, "{cells:?}");
     }
+    cells
+}
+
+/// The anchor each reported cell carries, as (scene, state, anchor tick).
+fn anchors(r: &Rig) -> Vec<(u16, ClipState, i64)> {
+    let mut cells = Vec::new();
+    r.e.active_clips(|c: ActiveClip| cells.push((c.scene.0, c.state, c.anchor.0)));
     cells
 }
 
@@ -785,6 +793,8 @@ fn the_grid_states_follow_a_clip_from_armed_to_idle() {
     assert_eq!(grid(&r), vec![(0, 0, ClipState::Queued)]);
     r.run_to(r.frame(s0, 100, 3840) + 128, 128);
     assert_eq!(grid(&r), vec![(0, 0, ClipState::Playing)]);
+    // The report carries the tick of the clip's position 0: the boundary it started on.
+    assert_eq!(anchors(&r), vec![(0, ClipState::Playing, 3840)]);
     // Another launch on the track: the playing clip and the queued one.
     r.send(&[launch(0, 1)]);
     r.run(128, 128);
@@ -792,8 +802,16 @@ fn the_grid_states_follow_a_clip_from_armed_to_idle() {
         grid(&r),
         vec![(0, 0, ClipState::Playing), (0, 1, ClipState::Queued)]
     );
+    let waiting = anchors(&r);
+    assert_eq!(waiting[0], (0, ClipState::Playing, 3840));
+    // The waiting launch carries its boundary once the player knows it, else 0.
+    assert!(
+        [0, 7680].contains(&waiting[1].2),
+        "queued anchor: {waiting:?}"
+    );
     r.run_to(r.frame(s0, 100, 7680) + 128, 128);
     assert_eq!(grid(&r), vec![(0, 1, ClipState::Playing)]);
+    assert_eq!(anchors(&r), vec![(1, ClipState::Playing, 7680)]);
     // A stop waits for its boundary, then nothing is left.
     r.send(&[stop_track(0)]);
     r.run(128, 128);

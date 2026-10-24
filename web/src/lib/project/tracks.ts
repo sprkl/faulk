@@ -24,6 +24,12 @@ export function instrumentKind(track: Track): string | null {
   return null
 }
 
+/** The notes the track's instrument names (a drum kit's sounds), sorted by key; empty for a pitched instrument. */
+export function instrumentNamedKeys(track: Track): readonly { key: number; name: string }[] {
+  const kind = instrumentKind(track)
+  return DEVICES.find((d) => d.kind === kind)?.named_keys ?? []
+}
+
 /** The instrument's name: its descriptor's one English name, null when the track has none the page knows. */
 export function instrumentName(track: Track): string | null {
   const kind = instrumentKind(track)
@@ -54,16 +60,6 @@ export const NO_COLOR = '#8f8a85'
 /** The lowest finite gain a command accepts, in dB; the fader's bottom stands for silence (`null`). */
 export const MIN_GAIN_DB = -96
 export const MAX_GAIN_DB = 6
-/** The step of the fader, in dB. */
-export const GAIN_STEP_DB = 0.5
-
-/** The fader's value for a gain: silence is the floor. */
-export const faderValue = (gainDb: number | null | undefined): number =>
-  gainDb == null ? MIN_GAIN_DB : Math.min(MAX_GAIN_DB, Math.max(MIN_GAIN_DB, gainDb))
-
-/** The gain a fader value means: the floor is silence (`null`), as the project writes it. */
-export const gainOf = (value: number): number | null => (value <= MIN_GAIN_DB ? null : Math.min(MAX_GAIN_DB, value))
-
 /** The gain as text: "−∞" for silence, else dB with one decimal and a true minus sign. */
 export function formatGain(gainDb: number | null | undefined): string {
   if (gainDb == null) return '−∞'

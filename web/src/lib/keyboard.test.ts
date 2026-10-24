@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS } from './keyboard'
+import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, saveShortcut } from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -37,7 +37,7 @@ describe('computer keyboard', () => {
   it('keeps playing while a knob, button, radio or checkbox has the focus', () => {
     const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false }
     const box = document.createElement('div')
-    box.innerHTML = '<input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
+    box.innerHTML = '<div role="slider" tabindex="0"></div><input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
     for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
   })
 })
@@ -67,6 +67,22 @@ describe('history shortcuts', () => {
   })
 })
 
+describe('save shortcuts', () => {
+  const base = { key: 's', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }
+
+  it('maps Ctrl or Cmd + S to save and Shift + S to save as', () => {
+    expect(saveShortcut(base)).toBe('save')
+    expect(saveShortcut({ ...base, ctrlKey: false, metaKey: true })).toBe('save')
+    expect(saveShortcut({ ...base, key: 'S', shiftKey: true })).toBe('save_as')
+  })
+
+  it('leaves a plain S (it plays), Alt and the other letters alone', () => {
+    expect(saveShortcut({ ...base, ctrlKey: false })).toBeNull()
+    expect(saveShortcut({ ...base, altKey: true })).toBeNull()
+    expect(saveShortcut({ ...base, key: 'a' })).toBeNull()
+  })
+})
+
 describe('playing and shortcuts never meet (UI-3)', () => {
   const letter = (code: string) => (code === 'Semicolon' ? ';' : code.replace('Key', '').toLowerCase())
   const bare = { repeat: false, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: document.body }
@@ -76,6 +92,8 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     for (const code of [...PLAYING_KEYS, 'KeyZ', 'KeyX']) {
       expect(historyShortcut({ ...bare, key: letter(code) }), code).toBeNull()
       expect(historyShortcut({ ...bare, shiftKey: true, key: letter(code).toUpperCase() }), code).toBeNull()
+      expect(saveShortcut({ ...bare, key: letter(code) }), code).toBeNull()
+      expect(saveShortcut({ ...bare, shiftKey: true, key: letter(code).toUpperCase() }), code).toBeNull()
     }
   })
 
@@ -87,6 +105,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     }
     // The shortcut itself still works, and it is the undo, not a note nor an octave step.
     expect(historyShortcut({ ...bare, ctrlKey: true, key: 'z' })).toBe('undo')
+    expect(saveShortcut({ ...bare, ctrlKey: true, key: 's' })).toBe('save')
   })
 
   it('starts drums where their sounds are (notes 36 to 46 on the key row), anything else at octave 4', () => {
@@ -112,18 +131,24 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     }) as Record<string, string>
     const handlers: Record<string, string[]> = {}
     for (const [file, text] of Object.entries(sources)) {
-      if (!/\bon(keydown|keyup)\b|addEventListener\(\s*'key(down|up)'/.test(text)) continue
+      if (!/\bon(keydown|keyup)\b|addEventListener\(\s*'key(down|up)'|export function keyAction\b/.test(text)) continue
       // Every literal a handler compares a key or a code with: `=== 'x'`, `!== 'x'`, `case 'x':`.
-      const reads = [...text.matchAll(/(?:\.(?:key|code)\s*[!=]==\s*|bcase\s+)'([^']+)'/g)].map((m) => m[1]!)
+      const reads = [...text.matchAll(/(?:\.(?:key|code)\s*[!=]==\s*|\bcase\s+)'([^']+)'/g)].map((m) => m[1]!)
       handlers[file.replace('/src/', '')] = reads.sort()
     }
     expect(handlers).toEqual({
+      'lib/components/Slider.svelte': [],
+      'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
+      'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'],
-      'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
+      'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
+      'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Enter', 'Enter', 'Escape', 'Escape', 'Escape', 'Escape', 'Escape', 'F2', 'F2'],
       'views/piano-roll/PianoRollView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/play/PlayView.svelte': [],
+      'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],
+      'views/shell/StorageBanners.svelte': ['Escape'],
       'views/tracks/TrackList.svelte': ['Escape'],
       'views/transport/Transport.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'Space'],
     })

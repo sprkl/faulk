@@ -129,7 +129,7 @@
     if (event.code !== 'Space' || !ready || ignoreKeyEvent(event)) return
     // A focused control keeps the space bar for itself (a button presses, a select opens).
     const target = event.target as HTMLElement | null
-    if (target && target !== document.body && target.closest('button, input, select, textarea, [contenteditable], a')) return
+    if (target && target !== document.body && target.closest('button, input, select, textarea, [contenteditable], a, [role="slider"]')) return
     event.preventDefault()
     run(playing ? stop() : play())
   }

@@ -3,6 +3,7 @@ import type { Note } from '../../lib/generated/protocol'
 import {
   acceptable,
   clampScrollY,
+  defaultLength,
   drawnNote,
   fits,
   floorTick,
@@ -21,7 +22,12 @@ import {
   resizeNotes,
   shiftVelocity,
   stillApplies,
+  resetVelocities,
   velocityAt,
+  velocityOf,
+  velocityPosition,
+  VELOCITY_HOME,
+  DEFAULT_VELOCITY,
   type Layout,
 } from './roll'
 
@@ -73,6 +79,26 @@ describe('pitch axis', () => {
   })
 })
 
+describe('the keys of a kit', () => {
+  it('opens on the sounds of the kit, and on the notes too when some are outside', () => {
+    const kit = initialScrollY([], 400, layout, [36, 38, 39, 42, 46])
+    const middle = pitchAt(28 + (400 - 28) / 2, { ...layout, scrollY: kit })
+    expect(middle).toBeGreaterThanOrEqual(40)
+    expect(middle).toBeLessThanOrEqual(42)
+    const wide = initialScrollY([note(0, 80)], 400, layout, [36, 46])
+    expect(wide).toBeLessThan(kit)
+  })
+})
+
+describe('the default length of a drawn note', () => {
+  it('is the last drawn or resized length, else the snap step, else a sixteenth', () => {
+    expect(defaultLength(null, 240)).toBe(240)
+    expect(defaultLength(null, null)).toBe(240)
+    expect(defaultLength(120, 960)).toBe(120)
+    expect(defaultLength(null, 960)).toBe(960)
+  })
+})
+
 describe('hit testing', () => {
   const notes = [note(0, 60, 960), note(960, 62, 960)]
   const at = (n: Note) => {
@@ -90,6 +116,13 @@ describe('hit testing', () => {
     expect(hitNote(notes, 20, pitchTop(61, layout) + 4, view, layout)).toBeNull()
     expect(hitNote(notes, 960 * 0.1 + 5, pitchTop(60, layout) + 4, view, layout)).toBeNull()
     expect(hitNote(notes, 20, 10, view, layout)).toBeNull()
+  })
+
+  it('leaves the cell right after a note free, so that a click there draws', () => {
+    const one = [note(0, 60, 240)]
+    const right = 240 * view.pxPerTick + 20 - 20
+    expect(hitNote(one, right, pitchTop(60, layout) + 4, view, layout)).toBeNull()
+    expect(hitNote(one, right - 0.5, pitchTop(60, layout) + 4, view, layout)).not.toBeNull()
   })
 
   it('takes the last of two notes that overlap, as it is drawn on top', () => {
@@ -156,6 +189,17 @@ describe('move and resize', () => {
     expect(resizeNotes(group, 9999, 3840).map((c) => c.to.length)).toEqual([2400, 2400])
   })
 
+  it('puts the default velocity back on the chosen notes, as one change, and nothing when they have it', () => {
+    const all = [note(0, 60, 480, 40), note(480, 62, 480, 100), note(960, 64, 480, 127)]
+    expect(resetVelocities(all, all)?.map((c) => c.to.velocity)).toEqual([100, 100])
+    expect(resetVelocities(all, [all[1]!])).toEqual([])
+    expect(resetVelocities(all, [])).toEqual([])
+    // Two stacked notes that differ only in velocity would become one: refused as a whole.
+    const stacked = [note(0, 60, 480, 80), note(0, 60, 480, 110)]
+    expect(resetVelocities(stacked, stacked)).toBeNull()
+    expect(resetVelocities(stacked, [stacked[0]!])?.length).toBe(1)
+  })
+
   it('shifts velocities together inside 1 to 127', () => {
     const pair = [note(0, 60, 480, 120), note(0, 61, 480, 40)]
     expect(shiftVelocity(pair, 5).map((c) => c.to.velocity)).toEqual([125, 45])
@@ -173,6 +217,18 @@ describe('move and resize', () => {
     expect(velocityAt(50, 0, 100)).toBe(64)
     expect(velocityAt(-40, 0, 100)).toBe(127)
     expect(velocityAt(Number.NaN, 0, 100)).toBe(1)
+  })
+
+  it('gives the lane a position for the shared drag, and the velocity back from it', () => {
+    expect(velocityPosition(0, 0, 100)).toBe(1)
+    expect(velocityPosition(100, 0, 100)).toBe(0)
+    expect(velocityPosition(-40, 0, 100)).toBe(1)
+    expect(velocityPosition(25, 0, 100)).toBeCloseTo(0.75, 10)
+    expect(velocityOf(0)).toBe(1)
+    expect(velocityOf(1)).toBe(127)
+    expect(velocityOf(Number.NaN)).toBe(1)
+    // The default velocity is a position the magnet can hold, and comes back exactly.
+    expect(velocityOf(VELOCITY_HOME)).toBe(DEFAULT_VELOCITY)
   })
 })
 

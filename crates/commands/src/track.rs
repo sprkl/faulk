@@ -1089,6 +1089,7 @@ mod tests {
             role: EngineRole::Effect,
             memory_bytes: 0,
             midi_output: None,
+            named_keys: &[],
             params: &[],
         };
         let registry = [Builtin {

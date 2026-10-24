@@ -131,8 +131,28 @@ test('piano roll: draws, selects, moves, resizes, sets velocity, deletes, sets l
   const laneBox = (await lane(page).boundingBox())!
   const barX = g.x(960) + 1
   await drag(page, { x: barX, y: laneBox.y + 13 }, { x: barX, y: laneBox.y + 28 })
-  await expect.poll(async () => Math.abs((await notes(page))[0]!.velocity - 64)).toBeLessThanOrEqual(1)
+  // 64 would be the height of the pointer; the drag starts at the default velocity, where the magnet holds the value for 2 x 2 px of travel, which is worth about 10 velocity steps here (74).
+  await expect.poll(async () => Math.abs((await notes(page))[0]!.velocity - 74)).toBeLessThanOrEqual(1)
+  expect((await notes(page))[0]!.velocity).toBeLessThan(100)
   const afterVelocity = await notes(page)
+  // A double click on the bar puts the default velocity back, as one history entry: one undo takes it back.
+  await lane(page).dblclick({ position: { x: barX - laneBox.x, y: 20 } })
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(100)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
+  // The fine mode (Ctrl) on the lane: ten times less travel, so the bar stays near where it was grabbed (coarse, it would follow the pointer 20 px down).
+  await page.keyboard.down('Control')
+  await drag(page, { x: barX, y: laneBox.y + 13 }, { x: barX, y: laneBox.y + 33 })
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBeGreaterThan(85)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
+  // The right-click menu does the same.
+  await lane(page).click({ button: 'right', position: { x: barX - laneBox.x, y: 20 } })
+  await page.getByTestId('value-menu-default').click()
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(100)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.velocity).toBe(afterVelocity[0]!.velocity)
 
   // Delete: Delete removes the selected note, undo brings it back.
   await page.mouse.click(g.x(2500), g.y(62))
@@ -190,6 +210,67 @@ test('piano roll: draws, selects, moves, resizes, sets velocity, deletes, sets l
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBe(SILENCE_DB)
 
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/piano-roll.png` })
+  expect(seen.errors).toEqual([])
+})
+
+// #296: a Drums track names its sounds on the keyboard column, opens on their range and dims the other rows;
+// a click draws a note of the last drawn length (the snap step at first), so that a row of clicks draws a row of notes.
+test('piano roll: a Drums track names its sounds, and a click draws a note of the last length or the snap step', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('add-track').click()
+  await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  await page.getByTestId('panel-piano-roll').click()
+  await createClip(page)
+
+  // The names are the device's own (schema bundle), and the roll is opened on their range.
+  const names = JSON.parse((await roll(page).getAttribute('data-key-names')) ?? '{}')
+  expect(names).toEqual({ 36: 'Kick', 38: 'Snare', 39: 'Clap', 42: 'Closed Hat', 46: 'Open Hat' })
+  let g = await spot(page)
+  for (const pitch of [36, 46]) {
+    expect(g.y(pitch)).toBeGreaterThan(g.box.y + RULER)
+    expect(g.y(pitch)).toBeLessThan(g.box.y + g.box.height)
+  }
+  await page.screenshot({ path: process.env.FAULK_SHOT_DIR ? `${process.env.FAULK_SHOT_DIR}/pn296-drums.png` : undefined })
+
+  // Auto: eight clicks, one per eighth, on the closed hat draw eight notes of one step.
+  await expect(page.getByTestId('roll-snap')).toHaveValue('auto')
+  const eighth = 480
+  for (let i = 0; i < 8; i++) await page.mouse.click(g.x(i * eighth + 5), g.y(42))
+  const hats = await notes(page)
+  expect(hats).toHaveLength(8)
+  expect(hats.map((n) => n.start)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((i) => i * eighth))
+  const step = hats[0]!.length
+  expect(step).toBeLessThanOrEqual(eighth)
+  expect(hats.every((n) => n.length === step && n.pitch === 42)).toBe(true)
+
+  // An explicit step: the snap value gives the new default length.
+  await page.getByTestId('roll-snap').selectOption('beat')
+  g = await spot(page)
+  await page.mouse.click(g.x(5), g.y(36))
+  await page.mouse.click(g.x(965), g.y(36))
+  const kicks = (await notes(page)).filter((n) => n.pitch === 36)
+  expect(kicks).toEqual([
+    { start: 0, pitch: 36, length: 960, velocity: 100 },
+    { start: 960, pitch: 36, length: 960, velocity: 100 },
+  ])
+
+  // The last drawn length wins over the step: a dragged note of two beats sets it...
+  await drag(page, { x: g.x(1925), y: g.y(38) }, { x: g.x(3840), y: g.y(38) })
+  await page.mouse.click(g.x(5), g.y(39))
+  expect((await notes(page)).find((n) => n.pitch === 39)?.length).toBe(1920)
+  // ...until the snap changes, which resets it to the new step.
+  await page.getByTestId('roll-snap').selectOption('half-beat')
+  await page.mouse.click(g.x(5), g.y(46))
+  expect((await notes(page)).find((n) => n.pitch === 46)?.length).toBe(480)
+  // With the snap off the default is a sixteenth.
+  await page.getByTestId('roll-snap').selectOption('off')
+  await page.mouse.click(g.x(1000), g.y(46))
+  expect((await notes(page)).find((n) => n.pitch === 46 && n.start > 900)?.length).toBe(240)
   expect(seen.errors).toEqual([])
 })
 

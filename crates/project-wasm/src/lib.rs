@@ -16,13 +16,15 @@
 
 use std::cell::RefCell;
 
+use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{
-    LoadError, LoadReport, ProjectChanges, ProjectFiles, ProjectView, RunReport, SaveReport,
-    SnapshotReport, load_files, save_files,
-};
+use commands::host::{ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
+use project::file::{DirEntry, FileSystem, FsError, MemFs};
+
+mod save;
 use project::{IdGenerator, Project, ProjectId};
+pub use save::{Mode, Saver};
 use serde::Serialize;
 
 thread_local! {
@@ -33,7 +35,7 @@ thread_local! {
 
 /// No core: a null handle.
 pub const ERR_NO_CORE: i32 = -1;
-/// The input is not what the call takes (`pw_saved`: not a `ProjectChanges`).
+/// The input is not what the call takes (`pw_save`: not a save mode).
 pub const ERR_BAD_INPUT: i32 = -2;
 /// The call's JSON did not serialize (a value the project's writers refuse): nothing
 /// at [`pw_out`] nor [`pw_engine`]. The call itself may have happened ([`pw_run`] applied
@@ -41,16 +43,19 @@ pub const ERR_BAD_INPUT: i32 = -2;
 /// until a snapshot.
 pub const ERR_SERIALIZE: i32 = -3;
 
+/// [`pw_stage`]: the folder frame is malformed (see [`parse_folder`]): nothing staged.
+pub const ERR_BAD_FOLDER: i32 = -4;
+
 /// [`pw_new`]: an empty project.
 pub const KIND_EMPTY: u32 = 0;
 /// [`pw_new`]: the page's one-synth project (the ids the interface uses until PR-5).
 pub const KIND_SINGLE_SYNTH: u32 = 1;
 
-/// A project in the page: the project with its engine stream, and the text of each file
-/// as last written (`save` gives the files that differ from it).
+/// A project in the page: the project with its engine stream, and what is known of the
+/// folder it is saved into ([`Saver`]).
 pub struct Core {
     synced: Synced,
-    saved: ProjectFiles,
+    saver: Saver,
 }
 
 impl Core {
@@ -61,12 +66,17 @@ impl Core {
         let mut ids = IdGenerator::new(time_ms, random);
         let state = match kind {
             KIND_EMPTY => State::new(Project::new(ProjectId::generate(&mut ids), "Untitled")),
-            KIND_SINGLE_SYNTH => commands::engine_msgs::single_synth::state(),
+            KIND_SINGLE_SYNTH => {
+                // The ids of the one synth are the interface's; the project is its own.
+                let mut state = commands::engine_msgs::single_synth::state();
+                state.project.id = ProjectId::generate(&mut ids);
+                state
+            }
             _ => return None,
         };
         Some(Core {
             synced: Synced::new(state, Context::new(Author::User, ids), epoch),
-            saved: ProjectFiles::new(),
+            saver: Saver::new(),
         })
     }
 
@@ -81,20 +91,28 @@ impl Core {
             }
         };
         let synced = &mut self.synced;
+        let kind = command.meta().kind;
+        // A live command changes no project, but the selection, solo, arming and MIDI input
+        // are saved with it (`.faulk/session.json`): a change of them is a change to save.
+        let session = (kind == commands::Kind::Live).then(|| synced.state.session.clone());
         let outcome = match commands::run(&command, &mut synced.state, &mut synced.ctx) {
             Ok(outcome) => outcome,
             Err(error) => return (RunReport::Refused { error }, Vec::new()),
         };
-        let (bytes, stream_error) = if outcome.control.is_empty() {
-            (Vec::new(), None)
-        } else {
-            match synced.encode(&outcome.control) {
-                Ok(bytes) => (bytes, None),
-                // The project changed but the engine did not get it: behind until a
-                // snapshot.
-                Err(error) => (Vec::new(), Some(error.code())),
-            }
+        let (bytes, stream_error) = match synced.engine_bytes(&command, &outcome) {
+            Ok(bytes) => (bytes, None),
+            // The project changed but the engine did not get it: behind until a snapshot.
+            Err(error) => (Vec::new(), Some(error.code())),
         };
+        if commands::engine_msgs::replaces_project(&command) {
+            // The folder of the previous project means nothing to this one: `project.open`
+            // brings what its own folder holds, `project.new` has none.
+            self.saver = Saver::opened(synced.ctx.opened.take());
+        } else if (kind == commands::Kind::Edit && !outcome.events.is_empty())
+            || session.is_some_and(|before| before != synced.state.session)
+        {
+            self.saver.edited();
+        }
         let report = RunReport::Applied {
             output: outcome.output,
             events: outcome.events,
@@ -146,70 +164,37 @@ impl Core {
         }
     }
 
-    /// Replaces the project with the one in `json` (a map of path → text), with an empty
-    /// history, and snapshots it for the engine in the next epoch. The loaded project is
-    /// clean. Refused files change nothing.
-    pub fn load(&mut self, json: &[u8]) -> (LoadReport, Vec<u8>) {
-        let loaded = serde_json::from_slice::<ProjectFiles>(json)
-            .map_err(|error| LoadError::Parse {
-                file: String::new(),
-                message: error.to_string(),
-            })
-            .and_then(|files| load_files(&files));
-        let loaded = match loaded {
-            Ok(loaded) => loaded,
-            Err(error) => return (LoadReport::Refused { error }, Vec::new()),
-        };
-        // The baseline is this core's own text of the loaded project, not the text read:
-        // an unchanged project is not rewritten, even if it was formatted otherwise (SV-1's
-        // canonical reader and writer replace this). A project that does not serialize
-        // stays fully dirty rather than wrongly clean.
-        self.saved = save_files(&loaded.state).unwrap_or_default();
-        self.synced.state = loaded.state;
-        // A group opened on the previous project's history is gone with it.
-        self.synced.ctx.group = None;
-        let (snapshot, bytes) = self.snapshot();
-        let report = LoadReport::Loaded {
-            snapshot,
-            session_reset: loaded.session_reset,
-        };
-        (report, bytes)
-    }
-
-    /// The changes since the last recorded write: the files whose text differs from it.
-    /// Does not record them as written: the host calls [`Core::saved`] once the write
-    /// succeeded.
-    pub fn save(&self) -> SaveReport {
-        match save_files(&self.synced.state) {
-            Ok(files) => SaveReport::Changes {
-                changes: ProjectChanges {
-                    write: files
-                        .into_iter()
-                        .filter(|(path, text)| self.saved.get(path) != Some(text))
-                        .collect(),
-                    remove: Vec::new(),
-                },
-            },
-            Err(error) => SaveReport::Failed {
-                message: error.to_string(),
-            },
-        }
-    }
-
-    /// Records the changes the host made to the folder, with the text it wrote (what
-    /// [`Core::save`] gave): an edit made since stays dirty. Paths that are not project
-    /// files are ignored.
-    pub fn saved(&mut self, json: &[u8]) -> Result<(), serde_json::Error> {
-        let done = serde_json::from_slice::<ProjectChanges>(json)?;
-        for path in done.remove {
-            self.saved.remove(&path);
-        }
-        for (path, text) in done.write {
-            if is_project_file(&path) {
-                self.saved.insert(path, text);
-            }
-        }
+    /// Stages the folder in `frame` (see [`parse_folder`]) for the next `project.open` that
+    /// names it, replacing a folder staged before. Nothing is staged when the frame is
+    /// malformed.
+    pub fn stage(&mut self, frame: &[u8]) -> Result<(), FolderFrameError> {
+        let (name, fs) = parse_folder(frame)?;
+        self.synced.ctx.folder = Some(Folder::new(name, fs));
         Ok(())
+    }
+
+    /// Computes the writes that bring the project's folder up to date (see [`save`]); the
+    /// frame is the call's output. Pending until [`Core::saved`].
+    pub fn save(&mut self, mode: Mode) -> Vec<u8> {
+        if mode == Mode::Copy {
+            // A copy is another project: it must not share an identity with the folder it
+            // came from. Should this save not finish, the project keeps the new identity
+            // (nothing else names it) and its own folder is rewritten with it.
+            self.synced.state.project.id = ProjectId::generate(&mut self.synced.ctx.ids);
+            self.saver.edited();
+        }
+        let state = &self.synced.state;
+        self.saver.start(mode, &state.project, &state.session)
+    }
+
+    /// The page applied the writes of the last [`Core::save`] to the folder, or could not.
+    pub fn saved(&mut self, applied: bool) {
+        self.saver.finish(applied);
+    }
+
+    /// Whether the project has changes the folder does not hold.
+    pub fn dirty(&self) -> bool {
+        self.saver.dirty()
     }
 
     /// The engine stream's epoch.
@@ -224,9 +209,155 @@ impl Core {
     }
 }
 
-/// The paths [`save_files`] writes.
-fn is_project_file(path: &str) -> bool {
-    path == commands::host::PROJECT_FILE || path == commands::host::SESSION_FILE
+/// Why a folder frame was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FolderFrameError;
+
+/// The most bytes of a folder's name.
+const MAX_FOLDER_NAME: usize = 1024;
+/// The most bytes of a file's path in a folder frame.
+const MAX_FOLDER_PATH: usize = 1024;
+/// The most bytes a folder frame may hold (the page's text files and automation blobs; the
+/// audio is listed by size, never carried): the inbox grows to this much.
+pub const MAX_FOLDER_FRAME: usize = 512 << 20;
+
+/// A frame entry that carries the file's bytes.
+const ENTRY_FILE: u8 = 0;
+/// A frame entry that lists a blob by size, without its bytes.
+const ENTRY_LISTED: u8 = 1;
+
+/// A staged folder: the files the page carried, and the blobs it only listed. Read only.
+///
+/// Opening reads the project's text files and the blobs of dense automation lanes, and only
+/// lists `blobs/` to find the media the project refers to that the folder lacks. So the page
+/// stages the text and the lane blobs (they start with `FKAUTO01`) whole and every other blob
+/// (audio, instrument state) by name and size: opening costs memory for the project, not for
+/// its audio.
+#[derive(Debug, Default)]
+pub struct StagedFs {
+    files: MemFs,
+    /// `blobs/<name>` to its size.
+    listed: std::collections::BTreeMap<String, u64>,
+}
+
+impl FileSystem for StagedFs {
+    fn read(&self, path: &str) -> Result<Vec<u8>, FsError> {
+        self.files.read(path)
+    }
+
+    fn write(&mut self, path: &str, _bytes: &[u8]) -> Result<(), FsError> {
+        Err(FsError::Other(format!(
+            "{path}: a staged folder is read only"
+        )))
+    }
+
+    fn remove(&mut self, path: &str) -> Result<(), FsError> {
+        Err(FsError::Other(format!(
+            "{path}: a staged folder is read only"
+        )))
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        self.files.exists(path) || self.listed.contains_key(path)
+    }
+
+    fn list(&self, dir: &str) -> Result<Vec<DirEntry>, FsError> {
+        let mut entries = self.files.list(dir)?;
+        if dir.is_empty() && !self.listed.is_empty() && !entries.iter().any(|e| e.name == "blobs") {
+            entries.push(DirEntry {
+                name: "blobs".to_owned(),
+                is_dir: true,
+                size: 0,
+                stamp: 0,
+            });
+        }
+        if dir == "blobs" {
+            for (path, size) in &self.listed {
+                if let Some(name) = path.strip_prefix("blobs/") {
+                    entries.push(DirEntry {
+                        name: name.to_owned(),
+                        is_dir: false,
+                        size: *size,
+                        stamp: 0,
+                    });
+                }
+            }
+        }
+        Ok(entries)
+    }
+}
+
+/// A folder as the page hands it over: `u32` name length, the name (UTF-8), then for each
+/// entry `u32` path length, the path (UTF-8, `/`-separated, relative), a kind byte
+/// ([`ENTRY_FILE`]: `u64` size and that many bytes; [`ENTRY_LISTED`]: `u64` size, no bytes,
+/// only for `blobs/<name>`); all integers little-endian. The page reads its storage (OPFS,
+/// the folder the user picked) into this frame because the folder is read synchronously.
+/// Every length is checked against what is left of the frame before anything is copied, and
+/// a path that is empty, absolute, has a `..`, `.` or empty segment, a backslash or a NUL,
+/// or a path given twice, refuses the whole frame; so does a frame over
+/// [`MAX_FOLDER_FRAME`].
+pub fn parse_folder(frame: &[u8]) -> Result<(String, StagedFs), FolderFrameError> {
+    fn take<'a>(rest: &mut &'a [u8], n: usize) -> Result<&'a [u8], FolderFrameError> {
+        if n > rest.len() {
+            return Err(FolderFrameError);
+        }
+        let (head, tail) = rest.split_at(n);
+        *rest = tail;
+        Ok(head)
+    }
+    fn u32_of(rest: &mut &[u8]) -> Result<usize, FolderFrameError> {
+        let bytes: [u8; 4] = take(rest, 4)?.try_into().map_err(|_| FolderFrameError)?;
+        Ok(u32::from_le_bytes(bytes) as usize)
+    }
+    if frame.len() > MAX_FOLDER_FRAME {
+        return Err(FolderFrameError);
+    }
+    let mut rest = frame;
+    let name_len = u32_of(&mut rest)?;
+    if name_len > MAX_FOLDER_NAME {
+        return Err(FolderFrameError);
+    }
+    let name = std::str::from_utf8(take(&mut rest, name_len)?)
+        .map_err(|_| FolderFrameError)?
+        .to_owned();
+    let mut staged = StagedFs::default();
+    while !rest.is_empty() {
+        let path_len = u32_of(&mut rest)?;
+        if path_len > MAX_FOLDER_PATH {
+            return Err(FolderFrameError);
+        }
+        let path = std::str::from_utf8(take(&mut rest, path_len)?).map_err(|_| FolderFrameError)?;
+        let valid = !path.is_empty()
+            && !path.contains(['\\', '\0'])
+            && path
+                .split('/')
+                .all(|segment| !segment.is_empty() && segment != "." && segment != "..");
+        if !valid || staged.exists(path) {
+            return Err(FolderFrameError);
+        }
+        let kind = take(&mut rest, 1)?[0];
+        let size: [u8; 8] = take(&mut rest, 8)?
+            .try_into()
+            .map_err(|_| FolderFrameError)?;
+        let size = u64::from_le_bytes(size);
+        match kind {
+            ENTRY_FILE => {
+                let size = usize::try_from(size).map_err(|_| FolderFrameError)?;
+                staged.files.insert(path, take(&mut rest, size)?);
+            }
+            ENTRY_LISTED => {
+                let flat_blob = path
+                    .strip_prefix("blobs/")
+                    .is_some_and(|name| !name.contains('/'));
+                if !flat_blob {
+                    return Err(FolderFrameError);
+                }
+                staged.listed.insert(path.to_owned(), size);
+            }
+            _ => return Err(FolderFrameError),
+        }
+    }
+    Ok((name, staged))
 }
 
 // ---------------------------------------------------------------- C ABI
@@ -385,48 +516,72 @@ pub unsafe extern "C" fn pw_project(core: *mut Core) -> i32 {
     unsafe { with_core(core, |core| publish(&core.view(), Vec::new())) }
 }
 
-/// [`Core::load`] with the files' JSON in the first `len` bytes of the inbox: a
-/// [`LoadReport`] and the engine bytes.
+/// [`Core::stage`] with the folder frame in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_FOLDER`] (nothing staged). The folder is opened by running `project.open`
+/// with its name ([`pw_run`]).
 ///
 /// # Safety
 /// `core` must be null or a live pointer from [`pw_new`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_load(core: *mut Core, len: u32) -> i32 {
+pub unsafe extern "C" fn pw_stage(core: *mut Core, len: u32) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe {
         with_core(core, |core| {
-            let (report, bytes) = with_inbox(len, |json| core.load(json));
-            publish(&report, bytes)
-        })
-    }
-}
-
-/// [`Core::save`]: a [`SaveReport`].
-///
-/// # Safety
-/// `core` must be null or a live pointer from [`pw_new`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_save(core: *mut Core) -> i32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { with_core(core, |core| publish(&core.save(), Vec::new())) }
-}
-
-/// [`Core::saved`] with the `ProjectChanges` JSON the host applied in the first `len`
-/// bytes of the inbox: 0, or [`ERR_BAD_INPUT`].
-///
-/// # Safety
-/// `core` must be null or a live pointer from [`pw_new`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_saved(core: *mut Core, len: u32) -> i32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe {
-        with_core(core, |core| {
-            match with_inbox(len, |json| core.saved(json)) {
+            let staged = with_inbox(len, |frame| core.stage(frame));
+            // A folder frame can be large and the inbox only grows: give its memory back.
+            INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+            match staged {
                 Ok(()) => 0,
-                Err(_) => ERR_BAD_INPUT,
+                Err(_) => ERR_BAD_FOLDER,
             }
         })
     }
+}
+
+/// [`Core::save`] in `mode` ([`Mode::from_code`]: 0 changed, 1 forced, 2 everything, 3 copy, 4 rewrite): the
+/// frame of [`save`] at [`pw_out`], its length returned; [`ERR_BAD_INPUT`] for another mode.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_save(core: *mut Core, mode: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            let Some(mode) = Mode::from_code(mode) else {
+                return ERR_BAD_INPUT;
+            };
+            let frame = core.save(mode);
+            let len = frame.len() as i32;
+            OUT.with_borrow_mut(|out| *out = frame);
+            len
+        })
+    }
+}
+
+/// [`Core::saved`]: `applied` is 1 when the page wrote every entry of the last frame.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_saved(core: *mut Core, applied: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            core.saved(applied == 1);
+            0
+        })
+    }
+}
+
+/// [`Core::dirty`]: 1 when the project has changes the folder does not hold, else 0.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_dirty(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| i32::from(core.dirty())) }
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 /**
- * Which clip the piano roll edits. The launch grid (GR-3) points it at a clip (`UiStore.editedClip`); the timeline (AR-4) is not built, so the
+ * Which clip the piano roll edits. The launch grid (GR-3) points it at a clip (`UiStore.editedClip`); the timeline (AR-4) opens it the same way; with neither, the
  * piano roll finds the clip itself: the MIDI clips of the selected track, the earliest placed one
  * first (then the others by identifier), the first being the one it opens on. The user's choice
  * among them is view state; the roll never keeps an identifier the project no longer has.

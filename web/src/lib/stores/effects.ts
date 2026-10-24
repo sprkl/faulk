@@ -16,6 +16,12 @@ export interface EffectPorts {
   rememberWebInput(id: string | null): void
   markNote(note: number, velocity: number): void
   clearNotes(): void
+  /** `project.save`: write the project to its folder now (or ask for one). */
+  save(): void
+  /** `project.save_as`: the user picks an empty folder and the project moves into it. */
+  saveAs(): void
+  /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
+  projectReplaced(): void
 }
 
 export function applyEffects(command: Command, ports: EffectPorts) {
@@ -38,6 +44,15 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'live.all_notes_off':
       ports.clearNotes()
+      return
+    case 'project.save':
+      ports.save()
+      return
+    case 'project.save_as':
+      ports.saveAs()
+      return
+    case 'project.new':
+      ports.projectReplaced()
       return
   }
 }

@@ -12,12 +12,12 @@
   import { tick, untrack } from 'svelte'
   import type { ClipState } from '../../lib/engine/feedback'
   import type { Command } from '../../lib/generated/protocol'
-  import { setClipLoop } from '../../lib/clip-commands'
+  import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
   import { trackLabel } from '../../lib/project/tracks'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
-  import { activeCells, activeSignature, cellClips, cellKey, clipCounts, sortedScenes, visibleRange } from './cells'
+  import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, clipNumbers, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
@@ -57,6 +57,16 @@
   }
   const clips = $derived(project.view ? cellClips(project.view.project) : new Map())
   const counts = $derived(clipCounts(clips))
+  const numbers = $derived(project.view ? clipNumbers(project.view.project) : new Map<string, number>())
+  /** Where each clip of the grid sits, by clip. */
+  const homes = $derived(clipHomes(clips))
+  /** The name of a clip: its own, or "Clip n" as the piano roll calls it; an audio clip has no number. */
+  const nameOf = (id: string, clip: { name: string }) => {
+    const own = clip.name.trim()
+    if (own) return own
+    const n = numbers.get(id)
+    return n === undefined ? t('grid.clipPlain') : t('grid.clipDefault', { n })
+  }
   // The report comes about 30 times a second: the cells depend on this signature, which changes only with a state.
   const signature = $derived(engine.started ? activeSignature(engine.feedback) : '')
   const active = $derived.by(() => {
@@ -86,10 +96,39 @@
     focusScene = cell.dataset.scene ?? null
   }
 
-  /** Arrows move between cells. They are not application shortcuts in a field, so a rename keeps them. */
+  /**
+   * Arrows move between cells. On a clip, Delete and Backspace remove it and F2 renames it; Ctrl (Cmd) + C
+   * remembers it and Ctrl + V copies it into the empty cell the keyboard is on. They are not application
+   * shortcuts in a field, so a rename keeps them.
+   */
   function onBoardKey(event: KeyboardEvent) {
     const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
-    if (!cell || event.ctrlKey || event.metaKey || event.altKey) return
+    if (!cell) return
+    if (event.ctrlKey || event.metaKey) {
+      if (event.altKey || event.shiftKey || event.repeat) return
+      const key = event.key.toLowerCase()
+      if (key === 'c' && cell.dataset.clip && cell.dataset.launchable === 'true') {
+        event.preventDefault()
+        copied = cell.dataset.clip
+      } else if (key === 'v' && !cell.dataset.clip && cell.dataset.midi === 'true') {
+        event.preventDefault()
+        paste(cell)
+      }
+      return
+    }
+    if (event.altKey) return
+    if (cell.dataset.clip && cell.dataset.launchable === 'true') {
+      if (event.key === 'F2') {
+        event.preventDefault()
+        void startClipRename(cell.dataset.clip)
+        return
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        if (!event.repeat) removeClip(cell.dataset.clip, Number(cell.dataset.ti), Number(cell.dataset.si))
+        return
+      }
+    }
     const dt = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     const ds = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
     if (!dt && !ds) return
@@ -147,6 +186,11 @@
   }
 
   function onBoardClick(event: MouseEvent) {
+    // The click that ends a drag is not a launch.
+    if (suppressClick) {
+      suppressClick = false
+      return
+    }
     const target = event.target as Element
     const edit = target.closest<HTMLElement>('[data-edit]')
     if (edit) return open(edit.dataset.track!, edit.dataset.clip!, true)
@@ -172,6 +216,203 @@
     if (cell.dataset.clip) {
       if (cell.dataset.launchable === 'true') open(cell.dataset.track!, cell.dataset.clip, true)
     } else if (cell.dataset.midi === 'true') create(cell.dataset.track!, cell.dataset.scene!)
+  }
+
+  // --- clips: delete, duplicate, move, rename ------------------------------------------------------
+
+  /** The clip the keyboard copies (Ctrl + C): view state, not the project's. */
+  let copied = $state<string | null>(null)
+  /** The clip whose menu is open. */
+  let cellMenu = $state<string | null>(null)
+  let renamingClip = $state<string | null>(null)
+  let clipDraft = $state('')
+  let clipField = $state<HTMLInputElement | null>(null)
+
+  /** Gives the keyboard back to a cell once the clip that held it is gone or moved. */
+  const refocus = (ti: number, si: number) => void tick().then(() => focusCell(ti, si))
+
+  function removeClip(id: string, ti: number, si: number) {
+    cellMenu = null
+    if (!homes.has(id)) return
+    run(deleteClip(id))
+    refocus(ti, si)
+  }
+
+  /** The first cell below `si` in a track where no clip sits, or null. */
+  function freeBelow(track: string, si: number): string | null {
+    for (let i = si + 1; i < scenes.length; i++) if (!clips.has(cellKey(track, scenes[i]!.id))) return scenes[i]!.id
+    return null
+  }
+
+  /** Copies a clip into a cell of a MIDI track: the same track, or another one (the command names it then). */
+  function copyTo(clip: string, track: string, scene: string) {
+    const home = homes.get(clip)
+    if (!home || clips.has(cellKey(track, scene))) return
+    run(duplicateClip(clip, scene, track === home.track ? null : track))
+  }
+
+  function paste(cell: HTMLElement) {
+    if (copied) copyTo(copied, cell.dataset.track!, cell.dataset.scene!)
+    refocus(Number(cell.dataset.ti), Number(cell.dataset.si))
+  }
+
+  async function openCellMenu(id: string) {
+    menuFor = null
+    confirmFor = null
+    cellMenu = cellMenu === id ? null : id
+    if (cellMenu) {
+      await tick()
+      board?.querySelector<HTMLElement>(`[data-slot-clip="${id}"] [role="menuitem"]:not(:disabled)`)?.focus()
+    }
+  }
+
+  function closeCellMenu(restore: boolean) {
+    const id = cellMenu
+    cellMenu = null
+    if (restore && id) void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  function onSlotKey(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || !cellMenu) return
+    event.stopPropagation()
+    closeCellMenu(true)
+  }
+
+  function onSlotFocusOut(event: FocusEvent) {
+    const next = event.relatedTarget as Node | null
+    if (next && !(event.currentTarget as HTMLElement).contains(next)) cellMenu = null
+  }
+
+  function duplicateFromMenu(id: string) {
+    const home = homes.get(id)
+    cellMenu = null
+    if (!home) return
+    const scene = freeBelow(home.track, scenes.findIndex((entry) => entry.id === home.scene))
+    if (scene) run(duplicateClip(id, scene, null))
+    void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  async function startClipRename(id: string) {
+    const home = homes.get(id)
+    if (!home?.cell.launchable) return
+    cellMenu = null
+    clipDraft = nameOf(id, home.cell.clip)
+    renamingClip = id
+    await tick()
+    clipField?.focus()
+    clipField?.select()
+  }
+
+  function finishClipRename(commit: boolean, id: string) {
+    if (renamingClip !== id) return
+    renamingClip = null
+    const home = homes.get(id)
+    if (!home) return
+    const name = clipDraft.trim()
+    const stored = home.cell.clip.name.trim()
+    // An unchanged default name stays unnamed; anything else is the user's.
+    const unchanged = name === stored || (stored === '' && name === nameOf(id, home.cell.clip))
+    if (commit && !unchanged) run(renameClip(id, name))
+  }
+
+  function onClipRenameKey(event: KeyboardEvent, id: string) {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    event.preventDefault()
+    finishClipRename(event.key === 'Enter', id)
+    void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  // --- dragging a clip -----------------------------------------------------------------------------
+
+  /** Pixels the pointer must travel before a press on a clip is a drag and not a click. */
+  const DRAG_SLOP = 5
+  /** The press on a clip that may become a drag. */
+  let press: { clip: string; track: string; x: number; y: number; active: boolean; aborted: boolean } | null = null
+  /** The drag, once it started: what the ghost shows, where it is, the cell it would drop on. */
+  let dragging = $state<{ clip: string; name: string } | null>(null)
+  let dragAt = $state({ x: 0, y: 0 })
+  let dragCopy = $state(false)
+  /** The cell the clip would land on (`track|scene`), only ever an empty cell of a MIDI track. */
+  let dropKey = $state<string | null>(null)
+  let suppressClick = false
+
+  function onBoardPointerDown(event: PointerEvent) {
+    if (event.button !== 0 || press) return
+    const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
+    if (!cell?.dataset.clip || cell.dataset.launchable !== 'true') return
+    press = { clip: cell.dataset.clip, track: cell.dataset.track!, x: event.clientX, y: event.clientY, active: false, aborted: false }
+  }
+
+  /** The empty cell of a MIDI track under the pointer, or null: nothing else is a place to drop. */
+  function dropCell(x: number, y: number, copy: boolean): HTMLElement | null {
+    const cell = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-cell]')
+    if (!cell || cell.dataset.clip || cell.dataset.midi !== 'true') return null
+    // A clip the arrangement plays stays in its track: it can be copied to another one, not moved there.
+    if (!copy && press && cell.dataset.track !== press.track && isPlaced(press.track, press.clip)) return null
+    return cell
+  }
+
+  /** Whether a placement of the arrangement plays the clip. */
+  function isPlaced(track: string, clip: string): boolean {
+    const placements = project.view?.project.tracks[track]?.placements ?? {}
+    return Object.values(placements).some((placement) => placement?.clip === clip)
+  }
+
+  /** The cell the clip would land on, from the pointer's last place and the key held. */
+  function refreshDrop() {
+    const over = dropCell(dragAt.x, dragAt.y, dragCopy)
+    dropKey = over ? cellKey(over.dataset.track!, over.dataset.scene!) : null
+  }
+
+  function onWindowPointerMove(event: PointerEvent) {
+    if (!press || press.aborted) return
+    if (!press.active) {
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_SLOP) return
+      const home = homes.get(press.clip)
+      if (!home) return endPress()
+      press.active = true
+      dragging = { clip: press.clip, name: nameOf(press.clip, home.cell.clip) }
+    }
+    dragAt = { x: event.clientX, y: event.clientY }
+    dragCopy = event.altKey
+    refreshDrop()
+  }
+
+  function endPress() {
+    const wasDrag = press?.active ?? false
+    press = null
+    dragging = null
+    dropKey = null
+    if (wasDrag) {
+      // The click that follows the release is not a launch.
+      suppressClick = true
+      setTimeout(() => (suppressClick = false), 60)
+    }
+  }
+
+  /** A drop on an empty cell of a MIDI track moves the clip, or copies it with Alt: one command either way. */
+  function onWindowPointerUp(event: PointerEvent) {
+    const current = press
+    if (!current?.active) return endPress()
+    const over = current.aborted ? null : dropCell(event.clientX, event.clientY, event.altKey)
+    endPress()
+    if (!over || !homes.has(current.clip)) return
+    const { track, scene } = over.dataset
+    if (event.altKey) return copyTo(current.clip, track!, scene!)
+    run(moveClip(current.clip, scene!, track === current.track ? null : track!))
+  }
+
+  function onWindowKey(event: KeyboardEvent) {
+    // Alt pressed or released with the pointer still: the indicator follows the key the drop will read.
+    if (press?.active && !press.aborted) {
+      dragCopy = event.altKey
+      refreshDrop()
+    }
+    if (event.key === 'Escape' && press?.active) {
+      press.aborted = true
+      dropKey = null
+      dragging = null
+    }
   }
 
   // --- scenes ------------------------------------------------------------------------------------
@@ -226,6 +467,7 @@
   }
 
   async function openMenu(id: string) {
+    cellMenu = null
     confirmFor = null
     menuFor = menuFor === id ? null : id
     if (menuFor) {
@@ -259,6 +501,7 @@
 
   function onWindowPointer(event: PointerEvent) {
     if (popupFor && !(event.target as Element).closest(`[data-scene-head="${popupFor}"]`)) closePopups(false)
+    if (cellMenu && !(event.target as Element).closest(`[data-slot-clip="${cellMenu}"]`)) cellMenu = null
   }
 
   function requestDelete(id: string) {
@@ -279,7 +522,7 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointer} />
+<svelte:window onpointerdown={onWindowPointer} onpointermove={onWindowPointerMove} onpointerup={onWindowPointerUp} onpointercancel={endPress} onkeydown={onWindowKey} onkeyup={onWindowKey} onblur={endPress} />
 
 {#if !project.view}
   <p class="note" data-testid="grid-waiting">{t('tracks.waiting')}</p>
@@ -298,8 +541,10 @@
       data-testid="grid"
       style:--tracks={tracks.length}
       bind:this={board}
+      class:dragging={dragging !== null}
       onclick={onBoardClick}
       ondblclick={onBoardDoubleClick}
+      onpointerdown={onBoardPointerDown}
       onkeydown={onBoardKey}
       onfocusin={onFocusIn}
     >
@@ -372,10 +617,10 @@
             {@const label = trackLabel(entry, t)}
             {@const here = tabCell === key}
             {#if cell}
-              {@const clipName = cell.clip.name.trim() || t('grid.clipDefault')}
+              {@const clipName = nameOf(cell.id, cell.clip)}
               {@const reported = active.get(key)}
               {@const state = reported?.restarting ? 'restarting' : (reported?.state ?? 'idle')}
-              <div class="slot" role="gridcell" aria-colindex={entry.index + 2} style:--track-color={entry.track.color ?? undefined}>
+              <div class="slot" class:open={cellMenu === cell.id} role="gridcell" aria-colindex={entry.index + 2} style:--track-color={entry.track.color ?? undefined} data-slot-clip={cell.id} onkeydown={onSlotKey} onfocusout={onSlotFocusOut}>
                 <button
                   class="cell"
                   type="button"
@@ -387,17 +632,40 @@
                   data-scene={sc.id}
                   data-clip={cell.id}
                   data-launchable={cell.launchable}
+                  data-copied={copied === cell.id ? 'true' : undefined}
+                  data-lifted={dragging?.clip === cell.id ? 'true' : undefined}
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
                   aria-label={cell.launchable ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) }) : t('grid.cellAudio', { track: label, scene: name, clip: clipName })}
-                  title={cell.launchable ? stateText(state) : undefined}
+                  title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
                 >
                   <Glyph kind={state} />
-                  <span class="cname">{cell.clip.name.trim()}</span>
+                  <span class="cname">{clipName}</span>
                 </button>
+                {#if renamingClip === cell.id}
+                  <input
+                    class="crename"
+                    type="text"
+                    maxlength="200"
+                    bind:this={clipField}
+                    bind:value={clipDraft}
+                    aria-label={t('grid.clipName')}
+                    data-testid="clip-rename"
+                    onkeydown={(event) => onClipRenameKey(event, cell.id)}
+                    onblur={() => finishClipRename(true, cell.id)}
+                  />
+                {/if}
                 {#if cell.launchable}
                   <button class="edit" type="button" tabindex={here ? 0 : -1} data-edit data-track={entry.id} data-clip={cell.id} data-testid="edit-clip" aria-label={t('grid.editClip', { clip: clipName })} title={t('grid.editClip', { clip: clipName })}>✎</button>
+                  <button class="cmore" type="button" tabindex={here ? 0 : -1} aria-haspopup="menu" aria-expanded={cellMenu === cell.id} data-testid="clip-more" aria-label={t('grid.clipActions', { clip: clipName })} title={t('grid.clipActions', { clip: clipName })} onclick={() => openCellMenu(cell.id)}>⋯</button>
+                  {#if cellMenu === cell.id}
+                    <div class="pop cpop" role="menu" data-testid="clip-menu">
+                      <button role="menuitem" type="button" data-testid="clip-menu-rename" onclick={() => startClipRename(cell.id)}>{t('grid.rename')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-duplicate" disabled={freeBelow(entry.id, si) === null} onclick={() => duplicateFromMenu(cell.id)}>{t('grid.duplicate')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-delete" onclick={() => removeClip(cell.id, entry.index, si)}>{t('grid.delete')}</button>
+                    </div>
+                  {/if}
                 {/if}
               </div>
             {:else}
@@ -409,6 +677,7 @@
                   data-cell
                   data-testid="cell"
                   data-state="empty"
+                  data-drop={dropKey === key ? (dragCopy ? 'copy' : 'move') : undefined}
                   data-track={entry.id}
                   data-scene={sc.id}
                   data-midi={midi}
@@ -429,6 +698,11 @@
         </div>
       </div>
     </div>
+    {#if dragging}
+      <div class="ghost" style:left="{dragAt.x + 12}px" style:top="{dragAt.y + 12}px" data-testid="clip-ghost" data-mode={dragCopy ? 'copy' : 'move'}>
+        {dragCopy ? t('grid.dragCopy', { clip: dragging.name }) : t('grid.dragMove', { clip: dragging.name })}
+      </div>
+    {/if}
     {#if scenes.length === 0}
       <p class="note" data-testid="grid-no-scenes">{t('grid.noScenes')}</p>
     {/if}
@@ -700,9 +974,85 @@
     font-size: 11px;
     line-height: 1;
   }
+  .cmore {
+    position: absolute;
+    top: 2px;
+    right: 24px;
+    display: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-bg);
+    font-size: 11px;
+    line-height: 1;
+  }
   .slot:hover .edit,
-  .slot:focus-within .edit {
+  .slot:focus-within .edit,
+  .slot:hover .cmore,
+  .slot:focus-within .cmore,
+  .slot.open .cmore {
     display: block;
+  }
+  .slot.open {
+    z-index: 4;
+  }
+  .cpop {
+    top: calc(100% - 2px);
+    left: 4px;
+  }
+  .crename {
+    position: absolute;
+    inset: 6px 4px;
+    z-index: 1;
+    min-width: 0;
+    border: 1px solid var(--fk-accent);
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    font: inherit;
+    font-size: 12px;
+  }
+  /* Dragging a clip: the cells it can land on show it, the clip stays where it is until the drop. */
+  .cell {
+    user-select: none;
+  }
+  .board.dragging {
+    cursor: grabbing;
+  }
+  .board.dragging .cell {
+    cursor: inherit;
+  }
+  .cell[data-drop] {
+    outline: 2px solid var(--fk-accent);
+    outline-offset: -3px;
+    background: var(--fk-surface-2);
+  }
+  .cell[data-drop='copy'] {
+    outline-style: dashed;
+  }
+  .cell[data-lifted='true'] {
+    opacity: 0.5;
+  }
+  .cell[data-copied='true'] {
+    outline: 1px dashed var(--fk-text-muted);
+    outline-offset: -3px;
+  }
+  .ghost {
+    position: fixed;
+    z-index: 20;
+    max-width: 220px;
+    padding: 2px var(--fk-space-2);
+    overflow: hidden;
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-bg);
+    box-shadow: var(--fk-shadow-float);
+    font-size: 12px;
+    pointer-events: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Menu and confirmation of a scene. */

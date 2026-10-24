@@ -5,13 +5,9 @@
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
 import type {
   Command,
-  LoadReport,
-  ProjectChanges,
   ProjectEvent,
-  ProjectFiles,
   ProjectView,
   RunReport,
-  SaveReport,
   SnapshotReport,
 } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
@@ -28,14 +24,52 @@ interface CoreExports {
   pw_setup(core: number): number
   pw_snapshot(core: number): number
   pw_project(core: number): number
-  pw_load(core: number, len: number): number
-  pw_save(core: number): number
-  pw_saved(core: number, len: number): number
+  pw_stage(core: number, len: number): number
+  pw_save(core: number, mode: number): number
+  pw_saved(core: number, applied: number): number
+  pw_dirty(core: number): number
 }
 
 /** Which project a new core starts with. */
 export type CoreKind = 'empty' | 'single_synth'
 const KINDS: Record<CoreKind, number> = { empty: 0, single_synth: 1 }
+
+/** Which files a save looks at (see `ProjectCore.save`). */
+export type SaveMode = 'changed' | 'forced' | 'everything' | 'copy' | 'rewrite'
+const SAVE_MODES: Record<SaveMode, number> = { changed: 0, forced: 1, everything: 2, copy: 3, rewrite: 4 }
+
+/** One thing a save asks of the folder: replace a file, or remove it. */
+export type SaveEntry = { type: 'write'; path: string; bytes: Uint8Array } | { type: 'remove'; path: string }
+
+/** What a save computed: the entries in the order to apply them, or why it could not. */
+export type SaveFrame = { status: 'ok'; entries: SaveEntry[] } | { status: 'failed'; message: string }
+
+/** Reads the frame `pw_save` returns (`crates/project-wasm/src/save.rs` documents the layout). */
+export function parseSaveFrame(frame: Uint8Array): SaveFrame {
+  const decoder = new TextDecoder()
+  if (frame[0] !== 0) return { status: 'failed', message: decoder.decode(frame.subarray(1)) }
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
+  const count = view.getUint32(5, true)
+  const entries: SaveEntry[] = []
+  let at = 9
+  for (let i = 0; i < count; i++) {
+    const kind = frame[at++]
+    const pathLength = view.getUint32(at, true)
+    at += 4
+    const path = decoder.decode(frame.subarray(at, at + pathLength))
+    at += pathLength
+    if (kind === 1) {
+      entries.push({ type: 'remove', path })
+      continue
+    }
+    const length = Number(view.getBigUint64(at, true))
+    at += 8
+    // Copied out of the core's memory: the next call reuses it.
+    entries.push({ type: 'write', path, bytes: frame.slice(at, at + length) })
+    at += length
+  }
+  return { status: 'ok', entries }
+}
 
 /** The engine bytes a call produced, beside its report: empty when it produced none. */
 export interface WithEngine<R> {
@@ -65,6 +99,80 @@ export function coreModule(bytes?: BufferSource): Promise<WebAssembly.Module> {
     .then((b) => WebAssembly.compile(b))
   return loading
 }
+
+/**
+ * One file of a project folder, as the page stages it for `project.open`: its bytes, or for a
+ * blob the project only needs counted (audio, instrument state) its size. Opening reads the
+ * text files and the blobs of dense automation lanes; it only lists the other blobs, to tell
+ * the project which media the folder lacks. So the memory a staged folder takes is the
+ * project's, not its audio's (`StagedFs` in `crates/project-wasm`).
+ */
+export type FolderEntry = { path: string; bytes: Uint8Array } | { path: string; size: number }
+
+/** The first bytes of a blob of dense automation points (`crates/project/src/file/unit.rs`). */
+export const LANE_BLOB_MAGIC = 'FKAUTO01'
+
+/**
+ * Whether opening needs the bytes of the file at `path`, given its first bytes (`head`, 8 are
+ * enough): everything but the blobs, and the blobs of automation lanes. The page reads this
+ * much of each blob to decide, and sends the rest by size.
+ */
+export function needsBytes(path: string, head: Uint8Array): boolean {
+  if (!path.startsWith('blobs/')) return true
+  return LANE_BLOB_MAGIC.length <= head.length && LANE_BLOB_MAGIC.split('').every((c, i) => head[i] === c.charCodeAt(0))
+}
+
+/** The most bytes of a staged folder (`MAX_FOLDER_FRAME` in `crates/project-wasm`). */
+export const MAX_FOLDER_FRAME = 512 << 20
+
+/** The folder frame `pw_stage` takes: `crates/project-wasm` `parse_folder` documents the layout. */
+export function folderFrame(name: string, entries: FolderEntry[]): Uint8Array {
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  let total = 0
+  const push = (part: Uint8Array) => {
+    parts.push(part)
+    total += part.length
+  }
+  const u32 = (n: number) => {
+    const part = new Uint8Array(4)
+    new DataView(part.buffer).setUint32(0, n, true)
+    push(part)
+  }
+  const u64 = (n: number) => {
+    const part = new Uint8Array(8)
+    new DataView(part.buffer).setBigUint64(0, BigInt(n), true)
+    push(part)
+  }
+  const text = (value: string) => {
+    const bytes = encoder.encode(value)
+    u32(bytes.length)
+    push(bytes)
+  }
+  text(name)
+  for (const entry of entries) {
+    text(entry.path)
+    if ('bytes' in entry) {
+      push(Uint8Array.of(0))
+      u64(entry.bytes.length)
+      push(entry.bytes)
+    } else {
+      push(Uint8Array.of(1))
+      u64(entry.size)
+    }
+  }
+  if (total > MAX_FOLDER_FRAME) throw new CoreError('stage', ERR_BAD_FOLDER)
+  const frame = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) {
+    frame.set(part, at)
+    at += part.length
+  }
+  return frame
+}
+
+/** `pw_stage`: the frame is malformed or too big; nothing was staged. */
+export const ERR_BAD_FOLDER = -4
 
 /** A call failed below the reports (no core, bad input, a value that does not serialize). */
 export class CoreError extends Error {
@@ -161,6 +269,15 @@ export class ProjectCore {
     return { report, engine: this.engine() }
   }
 
+  /**
+   * Opens the folder staged under `name` (`stage`): the project, its history and its session are
+   * replaced and the engine bytes start it over from a snapshot of the new project in the next
+   * epoch. A refusal changes nothing.
+   */
+  open(name: string): WithEngine<RunReport> {
+    return this.run({ type: 'project.open', folder: name })
+  }
+
   /** A `Reset` in the current epoch and the snapshot of the project: for a fresh engine. */
   setup(): WithEngine<SnapshotReport> {
     const report = this.output<SnapshotReport>('setup', this.exports.pw_setup(this.live()))
@@ -178,23 +295,44 @@ export class ProjectCore {
     return this.output<ProjectView>('project', this.exports.pw_project(this.live()))
   }
 
-  /** Replaces the project with the one in `files` (empty history, snapshot in the next epoch). */
-  load(files: ProjectFiles): WithEngine<LoadReport> {
-    const len = this.input(JSON.stringify(files))
-    const report = this.output<LoadReport>('load', this.exports.pw_load(this.live(), len))
-    return { report, engine: this.engine() }
+  /**
+   * Stages a project folder under `name` for the next `project.open` that names it. Throws a
+   * `CoreError` when the entries are not a valid folder (a bad path, too big): nothing is staged.
+   */
+  stage(name: string, entries: FolderEntry[]) {
+    const frame = folderFrame(name, entries)
+    const at = this.exports.pw_inbox(frame.length)
+    if (!at) throw new CoreError('inbox', 0)
+    new Uint8Array(this.exports.memory.buffer, at, frame.length).set(frame)
+    const code = this.exports.pw_stage(this.live(), frame.length)
+    if (code !== 0) throw new CoreError('stage', code)
   }
 
-  /** The changes since the last recorded write; call `saved` once they are written. */
-  save(): SaveReport {
-    return this.output<SaveReport>('save', this.exports.pw_save(this.live()))
+  /**
+   * The writes that bring the project's folder up to date, computed by `project::file::save`
+   * in the core (SV-2). `changed` does nothing when the project did not change since the last
+   * save; `forced` looks at every file anyway (the session included); `everything` writes the
+   * whole project as into an empty folder (the first write of a save as). Call `saved` once
+   * the entries are applied to the folder, or with `false` when they could not be: the next
+   * save then computes them again.
+   */
+  save(mode: SaveMode): SaveFrame {
+    const len = this.exports.pw_save(this.live(), SAVE_MODES[mode])
+    if (len < 0) throw new CoreError('save', len)
+    return parseSaveFrame(new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len))
   }
 
-  /** Records the changes written to the folder, as `save` gave them. */
-  saved(changes: ProjectChanges) {
-    const len = this.input(JSON.stringify(changes))
-    const code = this.exports.pw_saved(this.live(), len)
+  /** Says whether the folder now holds what the last `save` gave. */
+  saved(applied: boolean) {
+    const code = this.exports.pw_saved(this.live(), applied ? 1 : 0)
     if (code !== 0) throw new CoreError('saved', code)
+  }
+
+  /** Whether the project has changes (edits, solo, selection...) that the folder does not hold. */
+  dirty(): boolean {
+    const code = this.exports.pw_dirty(this.live())
+    if (code < 0) throw new CoreError('dirty', code)
+    return code === 1
   }
 
   /** Frees the core; any later call throws. */

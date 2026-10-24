@@ -9,7 +9,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
+
+// Version 4 (#293): the feedback layout is version 3: each active clip carries the tick of its
+// position 0 (`anchor`, 16 bytes per cell instead of 8), so that the page places a playhead
+// in a clip launched from the grid. A page and a helper of different versions refuse each other.
 
 // Version 3 (MO-5): the helper reports the engine's state as binary WebSocket frames, about
 // 30 per second: the bytes of an `engine::msg::Feedback` (little-endian layout of that
@@ -135,11 +139,7 @@ pub fn schema_bundle() -> serde_json::Value {
         "project_core": {
             "run_report": schemars::schema_for!(commands::host::RunReport),
             "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
-            "load_report": schemars::schema_for!(commands::host::LoadReport),
             "project_view": schemars::schema_for!(commands::host::ProjectView),
-            "save_report": schemars::schema_for!(commands::host::SaveReport),
-            "project_changes": schemars::schema_for!(commands::host::ProjectChanges),
-            "project_files": schemars::schema_for!(commands::host::ProjectFiles),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.

@@ -587,7 +587,23 @@ pub struct DeviceDescriptor {
     pub memory_bytes: u64,
     /// The bounds of a MIDI effect's output; `None` for the other roles.
     pub midi_output: Option<MidiOutput>,
+    /// The notes an instrument answers to, each with its name, for the piano roll to label a
+    /// row (a drum kit: one sound per key). Empty for a pitched instrument and for the other
+    /// roles. Sorted by key.
+    pub named_keys: &'static [NamedKey],
     pub params: &'static [ParamDescriptor],
+}
+
+/// A MIDI key an instrument gives a meaning to, with the name the UI shows on its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct NamedKey {
+    /// The MIDI key, 0 to 127.
+    #[cfg_attr(feature = "schema", schemars(range(max = 127)))]
+    pub key: u8,
+    /// One English name, never translated.
+    pub name: &'static str,
 }
 
 /// Why a descriptor is invalid.
@@ -601,6 +617,9 @@ pub enum DescriptorError {
     BadKindId,
     /// `midi_output` missing (or both bounds 0) on a MIDI effect, or set on another role.
     BadMidiOutput,
+    /// `named_keys` has a key above 127, a key out of order or repeated, a name that is empty,
+    /// not ASCII or with surrounding spaces, or is set on a role other than an instrument.
+    BadNamedKeys,
     /// More than [`MAX_PARAMS_PER_DEVICE`] parameters.
     TooManyParams,
     /// Two parameters share an id or a key.
@@ -659,6 +678,14 @@ impl DeviceDescriptor {
         };
         if !midi_ok {
             return Err(DescriptorError::BadMidiOutput);
+        }
+        let keys_ok = (self.role == DeviceRole::Instrument || self.named_keys.is_empty())
+            && self.named_keys.iter().all(|k| {
+                k.key <= 127 && !k.name.is_empty() && k.name.is_ascii() && k.name.trim() == k.name
+            })
+            && self.named_keys.windows(2).all(|w| w[0].key < w[1].key);
+        if !keys_ok {
+            return Err(DescriptorError::BadNamedKeys);
         }
         if self.params.len() > MAX_PARAMS_PER_DEVICE {
             return Err(DescriptorError::TooManyParams);

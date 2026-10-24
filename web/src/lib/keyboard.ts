@@ -6,7 +6,7 @@
  * key does both: a played key never fires a shortcut, and a shortcut never plays a note. A shortcut
  * pressed while a note is held still works (undo stays reachable); the held note goes on.
  * - A played key is a bare letter or Semicolon (the keys of `KEY_OFFSETS`, plus Z and X for the octave).
- * - An application shortcut never uses a bare letter: it carries Ctrl or Cmd (`historyShortcut`), or is
+ * - An application shortcut never uses a bare letter: it carries Ctrl or Cmd (`historyShortcut`, `saveShortcut`), or is
  *   a key that plays nothing (F2 to rename, Escape, Enter, the arrows, Delete).
  * - So playing ignores any event with Ctrl, Cmd or Alt held (`ignoreKeyEvent`) and the shortcuts ignore
  *   bare letters; a new shortcut must keep to this, and `keyboard.test.ts` enumerates both sides.
@@ -34,10 +34,10 @@ export function defaultOctave(instrumentKind: string | null): number {
  * a track, Escape cancels (a rename, the add-track menu, a tempo edit), Enter confirms a rename or a
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
- * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track). With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, and Ctrl or Cmd + A selects all. None of them plays a note: the playing keys are letters and Semicolon.
+ * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
+ * selection, and Ctrl or Cmd + A selects all. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. None of them plays a note: the playing keys are letters and Semicolon.
  */
-export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace']
+export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace', 'PageUp', 'PageDown', 'End', 'Tab']
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)
@@ -66,7 +66,7 @@ const TEXT_INPUT_TYPES = new Set(['text', 'search', 'number', 'email', 'password
 
 /**
  * True when the event must not play: key repeat, modifier held, or typing text.
- * Knobs (range inputs), buttons, radios and checkboxes keep the keyboard playing,
+ * Knobs and faders (`role="slider"`), range inputs, buttons, radios and checkboxes keep the keyboard playing,
  * so a sound can be tweaked with the mouse while notes are held.
  */
 export function ignoreKeyEvent(event: Pick<KeyboardEvent, 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target'>): boolean {
@@ -80,6 +80,16 @@ export function isTextTarget(eventTarget: EventTarget | null): boolean {
   if (!target || typeof target.closest !== 'function') return false
   if (target.closest('textarea, select, [contenteditable=""], [contenteditable="true"]')) return true
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
+}
+
+/**
+ * Save asked by the keyboard (Ctrl or Cmd + S, with Shift for save as), or null. Unlike undo, it also
+ * fires inside a text field: there the browser would offer to save the page as a file, which is
+ * never what a musician means. It carries Ctrl or Cmd, so it never plays a note.
+ */
+export function saveShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): 'save' | 'save_as' | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 's') return null
+  return event.shiftKey ? 'save_as' : 'save'
 }
 
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */

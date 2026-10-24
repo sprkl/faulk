@@ -11,6 +11,7 @@ use commands::{
     device, history, launch, live, midi, mixer, project, view,
 };
 
+mod arrangement_examples;
 mod clip_examples;
 mod device_examples;
 mod grid_examples;
@@ -44,6 +45,12 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::Rename {
             name: "  Demo song  ".into(),
         })),
+        on(Command::Project(project::Command::Open {
+            folder: commands::testing::OPENED_FOLDER.into(),
+        })),
+        on(Command::Project(project::Command::New {})),
+        on(Command::Project(project::Command::Save {})),
+        on(Command::Project(project::Command::SaveAs {})),
         on(Command::Device(device::Command::SetParam {
             device: f.device.clone(),
             param: "attack".into(),
@@ -114,6 +121,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(arrangement_examples::examples())
     .chain(grid_examples::examples())
     .chain(transport_examples::examples())
     .chain(track_examples::examples())
