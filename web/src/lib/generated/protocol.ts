@@ -556,6 +556,22 @@ linked?: boolean
 placements: string[]
 type: "arrangement.duplicate"
 } | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+linked?: boolean
+start: Tick
+type: "arrangement.place_from_slot"
+} | {
+linked?: boolean
+/**
+ * Identifier of a scene.
+ */
+scene: string
+start: Tick
+type: "arrangement.place_scene"
+} | {
 edits: TrackEdit[]
 type: "arrangement.restore"
 })
@@ -1116,6 +1132,46 @@ overwritten: number
  */
 placements: string[]
 type: "arrangement.duplicate"
+} | {
+/**
+ * The independent copy created (none when `linked`).
+ */
+clip?: (string | null)
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+placement: string
+type: "arrangement.place_from_slot"
+} | {
+/**
+ * The independent copies created (none when `linked`).
+ * 
+ * Items: Identifier of a clip.
+ */
+clips: string[]
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many other placements were carved.
+ */
+overwritten: number
+/**
+ * The new placements, in the order of the tracks.
+ * 
+ * Items: Identifier of a placement in a track's arrangement.
+ */
+placements: string[]
+type: "arrangement.place_scene"
 } | {
 type: "arrangement.restore"
 })

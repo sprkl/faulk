@@ -26,6 +26,22 @@ pub struct ArFx {
     pub c: PlacementId,
     pub audio_track: TrackId,
     pub audio_clip: ClipId,
+    pub scene_a: ::project::SceneId,
+    pub scene_b: ::project::SceneId,
+    pub scene_free: ::project::SceneId,
+}
+
+impl ArFx {
+    /// The state where both clips of the track sit in the launch grid (`looped` in
+    /// `scene_a`, `straight` in `scene_b`), so that they can be sent to the arrangement.
+    pub fn grid_state(&self) -> State {
+        let mut state = self.state.clone();
+        let track = track_mut(&mut state, &self.track);
+        track.clips.get_mut(&self.looped).unwrap().slot = Some(self.scene_a.clone());
+        track.clips.get_mut(&self.straight).unwrap().slot = Some(self.scene_b.clone());
+        state.project.validate().expect("the grid fixture is valid");
+        state
+    }
 }
 
 pub fn fx() -> ArFx {
@@ -72,6 +88,9 @@ pub fn fx() -> ArFx {
         c: f.placement,
         audio_track: f.audio_track,
         audio_clip: f.audio_clip,
+        scene_a: f.scene_a,
+        scene_b: f.scene_b,
+        scene_free: f.scene_free,
     }
 }
 
@@ -150,6 +169,28 @@ pub fn examples() -> Vec<(Command, State)> {
             by: Some(Tick(7000)),
         }),
     ];
+    // From the launch grid: an independent copy, a linked placement, one over what is
+    // there, and a whole scene both ways.
+    let grid = f.grid_state();
+    let from_grid = |command: arrangement::Command| (a(command), grid.clone());
+    for (clip, start, linked) in [
+        (&f.looped, 11520, false),
+        (&f.looped, 11520, true),
+        (&f.looped, 1000, false),
+    ] {
+        all.push(from_grid(arrangement::Command::PlaceFromSlot {
+            clip: clip.clone(),
+            start: Tick(start),
+            linked,
+        }));
+    }
+    for (scene, linked) in [(&f.scene_a, false), (&f.scene_b, true)] {
+        all.push(from_grid(arrangement::Command::PlaceScene {
+            scene: scene.clone(),
+            start: Tick(7000),
+            linked,
+        }));
+    }
     // The inverse of an edit that creates a clip, and of one that carves: the restores.
     for command in [
         arrangement::Command::Duplicate {
