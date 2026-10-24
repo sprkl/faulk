@@ -64,11 +64,19 @@ export interface FeedbackReport {
   master: Meter
   /** The launch grid's cells that are not idle. */
   clips: ActiveClip[]
+  /**
+   * The track slots the launch grid holds without a clip playing (after a stop, or when the clip
+   * ended): their arrangement is silent until `launch.back_to_arrangement`. A track that plays a
+   * clip is held too, and shows it in `clips`.
+   */
+  held: number[]
 }
 
 const TRANSPORT: TransportState[] = ['stopped', 'playing', 'recording']
 /** Indexed by the wire value; 0 and values above 4 are unknown. */
 const CLIP_STATES: (ClipState | undefined)[] = [undefined, 'queued', 'playing', 'stopping', 'armed']
+/** The wire value of a track the grid holds with no clip to show: it is in `held`, in no cell. */
+const HELD_STATE = 5
 
 function meterAt(view: DataView, at: number): Meter {
   return {
@@ -100,8 +108,13 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
   const clipsAt = FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES
   if (count > 2 * tracks || clipsAt + count * ACTIVE_CLIP_BYTES > len) return null
   const clips: ActiveClip[] = []
+  const held: number[] = []
   for (let i = 0; i < count; i++) {
     const at = clipsAt + i * ACTIVE_CLIP_BYTES
+    if (view.getUint8(at + 6) === HELD_STATE) {
+      held.push(view.getUint32(at, true))
+      continue
+    }
     const state = CLIP_STATES[view.getUint8(at + 6)]
     if (state === undefined) return null
     clips.push({ track: view.getUint32(at, true), scene: view.getUint16(at + 4, true), state, anchor: Number(view.getBigInt64(at + 8, true)) })
@@ -123,6 +136,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     tracks: meters,
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),
     clips,
+    held,
   }
 }
 

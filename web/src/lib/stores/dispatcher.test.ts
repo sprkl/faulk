@@ -912,15 +912,34 @@ describe('the project in a folder (SV-2)', () => {
     await session.dispatcher.enterBoost()
     vi.spyOn(session.storage, 'save').mockResolvedValue(true)
     vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'exportPack').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
     const sent = nativeEngine.send.mock.calls.length
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
+    session.dispatcher.run({ type: 'project.export_pack' })
+    session.dispatcher.run({ type: 'project.import_pack' })
     session.dispatcher.run({ type: 'project.new' })
     expect(nativeEngine.send.mock.calls.length).toBe(sent)
     expect(session.storage.save).toHaveBeenCalledTimes(1)
+    expect(session.storage.exportPack).toHaveBeenCalledTimes(1)
+    expect(session.storage.importPack).toHaveBeenCalledTimes(1)
     // A command for the engine still reaches the helper.
     session.dispatcher.run(setParamCommand(firstParam, 0.6))
     expect(nativeEngine.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
+  })
+
+  it('packs the project of the core and unpacks the files of a pack, before audio starts', async () => {
+    const session = newSession()
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    const frame = session.dispatcher.host.save('everything')
+    if (frame?.status !== 'ok') throw new Error('no frame')
+    const files = frame.entries.flatMap((e) => (e.type === 'write' ? [{ path: e.path, bytes: e.bytes }] : []))
+    expect(session.dispatcher.host.projectName()).toBe(session.project.view!.project.name)
+    const packed = await session.dispatcher.host.packExport(files)
+    if (packed.status !== 'ok') throw new Error(packed.message)
+    const unpacked = await session.dispatcher.host.packImport(packed.zip)
+    expect(unpacked.status === 'ok' && unpacked.files.some((f) => f.path === 'project.json')).toBe(true)
   })
 
   it('a copy takes a new identity and the page sees it at once (the lock of the copy is asked for under it)', async () => {
@@ -953,13 +972,52 @@ describe('the project in a folder (SV-2)', () => {
     await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
     const save = vi.spyOn(session.storage, 'save').mockResolvedValue(true)
     const saveAs = vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
+    const exportPack = vi.spyOn(session.storage, 'exportPack').mockResolvedValue(true)
+    const importPack = vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
+    session.dispatcher.run({ type: 'project.export_pack' })
+    session.dispatcher.run({ type: 'project.import_pack' })
     expect(save).toHaveBeenCalledTimes(1)
     expect(saveAs).toHaveBeenCalledTimes(1)
+    expect(exportPack).toHaveBeenCalledTimes(1)
+    expect(importPack).toHaveBeenCalledTimes(1)
     const name = session.project.view!.project.name
     session.dispatcher.run({ type: 'project.rename', name: 'Not applied' })
     expect(session.project.view!.project.name).toBe(name)
+  })
+
+  it('the export is a command of the page: it opens the dialog with its settings, even without an engine, and never reaches the helper', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    // A core without an engine: a project opened before audio starts.
+    await session.dispatcher.openProject('song', readFolder(SONG_FOLDER))
+    session.dispatcher.run({ type: 'project.export_audio', bit_depth: 'pcm16', sample_rate: 44100 })
+    expect(session.audioExport.open).toBe(true)
+    expect(session.audioExport.choices).toMatchObject({ bitDepth: 'pcm16', sampleRate: 44_100, region: 'song' })
+    session.audioExport.close()
+    // In Boost the helper is not sent it.
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run({ type: 'project.export_audio' })
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.audioExport.open).toBe(true)
+  })
+
+  it('knows what an export can render: a clip in the arrangement, a loop region', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.audioExport.hasContent).toBe(false)
+    expect(session.audioExport.hasLoop).toBe(false)
+    session.dispatcher.run({ type: 'clip.create', track: SINGLE_SYNTH.track, at: { at: 'arrangement', start: 0 } })
+    session.dispatcher.run({ type: 'transport.set_loop', loop_region: { start: 0, end: 3840 } })
+    expect(session.audioExport.hasContent).toBe(true)
+    expect(session.audioExport.hasLoop).toBe(true)
+    // The core's job for the dialog's settings: ready for the song and for the loop.
+    expect(session.dispatcher.exportHost.job({ region: 'song' })?.status).toBe('ready')
+    expect(session.dispatcher.exportHost.job({ region: 'loop' })?.status).toBe('ready')
   })
 
   it('starts a new project: the default one, its own identity, the history empty, the engine started over', async () => {

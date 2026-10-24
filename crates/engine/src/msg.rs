@@ -47,7 +47,7 @@
 //! | `SceneSetSlot` | `SceneSet`, and the grown scene row of the track |
 //! | `AudioSourceDeclare` | `SourcePut` (AU-3 adds the streaming buffers) |
 //! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `ClipRemove`, `LaneRemove`, `SourceRemove` |
-//! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement` | `Launch(…)` |
+//! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement`, `BackTrackToArrangement` | `Launch(…)` |
 //! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
 //! | `NoteOn`, `NoteOff`, `AllNotesOff` | a [`LiveEvent`] on the live queue, never `prepare` |
 //!
@@ -573,6 +573,10 @@ pub enum ControlMsg {
     StopAll,
     /// Every track plays its arrangement again (AR-2).
     BackToArrangement,
+    /// One track plays its arrangement again; the others are left alone (AR-2).
+    BackTrackToArrangement {
+        track: TrackSlot,
+    },
     // transport
     Play {
         from: Tick,
@@ -637,6 +641,7 @@ pub enum Tag {
     StopTrack = 73,
     StopAll = 74,
     BackToArrangement = 75,
+    BackTrackToArrangement = 76,
     Play = 80,
     Stop = 81,
     Seek = 82,
@@ -649,7 +654,7 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 37] = [
+    pub const ALL: [Tag; 38] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -679,6 +684,7 @@ impl Tag {
         Tag::StopTrack,
         Tag::StopAll,
         Tag::BackToArrangement,
+        Tag::BackTrackToArrangement,
         Tag::Play,
         Tag::Stop,
         Tag::Seek,
@@ -734,6 +740,7 @@ impl ControlMsg {
             ControlMsg::StopTrack { .. } => Tag::StopTrack,
             ControlMsg::StopAll => Tag::StopAll,
             ControlMsg::BackToArrangement => Tag::BackToArrangement,
+            ControlMsg::BackTrackToArrangement { .. } => Tag::BackTrackToArrangement,
             ControlMsg::Play { .. } => Tag::Play,
             ControlMsg::Stop => Tag::Stop,
             ControlMsg::Seek { .. } => Tag::Seek,
@@ -798,6 +805,7 @@ impl ControlMsg {
             | ControlMsg::TrackArm { track: t, .. }
             | ControlMsg::TrackSetMonitor { track: t, .. }
             | ControlMsg::StopTrack { track: t }
+            | ControlMsg::BackTrackToArrangement { track: t }
             | ControlMsg::NoteOn { track: t, .. }
             | ControlMsg::NoteOff { track: t, .. }
             | ControlMsg::AllNotesOff { track: t } => track(t),
@@ -1341,6 +1349,7 @@ pub enum LaunchMsg {
     StopTrack { track: TrackSlot },
     StopAll,
     BackToArrangement,
+    BackTrackToArrangement { track: TrackSlot },
 }
 
 /// What `prepare` hands to `apply`: a Rust value moved through the ring, never serialized.
@@ -1508,7 +1517,13 @@ pub enum ClipState {
     /// A launch is armed: the transport is stopped, the clip starts at the first
     /// boundary once it plays.
     Armed = 4,
+    /// The grid holds the track without a clip playing (after a stop, or when the clip ended):
+    /// the arrangement is silent until `BackToArrangement`. Its `scene` is [`HELD_SCENE`].
+    Held = 5,
 }
+
+/// The `scene` of a [`ClipState::Held`] entry: no cell.
+pub const HELD_SCENE: SceneSlot = SceneSlot(u16::MAX);
 
 impl ClipState {
     /// The state of a wire byte (`None` for a value this build does not know).
@@ -1518,12 +1533,13 @@ impl ClipState {
             2 => Some(ClipState::Playing),
             3 => Some(ClipState::Stopping),
             4 => Some(ClipState::Armed),
+            5 => Some(ClipState::Held),
             _ => None,
         }
     }
 }
 
-/// A grid slot that is queued, playing or stopping.
+/// A grid slot that is queued, playing or stopping, or a track the grid holds ([`ClipState::Held`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct ActiveClip {
@@ -1582,7 +1598,7 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///     32    4 rejected (u32, cumulative: unknown tags, stale epochs, bad chunks)
 ///     36    4 disk_underruns (u32, cumulative, AU-3)
 ///     40    4 tracks (u32)
-///     44    4 active_clips (u32, at most 2 per track: one playing, one queued)
+///     44    4 active_clips (u32, at most 2 per track: one playing or, with none to show, one held by the grid ([`ClipState::Held`]); one queued)
 ///     48    4 recorded (u32, notes recorded since the last report, drained)
 ///     52    4 voices (u32, MO-5: the most voices sounding in the tracks' devices during the
 ///             period, `Device::voices` summed over the tracks, `crate::host`)

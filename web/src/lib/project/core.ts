@@ -5,6 +5,7 @@
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
 import type {
   Command,
+  ExportReport,
   ProjectEvent,
   ProjectView,
   RunReport,
@@ -24,11 +25,23 @@ interface CoreExports {
   pw_setup(core: number): number
   pw_snapshot(core: number): number
   pw_project(core: number): number
+  pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
   pw_dirty(core: number): number
+  pw_project_dirty(core: number): number
+  pw_pack_export(len: number): number
+  pw_pack_import(len: number): number
 }
+
+/** A `.faulkpack` made by `ProjectCore.packExport`. */
+export type PackExport =
+  | { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number }
+  | { status: 'failed'; message: string }
+
+/** The files of a `.faulkpack` read by `ProjectCore.packImport`, in the order of a save frame. */
+export type PackImport = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string }
 
 /** Which project a new core starts with. */
 export type CoreKind = 'empty' | 'single_synth'
@@ -184,6 +197,20 @@ export class CoreError extends Error {
   }
 }
 
+/** The settings of an export (`project.export_audio`'s fields; the core fills in the defaults). */
+export interface ExportRequest {
+  region?: 'song' | 'loop' | 'bars'
+  bit_depth?: 'pcm16' | 'pcm24' | 'float32'
+  sample_rate?: number
+  from_bar?: number
+  to_bar?: number
+}
+
+/** An export the core prepared: its plan and the two streams of the engine that renders it. */
+export type ExportJob =
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; stop: Uint8Array }
+  | Exclude<ExportReport, { status: 'ready' }>
+
 /** What running a command means for the engine. */
 export type EngineStep =
   /** Bytes to push (possibly empty). */
@@ -296,6 +323,19 @@ export class ProjectCore {
   }
 
   /**
+   * Prepares the render of `project.export_audio` for `request` (`crates/commands/src/export.rs`):
+   * the plan, and the streams for an engine of its own. Changes nothing in the project nor in the
+   * stream of the engine that plays it.
+   */
+  exportJob(request: ExportRequest): ExportJob {
+    const len = this.input(JSON.stringify(request))
+    const report = this.output<ExportReport>('export_job', this.exports.pw_export_job(this.live(), len))
+    if (report.status !== 'ready') return report
+    const bytes = this.engine()
+    return { status: 'ready', plan: report.plan, setup: bytes.slice(0, report.setup_len), stop: bytes.slice(report.setup_len) }
+  }
+
+  /**
    * Stages a project folder under `name` for the next `project.open` that names it. Throws a
    * `CoreError` when the entries are not a valid folder (a bad path, too big): nothing is staged.
    */
@@ -332,6 +372,60 @@ export class ProjectCore {
   dirty(): boolean {
     const code = this.exports.pw_dirty(this.live())
     if (code < 0) throw new CoreError('dirty', code)
+    return code === 1
+  }
+
+  /** Puts `bytes` in the core's inbox; the stateless pack calls read it from there. */
+  private inbox(bytes: Uint8Array): void {
+    const at = this.exports.pw_inbox(bytes.length)
+    if (!at) throw new CoreError('inbox', 0)
+    new Uint8Array(this.exports.memory.buffer, at, bytes.length).set(bytes)
+  }
+
+  /** The `len` bytes the last pack call left, copied out of the core's memory. */
+  private packOut(call: string, len: number): Uint8Array {
+    if (len < 0) throw new CoreError(call, len)
+    return new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len).slice()
+  }
+
+  /**
+   * The `.faulkpack` of a project folder given whole (every file with its bytes: `project.json`,
+   * the tracks, the blobs): `project::file::export_pack` in the core, so the archive is the one every
+   * host reads. A folder that is not a valid project is `failed`, with the reason. Throws a
+   * `CoreError` when the folder cannot be carried into the core at all (too big).
+   */
+  packExport(files: { path: string; bytes: Uint8Array }[]): PackExport {
+    const frame = folderFrame('pack', files)
+    this.inbox(frame)
+    const out = this.packOut('pack_export', this.exports.pw_pack_export(frame.length))
+    if (out[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+    const view = new DataView(out.buffer, out.byteOffset, out.byteLength)
+    return { status: 'ok', files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true), zip: out.subarray(9) }
+  }
+
+  /**
+   * The files of a `.faulkpack`, validated as a project folder by the strict import of the format (only
+   * the format's paths, every blob checked against its name, size limits). A pack that does not pass is
+   * `failed`, with the reason, and nothing was kept.
+   */
+  packImport(zip: Uint8Array): PackImport {
+    this.inbox(zip)
+    const out = this.packOut('pack_import', this.exports.pw_pack_import(zip.length))
+    if (out[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+    const frame = parseSaveFrame(out)
+    if (frame.status !== 'ok') return { status: 'failed', message: frame.message }
+    const files = frame.entries.flatMap((entry) => (entry.type === 'write' ? [{ path: entry.path, bytes: entry.bytes }] : []))
+    return { status: 'ok', files }
+  }
+
+  /**
+   * Whether the project itself, not only its session (selection, solo, arming, MIDI input), has
+   * changes the folder does not hold: a page only opened has selected its first track and has
+   * nothing worth a home.
+   */
+  projectDirty(): boolean {
+    const code = this.exports.pw_project_dirty(this.live())
+    if (code < 0) throw new CoreError('project_dirty', code)
     return code === 1
   }
 

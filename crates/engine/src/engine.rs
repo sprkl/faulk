@@ -1161,6 +1161,10 @@ impl Preparer {
             }
             ControlMsg::StopAll => RtMsg::Launch(LaunchMsg::StopAll),
             ControlMsg::BackToArrangement => RtMsg::Launch(LaunchMsg::BackToArrangement),
+            ControlMsg::BackTrackToArrangement { track } => {
+                self.existing_track(track)?;
+                RtMsg::Launch(LaunchMsg::BackTrackToArrangement { track })
+            }
             ControlMsg::Play { from } => RtMsg::Transport(TransportMsg::Play { from }),
             ControlMsg::Stop => RtMsg::Transport(TransportMsg::Stop),
             ControlMsg::Seek { tick } => RtMsg::Transport(TransportMsg::Seek { tick }),
@@ -2055,6 +2059,10 @@ impl Engine {
                     LaunchMsg::Scene { scene } => launcher::launch_scene(state, scene),
                     LaunchMsg::StopAll => launcher::stop_all(state),
                     LaunchMsg::BackToArrangement => launcher::back_to_arrangement(state),
+                    LaunchMsg::BackTrackToArrangement { track } => match state.track_mut(track) {
+                        Some(t) => launcher::back_track(t),
+                        None => skipped = true,
+                    },
                 }
                 None
             }

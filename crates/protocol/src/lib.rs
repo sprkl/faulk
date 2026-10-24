@@ -9,7 +9,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
+
+// Version 5 (#314): the feedback reports a track the launch grid holds without a clip as
+// `ClipState::Held` (wire value 5), and the commands gain `launch.back_track_to_arrangement`.
 
 // Version 4 (#293): the feedback layout is version 3: each active clip carries the tick of its
 // position 0 (`anchor`, 16 bytes per cell instead of 8), so that the page places a playhead
@@ -140,6 +143,7 @@ pub fn schema_bundle() -> serde_json::Value {
             "run_report": schemars::schema_for!(commands::host::RunReport),
             "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
             "project_view": schemars::schema_for!(commands::host::ProjectView),
+            "export_report": schemars::schema_for!(commands::host::ExportReport),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.

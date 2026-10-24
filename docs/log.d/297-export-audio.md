@@ -1,0 +1,2 @@
+2026-10-24
+* **Update** (#297): export of the song as a WAV file. The command `project.export_audio` (song or loop region, 16/24-bit PCM or 32-bit float, 44.1/48/96 kHz), the offline render `engine::offline` (same engine, tail until -90 dBFS, 30 s cap), its WASM exports and its Worker in the page, the Project menu entry and its dialog with progress and cancel. `docs/specs/02-decoupage-mvp.md` (implementation notes) and `docs/agents/verification.md` (the checks) updated.

@@ -7,6 +7,8 @@
 import { getContext, setContext } from 'svelte'
 import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
+import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
+import { browserExportDeps } from '../export/browser'
 import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { Dispatcher } from './dispatcher'
@@ -27,15 +29,24 @@ export interface Stores {
   dispatcher: Dispatcher
   /** The project's folder: saved, saving or not, and the dialogs of opening and saving. */
   storage: ProjectStorage
+  /** Exporting the song as a WAV file (#297): the dialog and the render. */
+  audioExport: AudioExport
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
-export function createStores(view: MainViewId, panel: PanelViewId, deps: StorageDeps = browserDeps): Stores {
+export function createStores(
+  view: MainViewId,
+  panel: PanelViewId,
+  deps: StorageDeps = browserDeps,
+  exportDeps: ExportDeps = browserExportDeps,
+): Stores {
   const project = new ProjectStore()
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)
   const storage = new ProjectStorage(dispatcher.host, deps)
   dispatcher.storage = storage
+  const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
+  dispatcher.audioExport = audioExport
   // Dev server only: lets the browser checks send a command through the one entry point
   // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
   // the project back (the ids of what they made, for the next command).
@@ -53,7 +64,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
         ),
     })
   }
-  return { project, engine, ui: new UiStore(view, panel), dispatcher, storage }
+  return { project, engine, ui: new UiStore(view, panel), dispatcher, storage, audioExport }
 }
 
 const KEY = Symbol('faulk.stores')

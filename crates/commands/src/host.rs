@@ -38,6 +38,22 @@ pub enum RunReport {
     Invalid { message: String },
 }
 
+/// What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
+/// engine bytes returned beside it (the setup stream, then the stream that stops the
+/// transport, `setup_len` bytes then the rest).
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ExportReport {
+    Ready {
+        plan: crate::export::ExportPlan,
+        setup_len: u32,
+    },
+    /// The project cannot be exported as asked (nothing to render, no loop region...).
+    Refused { error: CommandError },
+    /// The messages did not encode (`MsgError` code).
+    Failed { stream_error: i32 },
+}
+
 /// What encoding a snapshot for the engine did: the bytes are returned beside it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]

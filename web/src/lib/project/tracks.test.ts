@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Device, Track } from '../generated/protocol'
 import {
+  copyName,
   formatGain,
   formatPan,
   INSTRUMENTS,
@@ -61,6 +62,38 @@ describe('the track list', () => {
     expect(nextColor(TRACK_COLORS.length)).toBe(TRACK_COLORS[0])
     expect(nextColor(TRACK_COLORS.length + 1)).toBe(TRACK_COLORS[1])
     for (const color of TRACK_COLORS) expect(color).toMatch(/^#[0-9a-f]{6}$/)
+  })
+})
+
+describe('the name of a duplicate', () => {
+  it('takes the first free number from 2, swapping a trailing number', () => {
+    expect(copyName('Synth', ['Synth'])).toBe('Synth 2')
+    expect(copyName('Synth', ['Synth', 'Synth 2'])).toBe('Synth 3')
+    expect(copyName('Synth 2', ['Synth', 'Synth 2'])).toBe('Synth 3')
+    expect(copyName('Synth', ['Synth', 'Synth 3'])).toBe('Synth 2')
+    expect(copyName('Piste 4', ['Piste 4'])).toBe('Piste 5')
+    expect(copyName('TR 808', ['TR 808'])).toBe('TR 808 2')
+    expect(copyName('TR 808', ['TR 808', 'TR 808 2'])).toBe('TR 808 3')
+    expect(copyName('Juno 106', ['Juno 106'])).toBe('Juno 106 2')
+    expect(copyName('Synth 2', ['Synth 2', 'Synth 3'])).toBe('Synth 4')
+  })
+
+  it('never goes past the 200 characters a name may have, and keeps a name that is only a number', () => {
+    const long = 'é'.repeat(200)
+    expect([...copyName(long, [long])].length).toBeLessThanOrEqual(200)
+    expect(copyName('7', ['7'])).toBe('7 2')
+    const first = copyName(long, [long])
+    const second = copyName(long, [long, first])
+    expect(second).not.toBe(first)
+    expect([...second].length).toBeLessThanOrEqual(200)
+  })
+})
+
+describe('the name of a duplicate of an unnamed track', () => {
+  it('is free among the names once the copy has shifted the default ones', () => {
+    // [Synth, unnamed, unnamed] duplicating the second: the third becomes "Track 4" under the copy.
+    expect(copyName('Track 2', ['Synth', 'Track 2', 'Track 4'])).toBe('Track 3')
+    expect(copyName('Track 2', ['Synth', 'Track 2', 'Track 3', 'Track 4'])).toBe('Track 5')
   })
 })
 

@@ -6,11 +6,19 @@
 // This controller decides *when*, in what order, and what to tell the user. Every operation that
 // changes which folder the project is in, or writes it, goes through one queue, so a save never
 // overlaps `project.new`, an opening or a save as.
+//
+// SV-3 adds the browser's own storage (the OPFS): a project with no folder is kept there as a
+// draft, written as often as a folder would be and offered again when the page reopens; where the
+// browser has no folder to offer (Firefox, Safari) it is the project's normal home. A project in
+// the OPFS is "browser" in this file, a project in a folder the user chose is "folder".
 import type { MessageKey } from '../i18n'
-import type { FolderEntry, SaveFrame, SaveMode } from '../project/core'
+import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
+import type { PackExport, PackImport } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
   StoreError,
+  type BrowserProject,
+  type BrowserProjects,
   type FolderHandle,
   type FolderPicker,
   type ProjectStore,
@@ -32,6 +40,8 @@ const EXTERNAL_DELAY_MS = 400
 export interface ProjectHost {
   /** Whether the project has changes its folder does not hold; `null` while there is no core yet. */
   dirty(): boolean | null
+  /** Whether the project itself, not only its session (selection, solo...), has changes its folder does not hold. */
+  projectDirty(): boolean | null
   /** The writes for the folder (see `ProjectCore.save`); `null` while there is no core. */
   save(mode: SaveMode): SaveFrame | null
   /** The folder holds what the last `save` gave, or does not. */
@@ -42,6 +52,12 @@ export interface ProjectHost {
   newProject(): Promise<boolean>
   /** The identity of the project now. */
   projectId(): string | null
+  /** The name of the project now (for the file an export hands over). */
+  projectName(): string | null
+  /** The `.faulkpack` of a project folder given whole (see `ProjectCore.packExport`). */
+  packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport>
+  /** The files of a `.faulkpack`, validated (see `ProjectCore.packImport`). */
+  packImport(zip: Uint8Array): Promise<PackImport>
 }
 
 /** The browser calls the controller makes, so tests run it without a dialog, a Worker or a clock. */
@@ -56,10 +72,27 @@ export interface StorageDeps {
   /** Calls back when the folder may have changed; returns what stops watching. */
   watch(handle: FolderHandle, onChange: () => void): () => void
   now(): number
+  /** The browser's own storage (the OPFS), where drafts and browser projects live. */
+  browser: BrowserProjects
+  /** Asks the user for a `.faulkpack` (a file chooser; call straight from a click); `null` when cancelled. */
+  pickPack(): Promise<File | null>
+  /** Hands a file to the user (a download). */
+  download(name: string, blob: Blob): void
 }
 
+/** The biggest `.faulkpack` the page reads: the core holds the pack and its files in memory (`crates/project-wasm` `pack.rs`). */
+export const MAX_PACK_BYTES = 192 << 20
+
 /** What stands between the user and a write: the interface shows a banner for each. */
-export type Block = 'permission' | 'error' | 'external'
+export type Block =
+  | 'permission'
+  | 'error'
+  | 'external'
+  /** The browser's storage is full: the changes stay in the tab until room is made. */
+  | 'full'
+
+/** Where the project is kept. */
+export type Place = 'none' | 'folder' | 'browser'
 
 /** What the top bar shows. */
 export type SaveStatus =
@@ -76,7 +109,7 @@ export type SaveStatus =
   | 'conflict'
 
 /** Which action a confirmation guards. */
-export type Discard = 'new' | 'open'
+export type Discard = 'new' | 'open' | 'delete'
 
 interface Attached {
   handle: FolderHandle
@@ -85,7 +118,15 @@ interface Attached {
   /** The stamps the folder should have if only we wrote it. */
   expected: Signature
   stopWatching: () => void
+  /** For a browser project, the lock on its directory (see `dirLock`). */
+  releaseDir: (() => void) | null
+  kind: 'folder' | 'browser'
+  /** For a browser project, its directory in the OPFS. */
+  dir: string | null
 }
+
+/** The lock that says a tab is making or using the OPFS directory `dir`: another tab's sweep leaves it alone. */
+const dirLock = (dir: string) => `dir.${dir}`
 
 /**
  * How long to wait after the last change, given what the last write cost the main thread
@@ -96,9 +137,9 @@ export function autosaveDelay(coreMs: number): number {
 }
 
 /** The identity in a folder's `project.json`, to lock it before the project is replaced. */
-export function projectIdOf(entries: FolderEntry[]): string | null {
+export function projectIdOf(entries: readonly { path: string; bytes?: Uint8Array; size?: number }[]): string | null {
   const file = entries.find((entry) => entry.path === 'project.json')
-  if (!file || !('bytes' in file)) return null
+  if (!file?.bytes) return null
   try {
     const id = (JSON.parse(new TextDecoder().decode(file.bytes)) as { id?: unknown }).id
     return typeof id === 'string' ? id : null
@@ -123,9 +164,20 @@ export class ProjectStorage {
   block = $state<Block | null>(null)
   /** Text of the last failure, for a developer. */
   errorDetail = $state<string | null>(null)
-  /** The project that was open last time, waiting for a click (the browser asks for the permission again). */
-  reopen = $state.raw<{ id: string; name: string } | null>(null)
+  /**
+   * The project that was open last time, waiting for a click: a folder (the browser asks for the
+   * permission again) or a draft in the browser's storage.
+   */
+  reopen = $state.raw<{ id: string; name: string; kind: 'folder' | 'browser' } | null>(null)
   recent = $state.raw<RecentProject[]>([])
+  /** The project is kept in the browser's storage (a draft, or the project itself where there is no folder). */
+  inBrowser = $state(false)
+  /** The projects kept in the browser's storage, newest first (the menu lists them). */
+  browserProjects = $state.raw<BrowserProject[]>([])
+  /** What `navigator.storage.persist()` answered: `null` until asked. */
+  persisted = $state<boolean | null>(null)
+  /** The warning "your projects are in the browser; export them" was read this session. */
+  private browserWarned = $state(false)
   /** Something the user should read: why a folder was not taken, why a save did not happen. */
   notice = $state<MessageKey | null>(null)
   /** A question the interface is asking (New or Open on a project whose changes cannot be kept). */
@@ -152,6 +204,11 @@ export class ProjectStorage {
     private readonly deps: StorageDeps,
   ) {}
 
+  /** The folder the project is saved into, for a file dialog that opens there (the export). */
+  folderHandle(): FolderHandle | null {
+    return this.current?.handle ?? null
+  }
+
   /** Whether this browser can keep a project in a folder at all. */
   get supported(): boolean {
     return this.deps.picker.supported
@@ -166,19 +223,59 @@ export class ProjectStorage {
     if (this.block === 'external') return 'conflict'
     if (this.block === 'permission') return 'paused'
     if (this.saving) return 'saving'
-    if (this.block === 'error') return 'failed'
-    if (!this.folder) return 'unsaved'
+    if (this.block === 'error' || this.block === 'full') return 'failed'
+    if (!this.folder && !this.inBrowser) {
+      // A change waits for its first write into the browser's storage.
+      return this.dirty && this.deps.browser.available ? 'pending' : 'unsaved'
+    }
     return this.dirty ? 'pending' : 'saved'
+  }
+
+  /** Where the project is kept now. */
+  get place(): Place {
+    return this.folder ? 'folder' : this.inBrowser ? 'browser' : 'none'
+  }
+
+  /** Whether this browser keeps projects in its own storage (drafts, or the projects themselves). */
+  get browserAvailable(): boolean {
+    return this.deps.browser.available
+  }
+
+  /**
+   * The warning where the browser's storage is the only home (no folder to choose): "your projects
+   * are in the browser; export them". `volatile` when the browser would not promise to keep it.
+   */
+  get browserWarning(): 'export' | 'volatile' | null {
+    if (this.supported || !this.inBrowser || this.browserWarned) return null
+    return this.persisted === false ? 'volatile' : 'export'
+  }
+
+  dismissBrowserWarning() {
+    this.browserWarned = true
   }
 
   // ------------------------------------------------------------------ changes and autosave
 
   /** The dispatcher calls this after every command and every opening: the project may have changed. */
   changed() {
-    const dirty = this.host.dirty()
-    if (dirty === null) return
+    if (this.host.dirty() === null) return
+    const dirty = this.worthKeeping()
     this.dirty = dirty
-    if (dirty && this.current && this.block !== 'permission' && this.block !== 'external') this.schedule()
+    if (!dirty) return
+    // With no home yet, the first write is the draft in the browser's storage (where there is one).
+    const writable = this.current ? this.block !== 'permission' && this.block !== 'external' : this.deps.browser.available
+    if (writable) this.schedule()
+  }
+
+  /**
+   * Whether the project has changes that deserve a write or a warning. Into a home it has, every
+   * change does (the selection, a solo, are saved with the project). With none, only a change to
+   * the project itself does: a page that was only opened, and selected its first track, has no
+   * draft to make and nothing to lose.
+   */
+  private worthKeeping(): boolean {
+    if (this.current) return this.host.dirty() ?? false
+    return this.host.projectDirty() ?? this.host.dirty() ?? false
   }
 
   private schedule() {
@@ -198,7 +295,7 @@ export class ProjectStorage {
 
   private autosave(): Promise<unknown> {
     this.cancelTimers()
-    return this.enqueue(() => this.write('changed'))
+    return this.enqueue(() => (this.current ? this.write('changed') : this.startBrowserProject()))
   }
 
   /** Runs `task` after everything queued before it, whatever came of that. */
@@ -217,7 +314,8 @@ export class ProjectStorage {
     if (!current) return false
     if (this.block === 'permission' || this.block === 'external') return false
     this.cancelTimers()
-    if ((await this.deps.permission(current.handle)) !== 'granted') {
+    // The browser's own storage is not asked for a permission: it is the page's.
+    if (current.kind === 'folder' && (await this.deps.permission(current.handle)) !== 'granted') {
       this.block = 'permission'
       return false
     }
@@ -303,7 +401,7 @@ export class ProjectStorage {
     if (error instanceof StoreError && error.code === 'permission') {
       this.block = 'permission'
     } else {
-      this.block = 'error'
+      this.block = error instanceof StoreError && error.code === 'full' && current.kind === 'browser' ? 'full' : 'error'
       // A full disk or a locked file may clear by itself: try again later.
       this.retry ??= setTimeout(() => {
         this.retry = null
@@ -315,7 +413,15 @@ export class ProjectStorage {
 
   /** The user asked to save now (the menu, Ctrl+S). A project without a folder asks for one. */
   save(): Promise<boolean> {
-    if (!this.current) return this.saveAs()
+    // Where the browser has no folder to offer, the browser's storage is the home: Save keeps the project there.
+    // Also the banner's "Try again" when the first write into it failed.
+    if (!this.current && this.deps.browser.available && (!this.supported || this.block)) {
+      this.cancelTimers()
+      return this.enqueue(() => this.startBrowserProject(true))
+    }
+    // A draft is not a place to leave a project in: where a folder can be chosen, saving asks for one
+    // (unless a write into the draft failed, and the user is asking to try again).
+    if (!this.current || (this.current.kind === 'browser' && this.supported && !this.block)) return this.saveAs()
     this.cancelTimers()
     // Forced: it looks at the session too, and a user who presses Save wants the folder checked.
     return this.enqueue(() => this.write('forced'))
@@ -349,39 +455,70 @@ export class ProjectStorage {
       return false
     }
     this.notice = null
-    return this.enqueue(() => this.saveInto(picked.handle))
+    return this.enqueue(() => this.saveInto({ kind: 'folder', handle: picked.handle }))
   }
 
-  private async saveInto(handle: FolderHandle): Promise<boolean> {
+  /**
+   * The first write of a project with no home into the browser's storage: the draft (or, where
+   * there is no folder to choose, the project's home). `force` writes a project that has no
+   * change yet (Save, in a browser with no folder).
+   */
+  private async startBrowserProject(force = false): Promise<boolean> {
+    if (this.current || !this.deps.browser.available) return false
+    if (!force && !this.worthKeeping()) return false
+    return this.saveInto({ kind: 'browser' })
+  }
+
+  /**
+   * Writes the whole project into a place that holds nothing yet, and makes it the project's home:
+   * an empty folder the user chose, or a new directory of the browser's storage. From a folder it is a
+   * copy with a new identity; from a project in the browser it is the same project moving (blobs
+   * come along, the lock on its identity is carried over, and the draft is deleted once the folder
+   * holds everything). A failure leaves the project where it was.
+   */
+  private async saveInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
     this.cancelTimers()
+    const from = this.current
+    const promotedFrom = from?.kind === 'browser' && target.kind === 'folder' ? from : null
     let store: ProjectStore | null = null
     let release: (() => void) | null = null
+    let releaseDir: (() => void) | null = null
+    let dir: string | null = null
     let frame: SaveFrame | null = null
+    let handle: FolderHandle
     try {
+      if (target.kind === 'browser') {
+        // The directory's lock is taken before the directory exists, so another tab's sweep of
+        // half-made directories can never see this one as abandoned.
+        dir = crypto.randomUUID()
+        releaseDir = await this.deps.lock(dirLock(dir))
+        handle = await this.deps.browser.create(dir)
+      } else {
+        handle = target.handle
+      }
       store = await this.deps.openStore(handle)
       if (!(await store.isEmpty())) {
         this.notice = 'storage.notEmpty'
-        store.close()
-        return false
+        return await this.abandon(null, store, null, releaseDir, dir)
       }
       const startedComputing = performance.now()
-      frame = this.host.save(this.current ? 'copy' : 'everything')
+      frame = this.host.save(from?.kind === 'folder' ? 'copy' : 'everything')
       const coreMs = performance.now() - startedComputing
-      if (!frame) {
-        store.close()
-        return false
-      }
+      if (!frame) return await this.abandon(null, store, null, releaseDir, dir)
       if (frame.status === 'failed') throw new Error(frame.message)
-      const id = this.host.projectId()
-      release = id ? await this.deps.lock(id) : () => undefined
-      if (!release) {
-        this.notice = 'storage.locked'
-        this.host.saved(false)
-        store.close()
-        return false
+      if (promotedFrom) {
+        // Same project, same identity: its lock moves to the folder instead of being taken twice.
+        release = promotedFrom.release
+      } else {
+        const id = this.host.projectId()
+        release = id ? await this.deps.lock(id) : () => undefined
+        if (!release) {
+          this.notice = 'storage.locked'
+          return await this.abandon(frame, store, null, releaseDir, dir)
+        }
       }
       // Blobs first, like any save: `project.json` is the last file and the commit.
-      if (this.current) await store.copyBlobsFrom(this.current.store)
+      if (from) await store.copyBlobsFrom(from.store)
       // Counted before the store takes the buffers (they are handed to its Worker, not copied).
       const bytes = frame.entries.reduce((n, e) => n + (e.type === 'write' ? e.bytes.length : 0), 0)
       const files = frame.entries.length
@@ -390,15 +527,69 @@ export class ProjectStorage {
       this.lastWrite = { coreMs, writeMs: performance.now() - startedWriting, files, bytes }
       this.host.saved(true)
     } catch (error) {
-      if (frame) this.host.saved(false)
-      release?.()
-      store?.close()
-      this.notice = error instanceof StoreError && error.code === 'permission' ? 'storage.refused' : 'storage.saveFailed'
+      await this.abandon(frame, store, promotedFrom ? null : release, releaseDir, dir)
       if (!(error instanceof StoreError)) console.error(error)
+      if (target.kind === 'browser') {
+        this.failBrowserStart(error)
+        return false
+      }
+      this.notice = error instanceof StoreError && error.code === 'permission' ? 'storage.refused' : 'storage.saveFailed'
       return false
     }
-    await this.attach(handle, store, release, true)
+    const placed = { kind: target.kind, dir, releaseDir }
+    if (promotedFrom) promotedFrom.release = () => undefined
+    await this.attach(handle, store, release, true, placed)
+    // The draft has been taken: the folder holds the project now, so the draft goes.
+    if (promotedFrom?.dir) await this.deps.browser.remove(promotedFrom.dir).catch(() => undefined)
+    if (target.kind === 'browser') this.persistOnce()
+    await this.refreshBrowserProjects()
     return true
+  }
+
+  /** A write into a new place did not happen: gives back what it took, and removes the directory it made. Returns false. */
+  private async abandon(
+    frame: SaveFrame | null,
+    store: ProjectStore | null,
+    release: (() => void) | null,
+    releaseDir: (() => void) | null,
+    dir: string | null,
+  ): Promise<false> {
+    if (frame) this.host.saved(false)
+    release?.()
+    store?.close()
+    if (dir) await this.deps.browser.remove(dir).catch(() => undefined)
+    releaseDir?.()
+    return false
+  }
+
+  /** The first write into the browser's storage failed: said by a banner, tried again later. */
+  private failBrowserStart(error: unknown) {
+    // The storage turned out not to work at all (a private window): the project stays in the tab, as it did before drafts.
+    if (!this.deps.browser.available) return
+    this.dirty = this.host.dirty() ?? true
+    this.errorDetail = error instanceof Error ? error.message : String(error)
+    this.block = error instanceof StoreError && error.code === 'full' ? 'full' : 'error'
+    this.retry ??= setTimeout(() => {
+      this.retry = null
+      void this.autosave()
+    }, RETRY_MS)
+  }
+
+  /** Asks the browser to keep its storage, once. */
+  private persistOnce() {
+    if (this.persisted !== null) return
+    void this.deps.browser.persist().then((kept) => {
+      this.persisted = kept
+    })
+  }
+
+  /** Reads the browser's projects again (the menu lists them). */
+  async refreshBrowserProjects(): Promise<void> {
+    if (!this.deps.browser.available) {
+      this.browserProjects = []
+      return
+    }
+    this.browserProjects = (await this.deps.browser.list()).projects
   }
 
   /** Open: the user picks a project folder. Call straight from a click. */
@@ -425,27 +616,58 @@ export class ProjectStorage {
       return false
     }
     this.reopen = null
-    return this.enqueue(() => this.openHandle(entry.handle, id))
+    return this.enqueue(() => this.openHandle(entry.handle, { forgetIfGone: id }))
   }
 
   /** The banner after a reload: the project that was open comes back with the user's click. */
   reopenLast(): Promise<boolean> {
     const last = this.reopen
-    return last ? this.openRecent(last.id) : Promise.resolve(false)
+    if (!last) return Promise.resolve(false)
+    return last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id)
   }
 
-  private async openHandle(handle: FolderHandle, forgetIfGone?: string): Promise<boolean> {
+  /** Open a project kept in the browser's storage (a draft, or a project of a browser with no folder). */
+  openBrowserProject(dir: string): Promise<boolean> {
+    this.reopen = null
+    return this.enqueue(async () => {
+      const handle = await this.deps.browser.open(dir)
+      if (!handle) {
+        this.notice = 'storage.browserGone'
+        await this.refreshBrowserProjects()
+        return false
+      }
+      const opened = await this.openHandle(handle, { kind: 'browser', dir })
+      if (opened) this.persistOnce()
+      return opened
+    })
+  }
+
+  private async openHandle(
+    handle: FolderHandle,
+    options: { forgetIfGone?: string; kind?: 'folder' | 'browser'; dir?: string } = {},
+  ): Promise<boolean> {
+    const kind = options.kind ?? 'folder'
+    const dir = options.dir ?? null
     // The project that is open already: nothing to open, and its own lock must not refuse it.
-    if (this.current && (await this.current.handle.isSameEntry?.(handle)?.catch(() => false))) return true
+    if (this.current && (kind === 'browser' ? this.current.dir === dir : await this.current.handle.isSameEntry?.(handle)?.catch(() => false))) return true
     if (!(await this.makeRoom('open'))) return false
     let store: ProjectStore | null = null
     let release: (() => void) | null = null
+    let releaseDir: (() => void) | null = null
     try {
+      if (dir) {
+        releaseDir = await this.deps.lock(dirLock(dir))
+        if (!releaseDir) {
+          this.notice = 'storage.locked'
+          return false
+        }
+      }
       store = await this.deps.openStore(handle)
       if (!(await store.hasProject())) {
         this.notice = 'project.open.notAProject'
-        if (forgetIfGone) await this.deps.recent.forget(forgetIfGone)
+        if (options.forgetIfGone) await this.deps.recent.forget(options.forgetIfGone)
         store.close()
+        releaseDir?.()
         return false
       }
       const { entries } = await store.readFolder()
@@ -454,23 +676,26 @@ export class ProjectStorage {
       if (!release) {
         this.notice = 'storage.locked'
         store.close()
+        releaseDir?.()
         return false
       }
       const outcome = await this.host.openProject(handle.name, entries)
       if (outcome.status === 'refused') {
         release()
         store.close()
+        releaseDir?.()
         return false
       }
     } catch (error) {
       release?.()
       store?.close()
+      releaseDir?.()
       this.notice = error instanceof StoreError && error.code === 'permission' ? 'storage.permissionDenied' : 'project.open.unreadable'
       if (!(error instanceof StoreError)) console.error(error)
       return false
     }
     this.notice = null
-    await this.attach(handle, store, release, false)
+    await this.attach(handle, store, release, false, { kind, dir, releaseDir })
     return true
   }
 
@@ -492,15 +717,17 @@ export class ProjectStorage {
    */
   private async makeRoom(action: Discard): Promise<boolean> {
     if (this.current && (this.host.dirty() ?? false)) await this.write('changed')
-    this.dirty = this.host.dirty() ?? false
+    // A change still waiting for its first write into the browser's storage is kept there now, not discarded.
+    else if (!this.current && this.worthKeeping() && this.deps.browser.available) await this.startBrowserProject()
+    this.dirty = this.worthKeeping()
     if (!this.dirty) return true
     return this.ask(action)
   }
 
-  private ask(action: Discard): Promise<boolean> {
+  private ask(action: Discard, name: string | null = this.folder?.name ?? null): Promise<boolean> {
     return new Promise((resolve) => {
       this.answer = resolve
-      this.confirm = { action, name: this.folder?.name ?? null }
+      this.confirm = { action, name }
     })
   }
 
@@ -514,11 +741,27 @@ export class ProjectStorage {
 
   // ------------------------------------------------------------------ the folder the project is in
 
-  private async attach(handle: FolderHandle, store: ProjectStore, release: () => void, wrote: boolean) {
+  private async attach(
+    handle: FolderHandle,
+    store: ProjectStore,
+    release: () => void,
+    wrote: boolean,
+    place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null },
+  ) {
     await this.detach()
-    const current: Attached = { handle, store, release, expected: {}, stopWatching: () => undefined }
+    const current: Attached = {
+      handle,
+      store,
+      release,
+      releaseDir: place.releaseDir,
+      expected: {},
+      stopWatching: () => undefined,
+      kind: place.kind,
+      dir: place.dir,
+    }
     this.current = current
-    this.folder = { name: handle.name }
+    this.folder = place.kind === 'folder' ? { name: handle.name } : null
+    this.inBrowser = place.kind === 'browser'
     this.block = null
     this.errorDetail = null
     this.dirty = this.host.dirty() ?? false
@@ -531,9 +774,13 @@ export class ProjectStorage {
       // The first check will tell.
     }
     if (this.current !== current) return
-    current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
-    await this.deps.recent.remember(handle)
-    this.recent = await this.deps.recent.list()
+    // The browser's own storage has one writer (the lock on the project) and is nobody else's to
+    // edit, and it is not a folder the user would find among their recent ones.
+    if (current.kind === 'folder') {
+      current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
+      await this.deps.recent.remember(handle)
+      this.recent = await this.deps.recent.list()
+    }
     if (this.dirty) this.schedule()
   }
 
@@ -546,11 +793,13 @@ export class ProjectStorage {
     if (!current) return
     current.stopWatching()
     current.release()
+    current.releaseDir?.()
     current.store.close()
   }
 
   private reset() {
     this.folder = null
+    this.inBrowser = false
     this.dirty = false
     this.saving = false
     this.savedAt = null
@@ -565,7 +814,7 @@ export class ProjectStorage {
   async resume(): Promise<boolean> {
     const current = this.current
     if (!current) return false
-    if ((await this.deps.askPermission(current.handle)) !== 'granted') return false
+    if (current.kind === 'folder' && (await this.deps.askPermission(current.handle)) !== 'granted') return false
     if (this.block === 'permission') this.block = null
     return this.autosave().then(() => !this.dirty)
   }
@@ -573,7 +822,7 @@ export class ProjectStorage {
   /** The page became visible or focused: a permission that came back, or a folder edited meanwhile. */
   async wake() {
     const current = this.current
-    if (!current) return
+    if (!current || current.kind === 'browser') return
     if (this.block === 'permission' && (await this.deps.permission(current.handle)) === 'granted') {
       this.block = null
       void this.autosave()
@@ -582,15 +831,17 @@ export class ProjectStorage {
     this.folderMayHaveChanged()
   }
 
-  /** The page is going to the background: write what waits. */
+  /** The page is going to the background: write what waits (a project with no home yet goes to the browser's storage). */
   sleep() {
-    if (this.current && this.dirty && this.block !== 'permission' && this.block !== 'external') void this.autosave()
+    if (this.current ? this.dirty && this.block !== 'permission' && this.block !== 'external' : this.dirty && this.deps.browser.available) {
+      void this.autosave()
+    }
   }
 
   // ------------------------------------------------------------------ the folder is edited from outside
 
   private folderMayHaveChanged() {
-    if (!this.current) return
+    if (!this.current || this.current.kind === 'browser') return
     if (this.saving) {
       this.changedWhileSaving = true
       return
@@ -690,12 +941,232 @@ export class ProjectStorage {
    */
   async restore() {
     this.recent = await this.deps.recent.list()
-    const last = this.recent[0]
-    if (!last || this.current || (this.host.dirty() ?? false)) return
-    if ((await this.deps.permission(last.handle)) === 'granted') {
-      await this.enqueue(() => this.openHandle(last.handle, last.id))
-    } else {
-      this.reopen = { id: last.id, name: last.name }
+    let draft: BrowserProject | null = null
+    if (this.deps.browser.available) {
+      const { projects, incomplete } = await this.deps.browser.list()
+      this.browserProjects = projects
+      await this.sweep(incomplete)
+      draft = await this.firstFree(projects)
     }
+    const last = this.recent[0]
+    if (this.current || this.worthKeeping()) return
+    // The project the musician worked on last wins: a folder is dated by when it was opened or saved
+    // into, a project in the browser by its newest file.
+    if (draft && (!last || draft.modified > last.at)) {
+      // Where the browser has no folder, its storage is the home and the project reopens by itself;
+      // otherwise it is a draft, offered with a click.
+      if (!this.supported) await this.openBrowserProject(draft.dir)
+      else this.reopen = { id: draft.dir, name: draft.name, kind: 'browser' }
+      return
+    }
+    if (!last) return
+    if ((await this.deps.permission(last.handle)) === 'granted') {
+      await this.enqueue(() => this.openHandle(last.handle, { forgetIfGone: last.id }))
+    } else {
+      this.reopen = { id: last.id, name: last.name, kind: 'folder' }
+    }
+  }
+
+  /** The newest of the projects that no other tab has open. */
+  private async firstFree(projects: BrowserProject[]): Promise<BrowserProject | null> {
+    for (const project of projects) {
+      const release = await this.deps.lock(dirLock(project.dir))
+      if (release) {
+        release()
+        return project
+      }
+    }
+    return null
+  }
+
+  /**
+   * Deletes the directories that hold no project and that no tab is making: a tab closed halfway
+   * through a first write or an import left them (and, for an import, perhaps a lot of room). A
+   * directory under way in another tab is locked by it, so it is never mistaken for one left behind.
+   */
+  private async sweep(incomplete: string[]) {
+    for (const dir of incomplete) {
+      const release = await this.deps.lock(dirLock(dir))
+      if (!release) continue
+      try {
+        await this.deps.browser.remove(dir)
+      } catch {
+        // Still there; the next start tries again.
+      } finally {
+        release()
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ the browser's projects
+
+  /** Deletes a project kept in the browser's storage, after asking; never the one that is open. */
+  deleteBrowserProject(dir: string): Promise<boolean> {
+    return this.enqueue(async () => {
+      if (this.current?.dir === dir) {
+        this.notice = 'storage.deleteOpen'
+        return false
+      }
+      // A project that another tab has open is not ours to delete.
+      const release = await this.deps.lock(dirLock(dir))
+      if (!release) {
+        this.notice = 'storage.locked'
+        return false
+      }
+      try {
+        const name = (this.browserProjects.find((p) => p.dir === dir) ?? this.reopen)?.name ?? null
+        if (!(await this.ask('delete', name))) return false
+        await this.deps.browser.remove(dir)
+        if (this.reopen?.kind === 'browser' && this.reopen.id === dir) this.reopen = null
+        return true
+      } catch (error) {
+        this.errorDetail = error instanceof Error ? error.message : String(error)
+        this.notice = 'storage.deleteFailed'
+        return false
+      } finally {
+        release()
+        await this.refreshBrowserProjects()
+      }
+    })
+  }
+
+  // ------------------------------------------------------------------ .faulkpack
+
+  /** Export: hands the project to the user as a `.faulkpack`, as it is now (saved or not). */
+  exportPack(): Promise<boolean> {
+    return this.enqueue(() => this.doExport())
+  }
+
+  private async doExport(): Promise<boolean> {
+    const current = this.current
+    let frame: SaveFrame | null
+    try {
+      frame = this.host.save('everything')
+    } catch (error) {
+      console.error(error)
+      this.notice = 'pack.exportFailed'
+      return false
+    }
+    if (!frame) return false
+    // Only to read the project as it is; the home is not told it holds anything new.
+    this.host.saved(false)
+    if (frame.status === 'failed') {
+      this.errorDetail = frame.message
+      this.notice = 'pack.exportFailed'
+      return false
+    }
+    try {
+      // The media a save does not rewrite come from the home; the frame is what the project is now.
+      const files: Record<string, Uint8Array> = {}
+      if (current) for (const blob of await current.store.readBlobs()) files[blob.path] = blob.bytes
+      for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = entry.bytes
+      const packed = await this.host.packExport(Object.entries(files).map(([path, bytes]) => ({ path, bytes })))
+      if (packed.status === 'failed') {
+        this.errorDetail = packed.message
+        this.notice = 'pack.exportFailed'
+        return false
+      }
+      // A file name: what the systems refuse in one (and control characters) becomes an underscore.
+      const name =
+        [...(this.host.projectName() ?? '')]
+          .map((ch) => (ch.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(ch) ? '_' : ch))
+          .join('')
+          .trim() || 'project'
+      this.deps.download(`${name}.faulkpack`, new Blob([packed.zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
+      this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : null
+      return true
+    } catch (error) {
+      this.errorDetail = error instanceof Error ? error.message : String(error)
+      this.notice = 'pack.exportFailed'
+      return false
+    }
+  }
+
+  /** Import: the user picks a `.faulkpack`; its project is kept in the browser's storage and opened. Call straight from a click. */
+  async importPack(): Promise<boolean> {
+    // A file chooser opens only from a click: an agent that runs the command is told so, instead of waiting for a dialog that never comes.
+    if (typeof navigator !== 'undefined' && navigator.userActivation && !navigator.userActivation.isActive) {
+      this.notice = 'storage.needsClick'
+      return false
+    }
+    const file = await this.deps.pickPack()
+    if (!file) return false
+    return this.enqueue(() => this.importFile(file))
+  }
+
+  private async importFile(file: File): Promise<boolean> {
+    if (file.size > MAX_PACK_BYTES) {
+      this.notice = 'pack.tooBig'
+      return false
+    }
+    // Read and checked before anything is touched: a file that is no pack changes nothing.
+    let unpacked: PackImport
+    try {
+      unpacked = await this.host.packImport(new Uint8Array(await file.arrayBuffer()))
+    } catch (error) {
+      this.errorDetail = error instanceof Error ? error.message : String(error)
+      this.notice = 'pack.invalid'
+      return false
+    }
+    if (unpacked.status === 'failed') {
+      this.errorDetail = unpacked.message
+      this.notice = 'pack.invalid'
+      return false
+    }
+    const files = unpacked.files
+    const id = projectIdOf(files)
+    const name = file.name.replace(/\.faulkpack$/i, '') || 'pack'
+    // The pack keeps its identity, so what it gives back is the project it was made from. A project
+    // of that identity that is already here (open, or kept in the browser) is never overwritten by it.
+    if (id) {
+      const known = this.deps.browser.available ? (await this.deps.browser.list()).projects.some((p) => p.id === id) : false
+      if (known || this.host.projectId() === id) {
+        this.notice = 'pack.alreadyHere'
+        return false
+      }
+    }
+    if (!this.deps.browser.available) return this.openImported(name, files)
+    // Into a directory of the browser's storage first, as a pack is written into an empty folder: the
+    // page's own project is untouched until the pack is whole there, `project.json` last.
+    const dir = crypto.randomUUID()
+    const releaseDir = await this.deps.lock(dirLock(dir))
+    let handle: FolderHandle
+    try {
+      handle = await this.deps.browser.create(dir)
+      const store = await this.deps.openStore(handle)
+      try {
+        const rank = (path: string) => (path.startsWith('blobs/') ? 0 : path === 'project.json' ? 2 : 1)
+        const ordered = [...files].sort((a, b) => rank(a.path) - rank(b.path))
+        await store.apply(ordered.map((f): SaveEntry => ({ type: 'write', path: f.path, bytes: f.bytes })))
+      } finally {
+        store.close()
+      }
+    } catch (error) {
+      await this.deps.browser.remove(dir).catch(() => undefined)
+      releaseDir?.()
+      this.errorDetail = error instanceof Error ? error.message : String(error)
+      this.notice = error instanceof StoreError && error.code === 'full' ? 'storage.browserFull' : 'pack.writeFailed'
+      return false
+    }
+    releaseDir?.()
+    const opened = await this.openHandle(handle, { kind: 'browser', dir })
+    // Declined (the question before replacing a project) or refused: the copy made for it goes.
+    if (!opened) await this.deps.browser.remove(dir).catch(() => undefined)
+    else this.persistOnce()
+    await this.refreshBrowserProjects()
+    return opened
+  }
+
+  /** Where the browser keeps nothing: the pack's project opens in the tab alone. */
+  private async openImported(name: string, files: { path: string; bytes: Uint8Array }[]): Promise<boolean> {
+    if (!(await this.makeRoom('open'))) return false
+    const entries: FolderEntry[] = files.map((f) =>
+      f.path.startsWith('blobs/') && !needsBytes(f.path, f.bytes.subarray(0, 8)) ? { path: f.path, size: f.bytes.length } : { path: f.path, bytes: f.bytes },
+    )
+    const outcome = await this.host.openProject(name, entries)
+    if (outcome.status === 'refused') return false
+    await this.detach()
+    this.reset()
+    return true
   }
 }

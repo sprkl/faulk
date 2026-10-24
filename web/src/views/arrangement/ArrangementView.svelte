@@ -10,10 +10,12 @@
   import type { Command } from '../../lib/generated/protocol'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
-  import { DEFAULT_PX_PER_TICK, DEFAULT_TOTAL_BARS, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
+  import { DEFAULT_PX_PER_TICK, DEFAULT_TOTAL_BARS, SNAP_SETTINGS, clampView, snapStep, snapTick, totalTicksOf, visibleRange, xToTick, zoomAt, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
+  import { offTimeline } from '../../lib/off-timeline'
+  import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
@@ -50,6 +52,8 @@
     | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number }
 
   const entries = $derived(project.tracks)
+  // The tracks the launch grid holds: their timeline is silent until they are given back.
+  const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
@@ -65,6 +69,8 @@
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'default' | 'move' | 'resize'>('default')
+  /** Whether the view follows the play position while the transport runs. A hand scroll ends it; Follow or the next Play restores it. */
+  let follow = $state(true)
 
   const shown = $derived(clampView(view, stageW, totalBars * bar))
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
@@ -129,6 +135,67 @@
     id = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(id)
   })
+
+  // --- following the play position, the scrollbar and the zoom -----------------------------------------
+  const totalTicks = $derived(totalTicksOf(totalBars, signature))
+  /** Share of the window kept before the play position when the view turns the page. */
+  const PAGE_LEAD = 0.05
+  const ZOOM_STEP = 1.25
+
+  /** Brings the play position into the window, as a page: it lands near the left edge. Does nothing while it is visible. */
+  function showPosition() {
+    const tick = shownTick
+    if (tick === null || stageW === 0) return
+    const [from, to] = visibleRange(shown, stageW)
+    if (tick >= from && tick <= to) return
+    view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+  }
+  $effect(() => {
+    void [shownTick, stageW]
+    if (running && follow) untrack(showPosition)
+  })
+  // A new Play follows again.
+  $effect(() => {
+    if (running) untrack(() => (follow = true))
+  })
+  function followAgain() {
+    follow = true
+    showPosition()
+  }
+  const zoomBy = (factor: number) => {
+    view = zoomAt(shown, factor, stageW / 2, stageW, totalTicks)
+  }
+  const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
+  const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
+
+  // The scrollbar is a native one under the grid, so that it is visible and draggable: its width is the whole timeline.
+  let scrollbar: HTMLDivElement | undefined = $state()
+  const SYNC_PX = 1.5
+  $effect(() => {
+    const element = scrollbar
+    if (!element) return
+    const left = shown.scrollTick * shown.pxPerTick
+    if (Math.abs(element.scrollLeft - left) > SYNC_PX) element.scrollLeft = left
+  })
+  function onBarScroll() {
+    const element = scrollbar
+    if (!element) return
+    // The echo of the view's own scroll lands within a pixel of it; anything else is the hand.
+    // (the browser clamps the bar when the timeline shrinks under it: that is not the hand either)
+    const expected = Math.min(shown.scrollTick * shown.pxPerTick, element.scrollWidth - element.clientWidth)
+    if (Math.abs(element.scrollLeft - expected) <= SYNC_PX) return
+    follow = false
+    view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: element.scrollLeft / shown.pxPerTick }, stageW, totalTicks)
+  }
+  /** A scroll by the wheel or the keys, in the grid, is a hand scroll. */
+  function handScroll(event: WheelEvent | KeyboardEvent) {
+    if ('key' in event) {
+      if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) follow = false
+      return
+    }
+    if (event.ctrlKey || event.metaKey) return
+    if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) follow = false
+  }
 
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
@@ -366,6 +433,7 @@
     data-loop={transport?.loop_region ? `${transport.loop_region.start}-${transport.loop_region.end}` : ''}
     data-loop-on={loopOn}
     data-position={position ?? ''}
+    data-follow={follow}
   >
     <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
       <label class="field">
@@ -380,6 +448,11 @@
       <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}>{t('arrangement.duplicate')}</button>
       <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}>{t('arrangement.duplicateLinked')}</button>
       <button disabled={selection.length === 0} data-testid="arr-delete" onclick={removeSelected}>{t('arrangement.delete')}</button>
+      <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
+        <button title={t('arrangement.zoomOut')} aria-label={t('arrangement.zoomOut')} disabled={!canZoomOut} data-testid="arr-zoom-out" onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button>
+        <button title={t('arrangement.zoomIn')} aria-label={t('arrangement.zoomIn')} disabled={!canZoomIn} data-testid="arr-zoom-in" onclick={() => zoomBy(ZOOM_STEP)}>+</button>
+      </span>
+      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}>{t('arrangement.follow')}</button>
       <span class="help" title={t('arrangement.help')}>?</span>
       <span class="count" data-testid="arr-count">{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0} · {t('arrangement.selected', { n: selection.length })}{/if}</span>
     </div>
@@ -388,19 +461,31 @@
       <div class="heads" data-testid="arr-heads">
         <div class="slide" style:transform="translateY({-y0}px)">
           {#each entries as entry (entry.id)}
-            <button
-              class="head"
-              class:on={project.selected?.id === entry.id}
-              style:height="{LANE_HEIGHT}px"
-              style:--swatch={entry.track.color ?? 'var(--fk-text-muted)'}
-              aria-pressed={project.selected?.id === entry.id}
-              aria-label={t('arrangement.lane', { name: trackLabel(entry, t) })}
-              data-testid="arr-track"
-              onclick={() => select(entry.id)}
-            >
-              <span class="swatch"></span>
-              <span class="label">{trackLabel(entry, t)}</span>
-            </button>
+            <div class="row" title={detached.has(entry.id) ? t('arrangement.offTimeline') : undefined} style:height="{LANE_HEIGHT}px" class:off={detached.has(entry.id)} data-detached={detached.has(entry.id) ? 'true' : undefined}>
+              <button
+                class="head"
+                class:on={project.selected?.id === entry.id}
+                style:--swatch={entry.track.color ?? 'var(--fk-text-muted)'}
+                aria-pressed={project.selected?.id === entry.id}
+                aria-label={t('arrangement.lane', { name: trackLabel(entry, t) })}
+                data-testid="arr-track"
+                onclick={() => select(entry.id)}
+              >
+                <span class="swatch"></span>
+                <span class="label">{trackLabel(entry, t)}</span>
+              </button>
+              {#if detached.has(entry.id)}
+                <button
+                  class="back"
+                  title={t('arrangement.backTrackHint', { name: trackLabel(entry, t) })}
+                  aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(entry, t)}
+                  data-testid="arr-back-track"
+                  onclick={() => run(backTrackToArrangement(entry.id))}
+                >
+                  <span aria-hidden="true">↩</span>
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       </div>
@@ -411,6 +496,7 @@
         bind:clientHeight={stageH}
         role="presentation"
         data-testid="arr-stage"
+        id="arr-stage-grid"
         data-scroll-y={y0}
         data-cursor={gesture ? undefined : cursor}
         onpointerdown={onPointerDown}
@@ -420,8 +506,14 @@
         onlostpointercapture={() => gesture && finish(false)}
         ondblclick={onDoubleClick}
         onkeydown={onKeyDown}
+        onkeydowncapture={handScroll}
+        onwheelcapture={handScroll}
       >
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      </div>
+      <div class="corner"></div>
+      <div class="hbar" bind:this={scrollbar} onscroll={onBarScroll} data-testid="arr-scrollbar" role="scrollbar" aria-controls="arr-stage-grid" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax={totalTicks} aria-valuenow={Math.round(shown.scrollTick)} tabindex="0" aria-label={t('arrangement.scroll')}>
+        <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
       </div>
     </div>
   </div>
@@ -489,6 +581,7 @@
   .board {
     display: grid;
     grid-template-columns: var(--head) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     flex: 1;
     min-height: 0;
   }
@@ -501,14 +594,34 @@
   .slide {
     will-change: transform;
   }
+  .row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--fk-line);
+    box-sizing: border-box;
+  }
+  /* A track the grid holds: the lane label is dimmed and a return button sits beside it (never the dimming alone). */
+  .row.off .head {
+    opacity: 0.6;
+  }
+  .back {
+    flex: none;
+    align-self: center;
+    margin-right: var(--fk-space-1);
+    padding: 0 var(--fk-space-1);
+    border-color: var(--fk-accent-fg);
+    color: var(--fk-accent-fg);
+    background: var(--fk-accent-tint);
+  }
   .head {
     display: flex;
     align-items: center;
     gap: var(--fk-space-2);
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
     padding: 0 var(--fk-space-3);
     border: 0;
-    border-bottom: 1px solid var(--fk-line);
     border-radius: 0;
     background: transparent;
     text-align: left;
@@ -528,6 +641,44 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .hbar {
+    overflow-x: scroll;
+    overflow-y: hidden;
+    /* The bar's own thickness (12px, below) and the line above it: the room is kept even where scrollbars overlay. */
+    height: 13px;
+    border-top: 1px solid var(--fk-line);
+  }
+  /* Always a visible bar, whatever the platform's overlay scrollbars do: styling the bar turns the overlay off. */
+  .hbar::-webkit-scrollbar {
+    height: 12px;
+  }
+  .hbar::-webkit-scrollbar-track {
+    background: var(--fk-surface);
+  }
+  .hbar::-webkit-scrollbar-thumb {
+    border: 2px solid var(--fk-surface);
+    border-radius: 6px;
+    background: var(--fk-text-muted);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .hbar {
+      scrollbar-width: auto;
+      scrollbar-color: var(--fk-text-muted) var(--fk-surface);
+    }
+  }
+  .corner {
+    border-right: 1px solid var(--fk-line);
+    background: var(--fk-surface);
+  }
+  .zoom {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .follow[aria-pressed='true'] {
+    border-color: var(--fk-accent-fg);
+    color: var(--fk-accent-fg);
+    background: var(--fk-accent-tint);
   }
   .stage {
     position: relative;

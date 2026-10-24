@@ -47,6 +47,9 @@ describe('the commands of the track headers', () => {
       commands.setVolume(id, null),
       commands.setPan(id, -0.5),
     ]
+    // A second track, so that a move has somewhere to go.
+    run(core, commands.createTrack('midi', 'faulk.drums', '#58c27d'))
+    actions.push(commands.moveTrack(id, 1), commands.duplicateTrack(id, 'Bass 2'))
     for (const action of actions) {
       const before = JSON.stringify(project(core))
       run(core, action)

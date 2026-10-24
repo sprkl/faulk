@@ -18,10 +18,11 @@ use std::cell::RefCell;
 
 use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{ProjectView, RunReport, SnapshotReport};
+use commands::host::{ExportReport, ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
 use project::file::{DirEntry, FileSystem, FsError, MemFs};
 
+mod pack;
 mod save;
 use project::{IdGenerator, Project, ProjectId};
 pub use save::{Mode, Saver};
@@ -108,10 +109,10 @@ impl Core {
             // The folder of the previous project means nothing to this one: `project.open`
             // brings what its own folder holds, `project.new` has none.
             self.saver = Saver::opened(synced.ctx.opened.take());
-        } else if (kind == commands::Kind::Edit && !outcome.events.is_empty())
-            || session.is_some_and(|before| before != synced.state.session)
-        {
+        } else if kind == commands::Kind::Edit && !outcome.events.is_empty() {
             self.saver.edited();
+        } else if session.is_some_and(|before| before != synced.state.session) {
+            self.saver.session_edited();
         }
         let report = RunReport::Applied {
             output: outcome.output,
@@ -148,6 +149,70 @@ impl Core {
             ),
             Err(error) => (
                 SnapshotReport::Failed {
+                    stream_error: error.code(),
+                },
+                Vec::new(),
+            ),
+        }
+    }
+
+    /// Prepares the render of `project.export_audio` for these settings (the command's
+    /// JSON, or just its fields): the report, and the setup and stop streams of an engine
+    /// of its own, one after the other. Changes nothing in the project nor in the page's
+    /// engine stream.
+    pub fn export_job(&self, json: &[u8]) -> (ExportReport, Vec<u8>) {
+        use commands::export::{ExportBitDepth, ExportError, ExportRegion, ExportSettings, job};
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            #[serde(default)]
+            region: Option<ExportRegion>,
+            #[serde(default)]
+            bit_depth: Option<ExportBitDepth>,
+            #[serde(default)]
+            sample_rate: Option<u32>,
+            #[serde(default)]
+            from_bar: Option<u32>,
+            #[serde(default)]
+            to_bar: Option<u32>,
+        }
+        let refused = |error| (ExportReport::Refused { error }, Vec::new());
+        let request = match serde_json::from_slice::<Request>(json) {
+            Ok(request) => request,
+            Err(error) => {
+                return refused(commands::CommandError::Invalid {
+                    field: "export".into(),
+                    message: error.to_string(),
+                });
+            }
+        };
+        let settings = match ExportSettings::of(
+            request.region,
+            request.bit_depth,
+            request.sample_rate,
+            request.from_bar,
+            request.to_bar,
+        ) {
+            Ok(settings) => settings,
+            Err(error) => return refused(error),
+        };
+        let state = &self.synced.state;
+        match job(&state.project, &state.session, settings) {
+            Ok(job) => {
+                let setup_len = job.setup.len() as u32;
+                let mut bytes = job.setup;
+                bytes.extend(job.stop);
+                (
+                    ExportReport::Ready {
+                        plan: job.plan,
+                        setup_len,
+                    },
+                    bytes,
+                )
+            }
+            Err(ExportError::Refused(error)) => refused(error),
+            Err(ExportError::Stream(error)) => (
+                ExportReport::Failed {
                     stream_error: error.code(),
                 },
                 Vec::new(),
@@ -195,6 +260,11 @@ impl Core {
     /// Whether the project has changes the folder does not hold.
     pub fn dirty(&self) -> bool {
         self.saver.dirty()
+    }
+
+    /// Whether the project itself, not only its session, has changes the folder does not hold.
+    pub fn project_dirty(&self) -> bool {
+        self.saver.project_dirty()
     }
 
     /// The engine stream's epoch.
@@ -506,6 +576,22 @@ pub unsafe extern "C" fn pw_snapshot(core: *mut Core) -> i32 {
     }
 }
 
+/// [`Core::export_job`] for the JSON in the first `len` bytes of the inbox: an
+/// [`ExportReport`] at [`pw_out`], the engine bytes at [`pw_engine`].
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_export_job(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            let (report, bytes) = with_inbox(len, |json| core.export_job(json));
+            publish(&report, bytes)
+        })
+    }
+}
+
 /// [`Core::view`]: a [`ProjectView`].
 ///
 /// # Safety
@@ -559,6 +645,34 @@ pub unsafe extern "C" fn pw_save(core: *mut Core, mode: u32) -> i32 {
     }
 }
 
+/// Publishes the bytes of a pack call at [`pw_out`] and gives the inbox's memory back (a
+/// pack can be large and the inbox only grows). The length returned, or [`ERR_SERIALIZE`]
+/// when it does not fit the return type.
+fn publish_pack(bytes: Vec<u8>) -> i32 {
+    ENGINE.with_borrow_mut(Vec::clear);
+    INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+    let Ok(len) = i32::try_from(bytes.len()) else {
+        OUT.with_borrow_mut(Vec::clear);
+        return ERR_SERIALIZE;
+    };
+    OUT.with_borrow_mut(|out| *out = bytes);
+    len
+}
+
+/// The `.faulkpack` of the folder frame in the first `len` bytes of the inbox (see [`pack`]):
+/// the answer at [`pw_out`], its length returned.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_pack_export(len: u32) -> i32 {
+    publish_pack(with_inbox(len, pack::export))
+}
+
+/// The files of the `.faulkpack` in the first `len` bytes of the inbox, validated as a project
+/// folder (see [`pack`]): the answer at [`pw_out`], its length returned.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_pack_import(len: u32) -> i32 {
+    publish_pack(with_inbox(len, pack::import))
+}
+
 /// [`Core::saved`]: `applied` is 1 when the page wrote every entry of the last frame.
 ///
 /// # Safety
@@ -572,6 +686,17 @@ pub unsafe extern "C" fn pw_saved(core: *mut Core, applied: u32) -> i32 {
             0
         })
     }
+}
+
+/// [`Core::project_dirty`]: 1 when the project itself (not only its session) has changes the
+/// folder does not hold, else 0.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_project_dirty(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| i32::from(core.project_dirty())) }
 }
 
 /// [`Core::dirty`]: 1 when the project has changes the folder does not hold, else 0.

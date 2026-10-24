@@ -19,6 +19,8 @@ type Hooks = {
 
 async function simulatePicker(page: Page, name: string) {
   await page.addInitScript((folder) => {
+    // The cost measured is that of a folder; a draft in the browser's storage would write the project first.
+    ;(window as unknown as { __faulkNoBrowserStorage: boolean }).__faulkNoBrowserStorage = true
     ;(window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () =>
       (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true })
   }, name)

@@ -16,6 +16,14 @@ export function sortedTracks(project: Pick<Project, 'tracks'>): TrackEntry[] {
   return ids.map((id, index) => ({ id, track: project.tracks[id]!, index }))
 }
 
+/** What a drag of a header's grip tells the track list (the list owns the drag state, the header draws it). */
+export interface DragHooks {
+  start: (id: string) => void
+  over: (id: string) => void
+  drop: (id: string) => void
+  end: () => void
+}
+
 /** The kind of the built-in device a track's instrument is, or null (an audio track's clip player is no instrument). */
 export function instrumentKind(track: Track): string | null {
   for (const device of Object.values(track.devices)) {
@@ -71,6 +79,24 @@ export function formatGain(gainDb: number | null | undefined): string {
 export function formatPan(pan: number): string {
   const percent = Math.round(Math.abs(pan) * 100)
   return percent === 0 ? 'C' : `${pan < 0 ? 'L' : 'R'}${percent}`
+}
+
+/**
+ * The name of a duplicate: when the name ends with a space and a number of one or two digits, the first
+ * free number after it on the same base ("Synth 2" gives "Synth 3"); otherwise " 2", then the first free
+ * number ("Synth" gives "Synth 2", "TR 808" gives "TR 808 2": a longer number is part of the name).
+ * `taken` holds the names on screen, so a copy never shares one.
+ */
+export function copyName(label: string, taken: readonly string[]): string {
+  const counted = /^(.*\S)\s+(\d{1,2})$/.exec(label)
+  const base = counted ? counted[1] : label
+  const used = new Set(taken)
+  for (let n = counted ? Number(counted[2]) + 1 : 2; ; n++) {
+    // A name has at most 200 characters (the command refuses more): shorten the base, never the number.
+    const whole = `${base} ${n}`
+    const candidate = [...whole].length <= 200 ? whole : `${[...base].slice(0, 190).join('')} ${n}`
+    if (!used.has(candidate)) return candidate
+  }
 }
 
 /** What a track is called on screen: its name, or the default name of its position when it has none. */

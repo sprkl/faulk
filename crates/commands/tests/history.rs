@@ -142,6 +142,9 @@ fn live_and_query_commands_leave_the_history_alone() {
         }),
         Command::Live(live::Command::AllNotesOff {}),
         Command::Launch(commands::launch::Command::BackToArrangement {}),
+        Command::Launch(commands::launch::Command::BackTrackToArrangement {
+            track: f.track.clone(),
+        }),
         Command::Midi(commands::midi::Command::ListInputs {}),
         Command::Midi(commands::midi::Command::SelectInput {
             id: Some("x".into()),
