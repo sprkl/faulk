@@ -120,6 +120,29 @@ fn edit(s: &mut Session, synth_track: &TrackId, scenes: &[SceneId; 2]) -> Vec<Tr
     s.run(cmd(json!({"type": "clip.delete", "clip": placed})));
     s.run(Command::History(history::Command::Undo {}));
     s.run(cmd(json!({"type": "clip.delete", "clip": copy})));
+    // A clip moved to another scene, to another track, and back by undo: its engine slot
+    // follows (the clip leaves the old cell and fills the new one).
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": in_slot, "slot": scenes[1]}),
+    ));
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": in_slot, "track": d, "slot": scenes[0]}),
+    ));
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": in_slot, "track": a, "slot": scenes[0]}),
+    ));
+    // A clip that also plays in the arrangement: into the grid, out of it, and the undo of a move.
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": placed, "slot": scenes[1]}),
+    ));
+    s.run(Command::History(history::Command::Undo {}));
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": placed, "slot": scenes[1]}),
+    ));
+    s.run(cmd(
+        json!({"type": "clip.move", "clip": placed, "slot": null}),
+    ));
+    s.run(Command::History(history::Command::Undo {}));
     let on_c = created_clip(s.exec(cmd(json!({
         "type": "clip.create", "track": c, "at": {"at": "arrangement", "start": 0}
     }))));
