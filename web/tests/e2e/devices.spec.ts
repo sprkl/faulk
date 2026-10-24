@@ -70,7 +70,7 @@ for (const lang of ['en', 'fr'] as const) {
     await panel.getByRole('button', { name: x.add('Echo'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(2)
     const echo = card(page, 'Echo')
-    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(5)
+    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(6)
     // Its controls: the mode and the note value are choices, the feedback is shown as a percentage.
     const free = echo.getByRole('radio', { name: lang === 'en' ? 'Free' : 'Libre', exact: true })
     await free.click()
@@ -80,6 +80,13 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(quarter).toHaveAttribute('aria-checked', 'true')
     await expect(echo.getByTestId('param-feedback').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
     await expect(echo.getByTestId('param-division').getByRole('radio')).toHaveCount(10)
+    // What a new time does while the echo rings: Glide is the default, Fade is a click away.
+    const glide = echo.getByRole('radio', { name: lang === 'en' ? 'Glide' : 'Glissé', exact: true })
+    await expect(glide).toHaveAttribute('aria-checked', 'true')
+    const fade = echo.getByRole('radio', { name: lang === 'en' ? 'Fade' : 'Fondu', exact: true })
+    await fade.click()
+    await expect(fade).toHaveAttribute('aria-checked', 'true')
+    await expect(echo.getByTestId('param-time_change').getByRole('radio')).toHaveCount(3)
     const echoBypass = echo.getByRole('button', { name: x.bypass('Echo'), exact: true })
     await echoBypass.click()
     await expect(echo).toHaveAttribute('data-bypassed', 'true')
@@ -89,8 +96,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(2)
-    // Back through the two control changes, then the insertion.
-    for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
+    // Back through the three control changes, then the insertion.
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
 
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.

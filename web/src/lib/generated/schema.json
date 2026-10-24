@@ -534220,7 +534220,7 @@
     {
       "kind": "faulk.echo",
       "kind_id": 3,
-      "memory_bytes": 6144184,
+      "memory_bytes": 6144208,
       "midi_output": null,
       "name": "Echo",
       "named_keys": [],
@@ -534243,7 +534243,7 @@
         },
         {
           "default": 0.3,
-          "description": "Delay time in free mode, from 1 millisecond to 4 seconds.",
+          "description": "Delay time in free mode, from 1 millisecond to 4 seconds. A new value takes effect as time_change says.",
           "id": 1,
           "key": "time",
           "max": 4,
@@ -534256,7 +534256,7 @@
         },
         {
           "default": 5,
-          "description": "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.",
+          "description": "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds. A new value takes effect as time_change says.",
           "id": 2,
           "key": "division",
           "max": 9,
@@ -534303,6 +534303,23 @@
           "step": 0,
           "unit": "none",
           "values": []
+        },
+        {
+          "default": 0,
+          "description": "What a new delay time, note value or tempo does while the echo rings. Glide: the delay slides like a tape, exponentially over about 50 ms, the pitch of the repeats bends. Fade: 50 ms crossfade, no pitch change. Jump: immediate, may click.",
+          "id": 5,
+          "key": "time_change",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "glide",
+            "fade",
+            "jump"
+          ]
         }
       ],
       "role": "effect",

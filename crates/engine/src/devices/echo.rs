@@ -27,13 +27,24 @@
 //! notes. The delay is at least 1 frame and at most [`MAX_DELAY_SECONDS`]: a synced time
 //! longer than that (a whole note below 60 BPM) is shortened to it.
 //!
-//! The delay in use glides toward its target, so that a tempo change, a new time or a switch
-//! of mode never makes the output jump: each frame it moves by a share of the distance
-//! (a time constant of [`GLIDE_SECONDS`]), no less than [`MIN_SLEW`] and no more than
-//! [`MAX_SLEW`] frames (the pitch of the
-//! repeats moves by 25% at most while it glides, like a tape). The first block after the
-//! device is built, or reset, starts at the target (the echo of a note is at its exact place
-//! from the start).
+//! What happens when that delay changes (a new time or note value, a tempo change, a switch
+//! between free and synced) is the `time_change` parameter:
+//!
+//! - **Glide** (default): the delay in use glides toward its target, so that the output never
+//!   jumps. Each frame it moves by a share of the distance (an exponential approach of time
+//!   constant [`GLIDE_SECONDS`]), no less than [`MIN_SLEW`] and no more than [`MAX_SLEW`]
+//!   frames: the pitch of the repeats moves by 25% at most while it glides, like a tape.
+//! - **Fade**: the line is read at the old and at the new delay at once and the two are
+//!   crossfaded over [`FADE_SECONDS`] (equal-power law on a smoothstep curve): the repeats
+//!   keep their pitch. A change that arrives while a fade runs waits for it to end, then a
+//!   new fade starts toward the latest target (no click, at most [`FADE_SECONDS`] late).
+//! - **Jump**: the delay is the target at once. A `time` or `division` value moves the read
+//!   position at its exact frame; a tempo change, which the host gives once per block, at the
+//!   start of the block. The output steps (a click on sustained sound) by design.
+//!
+//! Switching `time_change` while a fade runs lets that fade finish first (except to Jump,
+//! which cuts it). The first block after the device is built, or reset, starts at the target
+//! with no fade (the echo of a note is at its exact place from the start).
 //!
 //! # Memory
 //!
@@ -42,8 +53,9 @@
 //!
 //! # Parameters and smoothing
 //!
-//! `mode` and `division` are stepped (never smoothed); `time` takes effect through the
-//! glide above; `feedback` and `mix` follow the 20 ms linear ramp the descriptor declares.
+//! `mode`, `division` and `time_change` are stepped (never smoothed); `time` and `division`
+//! take effect as `time_change` says (their descriptor declares no ramp: the response is the
+//! device's own, described by `time_change`); `feedback` and `mix` follow the 20 ms linear ramp the descriptor declares.
 //! Every value goes through [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
@@ -60,6 +72,12 @@ pub const TIME: u32 = 1;
 pub const DIVISION: u32 = 2;
 pub const FEEDBACK: u32 = 3;
 pub const MIX: u32 = 4;
+/// What happens when the delay changes (appended: the ids above never move).
+pub const TIME_CHANGE: u32 = 5;
+/// The values of `time_change`.
+pub const GLIDE: f32 = 0.0;
+pub const FADE: f32 = 1.0;
+pub const JUMP: f32 = 2.0;
 
 /// Longest delay, in seconds.
 pub const MAX_DELAY_SECONDS: f32 = 4.0;
@@ -82,6 +100,8 @@ pub const DIVISION_BEATS: [f64; 10] = [
 
 /// Time constant of the glide of the delay, in seconds.
 const GLIDE_SECONDS: f32 = 0.05;
+/// Length of the crossfade of the Fade setting, in seconds.
+pub const FADE_SECONDS: f32 = 0.05;
 /// Fastest and slowest the delay moves, in frames per frame.
 const MAX_SLEW: f32 = 0.25;
 const MIN_SLEW: f32 = 0.002;
@@ -94,6 +114,7 @@ const DENORMAL_FLOOR: f32 = 1e-20;
 const GUARD_FRAMES: usize = 4;
 
 const VALUES_MODE: &[&str] = &["free", "synced"];
+const VALUES_TIME_CHANGE: &[&str] = &["glide", "fade", "jump"];
 const VALUES_DIVISION: &[&str] = &[
     "thirty_second",
     "sixteenth",
@@ -141,7 +162,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(TIME),
             key: "time",
-            description: "Delay time in free mode, from 1 millisecond to 4 seconds.",
+            description: "Delay time in free mode, from 1 millisecond to 4 seconds. A new value takes effect as time_change says.",
             unit: Unit::Seconds,
             min: 0.001,
             max: 4.0,
@@ -154,7 +175,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(DIVISION),
             key: "division",
-            description: "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds.",
+            description: "Delay time in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.). Times beyond 4 seconds are shortened to 4 seconds. A new value takes effect as time_change says.",
             unit: Unit::None,
             min: 0.0,
             max: 9.0,
@@ -189,6 +210,19 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             step: 0.0,
             smoothing_seconds: 0.02,
             values: &[],
+        },
+        ParamDescriptor {
+            id: ParamId(TIME_CHANGE),
+            key: "time_change",
+            description: "What a new delay time, note value or tempo does while the echo rings. Glide: the delay slides like a tape, exponentially over about 50 ms, the pitch of the repeats bends. Fade: 50 ms crossfade, no pitch change. Jump: immediate, may click.",
+            unit: Unit::None,
+            min: 0.0,
+            max: 2.0,
+            default: 0.0,
+            scale: Scale::Linear,
+            step: 1.0,
+            smoothing_seconds: 0.0,
+            values: VALUES_TIME_CHANGE,
         },
     ],
 };
@@ -248,8 +282,25 @@ pub struct Echo {
     delay: f64,
     target: f64,
     glide: f32,
+    /// What a change of the delay does (`time_change`).
+    time_change: TimeChange,
+    /// A crossfade runs between the delay `fade_from` and `fade_to`, `fade_pos` frames in out
+    /// of `fade_len`.
+    fading: bool,
+    fade_from: f64,
+    fade_to: f64,
+    fade_pos: u32,
+    fade_len: u32,
     /// The next block starts at the target (built or reset).
     snap: bool,
+}
+
+/// The values of `time_change`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TimeChange {
+    Glide,
+    Fade,
+    Jump,
 }
 
 impl Echo {
@@ -287,6 +338,12 @@ impl Echo {
             delay: 1.0,
             target: 1.0,
             glide: 1.0 / (GLIDE_SECONDS * sample_rate),
+            time_change: TimeChange::Glide,
+            fading: false,
+            fade_from: 1.0,
+            fade_to: 1.0,
+            fade_pos: 0,
+            fade_len: ((FADE_SECONDS * sample_rate).round() as u32).max(1),
             snap: true,
         };
         echo.retarget();
@@ -322,47 +379,95 @@ impl Echo {
             DIVISION => self.division = value as usize,
             FEEDBACK => self.feedback.set(value, self.ramp_frames[0]),
             MIX => self.mix.set(value, self.ramp_frames[1]),
+            TIME_CHANGE => {
+                self.time_change = match value as u32 {
+                    1 => TimeChange::Fade,
+                    2 => TimeChange::Jump,
+                    _ => TimeChange::Glide,
+                };
+                if self.time_change == TimeChange::Jump {
+                    // Jump is immediate: a running fade is cut (the delay lands on the target).
+                    self.fading = false;
+                }
+            }
             _ => return,
         }
         self.retarget();
+    }
+
+    /// Moves the delay by one frame as `time_change` says and reads the wet signal at it.
+    fn read_wet(&mut self) -> (f32, f32) {
+        if self.fading {
+            // A fade runs (Fade, or a setting left while it ran): it finishes first.
+            let s = self.fade_pos as f32 / self.fade_len as f32;
+            let curve = s * s * (3.0 - 2.0 * s);
+            let (to_gain, from_gain) = (curve.sqrt(), (1.0 - curve).max(0.0).sqrt());
+            let (from_l, from_r) = self.tap(self.fade_from);
+            let (to_l, to_r) = self.tap(self.fade_to);
+            self.fade_pos += 1;
+            if self.fade_pos >= self.fade_len {
+                self.fading = false;
+                self.delay = self.fade_to;
+            }
+            return (
+                from_l * from_gain + to_l * to_gain,
+                from_r * from_gain + to_r * to_gain,
+            );
+        }
+        let diff = self.target - self.delay;
+        let distance = diff.abs();
+        match self.time_change {
+            TimeChange::Jump => self.delay = self.target,
+            TimeChange::Fade if distance > f64::from(REACHED) => {
+                self.fading = true;
+                self.fade_from = self.delay;
+                self.fade_to = self.target;
+                self.fade_pos = 0;
+                return self.read_wet();
+            }
+            _ if distance <= f64::from(REACHED) => self.delay = self.target,
+            _ => {
+                let step = (distance * f64::from(self.glide))
+                    .clamp(f64::from(MIN_SLEW), f64::from(MAX_SLEW))
+                    .min(distance);
+                self.delay += step.copysign(diff);
+            }
+        }
+        self.tap(self.delay)
+    }
+
+    /// Both lines read `delay` frames back (linear interpolation).
+    fn tap(&self, delay: f64) -> (f32, f32) {
+        let len = self.left.len();
+        // `delay` is within [1, max_delay]: both indexes are inside the line.
+        let whole = (delay as usize).clamp(1, len - GUARD_FRAMES);
+        let frac = ((delay - whole as f64) as f32).clamp(0.0, 1.0);
+        let newer = if self.write >= whole {
+            self.write - whole
+        } else {
+            self.write + len - whole
+        };
+        let older = if newer == 0 { len - 1 } else { newer - 1 };
+        // What was written before the last reset is not there.
+        let (a, b) = (whole <= self.filled, whole < self.filled);
+        let read = |line: &[f32]| {
+            let (x, y) = (
+                if a { line[newer] } else { 0.0 },
+                if b { line[older] } else { 0.0 },
+            );
+            x + (y - x) * frac
+        };
+        (read(&self.left), read(&self.right))
     }
 
     /// Renders the frames of `left` and `right` (same length).
     fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
         let len = self.left.len();
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let diff = self.target - self.delay;
-            let distance = diff.abs();
-            if distance <= f64::from(REACHED) {
-                self.delay = self.target;
-            } else {
-                let step = (distance * f64::from(self.glide))
-                    .clamp(f64::from(MIN_SLEW), f64::from(MAX_SLEW))
-                    .min(distance);
-                self.delay += step.copysign(diff);
-            }
-            // `delay` is within [1, max_delay]: both indexes are inside the line.
-            let whole = (self.delay as usize).clamp(1, len - GUARD_FRAMES);
-            let frac = ((self.delay - whole as f64) as f32).clamp(0.0, 1.0);
-            let newer = if self.write >= whole {
-                self.write - whole
-            } else {
-                self.write + len - whole
-            };
-            let older = if newer == 0 { len - 1 } else { newer - 1 };
+            let (wet_l, wet_r) = self.read_wet();
             let feedback = self.feedback.next_value().clamp(0.0, FEEDBACK_MAX);
             let mix = self.mix.next_value().clamp(0.0, 1.0);
             let (dry_l, dry_r) = (sanitize(*l), sanitize(*r));
-            // What was written before the last reset is not there.
-            let (a, b) = (whole <= self.filled, whole < self.filled);
-            let tap = |line: &[f32]| {
-                let (x, y) = (
-                    if a { line[newer] } else { 0.0 },
-                    if b { line[older] } else { 0.0 },
-                );
-                x + (y - x) * frac
-            };
-            let (wet_l, wet_r) = (tap(&self.left), tap(&self.right));
             self.left[self.write] = flush(dry_l + wet_l * feedback);
             self.right[self.write] = flush(dry_r + wet_r * feedback);
             *l = flush(dry_l * (1.0 - mix) + wet_l * mix);
@@ -393,6 +498,7 @@ impl Device for Echo {
         self.retarget();
         if self.snap {
             self.delay = self.target;
+            self.fading = false;
             self.snap = false;
         }
         let mut cursor = 0;
@@ -420,6 +526,7 @@ impl Device for Echo {
     /// touched, `filled` hides what they hold.
     fn reset(&mut self) {
         self.filled = 0;
+        self.fading = false;
         self.feedback.snap();
         self.mix.snap();
         self.snap = true;

@@ -100,3 +100,68 @@ fn the_echo_follows_the_tempo_the_free_time_the_bypass_and_the_undo() {
     r.assert_onset_at(10.7, 0.03, 0.01, 10.65);
     r.write_wav("echo-through-commands");
 }
+
+/// A note held `held` seconds, then silence until `rest` seconds after its start.
+fn hold(s: &mut Session, track: &project::TrackId, pitch: u8, held: f32, rest: f32) {
+    note(s, track, pitch);
+    s.render_secs(held);
+    s.run(Command::Live(live::Command::AllNotesOff {}));
+    s.render_secs(rest - held);
+}
+
+/// Issue #342: the same phrase with the time moved while the echo rings, in each of the
+/// three settings of `time_change`, through the commands, natively and in WASM; the render
+/// goes to `.qa/renders/echo-modes.wav` for the ear.
+#[test]
+fn the_echo_changes_its_time_as_the_setting_says_through_commands() {
+    let f = fixture();
+    let mut s = Session::from_state(f.state.clone(), context());
+    for (param, value) in [("attack", 0.005), ("release", 0.05)] {
+        s.run(Command::Device(device::Command::SetParam {
+            device: f.device.clone(),
+            param: param.into(),
+            value,
+        }));
+    }
+    let out = s.exec(Command::Device(device::Command::Insert {
+        track: f.track.clone(),
+        kind: "faulk.echo".into(),
+        index: 0,
+    }));
+    let Output::Device(device::Output::Insert { device: echo }) = out else {
+        panic!("{out:?}")
+    };
+    let set = |s: &mut Session, param: &str, value: f64| {
+        s.run(Command::Device(device::Command::SetParam {
+            device: echo.clone(),
+            param: param.into(),
+            value,
+        }));
+    };
+    set(&mut s, "mode", 0.0);
+    set(&mut s, "time", 0.3);
+    set(&mut s, "feedback", 0.6);
+    set(&mut s, "mix", 0.5);
+    // Per setting (7 s): a note and its echoes at 0.3 s; at 0.6 s the time moves to 0.12 s
+    // while they ring; a second note at 2.6 s; at 3.2 s the time moves to 0.45 s; at 5.2 s it
+    // is back to 0.3 s, in silence, ready for the next setting.
+    for setting in [0.0, 1.0, 2.0] {
+        set(&mut s, "time_change", setting);
+        hold(&mut s, &f.track, 60, 0.25, 0.6);
+        set(&mut s, "time", 0.12);
+        s.render_secs(2.0);
+        hold(&mut s, &f.track, 67, 0.25, 0.6);
+        set(&mut s, "time", 0.45);
+        s.render_secs(2.0);
+        set(&mut s, "time", 0.3);
+        s.render_secs(1.8);
+    }
+    let r = parity(s.scenario());
+    r.assert_clean();
+    for start in [0.0, 7.0, 14.0] {
+        r.assert_audible(start..start + 0.25, 0.05);
+        // The first echo, at 0.3 s, is there in every setting.
+        r.assert_audible(start + 0.3..start + 0.55, 0.01);
+    }
+    r.write_wav("echo-modes");
+}
