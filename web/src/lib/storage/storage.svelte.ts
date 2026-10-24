@@ -749,6 +749,14 @@ export class ProjectStorage {
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null },
   ) {
     await this.detach()
+    // Remembered before the page says "saved": a reload right after the first save must still find
+    // the folder among the recent projects, or nothing offers it back. The browser's own storage has
+    // one writer (the lock on the project) and is nobody else's to edit, and it is not a folder the
+    // user would find among their recent ones.
+    if (place.kind === 'folder') {
+      await this.deps.recent.remember(handle)
+      this.recent = await this.deps.recent.list()
+    }
     const current: Attached = {
       handle,
       store,
@@ -774,13 +782,7 @@ export class ProjectStorage {
       // The first check will tell.
     }
     if (this.current !== current) return
-    // The browser's own storage has one writer (the lock on the project) and is nobody else's to
-    // edit, and it is not a folder the user would find among their recent ones.
-    if (current.kind === 'folder') {
-      current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
-      await this.deps.recent.remember(handle)
-      this.recent = await this.deps.recent.list()
-    }
+    if (current.kind === 'folder') current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
     if (this.dirty) this.schedule()
   }
 

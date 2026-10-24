@@ -378,6 +378,31 @@ describe('save as', () => {
     expect(w.recents.map((r) => r.name)).toEqual(['song'])
   })
 
+  it('does not say saved before the project is remembered: a reload right then must still offer it', async () => {
+    const w = world()
+    const handle = handleOf('song')
+    w.picks.push({ status: 'chosen', handle })
+    w.edit()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const remember = w.deps.recent.remember
+    w.deps.recent.remember = async (h) => {
+      await gate
+      await remember(h)
+    }
+    const done = w.storage.saveAs()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    // The folder is written but not yet among the recent projects: a page reloaded now finds nothing to offer.
+    expect(w.recents).toEqual([])
+    expect(w.storage.status).not.toBe('saved')
+    expect(w.storage.savedAt).toBeNull()
+    release()
+    expect(await done).toBe(true)
+    expect(w.recents.map((r) => r.name)).toEqual(['song'])
+    expect(w.storage.status).toBe('saved')
+    expect(w.storage.savedAt).toBe(Date.now())
+  })
+
   it('leaves everything as it was when the user cancels, or the browser refuses the folder', async () => {
     const w = world()
     w.edit()
