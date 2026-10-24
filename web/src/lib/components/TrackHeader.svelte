@@ -10,15 +10,17 @@
   import GainControl from './GainControl.svelte'
   import PanControl from './PanControl.svelte'
   import {
+    copyName,
     formatGain,
     formatPan,
     instrumentName,
     NO_COLOR,
     trackLabel,
+    type DragHooks,
     type TrackEntry,
   } from '../project/tracks'
   import { useStores } from '../stores'
-  import { armTrack, deleteTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
+  import { armTrack, deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
 
   let {
     entry,
@@ -26,9 +28,25 @@
     soloed = false,
     armed = false,
     compact = false,
-  }: { entry: TrackEntry; selected?: boolean; soloed?: boolean; armed?: boolean; compact?: boolean } = $props()
+    count = 1,
+    drag,
+    dragging = false,
+    dropTarget = false,
+  }: {
+    entry: TrackEntry
+    selected?: boolean
+    soloed?: boolean
+    armed?: boolean
+    compact?: boolean
+    /** How many tracks the list holds: the first cannot move up, the last cannot move down. */
+    count?: number
+    /** Set by the track list: the header can then be dragged by its grip. */
+    drag?: DragHooks
+    dragging?: boolean
+    dropTarget?: boolean
+  } = $props()
 
-  const { ui, dispatcher } = useStores()
+  const { project, ui, dispatcher } = useStores()
   const t = ui.t
 
   const track = $derived(entry.track)
@@ -74,20 +92,108 @@
     }
   }
 
+  // --- the actions menu: rename, move, duplicate, delete (each one command, one history entry) ---------
+  let menuOpen = $state(false)
+  let root = $state<HTMLElement | null>(null)
+
+  const focusMore = () => void tick().then(() => root?.querySelector<HTMLElement>('.more')?.focus())
+
+  async function openMenu() {
+    menuOpen = !menuOpen
+    if (!menuOpen) return
+    await tick()
+    root?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }
+
+  function closeMenu(restore: boolean) {
+    if (!menuOpen) return
+    menuOpen = false
+    if (restore) focusMore()
+  }
+
+  function onRootKey(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || !menuOpen) return
+    event.stopPropagation()
+    closeMenu(true)
+  }
+
+  /** Leaving the header with the keyboard closes the menu; a click elsewhere is `onWindowPointer`'s. */
+  function onRootFocusOut(event: FocusEvent) {
+    const next = event.relatedTarget as Node | null
+    if (menuOpen && next && !(event.currentTarget as HTMLElement).contains(next)) closeMenu(false)
+  }
+
+  function onWindowPointer(event: PointerEvent) {
+    if (menuOpen && !root?.contains(event.target as Node)) closeMenu(false)
+  }
+
+  function move(index: number) {
+    closeMenu(false)
+    dispatcher.run(moveTrack(entry.id, index))
+    focusMore()
+  }
+
+  /** The copy sits right below the source under a free name, and is selected so the keyboard plays it. */
+  function duplicate() {
+    closeMenu(false)
+    const before = new Set(project.tracks.map((e) => e.id))
+    const name = copyName(label, project.tracks.map((e) => trackLabel(e, t)))
+    dispatcher.run(duplicateTrack(entry.id, name))
+    const made = project.tracks.find((e) => !before.has(e.id))
+    if (made) dispatcher.run(selectTrack(made.id))
+  }
+
+  function remove() {
+    closeMenu(false)
+    dispatcher.run(deleteTrack(entry.id))
+  }
+
+  function onGripDragStart(event: DragEvent) {
+    if (!drag || !event.dataTransfer) return
+    event.dataTransfer.effectAllowed = 'move'
+    // Firefox starts no drag without data.
+    event.dataTransfer.setData('text/plain', entry.id)
+    if (root) event.dataTransfer.setDragImage(root, 12, 12)
+    drag.start(entry.id)
+  }
+
+  function onDragOver(event: DragEvent) {
+    if (!drag) return
+    // Allows the drop; the list ignores a drag that is not one of its own headers.
+    event.preventDefault()
+    drag.over(entry.id)
+  }
+
+  function onDrop(event: DragEvent) {
+    if (!drag) return
+    event.preventDefault()
+    drag.drop(entry.id)
+  }
+
   /** Only the name, the kind line and the background select: a click on a control acts on its track without moving the keyboard. */
   function select(event: MouseEvent) {
-    if ((event.target as Element).closest('.strip, .swatch, .icon')) return
+    if ((event.target as Element).closest('.strip, .swatch, .icon, .grip, .pop')) return
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
 
 </script>
 
+<svelte:window onpointerdown={onWindowPointer} />
+
 <!-- A click anywhere on the header selects the track; each control is also reachable from the keyboard. -->
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <li
   class="header"
   class:selected
+  class:open={menuOpen}
+  class:dragging
+  class:drop-target={dropTarget}
   class:muted={mixer.mute}
+  bind:this={root}
+  onkeydown={onRootKey}
+  onfocusout={onRootFocusOut}
+  ondragover={onDragOver}
+  ondrop={onDrop}
   style:--track-color={track.color ?? NO_COLOR}
   data-testid="track-header"
   data-track={entry.id}
@@ -95,6 +201,20 @@
   onclick={select}
 >
   <div class="top">
+    {#if drag}
+      <!-- The grip drags the header; the menu's Move up and Move down are the keyboard's way. -->
+      <span
+        class="grip"
+        role="presentation"
+        draggable="true"
+        title={t('tracks.drag', { name: label })}
+        data-testid="track-grip"
+        ondragstart={onGripDragStart}
+        ondragend={() => drag.end()}
+      >
+        <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true"><path d="M2 2h.01M6 2h.01M2 6h.01M6 6h.01M2 10h.01M6 10h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+      </span>
+    {/if}
     <label class="swatch" title={t('tracks.color', { name: label })}>
       <input
         type="color"
@@ -126,17 +246,24 @@
       >
     {/if}
     <button
-      class="icon"
+      class="icon more"
       type="button"
-      aria-label={t('tracks.delete', { name: label })}
-      title={t('tracks.delete', { name: label })}
-      onclick={(event) => {
-        event.stopPropagation()
-        dispatcher.run(deleteTrack(entry.id))
-      }}
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      aria-label={t('tracks.actions', { name: label })}
+      title={t('tracks.actions', { name: label })}
+      data-testid="track-more"
+      onclick={openMenu}>⋯</button
     >
-      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 L10 10 M10 2 L2 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
-    </button>
+    {#if menuOpen}
+      <div class="pop" role="menu" data-testid="track-menu">
+        <button role="menuitem" type="button" onclick={() => { closeMenu(false); void startRename() }}>{t('tracks.menu.rename')}</button>
+        <button role="menuitem" type="button" disabled={entry.index === 0} onclick={() => move(entry.index - 1)}>{t('tracks.menu.moveUp')}</button>
+        <button role="menuitem" type="button" disabled={entry.index >= count - 1} onclick={() => move(entry.index + 1)}>{t('tracks.menu.moveDown')}</button>
+        <button role="menuitem" type="button" data-testid="track-duplicate" onclick={duplicate}>{t('tracks.menu.duplicate')}</button>
+        <button role="menuitem" type="button" data-testid="track-delete" onclick={remove}>{t('tracks.menu.delete')}</button>
+      </div>
+    {/if}
   </div>
   <p class="meta">{track.kind === 'midi' ? t('tracks.kind.midi') : t('tracks.kind.audio')}{instrument ? ` · ${instrument}` : ''}</p>
   {#if !compact}
@@ -197,6 +324,68 @@
     background: var(--fk-accent-tint);
     border-color: var(--fk-accent-fg);
     border-left-color: var(--track-color);
+  }
+  .header {
+    position: relative;
+  }
+  /* The header with an open menu rises above the headers under it. */
+  .header.open {
+    z-index: 6;
+  }
+  .header.dragging {
+    opacity: 0.45;
+  }
+  .header.drop-target {
+    box-shadow: 0 0 0 2px var(--fk-accent);
+  }
+  .grip {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 12px;
+    height: var(--fk-row);
+    margin-left: calc(-1 * var(--fk-space-1));
+    color: var(--fk-text-muted);
+    cursor: grab;
+  }
+  .grip:hover {
+    color: var(--fk-text);
+  }
+  .more {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .pop {
+    position: absolute;
+    z-index: 6;
+    top: calc(var(--fk-space-2) + var(--fk-row) + 2px);
+    right: var(--fk-space-3);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 150px;
+    padding: var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
+    box-shadow: var(--fk-shadow-float);
+  }
+  .pop button {
+    height: 26px;
+    padding: 0 var(--fk-space-2);
+    border: 0;
+    border-radius: var(--fk-radius-work);
+    background: none;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .pop button:hover:not(:disabled) {
+    background: var(--fk-surface-2);
+  }
+  .pop button:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .header.muted .name,
   .header.muted .meta {

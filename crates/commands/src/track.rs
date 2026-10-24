@@ -23,7 +23,8 @@
 //!   `armed` and `monitor` sets, and the engine gets them as `TrackArm` and
 //!   `TrackSetMonitor`. Deleting a track clears both.
 //! - `track.duplicate` copies the track next to the source with new identifiers
-//!   everywhere. Its clips are new, independent clips (founder's decision 11).
+//!   everywhere. Its clips are new, independent clips (founder's decision 11). The copy is
+//!   never muted, and is neither soloed nor armed (session state is not copied).
 //! - A command that changes nothing returns no inverse and no event.
 //!
 //! The order of tracks is a fractional key in the document. `track.move` takes the index
@@ -186,7 +187,9 @@ domain! {
     /// key), with new identifiers for the track, its
     /// devices, clips, placements and automation lanes. The clips are new, independent
     /// clips with the same content. `name` is optional (trimmed, at most 200
-    /// characters): the copy has the source's name by default. Refused with `limit` at
+    /// characters): the copy has the source's name by default. The copy is never muted
+    /// (volume and pan are copied); solo and arming are session state of the source and
+    /// are not copied. Refused with `limit` at
     /// the safety limit of tracks, notes or automation points. Undo: `track.delete` of
     /// the copy.
     "track.duplicate" (kind = "edit", undo = "inverse", destructive = false)
@@ -811,6 +814,8 @@ fn duplicate_within(
     let key = OrderKey::for_index(&keys, at + 1).map_err(|e| invalid("index", e.to_string()))?;
     let mut copy = source.clone();
     copy.order = key;
+    // A duplicate is there to be heard: a muted source does not make a silent copy.
+    copy.mixer.mute = false;
     if let Some(name) = name {
         copy.name = name.to_owned();
     }
@@ -1077,6 +1082,30 @@ mod tests {
             name: None,
         });
         check(&command, &state, &context()).unwrap();
+    }
+
+    /// A muted source gives an audible copy; volume and pan are copied, and the copy
+    /// takes the name it is given.
+    #[test]
+    fn a_duplicate_is_never_muted_but_keeps_volume_and_pan() {
+        let f = fixture();
+        let mut state = f.state.clone();
+        let mixer = &mut state.project.tracks.get_mut(&f.track).unwrap().mixer;
+        mixer.mute = true;
+        mixer.gain_db = -6.0;
+        mixer.pan = 0.25;
+        let mut ctx = context();
+        let out = duplicate(&mut state, &mut ctx, &f.track, Some(" Lead 2 ")).unwrap();
+        let Output::Duplicate { track } = out.output else {
+            panic!("expected a duplicate output")
+        };
+        let copy = &state.project.tracks[&track];
+        assert!(!copy.mixer.mute);
+        assert_eq!(copy.mixer.gain_db, -6.0);
+        assert_eq!(copy.mixer.pan, 0.25);
+        assert_eq!(copy.name, "Lead 2");
+        // The source is left as it was.
+        assert!(state.project.tracks[&f.track].mixer.mute);
     }
 
     #[test]
