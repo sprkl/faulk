@@ -265,7 +265,7 @@ export class Dispatcher {
     projectName: () => this.project.view?.project.name ?? '',
     hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
-    folder: () => this.storage?.folderHandle() ?? null,
+    folder: async () => (await this.storage?.folderHandle()) ?? null,
   }
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {

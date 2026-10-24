@@ -191,6 +191,8 @@ export class ProjectStorage {
 
   private current: Attached | null = null
   private queue: Promise<unknown> = Promise.resolve()
+  /** Set while a project is being put in its place (see `attach`); `current` has a gap meanwhile. */
+  private attaching: Promise<void> | null = null
   private debounce: ReturnType<typeof setTimeout> | null = null
   private maxWait: ReturnType<typeof setTimeout> | null = null
   private retry: ReturnType<typeof setTimeout> | null = null
@@ -205,7 +207,9 @@ export class ProjectStorage {
   ) {}
 
   /** The folder the project is saved into, for a file dialog that opens there (the export). */
-  folderHandle(): FolderHandle | null {
+  async folderHandle(): Promise<FolderHandle | null> {
+    // Not while an attach has no project for a moment.
+    while (this.attaching) await this.attaching
     return this.current?.handle ?? null
   }
 
@@ -412,7 +416,11 @@ export class ProjectStorage {
   }
 
   /** The user asked to save now (the menu, Ctrl+S). A project without a folder asks for one. */
-  save(): Promise<boolean> {
+  async save(): Promise<boolean> {
+    // After an attach under way: it has no project for a moment, and a decision read then would send the
+    // user to a second folder dialog or write nowhere. No await from here on, so the decision and the
+    // folder dialog still come straight from the click.
+    while (this.attaching) await this.attaching
     // Where the browser has no folder to offer, the browser's storage is the home: Save keeps the project there.
     // Also the banner's "Try again" when the first write into it failed.
     if (!this.current && this.deps.browser.available && (!this.supported || this.block)) {
@@ -536,11 +544,11 @@ export class ProjectStorage {
       this.notice = error instanceof StoreError && error.code === 'permission' ? 'storage.refused' : 'storage.saveFailed'
       return false
     }
-    const placed = { kind: target.kind, dir, releaseDir }
+    // The draft has been taken: the folder holds the project now, so the draft goes (inside `attach`,
+    // before the page says "saved").
+    const placed = { kind: target.kind, dir, releaseDir, discard: promotedFrom?.dir ?? null }
     if (promotedFrom) promotedFrom.release = () => undefined
     await this.attach(handle, store, release, true, placed)
-    // The draft has been taken: the folder holds the project now, so the draft goes.
-    if (promotedFrom?.dir) await this.deps.browser.remove(promotedFrom.dir).catch(() => undefined)
     if (target.kind === 'browser') this.persistOnce()
     await this.refreshBrowserProjects()
     return true
@@ -741,12 +749,33 @@ export class ProjectStorage {
 
   // ------------------------------------------------------------------ the folder the project is in
 
+  /** Puts a project in its place; `attaching` is set meanwhile, for the callers that must not see the gap. */
   private async attach(
     handle: FolderHandle,
     store: ProjectStore,
     release: () => void,
     wrote: boolean,
-    place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null },
+    place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
+  ) {
+    const running = this.attachNow(handle, store, release, wrote, place)
+    const marker = running.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.attaching = marker
+    try {
+      await running
+    } finally {
+      if (this.attaching === marker) this.attaching = null
+    }
+  }
+
+  private async attachNow(
+    handle: FolderHandle,
+    store: ProjectStore,
+    release: () => void,
+    wrote: boolean,
+    place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
   ) {
     // Remembered before the page says "saved", and before the old project is detached (the project
     // stays reachable meanwhile): a reload right after the first save must still find the folder among
@@ -758,7 +787,20 @@ export class ProjectStorage {
       await this.deps.recent.remember(handle)
       this.recent = await this.deps.recent.list()
     }
+    // The draft's directory lock is kept until its directory is gone: another tab cannot open it meanwhile.
+    const draftLock = place.discard ? (this.current?.releaseDir ?? null) : null
+    if (draftLock && this.current) this.current.releaseDir = null
     await this.detach()
+    // A draft that moved into a folder is deleted before "saved" is published, so a reload can never find
+    // the project twice. Only now: its store is closed (the directory cannot be removed while the project
+    // holds it). The draft is deleted only once the folder is confirmed among the recent projects:
+    // `remember` reports no failure, and without it nothing would offer the folder back. A draft that
+    // cannot be deleted is left behind: the folder holds the project, and the draft stays listed.
+    try {
+      if (place.discard && (await this.isRemembered(handle))) await this.deps.browser.remove(place.discard).catch(() => undefined)
+    } finally {
+      draftLock?.()
+    }
     const current: Attached = {
       handle,
       store,
@@ -786,6 +828,14 @@ export class ProjectStorage {
     if (this.current !== current) return
     if (current.kind === 'folder') current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
     if (this.dirty) this.schedule()
+  }
+
+  /** Whether the recent projects, as last listed, hold this folder. */
+  private async isRemembered(handle: FolderHandle): Promise<boolean> {
+    for (const entry of this.recent) {
+      if (entry.handle === handle || (await entry.handle.isSameEntry?.(handle)?.catch(() => false))) return true
+    }
+    return false
   }
 
   private async detach() {
