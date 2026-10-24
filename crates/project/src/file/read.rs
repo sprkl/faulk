@@ -43,6 +43,11 @@ pub struct OpenReport {
     /// does not have: the track opens and shows "média absent" (§ 3.3).
     pub missing_blobs: Vec<Hash>,
     pub cache: CacheUse,
+    /// MIDI clips the folder holds without a name, named in memory as they were read
+    /// ([`Project::name_unnamed_clips`]). Their files on disk stay as they are until a
+    /// save rewrites them (the save compares every file with what was read), and the
+    /// project is not dirty: opening is not an edit.
+    pub named_clips: usize,
     /// Text files read from the folder.
     pub files_read: usize,
     /// Files taken from the cache snapshot instead.
@@ -563,6 +568,7 @@ fn read_folder(
             ignored: Vec::new(),
             missing_blobs: Vec::new(),
             cache,
+            named_clips: 0,
             files_read: 1,
             files_from_cache: 0,
         },
@@ -617,6 +623,7 @@ fn read_folder(
     project
         .validate()
         .map_err(|violations| FileError::Invalid { violations })?;
+    reader.report.named_clips = project.name_unnamed_clips();
 
     // Blobs the folder lacks: not read, only counted (§ 3.3).
     let present: BTreeSet<String> = reader

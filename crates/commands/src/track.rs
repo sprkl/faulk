@@ -186,7 +186,8 @@ domain! {
     /// Duplicate a track right after the source (after any track that shares its order
     /// key), with new identifiers for the track, its
     /// devices, clips, placements and automation lanes. The clips are new, independent
-    /// clips with the same content. `name` is optional (trimmed, at most 200
+    /// clips with the same content, each with the next name ("Clip 2" gives "Clip 3").
+    /// `name` is optional (trimmed, at most 200
     /// characters): the copy has the source's name by default. The copy is never muted
     /// (volume and pan are copied); solo and arming are session state of the source and
     /// are not copied. Refused with `limit` at
@@ -835,9 +836,17 @@ fn duplicate_within(
         .keys()
         .map(|c| (c.clone(), ClipId::generate(&mut ctx.ids)))
         .collect();
+    // Each copied MIDI clip takes the next name, so no two clips of the project share one.
+    let mut new_names: Vec<String> = Vec::new();
     copy.clips = std::mem::take(&mut copy.clips)
         .into_iter()
-        .map(|(id, c): (ClipId, Clip)| (clips[&id].clone(), c))
+        .map(|(id, mut c): (ClipId, Clip)| {
+            if c.content.is_midi() {
+                c.name = state.project.copy_clip_name(&c.name, &new_names);
+                new_names.push(c.name.clone());
+            }
+            (clips[&id].clone(), c)
+        })
         .collect();
     copy.placements = std::mem::take(&mut copy.placements)
         .into_values()

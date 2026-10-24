@@ -970,3 +970,76 @@ fn std_fs_refuses_paths_that_lead_out_of_the_folder() {
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A project saved before clips were named: opening names its MIDI clips in memory, in the
+/// order a musician meets them, and writes nothing; the next save writes the names, and
+/// the project then opens as it is.
+#[test]
+fn opening_names_the_unnamed_clips_and_the_next_save_keeps_them() {
+    let mut ids = IdGenerator::for_tests();
+    let mut project = Project::new(ProjectId::generate(&mut ids), "Old");
+    let mut track = Track::new(TrackKind::Midi, "T", OrderKey::first());
+    let clip = |name: &str| Clip {
+        name: name.to_owned(),
+        color: None,
+        slot: None,
+        launch_quantize: None,
+        content: ClipContent::Midi {
+            length: Tick(960),
+            looping: None,
+            notes: Default::default(),
+        },
+    };
+    // Placed late, placed early, unplaced, and one the user named "Clip 1" himself.
+    let (late, early, loose, kept) = (
+        ClipId::generate(&mut ids),
+        ClipId::generate(&mut ids),
+        ClipId::generate(&mut ids),
+        ClipId::generate(&mut ids),
+    );
+    for (id, name) in [(&late, ""), (&early, ""), (&loose, ""), (&kept, "Clip 1")] {
+        track.clips.insert(id.clone(), clip(name));
+    }
+    for (id, start) in [(&late, 3840), (&early, 0)] {
+        track.placements.insert(
+            PlacementId::generate(&mut ids),
+            Placement {
+                clip: id.clone(),
+                start: Tick(start),
+                span: Span::Ticks {
+                    length: Tick(960),
+                    offset: Tick(0),
+                },
+            },
+        );
+    }
+    project.tracks.insert(TrackId::generate(&mut ids), track);
+    let (mut fs, _) = save_all(&project);
+    let _ = fs.take_log();
+
+    let opened = open_default(&fs);
+    assert_eq!(opened.report.named_clips, 3);
+    assert_eq!(fs.take_log(), vec![], "opening writes nothing");
+    let track = opened.project.tracks.values().next().unwrap();
+    let name = |id: &ClipId| track.clips[id].name.as_str();
+    assert_eq!(
+        [name(&early), name(&late), name(&loose), name(&kept)],
+        ["Clip 2", "Clip 3", "Clip 4", "Clip 1"],
+        "placed clips first by start, then the unplaced; the user's own name is kept"
+    );
+
+    // The names reach the folder with the next save, whatever it was for.
+    let mut state = opened.state;
+    let report = save(
+        &mut fs,
+        &opened.project,
+        &mut state,
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(report.written.len(), 3, "{report:?}");
+    let again = open_default(&fs);
+    assert_eq!(again.report.named_clips, 0);
+    assert_eq!(again.project, opened.project);
+}
