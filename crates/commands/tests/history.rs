@@ -141,6 +141,7 @@ fn live_and_query_commands_leave_the_history_alone() {
             velocity: 100,
         }),
         Command::Live(live::Command::AllNotesOff {}),
+        Command::Live(live::Command::AllSoundOff {}),
         Command::Launch(commands::launch::Command::BackToArrangement {}),
         Command::Launch(commands::launch::Command::BackTrackToArrangement {
             track: f.track.clone(),
