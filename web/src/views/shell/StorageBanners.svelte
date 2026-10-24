@@ -4,7 +4,7 @@
    * for a click, the browser's permission gone, a write that failed, a folder edited from outside while
    * changes are unsaved, a notice (a folder refused), and the question before New or Open discards changes.
    */
-  import { save } from '../../lib/project-commands'
+  import { exportPack, save } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, dispatcher } = useStores()
@@ -25,9 +25,20 @@
 
 {#if storage.reopen}
   <p class="banner" role="status" data-testid="reopen-banner">
-    <span>{t('save.banner.reopen', { name: storage.reopen.name })}</span>
+    <span>{t(storage.reopen.kind === 'browser' ? 'save.banner.reopenDraft' : 'save.banner.reopen', { name: storage.reopen.name })}</span>
     <button class="primary" data-testid="reopen" onclick={() => storage.reopenLast()}>{t('save.banner.reopenButton')}</button>
+    {#if storage.reopen.kind === 'browser'}
+      <button data-testid="delete-draft" onclick={() => storage.reopen && storage.deleteBrowserProject(storage.reopen.id)}>{t('save.banner.deleteDraft')}</button>
+    {/if}
     <button onclick={() => storage.dismissReopen()}>{t('save.banner.dismiss')}</button>
+  </p>
+{/if}
+
+{#if storage.browserWarning}
+  <p class="banner" role="status" data-testid="browser-warning">
+    <span>{t(storage.browserWarning === 'volatile' ? 'save.banner.browserVolatile' : 'save.banner.browserOnly')}</span>
+    <button class="primary" data-testid="warning-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
+    <button onclick={() => storage.dismissBrowserWarning()}>{t('save.banner.dismiss')}</button>
   </p>
 {/if}
 
@@ -36,9 +47,15 @@
     <span>{t('save.banner.permission', { name })}</span>
     <button class="primary" data-testid="allow" onclick={() => storage.resume()}>{t('save.banner.allow')}</button>
   </p>
+{:else if storage.block === 'full'}
+  <p class="banner" role="alert" data-testid="full-banner" title={storage.errorDetail ?? ''}>
+    <span>{t('save.banner.full')}</span>
+    <button class="primary" data-testid="full-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
+    <button onclick={() => dispatcher.run(save())}>{t('save.banner.retry')}</button>
+  </p>
 {:else if storage.block === 'error'}
   <p class="banner" role="alert" data-testid="error-banner" title={storage.errorDetail ?? ''}>
-    <span>{t('save.banner.error', { name })}</span>
+    <span>{storage.folder ? t('save.banner.error', { name }) : t('save.banner.errorBrowser')}</span>
     <button class="primary" onclick={() => dispatcher.run(save())}>{t('save.banner.retry')}</button>
   </p>
 {:else if storage.block === 'external'}
@@ -59,13 +76,17 @@
 {#if storage.confirm}
   <div class="overlay">
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" data-testid="confirm">
-      <h2 id="confirm-title">{t(storage.confirm.action === 'new' ? 'confirm.new.title' : 'confirm.open.title')}</h2>
+      <h2 id="confirm-title">{t(storage.confirm.action === 'new' ? 'confirm.new.title' : storage.confirm.action === 'delete' ? 'confirm.delete.title' : 'confirm.open.title')}</h2>
       <p id="confirm-body">
-        {storage.confirm.name ? t('confirm.bodyFolder', { name: storage.confirm.name }) : t('confirm.body')}
+        {#if storage.confirm.action === 'delete'}
+          {t('confirm.delete.body', { name: storage.confirm.name ?? '' })}
+        {:else}
+          {storage.confirm.name ? t('confirm.bodyFolder', { name: storage.confirm.name }) : t('confirm.body')}
+        {/if}
       </p>
       <div class="actions">
         <button bind:this={cancel} class="primary" data-testid="confirm-cancel" onclick={() => storage.respond(false)}>{t('confirm.cancel')}</button>
-        <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t('confirm.discard')}</button>
+        <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t(storage.confirm.action === 'delete' ? 'confirm.delete.confirm' : 'confirm.discard')}</button>
       </div>
     </div>
   </div>

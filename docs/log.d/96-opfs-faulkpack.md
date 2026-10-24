@@ -1,0 +1,2 @@
+2026-10-24
+* **Update** (#96): the browser's own storage (SV-3): a project with no folder is kept as a draft in the OPFS and offered again on reopening, the OPFS is the home where the browser has no folder to offer (with `persist()` and a warning), a full storage is said and loses nothing, and `.faulkpack` goes out and comes back in the page (`project.export_pack`, `project.import_pack`); `docs/architecture/03-stockage-local.md` § 5.8 and the SV-3 entry of `docs/specs/02-decoupage-mvp.md` describe it, and the helper's opening of a `.faulkpack` moves to AU-7.

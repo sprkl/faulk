@@ -59,7 +59,12 @@ fn a_new_project_replaces_everything_with_its_own_identity() {
 
 #[test]
 fn saving_changes_nothing_in_the_project_and_is_never_recorded() {
-    for command in [cmd::Command::Save {}, cmd::Command::SaveAs {}] {
+    for command in [
+        cmd::Command::Save {},
+        cmd::Command::SaveAs {},
+        cmd::Command::ExportPack {},
+        cmd::Command::ImportPack {},
+    ] {
         let mut state = fixture().state;
         let before = state.clone();
         let mut ctx = context();

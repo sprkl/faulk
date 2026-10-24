@@ -224,6 +224,7 @@ export class Dispatcher {
   /** What the project's storage asks of the page's project: the controller in `lib/storage` drives it. */
   readonly host: ProjectHost = {
     dirty: () => (this.core ? this.core.dirty() : null),
+    projectDirty: () => (this.core ? this.core.projectDirty() : null),
     save: (mode) => {
       if (!this.core) return null
       const frame = this.core.save(mode)
@@ -235,6 +236,9 @@ export class Dispatcher {
     openProject: (name, entries) => this.openProject(name, entries),
     newProject: () => this.newProject(),
     projectId: () => this.project.view?.project.id ?? null,
+    projectName: () => this.project.view?.project.name ?? null,
+    packExport: async (files) => (await this.ensureCore()).packExport(files),
+    packImport: async (zip) => (await this.ensureCore()).packImport(zip),
   }
 
   /** The project's storage; set once by `createStores`. */
@@ -383,6 +387,8 @@ export class Dispatcher {
       clearNotes: () => (this.state.activeNotes = []),
       save: () => void this.storage?.save(),
       saveAs: () => void this.storage?.saveAs(),
+      exportPack: () => void this.storage?.exportPack(),
+      importPack: () => void this.storage?.importPack(),
       exportAudio: (request) => this.audioExport?.request(request),
       projectReplaced: () => this.storage?.forgetFolder(),
     })

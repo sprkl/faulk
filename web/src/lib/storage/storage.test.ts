@@ -1,20 +1,29 @@
 // The project storage controller (SV-2) against stand-ins for the browser and the core: when it
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FolderEntry, SaveEntry, SaveFrame, SaveMode } from '../project/core'
+import type { FolderEntry, PackExport, PackImport, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
   AUTOSAVE_DELAY_MS,
   AUTOSAVE_MAX_WAIT_MS,
   autosaveDelay,
   changedPaths,
+  MAX_PACK_BYTES,
   ProjectStorage,
   projectIdOf,
   RETRY_MS,
   type ProjectHost,
   type StorageDeps,
 } from './storage.svelte'
-import { StoreError, type FolderHandle, type ProjectStore, type RecentProject, type Signature } from './types'
+import {
+  StoreError,
+  type BrowserProject,
+  type BrowserProjects,
+  type FolderHandle,
+  type ProjectStore,
+  type RecentProject,
+  type Signature,
+} from './types'
 
 const text = (s: string) => new TextEncoder().encode(s)
 
@@ -43,6 +52,11 @@ class FakeStore implements ProjectStore {
   }
   async read() {
     return new Uint8Array()
+  }
+  /** The media the folder holds (audio is not in a save). */
+  media = new Map<string, Uint8Array>()
+  async readBlobs() {
+    return [...this.media].map(([path, bytes]) => ({ path, bytes }))
   }
   signature(): Signature {
     return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamp}`]))
@@ -93,6 +107,11 @@ class FakeHost implements ProjectHost {
   dirty() {
     return this.revision !== this.clean
   }
+  /** The change is only the session's (a selection): the folder lacks it, the project is as it was. */
+  sessionOnly = false
+  projectDirty() {
+    return this.dirty() && !this.sessionOnly
+  }
   /** How long computing a write takes (the fake clock moves by that much). */
   cost = 0
   save(mode: SaveMode): SaveFrame {
@@ -121,6 +140,88 @@ class FakeHost implements ProjectHost {
   projectId() {
     return this.id
   }
+  name = 'Song'
+  projectName() {
+    return this.name
+  }
+  /** What the core answers to a pack export, and to an import. */
+  exports: { path: string; bytes: Uint8Array }[][] = []
+  exportFails: string | null = null
+  missingBlobs = 0
+  unpacked: PackImport = { status: 'ok', files: [] }
+  async packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport> {
+    this.exports.push(files)
+    if (this.exportFails) return { status: 'failed', message: this.exportFails }
+    return { status: 'ok', zip: text(`zip of ${files.length}`), files: files.length, missingBlobs: this.missingBlobs }
+  }
+  async packImport(): Promise<PackImport> {
+    return this.unpacked
+  }
+}
+
+/** The browser's own storage, in memory: directories whose stores are the world's. */
+class FakeBrowser implements BrowserProjects {
+  available = true
+  created: string[] = []
+  removed: string[] = []
+  createFails: StoreError | null = null
+  persistAnswer = true
+  persisted = 0
+  handles = new Map<string, FolderHandle>()
+  meta = new Map<string, { id: string; name: string; modified: number }>()
+  constructor(
+    public w: World,
+    private readonly now: () => number,
+  ) {}
+
+  async list() {
+    const projects: BrowserProject[] = []
+    const incomplete: string[] = []
+    for (const [dir, handle] of this.handles) {
+      const store = this.w.stores.get(handle)
+      if (!store?.files.has('project.json')) {
+        incomplete.push(dir)
+        continue
+      }
+      let parsed: { id?: string; name?: string } = {}
+      try {
+        parsed = JSON.parse(store.files.get('project.json')!)
+      } catch {
+        // The fake host writes "rev N": the identity is the one recorded at creation.
+      }
+      const meta = this.meta.get(dir)!
+      projects.push({ dir, id: parsed.id ?? meta.id, name: parsed.name ?? meta.name, modified: meta.modified })
+    }
+    return { projects: projects.sort((a, b) => b.modified - a.modified), incomplete }
+  }
+  async create(dir: string) {
+    if (this.createFails) throw this.createFails
+    const handle = handleOf(`browser/${dir}`)
+    this.handles.set(dir, handle)
+    this.created.push(dir)
+    this.meta.set(dir, { id: this.w.host.id, name: this.w.host.name, modified: this.now() })
+    return handle
+  }
+  async open(dir: string) {
+    return this.handles.get(dir) ?? null
+  }
+  async remove(dir: string) {
+    this.handles.delete(dir)
+    this.removed.push(dir)
+  }
+  async persist() {
+    this.persisted++
+    return this.persistAnswer
+  }
+  /** The directory the world's only browser project lives in. */
+  get only() {
+    expect(this.handles.size).toBe(1)
+    return [...this.handles.keys()][0]!
+  }
+  /** Stamps a project as last changed at `modified`. */
+  touch(dir: string, modified: number) {
+    this.meta.set(dir, { ...this.meta.get(dir)!, modified })
+  }
 }
 
 interface World {
@@ -135,6 +236,10 @@ interface World {
   watchers: (() => void)[]
   recents: RecentProject[]
   supported: boolean
+  browser: FakeBrowser
+  /** The files the user "chooses" for an import, and what the page hands over for download. */
+  packs: (File | null)[]
+  downloads: { name: string; blob: Blob }[]
   edit(): void
 }
 
@@ -154,8 +259,13 @@ function world(): World {
     watchers: [] as (() => void)[],
     recents: [] as RecentProject[],
     supported: true,
+    packs: [] as (File | null)[],
+    downloads: [] as { name: string; blob: Blob }[],
   } as unknown as World
   w.host = new FakeHost()
+  w.browser = new FakeBrowser(w, () => Date.now())
+  // Most tests are about folders: the browser's storage is off unless a test turns it on.
+  w.browser.available = false
   w.deps = {
     picker: {
       get supported() {
@@ -195,6 +305,11 @@ function world(): World {
       }
     },
     now: () => Date.now(),
+    browser: w.browser,
+    pickPack: async () => w.packs.shift() ?? null,
+    download: (name, blob) => {
+      w.downloads.push({ name, blob })
+    },
   }
   w.storage = new ProjectStorage(w.host, w.deps)
   w.edit = () => {
@@ -785,7 +900,7 @@ describe('the start of a page', () => {
     const { w } = await remembered('prompt')
     await w.storage.restore()
     expect(w.host.opened).toEqual([])
-    expect(w.storage.reopen).toEqual({ id: 'last', name: 'last' })
+    expect(w.storage.reopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
     w.asked = 'denied'
     expect(await w.storage.reopenLast()).toBe(false)
     expect(w.storage.notice).toBe('storage.permissionDenied')
@@ -813,6 +928,644 @@ describe('the start of a page', () => {
     await w.storage.restore()
     expect(w.storage.reopen).toBeNull()
     expect(w.storage.folder).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------- SV-3: the browser's storage
+
+/** A world whose browser keeps projects (the OPFS), with a project changed and its draft written. */
+async function drafted(options: { picker?: boolean } = {}) {
+  const w = world()
+  w.browser.available = true
+  w.supported = options.picker ?? true
+  w.edit()
+  await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+  const dir = w.browser.only
+  return { w, dir, handle: w.browser.handles.get(dir)!, store: w.stores.get(w.browser.handles.get(dir)!)! }
+}
+
+const packFile = (name = 'song.faulkpack') => new File(['zip'], name)
+const packOf = (id: string, name = 'Packed') => ({
+  status: 'ok' as const,
+  files: [
+    { path: 'project.json', bytes: text(JSON.stringify({ id, name })) },
+    { path: 'blobs/aa', bytes: text('media') },
+    { path: 'tracks/t1/track.json', bytes: text('{}') },
+  ],
+})
+
+describe('a draft in the browser’s storage', () => {
+  it('is written after the first change, in a browser that has a folder picker too', async () => {
+    const { w, store } = await drafted()
+    expect(w.host.saves).toEqual(['everything'])
+    expect(store.files.get('project.json')).toBe('rev 1')
+    expect(w.storage.place).toBe('browser')
+    expect(w.storage.folder).toBeNull()
+    expect(w.storage.status).toBe('saved')
+    expect(w.storage.unsaved).toBe(false)
+    expect(w.recents).toEqual([])
+    expect(w.watchers).toEqual([])
+    // The identity of the project and the directory are both locked, and the browser is asked to keep the storage.
+    expect([...w.locks].sort()).toEqual([`dir.${w.browser.only}`, 'project-1'].sort())
+    expect(w.browser.persisted).toBe(1)
+    expect(w.storage.persisted).toBe(true)
+    expect(w.storage.browserProjects.map((p) => p.dir)).toEqual([w.browser.only])
+  })
+
+  it('writes nothing for a project nobody touched, and keeps the old behaviour where the browser cannot keep one', async () => {
+    const w = world()
+    w.browser.available = true
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
+    expect(w.browser.created).toEqual([])
+    expect(w.storage.status).toBe('unsaved')
+
+    const off = world()
+    off.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
+    expect(off.browser.created).toEqual([])
+    expect(off.storage.status).toBe('unsaved')
+    expect(off.storage.unsaved).toBe(true)
+  })
+
+  it('makes no draft, and does not warn, for a page whose only change is its session (the first track selected)', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.sessionOnly = true
+    w.edit()
+    expect(w.storage.unsaved).toBe(false)
+    expect(w.storage.status).toBe('unsaved')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
+    expect(w.browser.created).toEqual([])
+    // New does not ask about it, and a later restore is not put off by it.
+    expect(await w.storage.newProject()).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    // A real edit afterwards is kept like any other.
+    w.host.sessionOnly = false
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.browser.created.length).toBe(1)
+  })
+
+  it('shows a change as pending until its first write, then keeps writing the changes to the draft', async () => {
+    const w = world()
+    w.browser.available = true
+    w.edit()
+    expect(w.storage.status).toBe('pending')
+    expect(w.storage.unsaved).toBe(true)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    const store = w.stores.get(w.browser.handles.get(w.browser.only)!)!
+    expect(w.storage.status).toBe('saved')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(store.files.get('project.json')).toBe('rev 2')
+    expect(w.host.saves).toEqual(['everything', 'changed'])
+    expect(w.browser.created.length).toBe(1)
+    expect(w.browser.persisted).toBe(1)
+  })
+
+  it('is written at once when the page goes to the background, and before New or Open replaces the project', async () => {
+    const w = world()
+    w.browser.available = true
+    w.edit()
+    w.storage.sleep()
+    await settle()
+    expect(w.browser.created.length).toBe(1)
+
+    const other = world()
+    other.browser.available = true
+    other.edit()
+    // Still inside the delay: no draft yet. New keeps the change in a draft instead of asking.
+    expect(await other.storage.newProject()).toBe(true)
+    expect(other.storage.confirm).toBeNull()
+    expect(other.browser.created.length).toBe(1)
+    const kept = other.stores.get(other.browser.handles.get(other.browser.only)!)!
+    expect(kept.files.get('project.json')).toBe('rev 1')
+    expect(other.storage.place).toBe('none')
+    expect(other.locks.size).toBe(0)
+    // And the draft is still offered afterwards.
+    await other.storage.refreshBrowserProjects()
+    expect(other.storage.browserProjects.length).toBe(1)
+  })
+
+  it('a quota that is full is its own banner, keeps the changes, and the retry carries on once there is room', async () => {
+    const w = world()
+    w.browser.available = true
+    w.edit()
+    const full = new StoreError('full', 'QuotaExceededError')
+    // The first write: the directory was made, the files do not fit.
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.fail = full
+      return store
+    }
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('full')
+    expect(w.storage.status).toBe('failed')
+    expect(w.storage.place).toBe('none')
+    expect(w.storage.unsaved).toBe(true)
+    // What was made for it is given back: no directory, no lock.
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
+    expect(w.host.dirty()).toBe(true)
+    w.deps.openStore = original
+    await vi.advanceTimersByTimeAsync(RETRY_MS)
+    expect(w.storage.block).toBeNull()
+    expect(w.storage.place).toBe('browser')
+    expect(w.storage.status).toBe('saved')
+  })
+
+  it('a quota that fills up later keeps the files it wrote whole, says so, and the next write completes the project', async () => {
+    const { w, store } = await drafted()
+    store.fail = new StoreError('full', 'QuotaExceededError')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('full')
+    expect(w.storage.status).toBe('failed')
+    expect(store.files.get('project.json')).toBe('rev 1')
+    expect(w.host.dirty()).toBe(true)
+    store.fail = null
+    await vi.advanceTimersByTimeAsync(RETRY_MS)
+    expect(w.storage.block).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+    expect(w.host.dirty()).toBe(false)
+  })
+
+  it('Try again writes again, even where a picker exists, instead of asking for a folder', async () => {
+    const { w, store } = await drafted()
+    store.fail = new StoreError('full', 'QuotaExceededError')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('full')
+    store.fail = null
+    expect(await w.storage.save()).toBe(true)
+    expect(w.storage.block).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+    expect(w.storage.place).toBe('browser')
+
+    // The same when the very first write failed: no project of the browser yet, and Try again makes it.
+    const first = world()
+    first.browser.available = true
+    first.browser.createFails = new StoreError('full', 'QuotaExceededError')
+    first.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(first.storage.block).toBe('full')
+    first.browser.createFails = null
+    expect(await first.storage.save()).toBe(true)
+    expect(first.storage.place).toBe('browser')
+    expect(first.storage.block).toBeNull()
+  })
+
+  it('another failure of the first write is the plain error banner, tried again by itself', async () => {
+    const w = world()
+    w.browser.available = true
+    w.browser.createFails = new StoreError('io', 'nope')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('error')
+    expect(w.storage.errorDetail).toContain('nope')
+    expect(w.locks.size).toBe(0)
+    w.browser.createFails = null
+    await vi.advanceTimersByTimeAsync(RETRY_MS)
+    expect(w.storage.block).toBeNull()
+    expect(w.storage.place).toBe('browser')
+  })
+
+  it('a browser whose storage turns out unusable (a private window) goes back to the tab, with no banner', async () => {
+    const w = world()
+    w.browser.available = true
+    w.browser.createFails = new StoreError('io', 'SecurityError')
+    const make = w.browser.create.bind(w.browser)
+    w.browser.create = async (dir) => {
+      try {
+        return await make(dir)
+      } catch (error) {
+        w.browser.available = false
+        throw error
+      }
+    }
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBeNull()
+    expect(w.storage.status).toBe('unsaved')
+    expect(w.storage.unsaved).toBe(true)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
+    expect(w.browser.created).toEqual([])
+  })
+
+  it('Save asks for a folder where there is a picker, and keeps the project in the browser where there is none', async () => {
+    const { w } = await drafted()
+    w.picks.push({ status: 'cancelled' })
+    expect(await w.storage.save()).toBe(false)
+    expect(w.storage.place).toBe('browser')
+
+    const none = world()
+    none.browser.available = true
+    none.supported = false
+    expect(await none.storage.save()).toBe(true)
+    expect(none.browser.created.length).toBe(1)
+    expect(none.storage.place).toBe('browser')
+    none.edit()
+    expect(await none.storage.save()).toBe(true)
+    expect(none.host.saves).toEqual(['everything', 'forced'])
+    expect(none.browser.created.length).toBe(1)
+  })
+
+  it('warns that projects are in the browser only where there is no folder to choose, harder if the browser will not promise to keep them', async () => {
+    const withPicker = await drafted()
+    expect(withPicker.w.storage.browserWarning).toBeNull()
+
+    const none = await drafted({ picker: false })
+    expect(none.w.storage.browserWarning).toBe('export')
+    none.w.storage.dismissBrowserWarning()
+    expect(none.w.storage.browserWarning).toBeNull()
+
+    const refused = world()
+    refused.browser.available = true
+    refused.browser.persistAnswer = false
+    refused.supported = false
+    refused.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(refused.storage.persisted).toBe(false)
+    expect(refused.storage.browserWarning).toBe('volatile')
+  })
+})
+
+describe('save as from a draft', () => {
+  it('moves the same project into the folder: same identity, the media come along, the lock is carried, the draft goes', async () => {
+    const { w, dir, store: draft } = await drafted()
+    draft.media.set('blobs/aa', text('media'))
+    const folder = handleOf('song')
+    w.picks.push({ status: 'chosen', handle: folder })
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.host.saves.at(-1)).toBe('everything')
+    const store = w.stores.get(folder)!
+    expect(store.copied).toEqual([draft])
+    expect(store.files.has('project.json')).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.folder).toEqual({ name: 'song' })
+    expect(w.browser.removed).toEqual([dir])
+    expect(w.browser.handles.size).toBe(0)
+    expect(draft.closed).toBe(true)
+    // One lock on the identity, never taken twice; none left on the draft's directory.
+    expect([...w.locks]).toEqual(['project-1'])
+    expect(w.recents.map((r) => r.name)).toEqual(['song'])
+    expect(w.storage.browserProjects).toEqual([])
+    // And the edits that follow go to the folder.
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(store.applied.length).toBe(2)
+    expect(w.host.saves.at(-1)).toBe('changed')
+  })
+
+  it('leaves the draft as it was, with its locks, when the folder is refused, not empty, or fails', async () => {
+    const { w, dir, store: draft } = await drafted()
+    const before = new Map(draft.files)
+    const locks = new Set(w.locks)
+
+    const full = handleOf('full')
+    w.stores.set(full, Object.assign(new FakeStore('full'), { files: new Map([['readme.txt', 'hi']]) }))
+    w.picks.push({ status: 'chosen', handle: full })
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.notEmpty')
+
+    const broken = handleOf('broken')
+    w.stores.set(broken, Object.assign(new FakeStore('broken'), { fail: new StoreError('io', 'nope') }))
+    w.picks.push({ status: 'chosen', handle: broken })
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+
+    // The blobs could not be copied.
+    const noBlobs = handleOf('no-blobs')
+    const store = new FakeStore('no-blobs')
+    store.copyBlobsFrom = async () => {
+      throw new StoreError('io', 'copy failed')
+    }
+    w.stores.set(noBlobs, store)
+    w.picks.push({ status: 'chosen', handle: noBlobs })
+    expect(await w.storage.saveAs()).toBe(false)
+
+    expect(w.browser.removed).toEqual([])
+    expect(w.browser.handles.has(dir)).toBe(true)
+    expect(draft.files).toEqual(before)
+    expect(draft.closed).toBe(false)
+    expect(w.locks).toEqual(locks)
+    expect(w.storage.place).toBe('browser')
+    // The draft is still the project's home: it goes on being written.
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(draft.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('does not take a folder when another tab holds the project', async () => {
+    const { w } = await drafted()
+    // Our own lock on the identity is what a folder save would carry; an unrelated holder cannot exist for it.
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.locks.has('project-1')).toBe(true)
+  })
+})
+
+describe('the start of a page with drafts', () => {
+  async function leftBehind(picker: boolean) {
+    const first = await drafted({ picker })
+    // A new page in the same browser: same storage, nothing open.
+    const w = world()
+    w.browser = first.w.browser
+    w.deps.browser = first.w.browser
+    w.browser.w = w
+    w.stores = first.w.stores
+    w.deps.openStore = first.w.deps.openStore
+    first.w.storage.respond(false)
+    // The first page is gone: its locks with it.
+    first.w.locks.clear()
+    w.locks = first.w.locks
+    w.supported = picker
+    return { w, dir: first.dir, draft: first.store }
+  }
+
+  it('offers the draft with a banner where there is a picker, and reopens it on the click', async () => {
+    const { w, dir } = await leftBehind(true)
+    await w.storage.restore()
+    expect(w.host.opened).toEqual([])
+    expect(w.storage.reopen).toEqual({ id: dir, name: 'Song', kind: 'browser' })
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.reopen).toBeNull()
+    expect(w.host.opened.length).toBe(1)
+    expect(w.storage.place).toBe('browser')
+    expect([...w.locks].sort()).toEqual([`dir.${dir}`].sort())
+    // Reopened, a change goes to the same draft.
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.browser.created.length).toBe(1)
+  })
+
+  it('reopens the project by itself where the browser’s storage is the only home', async () => {
+    const { w } = await leftBehind(false)
+    await w.storage.restore()
+    expect(w.host.opened.length).toBe(1)
+    expect(w.storage.place).toBe('browser')
+    expect(w.storage.reopen).toBeNull()
+  })
+
+  it('prefers whichever the musician worked on last: the draft, or the folder', async () => {
+    const { w, dir } = await leftBehind(true)
+    const folder = handleOf('song')
+    const store = new FakeStore('song')
+    store.files = new Map([['project.json', JSON.stringify({ id: 'abc' })]])
+    w.stores.set(folder, store)
+    w.permission.set(folder, 'prompt')
+    w.browser.touch(dir, 1000)
+    w.recents = [{ id: 'song', name: 'song', handle: folder, at: 2000 }]
+    await w.storage.restore()
+    expect(w.storage.reopen).toEqual({ id: 'song', name: 'song', kind: 'folder' })
+
+    w.storage.dismissReopen()
+    w.browser.touch(dir, 3000)
+    await w.storage.restore()
+    expect(w.storage.reopen?.kind).toBe('browser')
+  })
+
+  it('leaves alone a draft that another tab has open, and a page that was already changed', async () => {
+    const { w, dir } = await leftBehind(true)
+    w.locks.add(`dir.${dir}`)
+    await w.storage.restore()
+    expect(w.storage.reopen).toBeNull()
+    w.locks.clear()
+    w.edit()
+    await w.storage.restore()
+    expect(w.storage.reopen).toBeNull()
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('deletes a directory with no project that no tab is making, and leaves one that a tab is making', async () => {
+    const w = world()
+    w.browser.available = true
+    await w.browser.create('abandoned')
+    await w.browser.create('being-made')
+    w.locks.add('dir.being-made')
+    await w.storage.restore()
+    expect(w.browser.removed).toEqual(['abandoned'])
+    expect(w.browser.handles.has('being-made')).toBe(true)
+    // The sweep took the lock and gave it back.
+    expect(w.locks.has('dir.abandoned')).toBe(false)
+  })
+})
+
+describe('deleting a project of the browser', () => {
+  async function two() {
+    const { w, dir } = await drafted()
+    // The page moves on to another project: the first one stays in the browser.
+    expect(await w.storage.newProject()).toBe(true)
+    await w.storage.refreshBrowserProjects()
+    return { w, dir }
+  }
+
+  it('asks first; Cancel keeps it, Delete removes it and what offered it', async () => {
+    const { w, dir } = await two()
+    w.storage.reopen = { id: dir, name: 'Song', kind: 'browser' }
+    const asking = w.storage.deleteBrowserProject(dir)
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'delete', name: 'Song' })
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.browser.handles.has(dir)).toBe(true)
+
+    const again = w.storage.deleteBrowserProject(dir)
+    await settle()
+    w.storage.respond(true)
+    expect(await again).toBe(true)
+    expect(w.browser.removed).toEqual([dir])
+    expect(w.storage.browserProjects).toEqual([])
+    expect(w.storage.reopen).toBeNull()
+    expect(w.locks.size).toBe(0)
+  })
+
+  it('never deletes the project that is open, nor one another tab has open', async () => {
+    const { w, dir } = await drafted()
+    expect(await w.storage.deleteBrowserProject(dir)).toBe(false)
+    expect(w.storage.notice).toBe('storage.deleteOpen')
+    expect(w.browser.removed).toEqual([])
+
+    const other = await two()
+    other.w.locks.add(`dir.${other.dir}`)
+    expect(await other.w.storage.deleteBrowserProject(other.dir)).toBe(false)
+    expect(other.w.storage.notice).toBe('storage.locked')
+    expect(other.w.browser.removed).toEqual([])
+  })
+
+  it('says so when the project it was asked to open is gone', async () => {
+    const w = world()
+    w.browser.available = true
+    expect(await w.storage.openBrowserProject('gone')).toBe(false)
+    expect(w.storage.notice).toBe('storage.browserGone')
+  })
+})
+
+describe('export a .faulkpack', () => {
+  it('hands over the project as it is now, with the media of its home, named after the project', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    w.edit()
+    w.host.name = 'My: song?'
+    expect(await w.storage.exportPack()).toBe(true)
+    const files = w.host.exports[0]!
+    expect(files.map((f) => f.path).sort()).toEqual(['blobs/aa', 'project.json'])
+    // The unsaved change is in the pack: it is the project as it is now.
+    expect(new TextDecoder().decode(files.find((f) => f.path === 'project.json')!.bytes)).toBe('rev 2')
+    expect(w.downloads.map((d) => d.name)).toEqual(['My_ song_.faulkpack'])
+    expect(w.downloads[0]!.blob.type).toBe('application/zip')
+    // The export wrote nothing: the project is still waiting for its own write.
+    expect(store.files.get('project.json')).toBe('rev 1')
+    expect(w.host.dirty()).toBe(true)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('works for a project that has no home at all', async () => {
+    const w = world()
+    w.edit()
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.downloads.length).toBe(1)
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('says when the project could not be exported, or lacks media, and downloads nothing for the first', async () => {
+    const { w } = await drafted()
+    w.host.exportFails = 'too big'
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+    expect(w.storage.errorDetail).toBe('too big')
+    expect(w.downloads).toEqual([])
+    w.host.exportFails = null
+    w.host.missingBlobs = 2
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.notice).toBe('pack.missingMedia')
+    w.host.frameFails = true
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+  })
+})
+
+describe('import a .faulkpack', () => {
+  it('writes the pack whole into a new directory of the browser, project.json last, and opens it', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(true)
+    const dir = w.browser.only
+    const store = w.stores.get(w.browser.handles.get(dir)!)!
+    // Blobs, the other files, then project.json: the project exists only once it is whole.
+    expect(store.applied).toEqual([['blobs/aa', 'tracks/t1/track.json', 'project.json']])
+    expect(w.host.opened.map((o) => o.name)).toEqual([`browser/${dir}`])
+    expect(w.storage.place).toBe('browser')
+    expect(w.storage.browserProjects.map((p) => p.dir)).toEqual([dir])
+    // The identity of the pack is the project's: nothing was saved with a new one.
+    expect(w.host.saves).toEqual([])
+    expect([...w.locks].sort()).toEqual([`dir.${dir}`, 'pack-1'].sort())
+    expect(w.browser.persisted).toBe(1)
+  })
+
+  it('tells a caller with no click behind it, instead of waiting for a chooser that never opens', async () => {
+    const w = world()
+    w.browser.available = true
+    vi.stubGlobal('navigator', { userActivation: { isActive: false } })
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.packs.length).toBe(1)
+    vi.stubGlobal('navigator', { userActivation: { isActive: true } })
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.importPack()).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('changes nothing when the file is no pack, is too big, or the user chose nothing', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = { status: 'failed', message: 'bad zip' }
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.invalid')
+    expect(w.storage.errorDetail).toBe('bad zip')
+    w.packs.push(new File([new Uint8Array(MAX_PACK_BYTES + 1)], 'huge.faulkpack'))
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.tooBig')
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.browser.created).toEqual([])
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('never overwrites a project of the same identity: the one open, nor the one kept in the browser', async () => {
+    const { w } = await drafted()
+    w.host.unpacked = packOf('project-1')
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.alreadyHere')
+    // Another project is open now; the first is still in the browser.
+    await w.storage.newProject()
+    w.storage.dismissNotice()
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.alreadyHere')
+    expect(w.browser.created.length).toBe(1)
+  })
+
+  it('leaves the project and the browser as they were when the write fails, with a message for a full quota', async () => {
+    const w = world()
+    w.browser.available = true
+    w.edit()
+    w.host.unpacked = packOf('pack-1')
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      if (handle.name.startsWith('browser/')) store.fail = new StoreError('full', 'QuotaExceededError')
+      return store
+    }
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('storage.browserFull')
+    expect(w.host.opened).toEqual([])
+    // The directory made for it, and its lock, are gone. (The page's own change got its draft first, as New would.)
+    expect([...w.browser.handles.keys()].length).toBeLessThanOrEqual(1)
+    expect(w.browser.removed.length).toBe(1)
+    expect(w.locks.has('pack-1')).toBe(false)
+  })
+
+  it('removes the copy it made when the user declines to replace a changed project', async () => {
+    const w = world()
+    w.browser.available = false
+    w.edit()
+    w.host.unpacked = packOf('pack-1')
+    w.packs.push(packFile())
+    const importing = w.storage.importPack()
+    await settle()
+    expect(w.storage.confirm?.action).toBe('open')
+    w.storage.respond(false)
+    expect(await importing).toBe(false)
+    expect(w.host.opened).toEqual([])
+
+    const kept = world()
+    kept.browser.available = true
+    kept.edit()
+    kept.host.unpacked = packOf('pack-2')
+    kept.packs.push(packFile())
+    // The change is kept in a draft first, so there is nothing to decline; the import goes through.
+    expect(await kept.storage.importPack()).toBe(true)
+    expect(kept.browser.handles.size).toBe(2)
+  })
+
+  it('opens the project in the tab alone where the browser keeps nothing', async () => {
+    const w = world()
+    w.host.unpacked = packOf('pack-1')
+    w.packs.push(packFile('My song.faulkpack'))
+    expect(await w.storage.importPack()).toBe(true)
+    expect(w.host.opened.map((o) => o.name)).toEqual(['My song'])
+    expect(w.storage.place).toBe('none')
+    expect(w.browser.created).toEqual([])
+    const blob = w.host.opened[0]!.entries.find((e) => e.path === 'blobs/aa')!
+    expect('size' in blob && blob.size).toBe(5)
   })
 })
 

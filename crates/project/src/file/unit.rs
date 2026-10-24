@@ -249,6 +249,8 @@ pub fn emit(
             let Some(track) = project.tracks.get(t) else {
                 return Ok(());
             };
+            // The track file first: a track is the directory that holds it, and the reader
+            // refuses a track directory without one.
             sink(Out::text(
                 track_file(t),
                 json(&track_file(t), &TrackDoc::of(track))?,
@@ -282,11 +284,12 @@ pub fn emit(
         }
         Unit::Clip(t, c) => {
             if let Some(clip) = project.tracks.get(t).and_then(|t| t.clips.get(c)) {
+                // The notes first: the clip file names them.
+                emit(project, &Unit::Notes(t.clone(), c.clone()), ctx, sink)?;
                 sink(Out::text(
                     clip_file(t, c),
                     json(&clip_file(t, c), &ClipDoc::of(clip))?,
                 ))?;
-                emit(project, &Unit::Notes(t.clone(), c.clone()), ctx, sink)?;
             }
         }
         Unit::Notes(t, c) => {

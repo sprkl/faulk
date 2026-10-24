@@ -30,6 +30,10 @@ type: "project.save"
 } | {
 type: "project.save_as"
 } | {
+type: "project.export_pack"
+} | {
+type: "project.import_pack"
+} | {
 bit_depth?: (ExportBitDepth | null)
 from_bar?: (number | null)
 region?: (ExportRegion | null)
@@ -763,6 +767,10 @@ type: "project.new"
 type: "project.save"
 } | {
 type: "project.save_as"
+} | {
+type: "project.export_pack"
+} | {
+type: "project.import_pack"
 } | {
 /**
  * How the samples are written.

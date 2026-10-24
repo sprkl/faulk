@@ -189,6 +189,26 @@ describe('FolderBackend blobs and swap files', () => {
   })
 })
 
+describe('FolderBackend.readBlobs', () => {
+  it('reads every blob whole, and nothing else; no blobs is an empty list', async () => {
+    const { dir, store } = folder()
+    expect(await store.readBlobs()).toEqual([])
+    dir.put('blobs/aa', 'one').put('blobs/bb', 'two').put('blobs/cc.crswap', 'half').put('project.json', '{}')
+    const blobs = await store.readBlobs()
+    expect(blobs.map((b) => [b.path, new TextDecoder().decode(b.bytes)]).sort()).toEqual([
+      ['blobs/aa', 'one'],
+      ['blobs/bb', 'two'],
+    ])
+  })
+
+  it('classifies a failure', async () => {
+    const { dir, store } = folder()
+    dir.put('blobs/aa', 'one')
+    dir.hooks.failEntries = () => new DOMException('no', 'NotAllowedError')
+    await expect(store.readBlobs()).rejects.toMatchObject({ code: 'permission' })
+  })
+})
+
 describe('classify', () => {
   it('maps what the file system says to what the page does', () => {
     const named = (name: string) => classify(new DOMException('x', name)).code
