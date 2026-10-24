@@ -1,8 +1,5 @@
 # Directory Update Log
 
-## 2026-10-24
-* **Update** (#329): `architecture/03-stockage-local.md` states that the draft moved into a folder is deleted before "saved" is published (and kept when the folder is not confirmed among the recent projects), and that Save and the export folder wait for an attach under way.
-
 ## 2026-10-14
 * **Update** (#138): `architecture/04-distribution-helper.md` gains the page the helper serves and opens (production origins accepted by default, the app URL rule by build profile) and what Chrome and Edge 155 do with Local Network Access for `ws://127.0.0.1` (prompt, Allow, Block, local pages); `constraints/01-contraintes.md` states the prompt precisely; `README.md` gives the new defaults.
 * **Update** (#172): device names are never translated (founder's decision of 2026-10-14): one English name per device, shown as is in both UI languages; parameter labels and descriptions stay translated. `product/01-vision.md` records the decision; `specs/02-decoupage-mvp.md` adds the display name to the device descriptor (§ 2.5, where device names live) and to the founder decisions (§ 7), and names the MVP devices (DV-1 Oscillator, DV-2 Filter, DV-3 Echo, DV-4 Reverb, DV-5 Compressor, DV-6 Drums); `specs/01-atelier-modules.md` makes a module's manifest `name` one string and renames the example modules Subtractive and Slapback (the second was "Echo", the name of DV-3). `CLAUDE.md` follows.

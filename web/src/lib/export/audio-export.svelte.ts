@@ -243,7 +243,8 @@ export class AudioExport {
   /**
    * The Export button: runs `project.export_audio` with the dialog's settings, which the project
    * checks (and, accepted, hands back to `request`, which begins). Call straight from the click:
-   * the file dialog of the browser needs it, and it opens within this call.
+   * the file dialog of the browser needs it, and it opens right after the project's folder is known
+   * (at once, unless a move of the project into a folder is under way).
    */
   start() {
     if (this.busy) return

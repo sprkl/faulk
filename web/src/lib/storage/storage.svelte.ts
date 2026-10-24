@@ -484,7 +484,13 @@ export class ProjectStorage {
    * come along, the lock on its identity is carried over, and the draft is deleted once the folder
    * holds everything). A failure leaves the project where it was.
    */
-  private async saveInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
+  private saveInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
+    // The whole move is one gap for Save and the export folder: the blobs are copied and the frame written
+    // while the old home is still current, and a Save then would ask for a second folder.
+    return this.holdingBarrier(this.writeInto(target))
+  }
+
+  private async writeInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
     this.cancelTimers()
     const from = this.current
     const promotedFrom = from?.kind === 'browser' && target.kind === 'folder' ? from : null
@@ -757,14 +763,22 @@ export class ProjectStorage {
     wrote: boolean,
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
   ) {
-    const running = this.attachNow(handle, store, release, wrote, place)
+    await this.holdingBarrier(this.attachNow(handle, store, release, wrote, place))
+  }
+
+  /**
+   * Sets `attaching` until `running` ends, however it ends. Inside a move that already holds it (the attach
+   * of `saveInto`) the outer one stays: it is cleared when the whole move is over.
+   */
+  private async holdingBarrier<T>(running: Promise<T>): Promise<T> {
+    if (this.attaching) return running
     const marker = running.then(
       () => undefined,
       () => undefined,
     )
     this.attaching = marker
     try {
-      await running
+      return await running
     } finally {
       if (this.attaching === marker) this.attaching = null
     }
@@ -791,11 +805,13 @@ export class ProjectStorage {
     const draftLock = place.discard ? (this.current?.releaseDir ?? null) : null
     if (draftLock && this.current) this.current.releaseDir = null
     await this.detach()
-    // A draft that moved into a folder is deleted before "saved" is published, so a reload can never find
-    // the project twice. Only now: its store is closed (the directory cannot be removed while the project
-    // holds it). The draft is deleted only once the folder is confirmed among the recent projects:
-    // `remember` reports no failure, and without it nothing would offer the folder back. A draft that
-    // cannot be deleted is left behind: the folder holds the project, and the draft stays listed.
+    // A draft that moved into a folder is deleted before "saved" is published, so a reload after "saved"
+    // never finds the project twice. A reload during the removal itself still can: the folder is already
+    // among the recent projects and the draft is not gone yet (removing first could lose the offer of the
+    // folder). The removal comes only now because the draft's store must be closed first. The draft is
+    // deleted only once the folder is confirmed among the recent projects: `remember` reports no failure,
+    // and without it nothing would offer the folder back. A draft that cannot be deleted is left behind:
+    // the folder holds the project, and the draft stays listed.
     try {
       if (place.discard && (await this.isRemembered(handle))) await this.deps.browser.remove(place.discard).catch(() => undefined)
     } finally {

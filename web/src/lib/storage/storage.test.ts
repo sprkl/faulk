@@ -1307,9 +1307,11 @@ describe('save as from a draft', () => {
   })
 
   it('does not hold Save or the export folder back for ever when an attach fails', async () => {
-    const { w, store } = await saved()
+    const { w } = await saved()
     const other = handleOf('other')
     w.picks.push({ status: 'chosen', handle: other })
+    // A copy has its own identity (the core gives it one).
+    w.host.id = 'project-copy'
     w.deps.openStore = async (handle) => {
       const s = new FakeStore(handle.name)
       s.cleanUp = async () => {
@@ -1321,9 +1323,9 @@ describe('save as from a draft', () => {
     w.edit()
     await w.storage.saveAs().catch(() => undefined)
     // Whatever became of the failed attach, the next calls are not left waiting on it.
-    expect(await w.storage.folderHandle()).toBeDefined()
-    await w.storage.save().catch(() => undefined)
-    expect(store).toBeDefined()
+    expect(await w.storage.folderHandle()).toBe(other)
+    expect(await w.storage.save()).toBe(true)
+    expect(w.host.saves.at(-1)).toBe('forced')
   })
 
   it('still says saved when the draft cannot be deleted (the folder holds the project, a leftover draft is harmless)', async () => {
@@ -1410,7 +1412,36 @@ describe('save as from a draft', () => {
     expect(w.browser.removed).toEqual([])
   })
 
-  it('asks for a folder when Save is pressed on a draft that nothing is moving, and waits for a queued task first', async () => {
+  it('holds Save and the export folder for the whole move, not only its attach: no second folder dialog while the media are copied', async () => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    const target = new FakeStore('song')
+    w.stores.set(folder, target)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached = false
+    target.copyBlobsFrom = async () => {
+      reached = true
+      await gate
+    }
+    w.picks.push({ status: 'chosen', handle: folder })
+    const moving = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    // The draft is still the project's home here, and attach has not started.
+    w.picks.push({ status: 'chosen', handle: handleOf('other') })
+    const asked = w.storage.folderHandle()
+    const saving = w.storage.save()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    release()
+    expect(await moving).toBe(true)
+    expect(await asked).toBe(folder)
+    expect(await saving).toBe(true)
+    expect(w.picks.length).toBe(1)
+    expect(w.storage.folder).toEqual({ name: 'song' })
+  })
+
+  it('asks for a folder when Save is pressed on a draft that nothing is moving', async () => {
     const { w } = await drafted()
     const folder = handleOf('song')
     w.picks.push({ status: 'chosen', handle: folder })
