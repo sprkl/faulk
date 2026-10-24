@@ -163,8 +163,10 @@ domain! {
     /// is the scene of the target slot, which must be free; `null` takes the clip out of
     /// the grid, which is refused when no placement of the arrangement plays it. A clip
     /// that has placements stays in its track: moving it to another track is refused.
-    /// A move that changes nothing does nothing and leaves no history entry. A clip
-    /// that is playing stops. Undo: move it back.
+    /// A move that changes nothing does nothing and leaves no history entry. Leaving
+    /// `slot` out is the same as `null`. The engine frees the clip and takes it again, so
+    /// a clip that is playing stops, and so does the arrangement's playback of its
+    /// placements (they play again from the next note). Undo: move it back.
     "clip.move" (kind = "edit", undo = "inverse", destructive = false)
     Move {
         clip: ClipId,

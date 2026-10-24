@@ -549,7 +549,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+            "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -3918,7 +3918,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -8942,7 +8942,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -13987,7 +13987,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -19038,7 +19038,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -24071,7 +24071,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -29092,7 +29092,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -34120,7 +34120,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -39155,7 +39155,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -44187,7 +44187,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -49208,7 +49208,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -54241,7 +54241,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -59270,7 +59270,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -64298,7 +64298,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -69326,7 +69326,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -74356,7 +74356,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -79390,7 +79390,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -84414,7 +84414,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -89439,7 +89439,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -94471,7 +94471,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -99492,7 +99492,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -104520,7 +104520,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -109560,7 +109560,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -114615,7 +114615,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -119641,7 +119641,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -124673,7 +124673,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -129165,7 +129165,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+        "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -129717,7 +129717,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -134772,7 +134772,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -139800,7 +139800,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -144832,7 +144832,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -149871,7 +149871,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -154918,7 +154918,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -159951,7 +159951,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -164984,7 +164984,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -170017,7 +170017,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -175042,7 +175042,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -180068,7 +180068,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -185096,7 +185096,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -190124,7 +190124,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -195156,7 +195156,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -200177,7 +200177,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -205194,7 +205194,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -210211,7 +210211,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -215228,7 +215228,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -220239,7 +220239,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -225250,7 +225250,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -230312,7 +230312,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -235352,7 +235352,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -240393,7 +240393,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -245421,7 +245421,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -250457,7 +250457,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -255523,7 +255523,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -260543,7 +260543,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -265554,7 +265554,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -270565,7 +270565,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -275582,7 +275582,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -280610,7 +280610,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -285655,7 +285655,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -290679,7 +290679,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -295713,7 +295713,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -300731,7 +300731,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -305794,7 +305794,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -310833,7 +310833,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -315865,7 +315865,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -320893,7 +320893,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -325928,7 +325928,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -330956,7 +330956,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -335967,7 +335967,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -340993,7 +340993,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -346024,7 +346024,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -351048,7 +351048,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -356085,7 +356085,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -361115,7 +361115,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -366142,7 +366142,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -371153,7 +371153,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -376183,7 +376183,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -381213,7 +381213,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -386231,7 +386231,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -391249,7 +391249,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -396277,7 +396277,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. A clip\nthat is playing stops. Undo: move it back.",
+              "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -404526,7 +404526,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "A clip was deleted, with its placements.",
+              "description": "A clip was deleted, with its placements. `clip.move` also reports it (with no\nplacements, which the clip keeps) before the `ClipCreated` that follows.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
