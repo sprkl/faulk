@@ -709,6 +709,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Dépend de : AR-1, AR-3, UI-2.
 - Phase : 4.
 - Étiquettes : hardware: non, founder: oui.
+- Réalisé (#80) : une piste par couloir sur la grille de temps partagée ; un geste = une commande envoyée à la fin du geste (déplacer : `arrangement.move`, bords : `arrangement.resize`, couper à la position de lecture : Ctrl+E, `arrangement.split`, dupliquer indépendant : Ctrl+D, lié : Ctrl+Maj+D, Alt+glisser copie là où on dépose, `arrangement.duplicate`, Suppr : `arrangement.delete`) ; magnétisme sur la grille (Ctrl ou Cmd l'ignore) ; glisser sur la règle = région de boucle (`transport.set_loop` puis `transport.toggle_loop`, un seul pas d'annulation), clic sur la règle = `transport.seek` ; double-clic sur un couloir vide = clip d'une mesure (`clip.create`), sur un clip = piano roll. Pas de déplacement d'un clip vers une autre piste (`arrangement.move` garde la piste).
 
 **AR-5 — De la grille vers l'arrangement**
 - But : glisser un clip de la grille vers la timeline ; commande `arrangement.place_from_slot { linked: bool }` (copie indépendante par défaut, décision 11).
