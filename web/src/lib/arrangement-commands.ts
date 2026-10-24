@@ -16,5 +16,11 @@ export const deletePlacements = (placements: string[]): Command => ({ type: 'arr
 /** Copies placements `by` ticks later: independent clips by default, the same clips (linked) with `linked`. */
 export const duplicatePlacements = (placements: string[], linked: boolean, by?: Tick): Command =>
   by === undefined ? { type: 'arrangement.duplicate', placements, linked } : { type: 'arrangement.duplicate', placements, linked, by }
+/** Puts a clip of the launch grid in the arrangement from a tick: an independent copy by default, the grid clip itself (linked) with `linked`. */
+export const placeFromSlot = (clip: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_from_slot', clip, start, linked })
+/** The same for every clip of a scene, each on its own track: one command, one history entry. */
+export const placeScene = (scene: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_scene', scene, start, linked })
+/** The start of the bar a tick lies in: where a clip sent from the grid is put. */
+export const barStart = (tick: number, bar: number): number => (bar > 0 ? Math.floor(Math.max(0, tick) / bar) * bar : 0)
 /** A one-bar clip put in the arrangement of a track, from a tick. */
 export const createClipAt = (track: string, start: Tick, length: Tick): Command => ({ type: 'clip.create', track, at: { at: 'arrangement', start }, length })

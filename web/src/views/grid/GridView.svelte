@@ -12,6 +12,8 @@
   import { tick, untrack } from 'svelte'
   import type { ClipState } from '../../lib/engine/feedback'
   import type { Command } from '../../lib/generated/protocol'
+  import { barStart, placeFromSlot, placeScene } from '../../lib/arrangement-commands'
+  import { barTicks } from '../transport/time'
   import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
   import { trackLabel } from '../../lib/project/tracks'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
@@ -60,6 +62,9 @@
   const numbers = $derived(project.view ? clipNumbers(project.view.project) : new Map<string, number>())
   /** Where each clip of the grid sits, by clip. */
   const homes = $derived(clipHomes(clips))
+  /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
+  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
+  const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
   /** The name of a clip: its own, or "Clip n" as the piano roll calls it; an audio clip has no number. */
   const nameOf = (id: string, clip: { name: string }) => {
     const own = clip.name.trim()
@@ -290,6 +295,24 @@
     const scene = freeBelow(home.track, scenes.findIndex((entry) => entry.id === home.scene))
     if (scene) run(duplicateClip(id, scene, null))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  /** The bar the play position is in: where a clip or a scene sent to the arrangement is put. */
+  function sendTick(): number {
+    const signature = project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 }
+    return barStart(engine.started ? (engine.feedback?.playheadTick ?? 0) : 0, barTicks(signature))
+  }
+
+  function sendToArrangement(id: string, linked: boolean) {
+    cellMenu = null
+    if (!homes.has(id)) return
+    run(placeFromSlot(id, sendTick(), linked))
+    void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  function sendSceneToArrangement(scene: string, linked: boolean) {
+    menuFor = null
+    run(placeScene(scene, sendTick(), linked))
   }
 
   async function startClipRename(id: string) {
@@ -597,6 +620,8 @@
                 <button role="menuitem" type="button" onclick={() => startRename(sc.id, si)}>{t('grid.rename')}</button>
                 <button role="menuitem" type="button" disabled={si === 0} onclick={() => move(sc.id, si - 1)}>{t('grid.moveUp')}</button>
                 <button role="menuitem" type="button" disabled={si === scenes.length - 1} onclick={() => move(sc.id, si + 1)}>{t('grid.moveDown')}</button>
+                <button role="menuitem" type="button" data-testid="scene-send" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, false)}>{t('grid.sendScene')}</button>
+                <button role="menuitem" type="button" data-testid="scene-send-linked" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, true)}>{t('grid.sendSceneLinked')}</button>
                 <button role="menuitem" type="button" data-testid="scene-delete" onclick={() => requestDelete(sc.id)}>{t('grid.delete')}</button>
               </div>
             {:else if confirmFor === sc.id}
@@ -663,6 +688,8 @@
                     <div class="pop cpop" role="menu" data-testid="clip-menu">
                       <button role="menuitem" type="button" data-testid="clip-menu-rename" onclick={() => startClipRename(cell.id)}>{t('grid.rename')}</button>
                       <button role="menuitem" type="button" data-testid="clip-menu-duplicate" disabled={freeBelow(entry.id, si) === null} onclick={() => duplicateFromMenu(cell.id)}>{t('grid.duplicate')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-send" onclick={() => sendToArrangement(cell.id, false)}>{t('grid.send')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-send-linked" onclick={() => sendToArrangement(cell.id, true)}>{t('grid.sendLinked')}</button>
                       <button role="menuitem" type="button" data-testid="clip-menu-delete" onclick={() => removeClip(cell.id, entry.index, si)}>{t('grid.delete')}</button>
                     </div>
                   {/if}
