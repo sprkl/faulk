@@ -34,6 +34,27 @@ type: "project.export_pack"
 } | {
 type: "project.import_pack"
 } | {
+type: "project.list_stored"
+} | {
+type: "project.reopen_last"
+} | {
+type: "project.open_folder"
+} | {
+id: string
+type: "project.open_recent"
+} | {
+dir: string
+type: "project.open_browser_project"
+} | {
+dir: string
+type: "project.delete_browser_project"
+} | {
+type: "project.keep_mine"
+} | {
+type: "project.load_folder_version"
+} | {
+type: "project.allow_access"
+} | {
 bit_depth?: (ExportBitDepth | null)
 from_bar?: (number | null)
 region?: (ExportRegion | null)
@@ -773,6 +794,32 @@ type: "project.save_as"
 type: "project.export_pack"
 } | {
 type: "project.import_pack"
+} | {
+/**
+ * The projects kept in the browser's storage, newest first.
+ */
+browser: StoredBrowserProject[]
+/**
+ * The folders opened recently, newest first.
+ */
+recent: StoredFolder[]
+type: "project.list_stored"
+} | {
+type: "project.reopen_last"
+} | {
+type: "project.open_folder"
+} | {
+type: "project.open_recent"
+} | {
+type: "project.open_browser_project"
+} | {
+type: "project.delete_browser_project"
+} | {
+type: "project.keep_mine"
+} | {
+type: "project.load_folder_version"
+} | {
+type: "project.allow_access"
 } | {
 /**
  * How the samples are written.
@@ -2210,6 +2257,32 @@ offset: number
  * project and the UI read it as a plain integer.
  */
 start: number
+}
+/**
+ * A project kept in the browser's own storage.
+ */
+export interface StoredBrowserProject {
+/**
+ * What `project.open_browser_project` and `project.delete_browser_project` take.
+ */
+dir: string
+/**
+ * The project's name.
+ */
+name: string
+}
+/**
+ * A folder opened recently.
+ */
+export interface StoredFolder {
+/**
+ * What `project.open_recent` takes.
+ */
+id: string
+/**
+ * The folder's name.
+ */
+name: string
 }
 /**
  * A MIDI input as the helper sees it.

@@ -64,6 +64,14 @@ fn saving_changes_nothing_in_the_project_and_is_never_recorded() {
         cmd::Command::SaveAs {},
         cmd::Command::ExportPack {},
         cmd::Command::ImportPack {},
+        cmd::Command::ReopenLast {},
+        cmd::Command::OpenFolder {},
+        cmd::Command::OpenRecent { id: "a".into() },
+        cmd::Command::OpenBrowserProject { dir: "a".into() },
+        cmd::Command::DeleteBrowserProject { dir: "a".into() },
+        cmd::Command::KeepMine {},
+        cmd::Command::LoadFolderVersion {},
+        cmd::Command::AllowAccess {},
     ] {
         let mut state = fixture().state;
         let before = state.clone();
@@ -110,4 +118,49 @@ fn opening_leaves_what_a_later_save_needs_and_a_refusal_leaves_nothing() {
     );
     assert!(refused.is_err());
     assert_eq!(ctx.opened, None);
+}
+
+#[test]
+fn listing_answers_with_what_the_host_staged_once_and_changes_nothing() {
+    use commands::contract::{StoredBrowserProject, StoredFolder, StoredProjects};
+    let mut state = fixture().state;
+    let before = state.clone();
+    let mut ctx = context();
+    ctx.stored = Some(StoredProjects {
+        recent: vec![StoredFolder {
+            id: "r1".into(),
+            name: "Song".into(),
+        }],
+        browser: vec![StoredBrowserProject {
+            dir: "d1".into(),
+            name: "Draft".into(),
+        }],
+    });
+    let ask = || project(cmd::Command::ListStored {});
+    let first = commands::run(&ask(), &mut state, &mut ctx).unwrap();
+    assert_eq!(
+        first.output,
+        Output::Project(cmd::Output::ListStored {
+            recent: vec![StoredFolder {
+                id: "r1".into(),
+                name: "Song".into()
+            }],
+            browser: vec![StoredBrowserProject {
+                dir: "d1".into(),
+                name: "Draft".into()
+            }],
+        })
+    );
+    assert_eq!(state, before);
+    assert!(first.events.is_empty());
+    // The list served one answer: asking again without a new staging gives nothing, never an old list.
+    let second = commands::run(&ask(), &mut state, &mut ctx).unwrap();
+    assert_eq!(
+        second.output,
+        Output::Project(cmd::Output::ListStored {
+            recent: vec![],
+            browser: vec![]
+        })
+    );
+    assert_eq!(ctx.stored, None);
 }

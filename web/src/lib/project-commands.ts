@@ -6,6 +6,22 @@ export const save = (): Command => ({ type: 'project.save' })
 export const saveAs = (): Command => ({ type: 'project.save_as' })
 export const exportPack = (): Command => ({ type: 'project.export_pack' })
 export const importPack = (): Command => ({ type: 'project.import_pack' })
+/**
+ * The commands for the projects the page keeps (#323): the banner of last time, the menu's lists, the
+ * ways out of a conflict, the permission. The storage asks the user before it loses anything (a deleted
+ * project, a version of the folder replaced), whoever sends them.
+ */
+export const listStored = (): Command => ({ type: 'project.list_stored' })
+/** Whether a command asks for the list of the stored projects: its answer comes from the storage, which reads first. */
+export const isListStored = (command: Command): boolean => command.type === 'project.list_stored'
+export const reopenLast = (): Command => ({ type: 'project.reopen_last' })
+export const openFolder = (): Command => ({ type: 'project.open_folder' })
+export const openRecent = (id: string): Command => ({ type: 'project.open_recent', id })
+export const openBrowserProject = (dir: string): Command => ({ type: 'project.open_browser_project', dir })
+export const deleteBrowserProject = (dir: string): Command => ({ type: 'project.delete_browser_project', dir })
+export const keepMine = (): Command => ({ type: 'project.keep_mine' })
+export const loadFolderVersion = (): Command => ({ type: 'project.load_folder_version' })
+export const allowAccess = (): Command => ({ type: 'project.allow_access' })
 /** The export dialog's settings, as the command: the project checks them, the page renders. */
 export const exportAudio = (fields: Omit<Extract<Command, { type: 'project.export_audio' }>, 'type'> = {}): Command => ({
   type: 'project.export_audio',
@@ -21,7 +37,23 @@ export const isSaveCommand = (command: Command): boolean =>
   command.type === 'project.save_as' ||
   command.type === 'project.export_pack' ||
   command.type === 'project.import_pack' ||
-  command.type === 'project.export_audio'
+  command.type === 'project.export_audio' ||
+  isStoredProjectCommand(command) ||
+  command.type === 'project.keep_mine' ||
+  command.type === 'project.load_folder_version' ||
+  command.type === 'project.allow_access'
+
+/**
+ * Whether a command is about the projects the page keeps and can be sent before the page has a project
+ * core: the banner that offers last time's project shows on a fresh page, before audio starts.
+ */
+export const isStoredProjectCommand = (command: Command): boolean =>
+  command.type === 'project.list_stored' ||
+  command.type === 'project.reopen_last' ||
+  command.type === 'project.open_folder' ||
+  command.type === 'project.open_recent' ||
+  command.type === 'project.open_browser_project' ||
+  command.type === 'project.delete_browser_project'
 
 /**
  * Whether a command concerns the page's storage and never the engine: the helper does not take it (it
