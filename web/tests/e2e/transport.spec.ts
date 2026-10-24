@@ -266,6 +266,8 @@ test('the space bar presses a focused control and never toggles the transport be
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
   // Space on a focused button presses that button, it does not also toggle the transport.
+  // A Tab press first: the last input was the mouse, and a focus that follows a mouse press is the mouse's (#332).
+  await page.keyboard.press('Tab')
   await control(page, 'Stop').focus()
   await page.keyboard.press('Space')
   // A play command would show as `playing` within a report or two: wait well past that.
