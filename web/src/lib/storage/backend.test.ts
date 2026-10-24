@@ -61,6 +61,21 @@ describe('FolderBackend.apply', () => {
     expect(dir.paths()).toEqual(['a.json'])
   })
 
+  it('a move the browser refuses (not allowed, invalid) falls back to making the file in place, once and for good', async () => {
+    for (const refusal of ['InvalidModificationError', 'NotAllowedError']) {
+      const { dir, store } = folder()
+      dir.hooks.moveRejects = refusal
+      await store.apply([write('a.json', '1'), write('b.json', '2')])
+      expect(dir.paths().sort()).toEqual(['a.json', 'b.json'])
+      expect(dir.text('a.json')).toBe('1')
+    }
+    // A content that cannot be written is still the caller's to hear, and leaves no file behind.
+    const { dir, store } = folder()
+    dir.hooks.failWrite = () => true
+    await expect(store.apply([write('a.json', '1')])).rejects.toMatchObject({ code: 'full' })
+    expect(dir.paths()).toEqual([])
+  })
+
   it('stops at the first failure: what came before stays, what came after is not written', async () => {
     const { dir, store } = folder()
     // The second file cannot be closed (new files are written under a temporary name first).

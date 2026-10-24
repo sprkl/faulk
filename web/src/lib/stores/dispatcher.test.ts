@@ -904,6 +904,18 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.dispatcher.host.projectId()).toBe(session.project.view!.project.id)
   })
 
+  it('a copy takes a new identity and the page sees it at once (the lock of the copy is asked for under it)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    const first = session.dispatcher.host.projectId()
+    session.dispatcher.host.save('everything')
+    session.dispatcher.host.saved(true)
+    expect(session.dispatcher.host.projectId()).toBe(first)
+    session.dispatcher.host.save('copy')
+    expect(session.dispatcher.host.projectId()).not.toBe(first)
+    expect(session.dispatcher.host.projectId()).toBe(session.dispatcher.host.projectId())
+  })
+
   it('tells the storage after every command, and after opening or starting a project', async () => {
     const session = newSession()
     await session.dispatcher.start()

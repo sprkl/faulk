@@ -201,14 +201,20 @@ export class FolderBackend implements ProjectStore {
       const tmp = await tmpDir.getFileHandle(tmpName, { create: true })
       try {
         await this.replace(tmp, bytes)
+      } catch (error) {
+        // The content could not be written (a full disk, a refused permission): that is the caller's to hear.
+        await tmpDir.removeEntry(tmpName).catch(() => undefined)
+        throw error
+      }
+      try {
         const move = (tmp as unknown as { move?: (to: FileSystemDirectoryHandle, name: string) => Promise<void> }).move
         if (typeof move !== 'function') throw new TypeError('move is not available')
         await move.call(tmp, dir, name)
         return tmp
-      } catch (error) {
+      } catch {
+        // Whatever the browser answers (not implemented, not allowed for a folder the user chose, a
+        // refused rename), the file is made in place from now on: a failure there is reported as it is.
         await tmpDir.removeEntry(tmpName).catch(() => undefined)
-        const unsupported = error instanceof TypeError || (error instanceof DOMException && error.name === 'NotSupportedError')
-        if (!unsupported) throw error
         this.moveUnsupported = true
       }
     }

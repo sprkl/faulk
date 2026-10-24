@@ -612,7 +612,13 @@ export class ProjectStorage {
     try {
       const { entries } = await current.store.readFolder()
       const outcome = await this.host.openProject(current.handle.name, entries)
-      if (outcome.status === 'refused') return false
+      if (outcome.status === 'refused') {
+        // The folder cannot be read as a project now (a checkout half done, a deleted project.json):
+        // no write goes into it until the user chooses.
+        this.block = 'external'
+        this.cancelTimers()
+        return false
+      }
       current.expected = await current.store.scan()
       this.block = null
       this.dirty = this.host.dirty() ?? false

@@ -106,10 +106,13 @@ const saveAs = async (page: Page) => {
 test.describe('the project in a folder', () => {
   test('edit, save as, edit, reload: the project is found again, and the state tells the truth', async ({ page, context }) => {
     const { errors } = watch(page)
+    // Wide enough for the state to be written out in the top bar (below 1400 px it is a dot and a tooltip).
+    await page.setViewportSize({ width: 1440, height: 900 })
     await simulatePicker(page, 'song-a')
     await page.goto('/app')
     await start(page)
     await expect(state(page)).toHaveText('Not saved')
+    await expect(state(page)).toBeVisible()
 
     await addTrack(page, 'Drums')
     await expect(tracks(page)).toHaveCount(2)
@@ -125,6 +128,7 @@ test.describe('the project in a folder', () => {
 
     await saveAs(page)
     await expect(state(page)).toHaveText(/^Saved at \d{1,2}:\d{2}/)
+    await expect(state(page)).toBeVisible()
     expect(await listFolder(page, 'song-a')).toEqual(expect.arrayContaining(['project.json', '.faulk/session.json', '.gitignore']))
     expect((await listFolder(page, 'song-a')).filter((p) => p.endsWith('track.json'))).toHaveLength(2)
 
@@ -164,6 +168,68 @@ test.describe('the project in a folder', () => {
     expect(errors).toEqual([])
     // Everything is in the folder: closing the tab asks nothing.
     expect(await leaveAsks(page)).toBe(false)
+  })
+
+  test('a tab closed while an existing file is replaced leaves that file whole', async ({ page, context }) => {
+    // The edit changes a file that exists (the track's header): the replacement, not a new file, is held open.
+    await page.addInitScript(() => {
+      Object.assign(window, { __faulkStoreInPage: true })
+      const write = FileSystemWritableFileStream.prototype.write
+      FileSystemWritableFileStream.prototype.write = function (...args: Parameters<typeof write>) {
+        if (sessionStorage.getItem('hang')) {
+          sessionStorage.setItem('hung', '1')
+          return new Promise(() => undefined)
+        }
+        return write.apply(this, args)
+      }
+    })
+    await simulatePicker(page, 'song-replace')
+    await page.goto('/app')
+    await start(page)
+    await saveAs(page)
+    await expect(state(page)).toHaveText(/^Saved at/)
+    const trackFile = (await listFolder(page, 'song-replace')).find((p) => p.endsWith('track.json'))!
+    const before = await readText(page, 'song-replace', trackFile)
+    expect(before).toContain('"mute": false')
+
+    await page.evaluate(() => sessionStorage.setItem('hang', '1'))
+    await page.getByRole('button', { name: 'Mute Synth', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('hung')), { timeout: 8000 }).toBe('1')
+    const probe = await context.newPage()
+    await page.close()
+
+    await probe.goto('/')
+    await expect.poll(() => probe.evaluate(async () => ((await navigator.locks.query()).held ?? []).length)).toBe(0)
+    await simulatePicker(probe, 'song-replace')
+    await probe.goto('/app')
+    await expect(tracks(probe)).toHaveCount(1)
+    expect(await readText(probe, 'song-replace', trackFile)).toBe(before)
+    await expect(probe.getByRole('button', { name: 'Mute Synth', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('Save as twice: the copy has its own identity, and nothing says it is open in another tab', async ({ page }) => {
+    const { errors } = watch(page)
+    await simulatePicker(page, 'song-first')
+    await page.goto('/app')
+    await start(page)
+    await saveAs(page)
+    await expect(state(page)).toHaveText(/^Saved at/)
+    await addTrack(page, 'Drums')
+    await page.evaluate(() => ((window as unknown as { __pick: string }).__pick = 'song-copy'))
+    await saveAs(page)
+    await expect(page.getByTestId('storage-notice')).toHaveCount(0)
+    await expect(state(page)).toHaveText(/^Saved at/)
+    const id = async (folder: string) => JSON.parse((await readText(page, folder, 'project.json'))!).id
+    expect(await id('song-copy')).not.toBe(await id('song-first'))
+    expect((await listFolder(page, 'song-copy')).filter((p) => p.endsWith('track.json'))).toHaveLength(2)
+    // The first folder was left as it was: no copy of the second track.
+    expect((await listFolder(page, 'song-first')).filter((p) => p.endsWith('track.json'))).toHaveLength(1)
+    // And the page now saves into the copy.
+    await addTrack(page, 'Oscillator')
+    await expect(state(page)).toHaveText(/^Saved at/, { timeout: 8000 })
+    expect((await listFolder(page, 'song-copy')).filter((p) => p.endsWith('track.json'))).toHaveLength(3)
+    expect((await listFolder(page, 'song-first')).filter((p) => p.endsWith('track.json'))).toHaveLength(1)
+    expect(errors).toEqual([])
   })
 
   test('a tab closed during a write leaves the old file intact, and the project opens as it was', async ({ page, context }) => {

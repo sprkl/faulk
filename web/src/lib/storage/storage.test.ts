@@ -688,6 +688,22 @@ describe('the folder is edited from outside', () => {
     expect(w.storage.unsaved).toBe(false)
   })
 
+  it('a folder that cannot be read as a project stops the writes and asks, instead of retrying on every focus', async () => {
+    const { w, store } = await saved()
+    w.host.refuseOpen = true
+    store.edit('project.json', '{ half a checkout')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBe('external')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
+    expect(store.files.get('project.json')).toBe('{ half a checkout')
+    const opened = w.host.opened.length
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.host.opened.length).toBe(opened)
+  })
+
   it('a change seen while a write is under way is looked at once the write is done', async () => {
     const { w, store } = await saved()
     let release!: () => void

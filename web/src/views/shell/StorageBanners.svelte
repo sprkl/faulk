@@ -4,9 +4,10 @@
    * for a click, the browser's permission gone, a write that failed, a folder edited from outside while
    * changes are unsaved, a notice (a folder refused), and the question before New or Open discards changes.
    */
+  import { save } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
-  const { ui, storage } = useStores()
+  const { ui, storage, dispatcher } = useStores()
   const t = ui.t
   const name = $derived(storage.folder?.name ?? '')
 
@@ -38,7 +39,7 @@
 {:else if storage.block === 'error'}
   <p class="banner" role="alert" data-testid="error-banner" title={storage.errorDetail ?? ''}>
     <span>{t('save.banner.error', { name })}</span>
-    <button class="primary" onclick={() => storage.save()}>{t('save.banner.retry')}</button>
+    <button class="primary" onclick={() => dispatcher.run(save())}>{t('save.banner.retry')}</button>
   </p>
 {:else if storage.block === 'external'}
   <p class="banner" role="alert" data-testid="external-banner">

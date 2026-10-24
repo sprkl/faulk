@@ -223,7 +223,13 @@ export class Dispatcher {
   /** What the project's storage asks of the page's project: the controller in `lib/storage` drives it. */
   readonly host: ProjectHost = {
     dirty: () => (this.core ? this.core.dirty() : null),
-    save: (mode) => (this.core ? this.core.save(mode) : null),
+    save: (mode) => {
+      if (!this.core) return null
+      const frame = this.core.save(mode)
+      // A copy took a new identity without an event: the mirror (and `projectId`) must follow.
+      if (mode === 'copy') this.refresh()
+      return frame
+    },
     saved: (applied) => this.core?.saved(applied),
     openProject: (name, entries) => this.openProject(name, entries),
     newProject: () => this.newProject(),

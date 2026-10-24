@@ -17,6 +17,7 @@ export class MemoryFile {
   async move(dir: MemoryDir, name: string) {
     const from = (this as { parent?: MemoryDir }).parent
     if (from?.root.hooks.noMove) throw new DOMException('move is not supported here', 'NotSupportedError')
+    if (from?.root.hooks.moveRejects) throw new DOMException('move refused', from.root.hooks.moveRejects)
     from?.entries.delete(this.name)
     ;(this as { name: string }).name = name
     ;(this as { parent?: MemoryDir }).parent = dir
@@ -82,6 +83,8 @@ export interface Hooks {
   failEntries?: () => DOMException | null
   /** `move` is not available: the store falls back to making the file in place. */
   noMove?: boolean
+  /** `move` exists but rejects with a DOMException of this name. */
+  moveRejects?: string
 }
 
 export class MemoryDir {
