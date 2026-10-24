@@ -1,6 +1,23 @@
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
+import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
 import { storage } from './storage'
+
+/** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
+function read(key: string): string | null {
+  try {
+    return storage()?.getItem(key) ?? null
+  } catch {
+    return null
+  }
+}
+function write(key: string, value: string) {
+  try {
+    storage()?.setItem(key, value)
+  } catch {
+    // Not kept; the layout still follows the session.
+  }
+}
 
 /**
  * State of the page itself, not of the project or the engine: language and the views shown.
@@ -18,6 +35,11 @@ export class UiStore {
    * The roll uses it when it belongs to the selected track and still exists, else its first clip.
    */
   editedClip = $state<string | null>(null)
+
+  /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
+  panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))
+  /** The bottom panel is folded to its tabs. */
+  panelCollapsed = $state(read(COLLAPSED_KEY) === '1')
 
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)
@@ -37,5 +59,15 @@ export class UiStore {
 
   showPanel(panel: PanelViewId) {
     this.panel = panel
+  }
+
+  setPanelHeight(panel: PanelViewId, height: number) {
+    this.panelHeights = { ...this.panelHeights, [panel]: height }
+    write(HEIGHTS_KEY, JSON.stringify(this.panelHeights))
+  }
+
+  setPanelCollapsed(collapsed: boolean) {
+    this.panelCollapsed = collapsed
+    write(COLLAPSED_KEY, collapsed ? '1' : '0')
   }
 }
