@@ -24,7 +24,7 @@
     type SnapSetting,
     type View,
   } from './grid'
-  import { RULER_HEIGHT, drawGrid, readColors, type BodyFrame, type Colors } from './render'
+  import { RULER_HEIGHT, drawGrid, drawPlayhead, readColors, type BodyFrame, type Colors } from './render'
 
   let {
     signature,
@@ -41,7 +41,10 @@
     totalBars?: number
     view?: View
     snap?: SnapSetting
-    /** The play position in ticks, or `null` to draw none. */
+    /**
+     * The play position in ticks, or `null` to draw none. It is drawn on its own canvas over the grid, so
+     * that a position changing at the display's rate does not redraw the grid or the host's `drawBody`.
+     */
     playhead?: number | null
     label: string
     /** A click on the ruler, with the snapped tick. */
@@ -61,6 +64,7 @@
 
   let root: HTMLDivElement
   let canvas: HTMLCanvasElement
+  let overlay: HTMLCanvasElement
   let width = $state(0)
   let height = $state(0)
   /** The pointer's x in the grid, `null` when it is outside. */
@@ -69,6 +73,7 @@
   let font = ''
   let pending = 0
   let drawCount = 0
+  let playheadCount = 0
   /** Bumped when the surface must be drawn again though no number changed: a resize to the same size, a new pixel ratio. */
   let epoch = $state(0)
 
@@ -102,7 +107,7 @@
     if (canvas.height !== Math.round(height * dpr)) canvas.height = Math.round(height * dpr)
     const start = performance.now()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawGrid(ctx, { width, height, view: clamped, signature, totalTicks, playhead, hover, colors, font }, dpr)
+    drawGrid(ctx, { width, height, view: clamped, signature, totalTicks, hover, colors, font }, dpr)
     // The cost of the last frame and the count of frames, for the frame-time measurement of the e2e spec.
     drawCount++
     root.dataset.drawMs = String(performance.now() - start)
@@ -115,10 +120,31 @@
     root.dataset.drawCount = String(drawCount)
   }
 
-  // One frame per change: wheel bursts and playhead updates coalesce into the next animation frame.
+  // One frame per change: wheel bursts coalesce into the next animation frame.
   $effect(() => {
-    void [clamped, signature, totalTicks, playhead, hover, width, height, epoch, drawBody]
+    void [clamped, signature, totalTicks, hover, width, height, epoch, drawBody]
     if (!pending) pending = requestAnimationFrame(draw)
+  })
+
+  // The play position has its own canvas: a clear and one line, at once (no animation frame of delay), whenever the
+  // position moves, the view scrolls or zooms, or the surface is resized (assigning a size clears the bitmap).
+  $effect(() => {
+    void [playhead, clamped, width, height, epoch]
+    const ctx = overlay.getContext('2d')
+    if (!ctx || width === 0 || height === 0) return
+    colors ??= readColors(root)
+    const dpr = window.devicePixelRatio || 1
+    if (overlay.width !== Math.round(width * dpr)) overlay.width = Math.round(width * dpr)
+    if (overlay.height !== Math.round(height * dpr)) overlay.height = Math.round(height * dpr)
+    const start = performance.now()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, width, height)
+    const x = playhead === null ? null : drawPlayhead(ctx, { width, height, view: clamped, playhead, colors }, dpr)
+    // For the e2e specs: where the bar is (empty when none), the cost of the last pass and the count of passes.
+    playheadCount++
+    root.dataset.playheadX = x === null ? '' : String(x)
+    root.dataset.playheadMs = String(performance.now() - start)
+    root.dataset.playheadCount = String(playheadCount)
   })
 
   $effect(() => {
@@ -206,6 +232,7 @@
   {onkeydown}
 >
   <canvas bind:this={canvas} style:width="{width}px" style:height="{height}px"></canvas>
+  <canvas class="overlay" bind:this={overlay} aria-hidden="true" style:width="{width}px" style:height="{height}px"></canvas>
 </div>
 
 <style>
@@ -222,5 +249,8 @@
     position: absolute;
     inset: 0;
     display: block;
+  }
+  .overlay {
+    pointer-events: none;
   }
 </style>

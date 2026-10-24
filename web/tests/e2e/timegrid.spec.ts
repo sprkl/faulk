@@ -37,13 +37,14 @@ async function pointAt(page: Page, x: number, y = 100) {
 }
 
 /** The colour of a canvas pixel in device pixels. */
-const pixel = (page: Page, x: number, y: number) =>
+/** One pixel of the grid's canvas, or of the overlay canvas that carries the play position. */
+const pixel = (page: Page, x: number, y: number, selector = 'canvas:not(.overlay)') =>
   page.evaluate(
-    ([px, py]) => {
-      const canvas = document.querySelector('[data-testid=timegrid] canvas') as HTMLCanvasElement
-      return Array.from(canvas.getContext('2d')!.getImageData(px, py, 1, 1).data)
+    ([px, py, sel]) => {
+      const canvas = document.querySelector(`[data-testid=timegrid] ${sel}`) as HTMLCanvasElement
+      return Array.from(canvas.getContext('2d')!.getImageData(Number(px), Number(py), 1, 1).data)
     },
-    [x, y],
+    [x, y, selector] as const,
   )
 
 test.describe('time grid', () => {
@@ -188,7 +189,7 @@ test.describe('time grid', () => {
     // Beat 1920 is at 192 px: the play colour (green), 2 px wide.
     await expect
       .poll(async () => {
-        const [r, g, b] = await pixel(page, Math.round(192 * dpr), Math.round(120 * dpr))
+        const [r, g, b] = await pixel(page, Math.round(192 * dpr), Math.round(120 * dpr), 'canvas.overlay')
         return g > r && g > b
       })
       .toBe(true)

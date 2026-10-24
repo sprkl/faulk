@@ -569,29 +569,31 @@ fn the_launch_grid_states_travel_in_the_report() {
         }
         session.host.write_feedback();
     });
-    let cell = |state| ActiveClip {
+    let cell = |state, anchor| ActiveClip {
         track: TrackSlot(0),
         scene: SceneSlot(3),
         state,
+        anchor: Tick(anchor),
     };
     let armed = read_feedback(session.host.feedback()).unwrap();
-    assert_eq!(armed.active_clips, vec![cell(ClipState::Armed)]);
+    assert_eq!(armed.active_clips, vec![cell(ClipState::Armed, 0)]);
     let mut bytes = Vec::new();
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
     assert_eq!(
         bytes.len(),
-        56 + 2 * 16 + 8,
+        56 + 2 * 16 + 16,
         "header, a track and the output, a cell"
     );
     assert_eq!(&bytes[44..48], &1u32.to_le_bytes());
     assert_eq!(engine::host::decode_feedback(&bytes).unwrap(), armed);
 
-    // Playing (the first boundary is the start): rendered and reported under the detector.
-    session.send(&[M::Play { from: Tick(0) }]);
+    // Playing from the middle of a bar: the clip starts on the next bar (tick 3840), which the
+    // report names as the clip's position 0. Rendered and reported under the detector.
+    session.send(&[M::Play { from: Tick(3000) }]);
     session.host.render(128);
     let mut bytes = Vec::with_capacity(4096);
     assert_no_alloc(|| {
-        for _ in 0..40 {
+        for _ in 0..300 {
             session.host.render(128);
         }
         session.host.write_feedback();
@@ -599,7 +601,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     });
     assert_eq!(
         engine::host::decode_feedback(&bytes).unwrap().active_clips,
-        vec![cell(ClipState::Playing)]
+        vec![cell(ClipState::Playing, 3840)]
     );
     session.send(&[M::StopAll]);
     assert_no_alloc(|| {
@@ -609,11 +611,21 @@ fn the_launch_grid_states_travel_in_the_report() {
     // A stop waits for its boundary (the next bar).
     assert_eq!(
         read_feedback(session.host.feedback()).unwrap().active_clips,
-        vec![cell(ClipState::Stopping)]
+        vec![cell(ClipState::Stopping, 3840)]
     );
 
     // Refused: cut short, more cells than two per track, an unknown state.
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    // The anchor travels as a little-endian i64 after the cell's first eight bytes.
+    let mut anchored = bytes.clone();
+    for anchor in [3840i64, -960, i64::MAX, i64::MIN] {
+        let at = 56 + 2 * 16 + 8;
+        anchored[at..at + 8].copy_from_slice(&anchor.to_le_bytes());
+        let cells = engine::host::decode_feedback(&anchored)
+            .unwrap()
+            .active_clips;
+        assert_eq!(cells[0].anchor, Tick(anchor));
+    }
     assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
     let mut many = bytes.clone();
     many[44..48].copy_from_slice(&3u32.to_le_bytes());

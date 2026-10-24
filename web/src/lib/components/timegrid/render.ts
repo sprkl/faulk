@@ -23,8 +23,6 @@ export interface Frame {
   view: View
   signature: Signature
   totalTicks: number
-  /** The play position, or `null`. */
-  playhead: number | null
   /** The snapped tick under the pointer, or `null`. */
   hover: number | null
   colors: Colors
@@ -121,16 +119,33 @@ export function drawGrid(ctx: Surface, frame: Frame, dpr: number): void {
     ctx.lineTo(x, height)
     ctx.stroke()
   }
-  if (frame.playhead !== null) {
-    const x = snap(tickToX(frame.playhead, view))
-    if (x >= -1 && x <= width + 1) {
-      ctx.strokeStyle = colors.play
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, height)
-      ctx.stroke()
-      ctx.lineWidth = 1
-    }
-  }
+}
+
+/** What `drawPlayhead` needs of a frame. */
+export interface PlayheadFrame {
+  width: number
+  height: number
+  /** The view actually drawn (clamped). */
+  view: View
+  /** The play position in ticks. */
+  playhead: number
+  colors: Colors
+}
+
+/**
+ * Draws the play position: one vertical line of two CSS pixels over the whole height. The caller
+ * clears its surface first; this is the cheap pass on its own canvas, so that a moving position does not
+ * redraw the grid. Returns the x drawn, or `null` when the position is outside the view.
+ */
+export function drawPlayhead(ctx: Surface, frame: PlayheadFrame, dpr: number): number | null {
+  const x = Math.round(tickToX(frame.playhead, frame.view) * dpr) / dpr
+  if (!(x >= -1 && x <= frame.width + 1)) return null
+  ctx.strokeStyle = frame.colors.play
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(x, 0)
+  ctx.lineTo(x, frame.height)
+  ctx.stroke()
+  ctx.lineWidth = 1
+  return x
 }

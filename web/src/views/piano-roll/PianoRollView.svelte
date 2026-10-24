@@ -44,9 +44,10 @@
     type Layout,
     type Rect,
   } from './roll'
+  import { liveTick, playheadIn, settle } from './playhead'
   import Surface from './Surface.svelte'
 
-  const { project, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -111,6 +112,63 @@
   })
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
   const loopShown = $derived(gesture?.kind === 'loop' ? (gesture.from === gesture.to ? edited?.looping ?? null : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }) : (edited?.looping ?? null))
+
+  // The play position inside the edited clip (#293). The engine reports about 30 times a second; while the transport
+  // runs, the tick is carried on from the last report at each animation frame, so that the bar moves at the screen's pace.
+  const report = $derived(engine.started ? engine.feedback : null)
+  const running = $derived(report?.transport === 'playing' || report?.transport === 'recording')
+  const bpm = $derived(project.view?.project.tempo[0]?.bpm ?? null)
+  const transport = $derived(project.view?.project.transport ?? null)
+  const transportLoop = $derived(transport?.loop_enabled ? (transport.loop_region ?? null) : null)
+  let reportAt = 0
+  /** The transport tick shown: the report's, carried on at each frame while the transport runs. */
+  let shownTick = $state<number | null>(null)
+  function advance() {
+    if (!report) {
+      shownTick = null
+      return
+    }
+    const target = liveTick(report.playheadTick, running, performance.now() - reportAt, bpm, transportLoop)
+    shownTick = running ? settle(shownTick, target, bpm, transportLoop) : target
+  }
+  $effect(() => {
+    void engine.feedback
+    reportAt = performance.now()
+    untrack(advance)
+  })
+  $effect(() => {
+    if (!running) return
+    let id = 0
+    const frame = () => {
+      advance()
+      id = requestAnimationFrame(frame)
+    }
+    id = requestAnimationFrame(frame)
+    return () => cancelAnimationFrame(id)
+  })
+  const live = $derived.by<number | null>(() => {
+    if (shownTick === null || !report || !track || !edited || !project.view) return null
+    const tick = shownTick
+    return playheadIn({
+      report,
+      slots: project.view.slots,
+      trackId: track.id,
+      track: track.track,
+      clipId: edited.id,
+      clip: edited.clip,
+      length: edited.length,
+      looping: edited.looping,
+      tick,
+    })
+  })
+  // Stopped, the bar stays where it was last seen (it moves with a seek that lands in the clip); while the transport runs
+  // and this clip does not sound, there is none. A new clip starts without one.
+  // The position is kept with the clip it was seen in, so that another clip never inherits it, whatever the order of the updates.
+  let lastSeen = $state<{ clip: string; at: number } | null>(null)
+  $effect(() => {
+    if (live !== null && edited) lastSeen = { clip: edited.id, at: live }
+  })
+  const playhead = $derived(running ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
 
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
@@ -495,7 +553,7 @@
         onlostpointercapture={() => gesture && finish(false)}
         onkeydown={onKeyDown}
       >
-        <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
+        <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} {playhead} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
       </div>
       <div class="corner"></div>
       <div
