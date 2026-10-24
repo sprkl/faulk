@@ -386,11 +386,15 @@ describe('save as', () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => (release = resolve))
     const remember = w.deps.recent.remember
+    let reached = false
     w.deps.recent.remember = async (h) => {
+      reached = true
       await gate
       await remember(h)
     }
     const done = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
     for (let i = 0; i < 20; i++) await Promise.resolve()
     // The folder is written but not yet among the recent projects: a page reloaded now finds nothing to offer.
     expect(w.recents).toEqual([])

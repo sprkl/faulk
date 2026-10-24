@@ -748,15 +748,17 @@ export class ProjectStorage {
     wrote: boolean,
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null },
   ) {
-    await this.detach()
-    // Remembered before the page says "saved": a reload right after the first save must still find
-    // the folder among the recent projects, or nothing offers it back. The browser's own storage has
+    // Remembered before the page says "saved", and before the old project is detached (the project
+    // stays reachable meanwhile): a reload right after the first save must still find the folder among
+    // the recent projects, or nothing offers it back. Listing again waits for the write to commit
+    // (the read transaction queues behind the write one), so keep it. The browser's own storage has
     // one writer (the lock on the project) and is nobody else's to edit, and it is not a folder the
     // user would find among their recent ones.
     if (place.kind === 'folder') {
       await this.deps.recent.remember(handle)
       this.recent = await this.deps.recent.list()
     }
+    await this.detach()
     const current: Attached = {
       handle,
       store,
