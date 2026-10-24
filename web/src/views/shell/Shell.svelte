@@ -108,6 +108,10 @@
   {#if engine.pairingMessage && ui.view !== 'play'}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
+  {#if engine.refusal}
+    {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
+    <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
+  {/if}
   <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
     <main class="main" aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
@@ -131,6 +135,22 @@
     padding: var(--fk-space-2) var(--fk-space-4);
     border-bottom: 1px solid var(--fk-line);
     background: var(--fk-surface);
+  }
+  /* A refusal of the core: temporary, over the page, never in the way of a click. */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: var(--fk-space-4);
+    transform: translateX(-50%);
+    z-index: 50;
+    max-width: min(32rem, calc(100vw - 2 * var(--fk-space-4)));
+    margin: 0;
+    padding: var(--fk-space-2) var(--fk-space-4);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-surface);
+    box-shadow: var(--fk-shadow-float);
+    pointer-events: none;
   }
   .body {
     flex: 1;
