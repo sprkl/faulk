@@ -201,7 +201,8 @@ domain! {
     /// Copy placements, in one command. The copies start `by` ticks after the originals
     /// (default: right after the selection, one selection length later; negative copies
     /// earlier). By default each copy is independent: a new clip, a copy of the source
-    /// (same name, colour, length, loop and notes, not in the launch grid), one per
+    /// (the next name, "Clip 2" gives "Clip 3"; same colour, length, loop and notes; not
+    /// in the launch grid), one per
     /// distinct source clip, so placements that were linked stay linked among the copies
     /// and editing a copy never changes the original (founder's decision 11). With
     /// `linked: true` the copies are new placements of the same clips. The copies win
@@ -862,6 +863,8 @@ fn duplicate(
     let mut overwritten = 0;
     let mut new_placements: BTreeMap<PlacementId, PlacementId> = BTreeMap::new();
     let mut new_clip_ids = Vec::new();
+    // The names of the copies made so far: the project does not hold them yet.
+    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (track_id, list) in groups {
@@ -896,6 +899,8 @@ fn duplicate(
                 check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
                 let copy_id = ClipId::generate(&mut ctx.ids);
                 let mut copy = clip.clone();
+                copy.name = project.copy_clip_name(&clip.name, &new_names);
+                new_names.push(copy.name.clone());
                 copy.slot = None;
                 work.new_clips.insert(copy_id.clone(), copy);
                 if let Some(geo) = work.geo.get(source).copied() {

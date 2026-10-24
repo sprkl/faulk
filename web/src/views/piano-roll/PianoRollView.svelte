@@ -6,9 +6,9 @@
    * drag back, and no command is sent while the pointer moves). Selecting notes, the clip being
    * edited, the tool and the zoom are the page's view state, not project data.
    */
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
-  import { addNotes, auditionOff, auditionOn, createClipAtStart, removeNotes, setClipLength, setClipLoop, updateNotes } from '../../lib/clip-commands'
+  import { addNotes, auditionOff, auditionOn, createClipAtStart, removeNotes, renameClip, setClipLength, setClipLoop, updateNotes } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
@@ -19,7 +19,8 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
-  import { clipLabel, editedClip, midiClips } from './clips'
+  import { sortedScenes } from '../grid/cells'
+  import { clipLabel, clipOrigin, editedClip, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
@@ -88,7 +89,51 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
-  const clipName = $derived(edited ? clipLabel(edited, clips.indexOf(edited), (n) => t('pianoRoll.clipDefault', { n })) : '')
+  const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
+  const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
+  /** "Scene n" or the scene's own name: the grid's label for it. */
+  const sceneLabel = (id: string) => {
+    const entry = scenes.find((s) => s.id === id)
+    return entry ? entry.scene.name.trim() || t('pianoRoll.sceneDefault', { n: entry.index + 1 }) : t('pianoRoll.sceneGone')
+  }
+  /** Where a clip comes from, in words: "Grid · Scene 1", "Arrangement · bar 2". */
+  const originOf = (entry: MidiClip) =>
+    clipOrigin(entry, {
+      grid: (id) => t('pianoRoll.originGrid', { scene: sceneLabel(id) }),
+      arrangement: (start) => t('pianoRoll.originArrangement', { n: Math.floor(start / bar) + 1 }),
+    })
+  /** A clip in the list: its name, then where it comes from. */
+  const listLabel = (entry: MidiClip) => {
+    const origin = originOf(entry)
+    const name = clipLabel(entry, t('pianoRoll.clipPlain'))
+    return origin ? `${name} (${origin})` : name
+  }
+  const origin = $derived(edited ? originOf(edited) : '')
+
+  // Renaming the clip being edited: the way to name a clip that lives in the arrangement only.
+  let renaming = $state(false)
+  let draft = $state('')
+  let nameField: HTMLInputElement | undefined = $state()
+  async function startRename() {
+    if (!edited) return
+    draft = clipName
+    renaming = true
+    await tick()
+    nameField?.focus()
+    nameField?.select()
+  }
+  function finishRename(commit: boolean) {
+    if (!renaming) return
+    renaming = false
+    const name = draft.trim()
+    if (commit && edited && name !== edited.clip.name.trim()) run(renameClip(edited.id, name))
+  }
+  function onRenameKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    finishRename(event.key === 'Enter')
+  }
 
   // View state.
   let tool = $state<Tool>('draw')
@@ -542,13 +587,17 @@
     <div class="toolbar">
       {#if clips.length > 1}
         <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (ui.editedClip = e.currentTarget.value)}>
-          {#each clips as entry, i (entry.id)}
-            <option value={entry.id}>{clipLabel(entry, i, (n) => t('pianoRoll.clipDefault', { n }))}</option>
+          {#each clips as entry (entry.id)}
+            <option value={entry.id}>{listLabel(entry)}</option>
           {/each}
         </select>
-      {:else}
-        <span class="name" data-testid="roll-clip-name">{clipName}</span>
       {/if}
+      {#if renaming}
+        <input class="rename" data-testid="roll-clip-rename" aria-label={t('pianoRoll.clipName')} maxlength="200" bind:this={nameField} bind:value={draft} onkeydown={onRenameKey} onblur={() => finishRename(true)} />
+      {:else}
+        <button class="name" type="button" title={t('pianoRoll.renameHint')} data-testid="roll-clip-name" ondblclick={startRename} onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button>
+      {/if}
+      <span class="origin" data-testid="roll-clip-origin">{origin}</span>
       <div class="group" role="radiogroup" aria-label={t('pianoRoll.tools')}>
         <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}>{t('pianoRoll.draw')}</button>
         <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}>{t('pianoRoll.select')}</button>
@@ -663,6 +712,19 @@
   }
   .name {
     font-weight: 600;
+    background: none;
+    border: 0;
+    padding: 0 var(--fk-space-1);
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+  }
+  .origin {
+    color: var(--fk-text-muted);
+  }
+  .rename {
+    font: inherit;
+    width: 14em;
   }
   .group {
     display: flex;
