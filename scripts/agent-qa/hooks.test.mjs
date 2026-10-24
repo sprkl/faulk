@@ -603,7 +603,16 @@ describe("record.mjs", () => {
     deliveryReview(root, { answerBody: "finding: none\nverdict: x\n" });
     assert.match(review(root).stderr, /judges no acceptance criterion/);
     deliveryReview(root, { model: "haiku" });
-    assert.match(review(root).stderr, /expected model: opus/);
+    assert.match(review(root).stderr, /expected model: sonnet or opus/);
+  });
+
+  it("accepts an answer by Judge Dredd's model or by Opus", () => {
+    const root = makeRepo();
+    writeCode(root);
+    deliveryReview(root, { model: "sonnet" });
+    assert.equal(review(root).status, 0);
+    deliveryReview(root, { model: "opus" });
+    assert.equal(review(root).status, 0);
   });
 
   it("refuses a brief not built from the GitHub issue", () => {
