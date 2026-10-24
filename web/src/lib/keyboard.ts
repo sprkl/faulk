@@ -35,7 +35,7 @@ export function defaultOctave(instrumentKind: string | null): number {
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
  * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, and Ctrl or Cmd + A selects all. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. None of them plays a note: the playing keys are letters and Semicolon.
+ * selection, and Ctrl or Cmd + A selects all. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
  */
 export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace', 'PageUp', 'PageDown', 'End', 'Tab']
 
