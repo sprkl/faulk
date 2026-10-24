@@ -7,6 +7,7 @@
 use crate::device::{DeviceDescriptor, Factory};
 use crate::msg::DeviceKind;
 
+pub mod compressor;
 pub mod drums;
 pub mod echo;
 pub mod osc_synth;
@@ -34,6 +35,7 @@ pub const REGISTRY: &[Builtin] = &[
     drums::BUILTIN,
     echo::BUILTIN,
     reverb::BUILTIN,
+    compressor::BUILTIN,
 ];
 
 /// The registry's line of `kind`.
