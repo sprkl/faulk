@@ -890,11 +890,18 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 
 **SV-3 — Repli OPFS et export `.faulkpack`**
 - But : appliquer la décision 3 hors Chrome et Edge (Firefox, Safari, ou dossier refusé) : implémentation OPFS de `ProjectStore`, `navigator.storage.persist()`, avertissement « vos projets sont dans le navigateur ; exportez-les », export et import `.faulkpack` (archive zip du dossier, lisible par l'implémentation dossier réel), quota dépassé géré. Un projet OPFS passe en Boost par **export `.faulkpack` puis ouverture du dossier par le helper** (AU-7) : aucun fichier de projet, et surtout aucun blob, ne traverse le WebSocket.
-- Critères : test Playwright du repli (navigateur sans `showDirectoryPicker`) : modifier, recharger, retrouver, exporter, importer dans un dossier réel simulé et obtenir le même projet octet pour octet ; quota plein signalé sans corruption ; un `.faulkpack` exporté depuis l'OPFS s'ouvre par le helper (test avec le helper en CI) et rend le même projet.
-- Touche : `web/src/lib/storage/`, `web/src/views/projects/`, `crates/helper/src/disk.rs` (ouverture d'un `.faulkpack`).
-- Dépend de : SV-2, AU-7.
+- Critères : test Playwright du repli (navigateur sans `showDirectoryPicker`) : modifier, recharger, retrouver, exporter, importer dans un dossier réel simulé et obtenir le même projet octet pour octet ; quota plein signalé sans corruption. Décision du lead (délégation du fondateur, 2026-10-24) : **le brouillon** (tant qu'aucun dossier n'est choisi, le projet est enregistré dans l'OPFS, dans tous les navigateurs, et proposé à la réouverture) entre dans cette tâche, et **l'ouverture d'un `.faulkpack` par le helper, avec son test en CI, passe à AU-7**.
+- Touche : `web/src/lib/storage/`, `web/src/views/shell/` (le menu « Projet » et les bandeaux tiennent lieu de `views/projects/`), `crates/project-wasm/`.
+- Dépend de : SV-2.
 - Phase : 6.
 - Étiquettes : hardware: non, founder: oui.
+
+**Mise en œuvre SV-3 (#96, 2026-10-24) : `web/src/lib/storage/opfs.ts`, `storage.svelte.ts`, `crates/project-wasm/src/pack.rs`.** Détail dans [stockage local](../architecture/03-stockage-local.md) § 5.8.
+
+- **L'OPFS est le même `ProjectStore`** : un répertoire de l'OPFS est un `FileSystemDirectoryHandle` comme celui du sélecteur, donc `FolderBackend` (dans son Worker, mêmes écritures atomiques) tourne dessus sans changement ; `opfs.ts` ne sait que où sont les répertoires (`faulk/browser/<uuid>/`), les lister et les supprimer.
+- **Brouillon** : un projet modifié sans dossier est écrit dans l'OPFS après 1,5 s (comme dans un dossier), proposé à la réouverture (bandeau « Rouvrir le brouillon ») ; « Enregistrer sous » vers un dossier vide reprend le même projet (même identité, blobs copiés, verrou repris) puis supprime le brouillon. Hors Chrome et Edge, l'OPFS est le stockage normal : le dernier projet rouvre seul, `navigator.storage.persist()` est demandé, l'avertissement « tes projets sont dans le navigateur ; exporte-les » s'affiche.
+- **Quota plein** : bandeau propre, modifications gardées dans l'onglet, nouvel essai automatique ; l'ordre d'écriture d'un enregistrement (`crates/project/src/file/unit.rs`) met les notes avant le fichier du clip qui les nomme, pour qu'un enregistrement interrompu à n'importe quel fichier laisse un dossier qui s'ouvre (test dans `crates/project-wasm`).
+- **`.faulkpack`** : `pw_pack_export` et `pw_pack_import` (`crates/project-wasm/src/pack.rs`) appellent `export_pack` et `import_pack` de SV-1 (import strict) ; limites de la page : l'import accepte un fichier de 192 Mio au plus (blob de 192 Mio, 384 Mio au total une fois décompressé), l'export refuse un projet de plus de 180 Mio. Commandes `project.export_pack` et `project.import_pack` (`live`, la page agit). L'import garde l'identité du pack (octet pour octet) et ne remplace jamais un projet de même identité.
 
 ### Épopée 12 — Agents (AG)
 
@@ -1068,8 +1075,8 @@ Décision 5 : import et lecture de fichiers audio (échantillons, boucles, stems
 
 **AU-7 — Le helper et le dossier du projet en mode Boost**
 - But : en Boost, la page reste propriétaire du projet (décision 1) et le helper est la seule autorité qui écrit le dossier : implémentation `ProjectStore` « helper » pour les **fichiers texte du projet seulement** (JSON, TSV, état de session, lus et écrits par le WebSocket) ; les blobs et le cache PCM ne traversent jamais le lien, ils sont écrits et lus par le helper lui-même (import natif AU-1, streaming natif AU-4) ; rapprochement du dossier par l'identifiant du projet ou choix par un sélecteur natif (tranché dans le plan de la tâche), résolution des blobs et du cache PCM par chemin natif pour le streaming du helper. Les messages de fichiers sont **confinés à la racine du projet** et soumis au même jeton d'appairage que le reste de la session ([contraintes](../constraints/01-contraintes.md), sécurité du pont local) : chemins relatifs normalisés, `..`, chemins absolus, lettres de lecteur et chemins UNC refusés, liens symboliques qui sortent du dossier refusés, écriture atomique dans `.faulk/tmp/` puis déplacement.
-- Critères : ouvrir un projet dans la page puis basculer en Boost : le helper joue les clips audio depuis le disque sans que l'audio traverse le lien (test : le WebSocket ne porte ni trame PCM ni octet de blob, en lecture comme à l'import) ; un message de fichier qui vise `blobs/` ou `.faulk/cache/` est refusé ; une modification faite en Boost est écrite dans le dossier et relue en Web ; deux dossiers de même identifiant → le helper demande, jamais de choix silencieux ; tests d'attaque : lecture et écriture avec `..`, chemin absolu, lecteur, UNC, lien symbolique vers l'extérieur, et sans jeton, toutes refusées par une erreur typée sans toucher au disque.
-- Touche : `crates/helper/src/disk.rs`, `crates/helper/src/server.rs`, `crates/helper/src/security.rs`, `crates/protocol`, `web/src/lib/storage/`.
+- Critères : ouvrir un projet dans la page puis basculer en Boost : le helper joue les clips audio depuis le disque sans que l'audio traverse le lien (test : le WebSocket ne porte ni trame PCM ni octet de blob, en lecture comme à l'import) ; un message de fichier qui vise `blobs/` ou `.faulk/cache/` est refusé ; une modification faite en Boost est écrite dans le dossier et relue en Web ; un `.faulkpack` exporté par la page (SV-3) s'ouvre par le helper comme un dossier (test avec le helper en CI) et rend le même projet ; deux dossiers de même identifiant → le helper demande, jamais de choix silencieux ; tests d'attaque : lecture et écriture avec `..`, chemin absolu, lecteur, UNC, lien symbolique vers l'extérieur, et sans jeton, toutes refusées par une erreur typée sans toucher au disque.
+- Touche : `crates/helper/src/disk.rs` (dont l'ouverture d'un `.faulkpack`), `crates/helper/src/server.rs`, `crates/helper/src/security.rs`, `crates/protocol`, `web/src/lib/storage/`.
 - Dépend de : BO-1, SV-2, AU-1, AU-4.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: oui.
@@ -1339,7 +1346,7 @@ graph LR
   AM1 & AM2 & AR4 & DV9 --> AM4["AM-4 édition points"]
   AM2 & AM4 & QA1 & SV4 --> AM6["AM-6 scénario automation"]
   %% Phase 6
-  SV2 & AU7 --> SV3["SV-3 repli OPFS + export"]
+  SV2 --> SV3["SV-3 repli OPFS + export"]
   PR7 & AG1 --> AG3["AG-3 tour d'agent"]
   AG1 --> AG4["AG-4 confirmation"]
   AG1 & GR2 & DV8 & AR1 & AU5 & AM1 --> AG5["AG-5 scénario agent"]

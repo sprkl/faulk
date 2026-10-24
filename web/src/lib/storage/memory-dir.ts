@@ -120,10 +120,10 @@ export class MemoryDir {
     return dir
   }
 
-  async removeEntry(name: string) {
+  async removeEntry(name: string, options?: { recursive?: boolean }) {
     const found = this.entries.get(name)
     if (!found) throw new DOMException(`${name} not found`, 'NotFoundError')
-    if (found instanceof MemoryDir && found.entries.size > 0) throw new DOMException('not empty', 'InvalidModificationError')
+    if (found instanceof MemoryDir && found.entries.size > 0 && !options?.recursive) throw new DOMException('not empty', 'InvalidModificationError')
     this.entries.delete(name)
   }
 

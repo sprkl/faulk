@@ -145,6 +145,30 @@ export class FolderBackend implements ProjectStore {
     }
   }
 
+  async readBlobs(): Promise<{ path: string; bytes: Uint8Array }[]> {
+    try {
+      let dir: FileSystemDirectoryHandle
+      try {
+        dir = await this.root.getDirectoryHandle('blobs')
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') return []
+        throw error
+      }
+      const files: FileSystemFileHandle[] = []
+      for await (const entry of children(dir)) if (entry.kind === 'file' && !entry.name.endsWith(SWAP_SUFFIX)) files.push(entry as FileSystemFileHandle)
+      const out: { path: string; bytes: Uint8Array }[] = new Array(files.length)
+      await each(
+        files.map((handle, index) => ({ handle, index })),
+        async ({ handle, index }) => {
+          out[index] = { path: `blobs/${handle.name}`, bytes: new Uint8Array(await (await handle.getFile()).arrayBuffer()) }
+        },
+      )
+      return out
+    } catch (error) {
+      throw classify(error)
+    }
+  }
+
   async read(path: string, start = 0, end?: number): Promise<Uint8Array> {
     try {
       const parts = path.split('/')

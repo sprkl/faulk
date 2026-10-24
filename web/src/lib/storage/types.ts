@@ -53,6 +53,8 @@ export interface ProjectStore {
    * dense automation lanes as bytes, the other blobs by size (`needsBytes`).
    */
   readFolder(): Promise<{ entries: FolderEntry[]; signature: Signature }>
+  /** Every file of `blobs/`, whole (an export carries the media a save does not rewrite). */
+  readBlobs(): Promise<{ path: string; bytes: Uint8Array }[]>
   /** Bytes `[start, end)` of a file, without reading the rest. */
   read(path: string, start?: number, end?: number): Promise<Uint8Array>
   /**
@@ -69,6 +71,35 @@ export interface ProjectStore {
   cleanUp(): Promise<void>
   /** Releases what the store holds (its Worker's side). */
   close(): void
+}
+
+/** A project kept in the browser's own storage (the OPFS): a draft before a folder is chosen, or the project itself where there is no folder. */
+export interface BrowserProject {
+  /** Its directory (a random name, not the project's identity). */
+  dir: string
+  /** The project's identity, from its `project.json`. */
+  id: string
+  name: string
+  /** When a file of it last changed, in ms. */
+  modified: number
+}
+
+/** The browser's own storage as a home for projects (`opfs.ts`); a stand-in in tests. */
+export interface BrowserProjects {
+  /** Whether projects can be kept here at all (false: the project stays in the tab, as before drafts). */
+  readonly available: boolean
+  /**
+   * The projects, newest change first, and the directories that hold no project yet: a creation
+   * under way in another tab, or one a closed tab left behind (see `sweep`).
+   */
+  list(): Promise<{ projects: BrowserProject[]; incomplete: string[] }>
+  /** Makes the directory `dir` for a new project. */
+  create(dir: string): Promise<FolderHandle>
+  open(dir: string): Promise<FolderHandle | null>
+  /** Deletes a project's directory with everything in it; a directory already gone is not an error. */
+  remove(dir: string): Promise<void>
+  /** Asks the browser to keep the storage when it is short of room (`navigator.storage.persist()`). */
+  persist(): Promise<boolean>
 }
 
 /** The folder picker: `showDirectoryPicker` behind a seam, so the page can be driven without a dialog. */

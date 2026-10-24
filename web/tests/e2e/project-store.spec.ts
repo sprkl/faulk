@@ -26,6 +26,8 @@ async function simulatePicker(page: Page, name: string) {
   await page.addInitScript((folder) => {
     const w = window as unknown as { __pick: string; __pickError?: string; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
     w.__pick = folder
+    // These checks are about folders: no drafts in the browser's storage (browser-storage.spec.ts covers those).
+    ;(window as unknown as { __faulkNoBrowserStorage: boolean }).__faulkNoBrowserStorage = true
     w.showDirectoryPicker = async () => {
       if (w.__pickError) throw new DOMException('simulated', w.__pickError)
       return (await navigator.storage.getDirectory()).getDirectoryHandle(w.__pick, { create: true })
@@ -456,7 +458,10 @@ test.describe('the project in a folder', () => {
 
   test('a browser without folders says what works, and still warns before the tab goes', async ({ page, context }) => {
     const { errors } = watch(page)
-    await page.addInitScript(() => Object.defineProperty(window, 'showDirectoryPicker', { value: undefined, configurable: true }))
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'showDirectoryPicker', { value: undefined, configurable: true })
+      ;(window as unknown as { __faulkNoBrowserStorage: boolean }).__faulkNoBrowserStorage = true
+    })
     await page.goto('/app')
     await start(page)
     await addTrack(page, 'Drums')

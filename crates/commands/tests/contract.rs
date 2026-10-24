@@ -52,6 +52,8 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::New {})),
         on(Command::Project(project::Command::Save {})),
         on(Command::Project(project::Command::SaveAs {})),
+        on(Command::Project(project::Command::ExportPack {})),
+        on(Command::Project(project::Command::ImportPack {})),
         (
             Command::Project(project::Command::ExportAudio {
                 region: None,

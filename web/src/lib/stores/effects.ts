@@ -21,6 +21,10 @@ export interface EffectPorts {
   save(): void
   /** `project.save_as`: the user picks an empty folder and the project moves into it. */
   saveAs(): void
+  /** `project.export_pack`: hand the project to the user as a `.faulkpack` download. */
+  exportPack(): void
+  /** `project.import_pack`: the user picks a `.faulkpack` and its project replaces the current one. */
+  importPack(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
   /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
@@ -53,6 +57,12 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.save_as':
       ports.saveAs()
+      return
+    case 'project.export_pack':
+      ports.exportPack()
+      return
+    case 'project.import_pack':
+      ports.importPack()
       return
     case 'project.export_audio':
       ports.exportAudio({

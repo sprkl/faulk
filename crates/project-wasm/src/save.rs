@@ -123,6 +123,7 @@ struct Pending {
     root: BTreeSet<String>,
     session: Option<Vec<u8>>,
     revision: u32,
+    project_revision: u32,
 }
 
 /// What the core knows of the folder its project is saved into, and of how far the project
@@ -138,6 +139,11 @@ pub struct Saver {
     revision: u32,
     /// The revision the folder holds.
     saved: u32,
+    /// The same pair for the edits to the project alone (what a musician made), not the session
+    /// (selection, solo, arming, the MIDI input): a session change is worth saving into a home
+    /// the project has, but not worth a home of its own.
+    project_revision: u32,
+    project_saved: u32,
     pending: Option<Pending>,
 }
 
@@ -166,11 +172,23 @@ impl Saver {
     /// An edit was applied: the folder no longer holds the project.
     pub fn edited(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        self.project_revision = self.project_revision.wrapping_add(1);
+    }
+
+    /// The session changed (selection, solo, arming, MIDI input): the folder no longer holds
+    /// the session, but the project is as it was.
+    pub fn session_edited(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// Whether the project has changes the folder does not hold.
     pub fn dirty(&self) -> bool {
         self.revision != self.saved
+    }
+
+    /// Whether the project itself, not only its session, has changes the folder does not hold.
+    pub fn project_dirty(&self) -> bool {
+        self.project_revision != self.project_saved
     }
 
     /// Runs the save of `project` and `session` against what the folder holds and returns
@@ -183,6 +201,7 @@ impl Saver {
                 root: self.root.clone(),
                 session: self.session.clone(),
                 revision: self.revision,
+                project_revision: self.project_revision,
             });
             return frame(self.revision, &[]);
         }
@@ -226,6 +245,7 @@ impl Saver {
             root: recorder.root,
             session: recorder.session,
             revision: self.revision,
+            project_revision: self.project_revision,
         });
         out
     }
@@ -244,10 +264,11 @@ impl Saver {
         self.root = pending.root;
         self.session = pending.session;
         self.saved = pending.revision;
+        self.project_saved = pending.project_revision;
     }
 }
 
-fn frame(revision: u32, entries: &[Entry]) -> Vec<u8> {
+pub(crate) fn frame(revision: u32, entries: &[Entry]) -> Vec<u8> {
     let mut out = vec![0];
     out.extend_from_slice(&revision.to_le_bytes());
     out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
