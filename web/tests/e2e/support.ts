@@ -75,6 +75,61 @@ export function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)]
 }
 
+/**
+ * Main-thread time the page itself spent, from the browser's counters, rather than wall-clock frame
+ * intervals: an interval also counts the time the runner kept the browser waiting (a busy neighbour,
+ * the vsync tick), so on a shared machine it moves with the machine and not with the code. The
+ * task duration is the time the main thread worked, and a regression in the page raises it.
+ */
+export interface MainThreadCost {
+  /** Total main-thread task time over the window, in ms. */
+  task: number
+  script: number
+  layout: number
+  style: number
+  /** The time a fixed piece of JavaScript takes on this machine right now, in ms: the unit that makes a cost comparable across runners. */
+  unit: number
+}
+
+/** A fixed amount of arithmetic, timed in the page: it slows with the machine as the page's own work does. */
+function referenceWork(): number {
+  const start = performance.now()
+  let x = 0
+  for (let i = 0; i < 4_000_000; i++) x += Math.sqrt(i) * (i & 3)
+  return performance.now() - start + (x < 0 ? 1 : 0)
+}
+
+export async function mainThreadMeter(page: Page) {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Performance.enable')
+  // `FAULK_E2E_CPU_THROTTLE=4` rehearses a slow runner (CDP CPU slowdown), for the local proof of a test's stability.
+  const throttle = Number(process.env.FAULK_E2E_CPU_THROTTLE) || 1
+  if (throttle > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle })
+  const read = async () => {
+    const { metrics } = await cdp.send('Performance.getMetrics')
+    const by = Object.fromEntries(metrics.map((m) => [m.name, m.value]))
+    return { task: by.TaskDuration!, script: by.ScriptDuration!, layout: by.LayoutDuration!, style: by.RecalcStyleDuration! }
+  }
+  return {
+    /** Runs `run` and returns its result with the main-thread time spent meanwhile. */
+    async measure<T>(run: () => Promise<T>): Promise<{ result: T; cost: MainThreadCost }> {
+      const unit = () => page.evaluate(referenceWork)
+      const unitBefore = await unit()
+      const before = await read()
+      const result = await run()
+      const after = await read()
+      const unitAfter = await unit()
+      const ms = (key: 'task' | 'script' | 'layout' | 'style') => (after[key] - before[key]) * 1000
+      return { result, cost: { task: ms('task'), script: ms('script'), layout: ms('layout'), style: ms('style'), unit: Math.min(unitBefore, unitAfter) } }
+    },
+  }
+}
+
+/** The smallest of the values: noise on a shared runner only ever adds time, so the best window is the truest. */
+export function best(values: number[]): number {
+  return Math.min(...values)
+}
+
 /** One line for the test output: which limits were applied. */
 export function timingMode(strict: number[]): string {
   return STRICT_TIMING
