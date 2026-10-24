@@ -15,6 +15,10 @@ export interface MidiClip {
   looping: TickLoop | null
   /** The notes as the project holds them, sorted by start. */
   notes: readonly Note[]
+  /** The scene of the launch-grid cell the clip sits in, null when it is not in the grid. */
+  scene: string | null
+  /** Whether the clip is placed in the arrangement. */
+  placed: boolean
 }
 
 /** The MIDI clips of a track in the order the roll offers them. */
@@ -29,7 +33,7 @@ export function midiClips(track: Track): MidiClip[] {
   for (const [id, clip] of Object.entries(track.clips)) {
     if (!clip || !('midi' in clip.content)) continue
     const { length, looping, notes } = clip.content.midi
-    clips.push({ id, clip, length, looping: looping ?? null, notes })
+    clips.push({ id, clip, length, looping: looping ?? null, notes, scene: clip.slot ?? null, placed: firstStart.has(id) })
   }
   return clips.sort((a, b) => {
     const sa = firstStart.get(a.id) ?? Infinity
@@ -43,7 +47,15 @@ export function editedClip(clips: readonly MidiClip[], chosen: string | null): M
   return clips.find((c) => c.id === chosen) ?? clips[0] ?? null
 }
 
-/** The name the roll shows for a clip: its own, or "Clip n" by its place in the list. */
-export function clipLabel(entry: MidiClip, index: number, fallback: (n: number) => string): string {
-  return entry.clip.name.trim() || fallback(index + 1)
+/** The name the roll shows for a clip: the one stored in the project, the same in every view. */
+export function clipLabel(entry: MidiClip, fallback: string): string {
+  return entry.clip.name.trim() || fallback
+}
+
+/** Where a clip comes from: its grid cell ("Scene 2"), the arrangement, or both. Empty for a clip that is nowhere. */
+export function clipOrigin(entry: MidiClip, sceneLabel: (id: string) => string, arrangement: string): string {
+  const where: string[] = []
+  if (entry.scene !== null) where.push(sceneLabel(entry.scene))
+  if (entry.placed) where.push(arrangement)
+  return where.join(', ')
 }

@@ -19,7 +19,8 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
-  import { clipLabel, editedClip, midiClips } from './clips'
+  import { sortedScenes } from '../grid/cells'
+  import { clipLabel, clipOrigin, editedClip, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
@@ -88,7 +89,19 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
-  const clipName = $derived(edited ? clipLabel(edited, clips.indexOf(edited), (n) => t('pianoRoll.clipDefault', { n })) : '')
+  const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
+  const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
+  /** "Scene n" or the scene's own name: the grid's label for it. */
+  const sceneLabel = (id: string) => {
+    const entry = scenes.find((s) => s.id === id)
+    return entry ? entry.scene.name.trim() || t('pianoRoll.sceneDefault', { n: entry.index + 1 }) : t('pianoRoll.sceneGone')
+  }
+  /** A clip in the list: its name, then where it comes from. */
+  const listLabel = (entry: MidiClip) => {
+    const origin = clipOrigin(entry, sceneLabel, t('pianoRoll.originArrangement'))
+    const name = clipLabel(entry, t('pianoRoll.clipPlain'))
+    return origin ? `${name} (${origin})` : name
+  }
 
   // View state.
   let tool = $state<Tool>('draw')
@@ -542,8 +555,8 @@
     <div class="toolbar">
       {#if clips.length > 1}
         <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (ui.editedClip = e.currentTarget.value)}>
-          {#each clips as entry, i (entry.id)}
-            <option value={entry.id}>{clipLabel(entry, i, (n) => t('pianoRoll.clipDefault', { n }))}</option>
+          {#each clips as entry (entry.id)}
+            <option value={entry.id}>{listLabel(entry)}</option>
           {/each}
         </select>
       {:else}
