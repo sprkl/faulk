@@ -29,10 +29,13 @@ test('volume, mute and solo of a track change what the engine sounds', async ({ 
   const unity = await master(page)
 
   // -6 dB on the fader: the level follows (half, within the report's resolution).
-  await synth.getByRole('slider', { name: 'Volume of Synth', exact: true }).fill('-6')
+  // Seven steps down from 0 dB on the fader's curve are -6 dB.
+  const volume = synth.getByRole('slider', { name: 'Volume of Synth', exact: true })
+  await volume.focus()
+  for (let i = 0; i < 7; i++) await volume.press('ArrowDown')
   await expect.poll(async () => (await master(page)) / unity, { timeout: 5000 }).toBeGreaterThan(0.45)
   await expect.poll(async () => (await master(page)) / unity).toBeLessThan(0.56)
-  await synth.getByRole('slider', { name: 'Volume of Synth', exact: true }).dblclick()
+  await volume.dblclick()
   await expect.poll(async () => (await master(page)) / unity, { timeout: 5000 }).toBeGreaterThan(0.9)
 
   // Mute silences it, unmute brings it back.

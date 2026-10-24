@@ -62,7 +62,24 @@
   </div>
 {:else}
   <div data-testid="param-{param.key}">
-    <Knob {label} {hint} {onbegin} {onend} position={positionOf(param, value)} display={formatValue(param, value)} onchange={(p) => onchange(valueAt(param, p))} />
+    <Knob
+      {label}
+      {hint}
+      {onbegin}
+      {onend}
+      position={positionOf(param, value)}
+      display={formatValue(param, value)}
+      home={positionOf(param, param.default)}
+      defaultDisplay={formatValue(param, param.default)}
+      onchange={(p) => {
+        const next = p === positionOf(param, param.default) ? param.default : valueAt(param, p)
+        if (next !== value) onchange(next)
+      }}
+      onreset={() => {
+        // Already at the default: no command, no empty history entry.
+        if (value !== param.default) onchange(param.default)
+      }}
+    />
   </div>
 {/if}
 

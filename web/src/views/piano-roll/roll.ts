@@ -181,9 +181,31 @@ export function resizeNotes(selected: readonly Note[], dLength: number, clipLeng
 
 /** Velocity from a position in the lane: the top is the loudest. */
 export function velocityAt(y: number, laneTop: number, laneHeight: number): number {
-  const ratio = 1 - (y - laneTop) / Math.max(1, laneHeight)
-  return clamp(Math.round(finite(ratio, 0) * MAX_VELOCITY), MIN_VELOCITY, MAX_VELOCITY)
+  return velocityOf(velocityPosition(y, laneTop, laneHeight))
 }
+
+/**
+ * What the default-velocity reset does to the chosen notes: each one not already at it takes it. Null
+ * when the clip would refuse the whole change (two stacked notes that differ only in velocity would
+ * become the same note), and an empty list when there is nothing to do.
+ */
+export function resetVelocities(all: readonly Note[], chosen: readonly Note[]): Change[] | null {
+  const wanted = chosen.filter((n) => n.velocity !== DEFAULT_VELOCITY).map((from) => ({ from, to: { ...from, velocity: DEFAULT_VELOCITY } }))
+  return acceptable(all, wanted)
+}
+
+/** The lane's position (0 at the bottom, 1 at the top) under a height, not rounded: the drag of `continuous.ts` works on it. */
+export function velocityPosition(y: number, laneTop: number, laneHeight: number): number {
+  return clamp(finite(1 - (y - laneTop) / Math.max(1, laneHeight), 0), 0, 1)
+}
+
+/** The velocity of a lane position: the inverse of `velocityPosition`, rounded and kept between 1 and 127. */
+export function velocityOf(position: number): number {
+  return clamp(Math.round(finite(position, 0) * MAX_VELOCITY), MIN_VELOCITY, MAX_VELOCITY)
+}
+
+/** Where the default velocity sits in the lane, held by the magnet. */
+export const VELOCITY_HOME = DEFAULT_VELOCITY / MAX_VELOCITY
 
 /**
  * Moves velocities together by one amount, cut back so that all stay between 1 and 127: the same

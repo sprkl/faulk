@@ -9,7 +9,9 @@
   import { onDestroy, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
   import { addNotes, auditionOff, auditionOn, createClipAtStart, removeNotes, setClipLength, setClipLoop, updateNotes } from '../../lib/clip-commands'
+  import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
+  import ValueMenu from '../../lib/components/ValueMenu.svelte'
   import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
@@ -38,7 +40,10 @@
     stillApplies,
     fits,
     toggled,
-    velocityAt,
+    resetVelocities,
+    velocityOf,
+    velocityPosition,
+    VELOCITY_HOME,
     afterChanges,
     type Change,
     type Layout,
@@ -63,7 +68,7 @@
   type Gesture =
     | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null }
     | { kind: 'move' | 'resize'; clip: string; grabbed: Note; key: string; startX: number; startY: number; changes: Change[] }
-    | { kind: 'velocity'; clip: string; grabbed: Note; key: string; changes: Change[] }
+    | { kind: 'velocity'; clip: string; grabbed: Note; key: string; startX: number; startY: number; moved: boolean; drag: Drag; changes: Change[] }
     | { kind: 'band'; clip: string; x0: number; y0: number; base: ReadonlySet<string>; rect: Rect }
     | { kind: 'loop'; clip: string; from: number; to: number }
 
@@ -377,7 +382,7 @@
 
   function laneDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || gesture) return
-    const { x } = local(event, lane)
+    const { x, y } = local(event, lane)
     const index = hitVelocity(notes, x, shown)
     if (index === null) return
     const grabbed = notes[index]!
@@ -388,7 +393,9 @@
       if (!next.on) return
     } else if (!picked.has(key)) picked = new Set([key])
     lane!.setPointerCapture(event.pointerId)
-    gesture = { kind: 'velocity', clip: edited.id, grabbed, key, changes: [] }
+    // Absolute under the pointer, then relative: the fine mode (Ctrl, Cmd) carries on from where the value is.
+    const drag = createDrag({ position: velocityPosition(y, 2, laneH - 4), home: VELOCITY_HOME, travel: laneH - 4 })
+    gesture = { kind: 'velocity', clip: edited.id, grabbed, key, startX: x, startY: y, moved: false, drag, changes: [] }
     sound(grabbed.pitch, grabbed.velocity)
   }
 
@@ -396,9 +403,39 @@
     const g = gesture
     if (!g || g.kind !== 'velocity') return
     if (!edited || edited.id !== g.clip || !chosenKeys.has(g.key)) return cancel()
-    const { y } = local(event, lane)
-    const velocity = velocityAt(y, 2, laneH - 4)
-    gesture = { ...g, changes: shiftVelocity(chosenNotes, velocity - g.grabbed.velocity) }
+    const { x, y } = local(event, lane)
+    // A click or a double click moves nothing: the drag starts after a few pixels.
+    if (!g.moved && Math.hypot(x - g.startX, y - g.startY) < DRAG_SLOP_PX) return
+    const velocity = velocityOf(g.drag.move(g.startY - y, fineKey(event)))
+    gesture = { ...g, moved: true, changes: shiftVelocity(chosenNotes, velocity - g.grabbed.velocity) }
+  }
+
+  /** The default-velocity reset: the chosen notes take it as one command (nothing when they already have it). */
+  function resetVelocity() {
+    if (!edited) return
+    const changes = resetVelocities(notes, chosenNotes)
+    if (!changes || changes.length === 0 || !stillApplies(notes, changes, clipLength)) return
+    run(updateNotes(edited.id, changes))
+    picked = afterChanges(picked, changes)
+    lastVelocity = DEFAULT_VELOCITY
+  }
+
+  /** The bar under a pointer of the lane becomes the chosen note when it is not one already; false when there is none. */
+  function chooseBar(event: MouseEvent): boolean {
+    if (!edited || gesture) return false
+    const index = hitVelocity(notes, local(event, lane).x, shown)
+    if (index === null) return false
+    const key = noteKey(notes[index]!)
+    if (!picked.has(key)) picked = new Set([key])
+    return true
+  }
+
+  let laneMenu = $state<{ x: number; y: number } | null>(null)
+
+  function laneContext(event: MouseEvent) {
+    event.preventDefault()
+    if (!chooseBar(event)) return
+    laneMenu = { x: Math.max(0, Math.min(event.clientX, window.innerWidth - 220)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 56)) }
   }
 
   // --- the keyboard column ----------------------------------------------------------------------
@@ -566,6 +603,10 @@
         onpointermove={laneMove}
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
+        ondblclick={(event) => {
+          if (chooseBar(event)) resetVelocity()
+        }}
+        oncontextmenu={laneContext}
       >
         <Surface
           label={t('pianoRoll.velocity')}
@@ -574,6 +615,19 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if laneMenu}
+  <ValueMenu
+    x={laneMenu.x}
+    y={laneMenu.y}
+    value={String(DEFAULT_VELOCITY)}
+    onreset={() => {
+      laneMenu = null
+      resetVelocity()
+    }}
+    onclose={() => (laneMenu = null)}
+  />
 {/if}
 
 <style>

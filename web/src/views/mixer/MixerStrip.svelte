@@ -5,14 +5,13 @@
    * no project state: it reads the stores and every control is a command through the dispatcher.
    * The name is read-only here; renaming stays in the track list.
    */
-  import { onDestroy } from 'svelte'
-  import { createGesture } from '../../lib/gesture'
   import { chainOf } from '../../lib/project/chain'
   import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { armTrack, selectTrack, setMasterVolume, setMute, setPan, setSolo, setVolume } from '../../lib/track-commands'
+  import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
   import MixerFader from './MixerFader.svelte'
+  import PanControl from '../../lib/components/PanControl.svelte'
   import MixerMeter from './MixerMeter.svelte'
 
   let {
@@ -33,9 +32,6 @@
   const chainText = $derived(
     chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '),
   )
-
-  const gesture = createGesture((command) => dispatcher.run(command))
-  onDestroy(() => gesture.end())
 
   /** Shows the track's devices: selects it (the Devices panel follows the selection) and opens that panel. */
   function showDevices() {
@@ -74,23 +70,7 @@
 
   {#if entry}
     <div class="pan">
-      <input
-        type="range"
-        min="-1"
-        max="1"
-        step="0.01"
-        value={entry.track.mixer.pan}
-        aria-label={t('tracks.pan', { name })}
-        aria-valuetext={formatPan(entry.track.mixer.pan)}
-        data-testid="mixer-pan"
-        oninput={(e) => dispatcher.run(setPan(entry.id, Number(e.currentTarget.value)))}
-        onpointerdown={gesture.begin}
-        onpointerup={gesture.end}
-        onpointercancel={gesture.end}
-        onchange={gesture.end}
-        onblur={gesture.end}
-        ondblclick={() => dispatcher.run(setPan(entry.id, 0))}
-      />
+      <PanControl track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
       <span class="readout">{formatPan(entry.track.mixer.pan)}</span>
     </div>
     <div class="toggles">
@@ -218,12 +198,6 @@
     flex-direction: column;
     align-items: stretch;
     width: 100%;
-  }
-  .pan input {
-    width: 100%;
-    min-width: 0;
-    margin: 0;
-    accent-color: var(--fk-accent-fg);
   }
   .readout {
     color: var(--fk-text-muted);
