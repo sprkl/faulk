@@ -316,6 +316,34 @@ pub fn examples() -> Vec<(Command, State)> {
                 },
             ],
         }),
+        // PN-2: every note to a coarse grid (one halfway to the later line, one pinned by the clip end).
+        on(clip::Command::NotesQuantize {
+            clip: f.clip.clone(),
+            notes: None,
+            grid: Tick(1920),
+            strength: 100,
+        }),
+        on(clip::Command::NotesQuantize {
+            clip: f.clip.clone(),
+            notes: Some(vec![n(960, 64, 960, 90)]),
+            grid: Tick(1920),
+            strength: 50,
+        }),
+        on(clip::Command::NotesTranspose {
+            clip: f.clip.clone(),
+            notes: vec![n(0, 60, 480, 100), n(960, 64, 960, 90)],
+            semitones: -12,
+        }),
+        on(clip::Command::NotesDuplicate {
+            clip: f.clip.clone(),
+            notes: vec![n(0, 60, 480, 100)],
+            offset: None,
+        }),
+        on(clip::Command::NotesDuplicate {
+            clip: f.clip.clone(),
+            notes: vec![n(960, 64, 960, 90)],
+            offset: Some(Tick(-480)),
+        }),
     ];
     // Moves: within the track, out of the grid (placed clip only), and across tracks.
     all.push(on(clip::Command::Move {

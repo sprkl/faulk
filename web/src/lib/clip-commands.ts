@@ -10,6 +10,11 @@ export const createClipAtStart = (track: string): Command => ({ type: 'clip.crea
 export const addNotes = (clip: string, notes: Note[]): Command => ({ type: 'clip.notes.add', clip, notes })
 export const removeNotes = (clip: string, notes: Note[]): Command => ({ type: 'clip.notes.remove', clip, notes })
 export const updateNotes = (clip: string, changes: { from: Note; to: Note }[]): Command => ({ type: 'clip.notes.update', clip, changes })
+/** The start of notes toward a grid by `strength` percent; `null` notes quantizes the whole clip. */
+export const quantizeNotes = (clip: string, notes: Note[] | null, grid: number, strength: number): Command => ({ type: 'clip.notes.quantize', clip, notes, grid, strength })
+export const transposeNotes = (clip: string, notes: Note[], semitones: number): Command => ({ type: 'clip.notes.transpose', clip, notes, semitones })
+/** Copies of notes shifted by `offset` ticks (null: the span of the selection, so the copies follow it). */
+export const duplicateNotes = (clip: string, notes: Note[], offset: number | null): Command => ({ type: 'clip.notes.duplicate', clip, notes, offset })
 /** A shorter clip cuts what lies past its end (`trim`): the edit is one history entry, so one undo brings the notes back. */
 export const setClipLength = (clip: string, length: number): Command => ({ type: 'clip.set_length', clip, length, trim: true })
 export const setClipLoop = (clip: string, looping: TickLoop | null): Command => ({ type: 'clip.set_loop', clip, looping })
