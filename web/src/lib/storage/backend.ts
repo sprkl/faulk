@@ -42,14 +42,18 @@ async function directory(root: FileSystemDirectoryHandle, parts: string[], creat
   return dir
 }
 
-/** Every file below `dir` that a scan looks at: [path, handle], skipping `.git`, `.faulk` and swap files. */
+/** What of the root belongs to the project: `project.json`, the tracks and the blobs. A README, a mixdown, the `.DS_Store` the file manager writes are the user's, never a change to the project. */
+const PROJECT_ROOT_FILES: readonly string[] = ['project.json']
+const PROJECT_ROOT_DIRS: readonly string[] = ['tracks', 'blobs']
+
+/** Every file of the project below `dir` that a scan looks at: [path, handle], skipping `.git`, `.faulk`, swap files and what is not the project's. */
 async function* walk(dir: FileSystemDirectoryHandle, base = ''): AsyncGenerator<[string, FileSystemFileHandle]> {
   for await (const entry of children(dir)) {
     const path = base ? `${base}/${entry.name}` : entry.name
     if (entry.kind === 'directory') {
-      if (SKIPPED_DIRS.includes(entry.name) || (base === '' && entry.name === '.faulk')) continue
+      if (SKIPPED_DIRS.includes(entry.name) || (base === '' && !PROJECT_ROOT_DIRS.includes(entry.name))) continue
       yield* walk(entry as FileSystemDirectoryHandle, path)
-    } else if (!entry.name.endsWith(SWAP_SUFFIX)) {
+    } else if (!entry.name.endsWith(SWAP_SUFFIX) && (base !== '' || PROJECT_ROOT_FILES.includes(entry.name))) {
       yield [path, entry as FileSystemFileHandle]
     }
   }
@@ -98,15 +102,18 @@ export class FolderBackend implements ProjectStore {
       const files: [string, FileSystemFileHandle][] = []
       for await (const found of walk(this.root)) files.push(found)
       // The session file is read; the rest of `.faulk/` (cache, temporary files) is the folder's own business.
-      const session = await this.maybeFile('.faulk/session.json')
-      if (session) files.push(session)
+      // The session is read, and so are the user's `.gitignore` and `.gitattributes`: a save leaves what exists alone.
+      for (const extra of ['.faulk/session.json', '.gitignore', '.gitattributes']) {
+        const found = await this.maybeFile(extra)
+        if (found) files.push(found)
+      }
       const entries: FolderEntry[] = new Array(files.length)
       const signature: Signature = {}
       await each(
         files.map((file, index) => ({ file, index })),
         async ({ file: [path, handle], index }) => {
           const file = await handle.getFile()
-          if (!path.startsWith('.faulk/')) signature[path] = stamp(file)
+          if (!path.startsWith('.faulk/') && !path.startsWith('.git')) signature[path] = stamp(file)
           if (!path.startsWith('blobs/')) {
             entries[index] = { path, bytes: new Uint8Array(await file.arrayBuffer()) }
             return

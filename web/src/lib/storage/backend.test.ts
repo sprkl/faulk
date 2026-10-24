@@ -114,6 +114,10 @@ describe('FolderBackend.readFolder and scan', () => {
       .put('.faulk/cache/project.snap', 'cache')
       .put('.git/config', 'git')
       .put('tracks/a/notes.tsv.crswap', 'half')
+      .put('.gitignore', 'target/')
+      .put('README.md', 'mine')
+      .put('.DS_Store', 'x')
+      .put('mixdown/final.wav', 'x')
     return { dir, store }
   }
 
@@ -121,14 +125,14 @@ describe('FolderBackend.readFolder and scan', () => {
     const { store } = song()
     const { entries } = await store.readFolder()
     const byPath = Object.fromEntries(entries.map((e) => [e.path, e]))
-    expect(Object.keys(byPath).sort()).toEqual(['.faulk/session.json', 'blobs/audio', 'blobs/lane', 'project.json', 'tracks/a/track.json'])
+    expect(Object.keys(byPath).sort()).toEqual(['.faulk/session.json', '.gitignore', 'blobs/audio', 'blobs/lane', 'project.json', 'tracks/a/track.json'])
     expect('bytes' in byPath['project.json']!).toBe(true)
     expect('bytes' in byPath['.faulk/session.json']!).toBe(true)
     expect('bytes' in byPath['blobs/lane']!).toBe(true)
     expect(byPath['blobs/audio']).toEqual({ path: 'blobs/audio', size: 100 })
   })
 
-  it('stamps what a scan sees the same way, and never .faulk, .git or a swap file', async () => {
+  it('stamps only the project: never .faulk, .git, a swap file, a README, a mixdown or the .DS_Store a file manager writes', async () => {
     const { store } = song()
     const { signature } = await store.readFolder()
     expect(Object.keys(signature).sort()).toEqual(['blobs/audio', 'blobs/lane', 'project.json', 'tracks/a/track.json'])
