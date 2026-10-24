@@ -645,11 +645,27 @@
   .hbar {
     overflow-x: scroll;
     overflow-y: hidden;
-    /* Always a visible bar, whatever the platform's overlay scrollbars do. */
-    height: 16px;
-    scrollbar-width: auto;
-    scrollbar-color: var(--fk-text-muted) var(--fk-surface);
+    /* The bar's own thickness (12px, below) and the line above it: the room is kept even where scrollbars overlay. */
+    height: 13px;
     border-top: 1px solid var(--fk-line);
+  }
+  /* Always a visible bar, whatever the platform's overlay scrollbars do: styling the bar turns the overlay off. */
+  .hbar::-webkit-scrollbar {
+    height: 12px;
+  }
+  .hbar::-webkit-scrollbar-track {
+    background: var(--fk-surface);
+  }
+  .hbar::-webkit-scrollbar-thumb {
+    border: 2px solid var(--fk-surface);
+    border-radius: 6px;
+    background: var(--fk-text-muted);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .hbar {
+      scrollbar-width: auto;
+      scrollbar-color: var(--fk-text-muted) var(--fk-surface);
+    }
   }
   .corner {
     border-right: 1px solid var(--fk-line);

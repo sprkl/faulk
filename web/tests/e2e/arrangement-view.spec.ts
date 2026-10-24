@@ -215,7 +215,8 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   const bar = page.getByTestId('arr-scrollbar')
   await expect(bar).toBeVisible()
   expect(await bar.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
-  expect((await bar.boundingBox())!.height).toBeGreaterThan(5)
+  // The room of the bar is kept (headless browsers hide scrollbars, so the paint itself is not measured).
+  expect((await bar.boundingBox())!.height).toBeGreaterThanOrEqual(12)
   await bar.evaluate((e) => (e.scrollLeft = 400))
   await expect.poll(scroll).toBeGreaterThan(0)
   await expect(arr(page)).toHaveAttribute('data-follow', 'false')
