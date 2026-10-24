@@ -186,3 +186,91 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   expect(refused).toEqual([])
   expect(seen.errors).toEqual([])
 })
+
+// #315: the view follows the play position by page, stops at a hand scroll, starts again with Follow or the next Play;
+// the scrollbar is visible and the zoom buttons change the visible range.
+test('arrangement view: follow the play position, scrollbar, zoom buttons', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('nav-arrangement').click()
+  const grid = stage(page).getByTestId('timegrid')
+  const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
+  const scroll = () => num('data-scroll-tick')
+  const play = () => page.getByTestId('transport').getByRole('button', { name: 'Play', exact: true }).click()
+  const stop = () => page.getByTestId('transport').getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect.poll(() => num('data-draw-count')).toBeGreaterThan(0)
+
+  // The zoom buttons change the visible range (px per tick).
+  const ppt0 = await num('data-px-per-tick')
+  for (let i = 0; i < 4; i++) await page.getByTestId('arr-zoom-in').click()
+  await expect.poll(() => num('data-px-per-tick')).toBeGreaterThan(ppt0 * 2)
+  await page.getByTestId('arr-zoom-out').click()
+  await expect.poll(() => num('data-px-per-tick')).toBeLessThan(ppt0 * 2.5)
+
+  // The scrollbar is there, wider than the stage; moving it scrolls the view and stops the following.
+  const bar = page.getByTestId('arr-scrollbar')
+  await expect(bar).toBeVisible()
+  expect(await bar.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+  // The room of the bar is kept (headless browsers hide scrollbars, so the paint itself is not measured).
+  expect((await bar.boundingBox())!.height).toBeGreaterThanOrEqual(12)
+  await bar.evaluate((e) => (e.scrollLeft = 400))
+  await expect.poll(scroll).toBeGreaterThan(0)
+  await expect(arr(page)).toHaveAttribute('data-follow', 'false')
+  await page.getByTestId('arr-follow').click()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await grid.focus()
+  await page.keyboard.press('Home')
+  await expect.poll(scroll).toBe(0)
+  await expect(arr(page)).toHaveAttribute('data-follow', 'false')
+
+  // Play: the view turns the page when the position leaves the window (the next Play follows again).
+  await play()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await expect.poll(scroll, { timeout: 30_000 }).toBeGreaterThan(0)
+  const turned = await scroll()
+  const ppt = await num('data-px-per-tick')
+  const width = (await stage(page).boundingBox())!.width
+  const position = Number(await arr(page).getAttribute('data-position'))
+  expect(position).toBeGreaterThanOrEqual(turned)
+  expect(position).toBeLessThanOrEqual(turned + width / ppt)
+  // The bar is drawn: the view followed it.
+  await expect.poll(async () => (await grid.getAttribute('data-playhead-x')) ?? '').not.toBe('')
+
+  // A hand scroll (Shift + wheel) stops the following: the view stays where the hand left it while the position runs on.
+  const box = (await stage(page).boundingBox())!
+  await page.mouse.move(box.x + 200, box.y + 100)
+  await page.keyboard.down('Shift')
+  await page.mouse.wheel(0, 200)
+  await page.keyboard.up('Shift')
+  await expect(arr(page)).toHaveAttribute('data-follow', 'false')
+  await expect.poll(scroll).toBeGreaterThan(turned)
+  const held = await scroll()
+  await expect.poll(async () => Number(await arr(page).getAttribute('data-position')), { timeout: 30_000 }).toBeGreaterThan(held + width / ppt)
+  expect(await scroll()).toBe(held)
+  // The bar is out of the window: the hand scroll let it leave.
+  expect((await grid.getAttribute('data-playhead-x')) ?? '').toBe('')
+
+  // Follow brings the position back into the window.
+  await page.getByTestId('arr-follow').click()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await expect.poll(scroll).toBeGreaterThan(held)
+  await expect.poll(async () => (await grid.getAttribute('data-playhead-x')) ?? '').not.toBe('')
+  // A zoom while following keeps the following, and the browser's clamping of the scrollbar is not taken for a hand.
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await stop()
+
+  // The cost of a frame stays the grid's: no redraw of the grid while the position moves within a page.
+  await play()
+  const before = await num('data-draw-count')
+  await page.waitForTimeout(800)
+  expect((await num('data-draw-count')) - before).toBeLessThan(8)
+  expect(Number(await grid.getAttribute('data-body-ms'))).toBeLessThan(process.env.FAULK_E2E_STRICT_TIMING === '1' ? 4 : 50)
+  await stop()
+  expect(seen.errors).toEqual([])
+})
