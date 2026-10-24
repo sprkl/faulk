@@ -18,24 +18,17 @@
   const time = $derived(
     storage.savedAt === null ? null : new Intl.DateTimeFormat(ui.lang, { timeStyle: 'short' }).format(storage.savedAt),
   )
-  const status = $derived.by(() => {
-    switch (storage.status) {
-      case 'saved':
-        return time ? t('save.saved', { time }) : t('save.savedPlain')
-      case 'saving':
-        return t('save.saving')
-      case 'pending':
-        return t('save.pending')
-      case 'paused':
-        return t('save.paused')
-      case 'failed':
-        return t('save.failed')
-      case 'conflict':
-        return t('save.conflict')
-      default:
-        return t('save.unsaved')
-    }
-  })
+  const LABELS = {
+    saving: 'save.saving',
+    pending: 'save.pending',
+    paused: 'save.paused',
+    failed: 'save.failed',
+    conflict: 'save.conflict',
+    unsaved: 'save.unsaved',
+  } as const
+  const status = $derived(
+    storage.status === 'saved' ? (time ? t('save.saved', { time }) : t('save.savedPlain')) : t(LABELS[storage.status]),
+  )
   const where = $derived(storage.folder ? t('save.folder', { name: storage.folder.name }) : t('save.noFolder'))
 
   function choose(action: () => unknown) {
