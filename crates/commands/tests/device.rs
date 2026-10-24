@@ -167,7 +167,8 @@ fn an_inserted_device_is_an_enabled_effect_at_its_descriptor_defaults() {
     assert_eq!(device.state, None);
     assert_eq!(device.params["gain"], 1.0);
     assert_eq!(device.params["mute"], 0.0);
-    assert_eq!(device.params.len(), 2);
+    assert_eq!(device.params["trim"], 1.0);
+    assert_eq!(device.params.len(), 3);
 }
 
 #[test]

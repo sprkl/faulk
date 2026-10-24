@@ -5,7 +5,7 @@
 //! adapter) and every hosted plugin wrapper implements the [`Device`] trait and has a
 //! static [`DeviceDescriptor`]. This module declares the contract; it holds no device: the
 //! built-in devices and their registry are in [`crate::devices`] (DV-1: the synth,
-//! [`crate::devices::osc_synth`]). The shared parameter smoother is AM-3's; routing the
+//! [`crate::devices::osc_synth`]). The shared parameter smoother is [`crate::param::Smoother`] (AM-3); routing the
 //! events of a track and splitting blocks at loop wraps is MO-4's ([`crate::events`]).
 //!
 //! # The chain of a track
