@@ -61,12 +61,12 @@
 //! Every value goes through [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
-use super::osc_synth::LinearRamp;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MAX_SAMPLE_RATE,
     ParamDescriptor, Scale, Unit, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 /// Ids of the parameters.
 pub const MODE: u32 = 0;
@@ -273,8 +273,8 @@ pub struct Echo {
     synced: bool,
     time: f32,
     division: usize,
-    feedback: LinearRamp,
-    mix: LinearRamp,
+    feedback: Smoother,
+    mix: Smoother,
     ramp_frames: [u32; 2],
     bpm: f64,
     /// The longest delay the lines hold, in frames.
@@ -332,8 +332,8 @@ impl Echo {
             synced: default(MODE) >= 0.5,
             time: default(TIME) as f32,
             division: default(DIVISION) as usize,
-            feedback: LinearRamp::new(default(FEEDBACK) as f32),
-            mix: LinearRamp::new(default(MIX) as f32),
+            feedback: Smoother::new(default(FEEDBACK) as f32),
+            mix: Smoother::new(default(MIX) as f32),
             ramp_frames: [ramp(FEEDBACK), ramp(MIX)],
             bpm: crate::time::Tempo::DEFAULT_BPM,
             max_delay: (frames - GUARD_FRAMES) as f32,

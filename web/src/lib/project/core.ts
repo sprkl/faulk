@@ -27,12 +27,21 @@ interface CoreExports {
   pw_project(core: number): number
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
+  pw_stage_stored(core: number, len: number): number
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
   pw_dirty(core: number): number
   pw_project_dirty(core: number): number
   pw_pack_export(len: number): number
   pw_pack_import(len: number): number
+}
+
+/** The projects the page can open, as `project.list_stored` answers (`StoredProjects` in `crates/commands`). */
+export interface StoredProjects {
+  /** The folders opened recently, newest first. */
+  recent: { id: string; name: string }[]
+  /** The projects kept in the browser's storage, newest first. */
+  browser: { dir: string; name: string }[]
 }
 
 /** A `.faulkpack` made by `ProjectCore.packExport`. */
@@ -346,6 +355,16 @@ export class ProjectCore {
     new Uint8Array(this.exports.memory.buffer, at, frame.length).set(frame)
     const code = this.exports.pw_stage(this.live(), frame.length)
     if (code !== 0) throw new CoreError('stage', code)
+  }
+
+  /**
+   * Stages what the page keeps, for the next `project.list_stored` to answer with (once). Throws a
+   * `CoreError` when it is not a list of stored projects: nothing is staged.
+   */
+  stageStored(list: StoredProjects) {
+    const len = this.input(JSON.stringify(list))
+    const code = this.exports.pw_stage_stored(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_stored', code)
   }
 
   /**

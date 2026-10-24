@@ -54,6 +54,8 @@ export function createStores(
     Object.assign(window, {
       __faulkRun: (command: Command) => dispatcher.run(command),
       __faulkView: () => project.view,
+      // The answer of `project.list_stored` (`storage-commands.spec.ts`).
+      __faulkStored: () => dispatcher.listStored(),
       // What the last write of the project cost (`project-save.spec.ts`).
       __faulkWrite: () => storage.lastWrite,
       // The folder store of SV-2 does not exist yet: a check hands the folder's files over (bytes as numbers).

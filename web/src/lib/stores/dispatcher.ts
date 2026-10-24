@@ -6,8 +6,15 @@ import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry } from '../project/core'
-import { isSaveCommand, isStorageCommand, newProject as newProjectCommand } from '../project-commands'
+import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
+import {
+  isListStored,
+  isSaveCommand,
+  isStorageCommand,
+  isStoredProjectCommand,
+  listStored as listStoredCommand,
+  newProject as newProjectCommand,
+} from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
@@ -244,6 +251,7 @@ export class Dispatcher {
     projectName: () => this.project.view?.project.name ?? null,
     packExport: async (files) => (await this.ensureCore()).packExport(files),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
+    prepare: async () => void (await this.ensureCore()),
   }
 
   /** The project's storage; set once by `createStores`. */
@@ -362,7 +370,21 @@ export class Dispatcher {
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
   run(command: Command, options: { quiet?: boolean } = {}) {
+    // A query that waits for the storage: it answers asynchronously, with the lists it read.
+    if (isListStored(command)) {
+      void this.listStored().catch((error: unknown) => console.error(error))
+      return
+    }
     const core = this.core
+    // The banner that offers the project of last time shows on a fresh page, before any core exists: the
+    // core is made, then the command runs (a click's permission to prompt outlasts the few milliseconds).
+    if (!core && isStoredProjectCommand(command)) {
+      void this.ensureCore().then(
+        () => this.run(command, options),
+        (error: unknown) => console.error(error),
+      )
+      return
+    }
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
     // Saving needs none: it is about the folder.
     if (!core || (!this.engine && !isSaveCommand(command))) return
@@ -397,11 +419,40 @@ export class Dispatcher {
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
       importPack: () => void this.storage?.importPack(),
+      reopenLast: () => void this.storage?.reopenLast(),
+      openFolder: () => void this.storage?.openFolder(),
+      openRecent: (id) => void this.storage?.openRecent(id),
+      openBrowserProject: (dir) => void this.storage?.openBrowserProject(dir),
+      deleteBrowserProject: (dir) => void this.storage?.deleteBrowserProject(dir),
+      keepMine: () => void this.storage?.keepMine(),
+      loadFolderVersion: () => void this.storage?.loadDisk(),
+      allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
       projectReplaced: () => this.storage?.forgetFolder(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
+  }
+
+  /**
+   * `project.list_stored`: the storage reads the folders and the browser's projects again, stages what it
+   * found in the core (`Context::stored`) and the command answers with it. The projects the page can open,
+   * newest first. The core is made when none exists yet (the page lists before audio starts).
+   */
+  async listStored(): Promise<StoredProjects> {
+    const core = await this.ensureCore()
+    if (this.storage) {
+      await this.storage.refreshStored()
+      core.stageStored({
+        recent: this.storage.recent.map(({ id, name }) => ({ id, name })),
+        browser: this.storage.browserProjects.map(({ dir, name }) => ({ dir, name })),
+      })
+    }
+    const { report } = core.run(listStoredCommand())
+    if (report.status !== 'applied' || !('recent' in report.output)) {
+      throw new Error(`project.list_stored: ${JSON.stringify(report)}`)
+    }
+    return { recent: report.output.recent, browser: report.output.browser }
   }
 
   private refusalTimer: ReturnType<typeof setTimeout> | null = null

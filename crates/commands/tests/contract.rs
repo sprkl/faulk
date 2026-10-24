@@ -54,6 +54,21 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::SaveAs {})),
         on(Command::Project(project::Command::ExportPack {})),
         on(Command::Project(project::Command::ImportPack {})),
+        on(Command::Project(project::Command::ListStored {})),
+        on(Command::Project(project::Command::ReopenLast {})),
+        on(Command::Project(project::Command::OpenFolder {})),
+        on(Command::Project(project::Command::OpenRecent {
+            id: "recent-1".into(),
+        })),
+        on(Command::Project(project::Command::OpenBrowserProject {
+            dir: "3f2b8c1e-0a52-4c3d-9b7e-1d2f4a6b8c0e".into(),
+        })),
+        on(Command::Project(project::Command::DeleteBrowserProject {
+            dir: "3f2b8c1e-0a52-4c3d-9b7e-1d2f4a6b8c0e".into(),
+        })),
+        on(Command::Project(project::Command::KeepMine {})),
+        on(Command::Project(project::Command::LoadFolderVersion {})),
+        on(Command::Project(project::Command::AllowAccess {})),
         (
             Command::Project(project::Command::ExportAudio {
                 region: None,
@@ -793,4 +808,66 @@ fn midi_select_input_is_session_only() {
         parse(r#"{"type":"midi.select_input"}"#).unwrap(),
         Command::Midi(midi::Command::SelectInput { id: None })
     );
+}
+
+#[test]
+fn stored_project_commands_name_something_the_page_can_look_up() {
+    let named = |value: &str| {
+        [
+            Command::Project(project::Command::OpenRecent { id: value.into() }),
+            Command::Project(project::Command::OpenBrowserProject { dir: value.into() }),
+            Command::Project(project::Command::DeleteBrowserProject { dir: value.into() }),
+        ]
+    };
+    for command in named("") {
+        let err = check_refusal(&command, &state(), &context()).unwrap();
+        assert_eq!(err.code(), "invalid", "{}", command.name());
+    }
+    for command in named(&"x".repeat(129)) {
+        let err = check_refusal(&command, &state(), &context()).unwrap();
+        assert!(
+            matches!(err, CommandError::Invalid { ref message, .. } if message.contains("128")),
+            "{}: {err}",
+            command.name()
+        );
+    }
+    // The page's own identifiers (a UUID) and the longest name accepted pass.
+    for value in [
+        "3f2b8c1e-0a52-4c3d-9b7e-1d2f4a6b8c0e".to_owned(),
+        "é".repeat(128),
+    ] {
+        for command in named(&value) {
+            check(&command, &state(), &context()).unwrap();
+        }
+    }
+    // The field named in the refusal is the one the command has.
+    let id = Command::Project(project::Command::OpenRecent { id: String::new() });
+    let err = check_refusal(&id, &state(), &context()).unwrap();
+    assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "id"));
+    let dir = Command::Project(project::Command::OpenBrowserProject { dir: String::new() });
+    let err = check_refusal(&dir, &state(), &context()).unwrap();
+    assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "dir"));
+}
+
+#[test]
+fn a_command_that_can_lose_work_is_never_declared_destructive_and_says_the_page_asks() {
+    // `Meta::check` allows `destructive` on an edit only, and these are live: the flag cannot
+    // carry the guarantee, so the description does (the page asks, whoever sends the command).
+    for name in [
+        "project.delete_browser_project",
+        "project.keep_mine",
+        "project.load_folder_version",
+    ] {
+        let tool = catalog().into_iter().find(|t| t.name == name).unwrap();
+        assert!(!tool.destructive, "{name}");
+        let description = tool
+            .description
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            description.contains("always asks the user to confirm"),
+            "{name}: {description}"
+        );
+    }
 }
