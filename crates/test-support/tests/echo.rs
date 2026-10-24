@@ -163,5 +163,14 @@ fn the_echo_changes_its_time_as_the_setting_says_through_commands() {
         // The first echo, at 0.3 s, is there in every setting.
         r.assert_audible(start + 0.3..start + 0.55, 0.01);
     }
+    // The setting reaches the engine: 0.7 s after the first time change, the pitch of the
+    // repeats is bent by the glide and is the note's own under Fade and Jump.
+    let hz = |start: f32| r.spectrum(start + 0.7..start + 1.2).dominant_hz();
+    let (glide, fade, jump) = (hz(0.0), hz(7.0), hz(14.0));
+    assert!(glide > fade * 1.05, "glide {glide} Hz, fade {fade} Hz");
+    assert!(
+        (fade - jump).abs() < fade * 0.05,
+        "glide {glide} Hz, fade {fade} Hz, jump {jump} Hz"
+    );
     r.write_wav("echo-modes");
 }

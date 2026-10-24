@@ -832,7 +832,7 @@ fn the_time_change_setting_is_appended_and_defaults_to_glide() {
     assert_eq!(ids, [MODE, TIME, DIVISION, FEEDBACK, MIX, TIME_CHANGE]);
     assert_eq!(ids, [0, 1, 2, 3, 4, 5]);
     // The descriptor tells each mode (and `time` / `division` point at the setting).
-    for word in ["Glide", "Fade", "Jump"] {
+    for word in ["Glide", "Fade", "Jump", "25%", "50 ms"] {
         assert!(p.description.contains(word), "{word}");
     }
     for key in [TIME, DIVISION] {
@@ -895,13 +895,13 @@ fn fade_crossfades_over_its_length_and_lands_on_the_new_delay() {
             assert_eq!(out[n], input[n - new], "after the fade, frame {n}");
         }
     }
-    // Equal power on uncorrelated material: no dip, no bump beyond 3 dB mid-fade.
+    // Unrelated material: the level dips by 3 dB mid-fade (gains sum to 1), never rises.
     let mid = k + fade_len / 2..k + fade_len / 2 + 200;
     let rms = |x: &[f32]| (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt();
     let steady = rms(&out[k - 4_000..k - 3_800]);
     let during = rms(&out[mid]);
     assert!(
-        during > steady * 0.7 && during < steady * 1.4,
+        during > steady * 0.6 && during < steady * 1.02,
         "{during} vs {steady}"
     );
 }
@@ -1105,4 +1105,36 @@ fn a_changing_delay_under_every_setting_stays_finite_with_a_hot_feedback() {
         check(&out);
         assert!(peak(&out) < 50.0, "{}", peak(&out));
     }
+}
+
+#[test]
+fn a_fade_never_makes_the_feedback_loop_louder_on_correlated_material() {
+    // A bass note, a hot feedback, and a delay that keeps moving by a few frames: the two
+    // taps of every fade are strongly correlated, where an equal-power law would add up to
+    // 3 dB per pass and the tail would grow.
+    let mut input = sine(4 * SR as usize, 55.0, 0.2);
+    for s in &mut input[SR as usize / 4..] {
+        *s = 0.0;
+    }
+    let mut e = wet_only(FADE, 0.3);
+    set(&mut e, FEEDBACK, 0.95);
+    let events: Vec<_> = (1..40)
+        .map(|i| {
+            let frames = 14_400.0 + 3.0 * (i % 5) as f32;
+            param_event(4_000 * i, TIME, frames / SR)
+        })
+        .collect();
+    let out = run(&mut e, SR, &input, 256, |_| 120.0, &events).0;
+    check(&out);
+    let early = peak(&out[SR as usize / 2..SR as usize]);
+    let late = peak(&out[3 * SR as usize..]);
+    assert!(
+        late < early * 0.9,
+        "the tail must decay: {early} then {late}"
+    );
+    assert!(
+        peak(&out) <= 0.21,
+        "never louder than the input: {}",
+        peak(&out)
+    );
 }

@@ -33,10 +33,12 @@
 //! - **Glide** (default): the delay in use glides toward its target, so that the output never
 //!   jumps. Each frame it moves by a share of the distance (an exponential approach of time
 //!   constant [`GLIDE_SECONDS`]), no less than [`MIN_SLEW`] and no more than [`MAX_SLEW`]
-//!   frames: the pitch of the repeats moves by 25% at most while it glides, like a tape.
+//!   frames: the pitch of the repeats moves by 25% at most while it glides, like a tape,
+//!   and a long change takes at least four times its length in frames (0.3 s to 0.12 s: 0.72 s).
 //! - **Fade**: the line is read at the old and at the new delay at once and the two are
-//!   crossfaded over [`FADE_SECONDS`] (equal-power law on a smoothstep curve): the repeats
-//!   keep their pitch. A change that arrives while a fade runs waits for it to end, then a
+//!   crossfaded over [`FADE_SECONDS`] (gains on a smoothstep curve, summing to 1: the level
+//!   dips by 3 dB mid-fade on unrelated material but never exceeds the loudest tap, so the
+//!   feedback loop gain stays below 1): the repeats keep their pitch. A change that arrives while a fade runs waits for it to end, then a
 //!   new fade starts toward the latest target (no click, at most [`FADE_SECONDS`] late).
 //! - **Jump**: the delay is the target at once. A `time` or `division` value moves the read
 //!   position at its exact frame; a tempo change, which the host gives once per block, at the
@@ -149,7 +151,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MODE),
             key: "mode",
-            description: "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting).",
+            description: "Whether the delay time is free (the time setting, in seconds) or locked to the project tempo (the note value setting). A switch takes effect as time_change says.",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -214,7 +216,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(TIME_CHANGE),
             key: "time_change",
-            description: "What a new delay time, note value or tempo does while the echo rings. Glide: the delay slides like a tape, exponentially over about 50 ms, the pitch of the repeats bends. Fade: 50 ms crossfade, no pitch change. Jump: immediate, may click.",
+            description: "What a new delay time, note value, tempo or mode does while the echo rings. Glide: the delay slides like a tape, bending the pitch of the repeats by up to 25% until it arrives. Fade: 50 ms crossfade, pitch kept. Jump: immediate, may click.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -401,7 +403,9 @@ impl Echo {
             // A fade runs (Fade, or a setting left while it ran): it finishes first.
             let s = self.fade_pos as f32 / self.fade_len as f32;
             let curve = s * s * (3.0 - 2.0 * s);
-            let (to_gain, from_gain) = (curve.sqrt(), (1.0 - curve).max(0.0).sqrt());
+            // The gains sum to 1: the wet signal never exceeds its loudest tap, so the loop
+            // gain stays below 1 even when the taps are correlated (a bass, a small step).
+            let (to_gain, from_gain) = (curve, 1.0 - curve);
             let (from_l, from_r) = self.tap(self.fade_from);
             let (to_l, to_r) = self.tap(self.fade_to);
             self.fade_pos += 1;
