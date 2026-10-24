@@ -18,17 +18,17 @@ export type Command = (ProjectCommand | TrackCommand | DeviceCommand | ClipComma
  * The commands of this domain, tagged by `type`.
  */
 export type ProjectCommand = ({
-type: "project.new"
-} | {
-type: "project.save"
-} | {
-type: "project.save_as"
-} | {
 name: string
 type: "project.rename"
 } | {
 folder: string
 type: "project.open"
+} | {
+type: "project.new"
+} | {
+type: "project.save"
+} | {
+type: "project.save_as"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -684,16 +684,6 @@ export type CommandOutput = (ProjectOutput | TrackOutput | DeviceOutput | ClipOu
  */
 export type ProjectOutput = ({
 /**
- * The name of the new project.
- */
-name: string
-type: "project.new"
-} | {
-type: "project.save"
-} | {
-type: "project.save_as"
-} | {
-/**
  * The name before the command.
  */
 previous: string
@@ -717,6 +707,16 @@ name: string
  */
 session_reset: boolean
 type: "project.open"
+} | {
+/**
+ * The name of the new project.
+ */
+name: string
+type: "project.new"
+} | {
+type: "project.save"
+} | {
+type: "project.save_as"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.

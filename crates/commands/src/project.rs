@@ -17,31 +17,6 @@ pub use ::project::limits::MAX_NAME_CHARS;
 domain! {
     domain = "project", schema = ("ProjectCommand", "ProjectOutput");
 
-    /// Start a new project: the page's default one, a single synth track, in no folder yet,
-    /// with its own identity. It replaces the current project, its history and its session
-    /// (the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive: the caller confirms first
-    /// when the current project has changes that are not saved.
-    "project.new" (kind = "edit", undo = "none", destructive = true)
-    New {} => {
-        /// The name of the new project.
-        name: String,
-    };
-
-    /// Write the project to its folder now, without waiting for the automatic save that
-    /// follows each change by a moment. A project that has no folder yet asks for one, as
-    /// `project.save_as` does. Changes nothing in the project, so it never enters the
-    /// history.
-    "project.save" (kind = "live", undo = "none", destructive = false)
-    Save {} => {};
-
-    /// Choose an empty folder and write the whole project into it; the project then lives
-    /// in that folder, and the automatic save keeps writing there. The folder is chosen by
-    /// the user (a browser needs a click for it), so an agent that is not driven by one gets
-    /// a notice in the page instead. The old folder is left as it is. Changes nothing in the
-    /// project, so it never enters the history.
-    "project.save_as" (kind = "live", undo = "none", destructive = false)
-    SaveAs {} => {};
-
     /// Rename the project. The name is trimmed, not empty, at most 200 characters.
     /// Undo: rename it back to its previous name.
     "project.rename" (kind = "edit", undo = "inverse", destructive = false)
@@ -69,6 +44,31 @@ domain! {
         /// media).
         missing_blobs: u32,
     };
+
+    /// Start a new project: the page's default one, a single synth track, in no folder yet,
+    /// with its own identity. It replaces the current project, its history and its session
+    /// (the chosen MIDI input stays); the engine starts over from it. Not undoable, destructive: the caller confirms first
+    /// when the current project has changes that are not saved.
+    "project.new" (kind = "edit", undo = "none", destructive = true)
+    New {} => {
+        /// The name of the new project.
+        name: String,
+    };
+
+    /// Write the project to its folder now, without waiting for the automatic save that
+    /// follows each change by a moment. A project that has no folder yet asks for one, as
+    /// `project.save_as` does. Changes nothing in the project, so it never enters the
+    /// history.
+    "project.save" (kind = "live", undo = "none", destructive = false)
+    Save {} => {};
+
+    /// Choose an empty folder and write the whole project into it; the project then lives
+    /// in that folder, and the automatic save keeps writing there. The folder is chosen by
+    /// the user (a browser needs a click for it), so an agent that is not driven by one gets
+    /// a notice in the page instead. The old folder is left as it is. Changes nothing in the
+    /// project, so it never enters the history.
+    "project.save_as" (kind = "live", undo = "none", destructive = false)
+    SaveAs {} => {};
 }
 
 /// Applies a command of this domain.
