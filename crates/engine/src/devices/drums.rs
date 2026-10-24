@@ -34,12 +34,12 @@
 use core::f32::consts::TAU;
 
 use super::Builtin;
-use super::osc_synth::LinearRamp;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, NamedKey,
     ParamDescriptor, Scale, Unit, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::param::Smoother;
 
 /// Key of the kick (C2).
 pub const KICK_KEY: u8 = 36;
@@ -713,7 +713,7 @@ pub struct Drums {
     sample_rate: f32,
     values: Values,
     /// The four sounds' levels, then the master gain.
-    levels: [LinearRamp; 5],
+    levels: [Smoother; 5],
     level_frames: [u32; 5],
     kick: Kick,
     snare: Snare,
@@ -743,7 +743,7 @@ impl Drums {
         Self {
             sample_rate,
             values: Values(values),
-            levels: core::array::from_fn(|i| LinearRamp::new(level_of(i))),
+            levels: core::array::from_fn(|i| Smoother::new(level_of(i))),
             level_frames: core::array::from_fn(frames_of),
             kick: Kick::IDLE,
             snare: Snare::IDLE,
