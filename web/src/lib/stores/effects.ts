@@ -50,6 +50,7 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       ports.markNote(command.note, 0)
       return
     case 'live.all_notes_off':
+    case 'live.all_sound_off':
       ports.clearNotes()
       return
     case 'project.save':

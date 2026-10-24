@@ -434,6 +434,13 @@ describe('running commands through the project core', () => {
     expect(webs[1].close).not.toHaveBeenCalled()
   })
 
+  it('sends the all-sound-off command to the engine as it is (the double-click on Stop)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'live.all_sound_off' })
+    expect(webs[0].send.mock.calls.at(-1)![0]).toEqual({ type: 'live.all_sound_off' })
+  })
+
   it('keeps the helper in step in Boost mode and catches the Web engine up by snapshot on return', async () => {
     nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
     localStorage.setItem(TOKEN_KEY, 'x')

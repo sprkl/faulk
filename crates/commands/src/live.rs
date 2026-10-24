@@ -94,6 +94,14 @@ domain! {
     /// changes no project data.
     "live.all_notes_off" (kind = "live", undo = "none", destructive = false)
     AllNotesOff {} => {};
+
+    /// Cut every sound at once, on every track and the master: the output fades out in about
+    /// 5 ms, then every instrument's voices (long releases included) and every effect's
+    /// tail (echo repeats, reverb) are cleared, without a click. The transport is not
+    /// touched. Use it when a sound rings on or feeds back out of control. Not undoable: it
+    /// changes no project data.
+    "live.all_sound_off" (kind = "live", undo = "none", destructive = false)
+    AllSoundOff {} => {};
 }
 
 /// Applies a command of this domain.
@@ -120,6 +128,7 @@ pub fn apply(
             Output::NoteOff {}
         }
         Command::AllNotesOff {} => Output::AllNotesOff {},
+        Command::AllSoundOff {} => Output::AllSoundOff {},
         Command::InputNoteOn { note, velocity } => {
             check_midi("note", *note)?;
             check_midi("velocity", *velocity)?;
