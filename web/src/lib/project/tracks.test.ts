@@ -81,6 +81,14 @@ describe('the name of a duplicate', () => {
   })
 })
 
+describe('the name of a duplicate of an unnamed track', () => {
+  it('is free among the names once the copy has shifted the default ones', () => {
+    // [Synth, unnamed, unnamed] duplicating the second: the third becomes "Track 4" under the copy.
+    expect(copyName('Track 2', ['Synth', 'Track 2', 'Track 4'])).toBe('Track 3')
+    expect(copyName('Track 2', ['Synth', 'Track 2', 'Track 3', 'Track 4'])).toBe('Track 5')
+  })
+})
+
 describe('the gain and the pan as text', () => {
   it('writes the gain and the pan for the screen', () => {
     expect(formatGain(null)).toBe('−∞')

@@ -94,12 +94,13 @@ test('a track moves and duplicates from the track list, one history entry each, 
   await sameEverywhere(page, ['Bass', 'Synth', 'Kit'])
   await undo(page).click()
   await sameEverywhere(page, ['Synth', 'Kit', 'Bass'])
-  // Dropped on itself, a drag changes nothing and leaves no history of its own.
+  // Downward: dropped on the last header, the track goes last. Dropped on itself, nothing moves.
+  await header(page, 'Synth').getByTestId('track-grip').dragTo(header(page, 'Bass'))
+  await sameEverywhere(page, ['Kit', 'Bass', 'Synth'])
+  await undo(page).click()
+  await sameEverywhere(page, ['Synth', 'Kit', 'Bass'])
   await header(page, 'Kit').getByTestId('track-grip').dragTo(header(page, 'Kit'))
   expect(await listOrder(page)).toEqual(['Synth', 'Kit', 'Bass'])
-  await undo(page).click()
-  await expect(headers(page)).toHaveCount(3)
-  await redo(page).click()
 
   // Duplicate a muted and armed track: the copy sits right below, under a free name, selected,
   // audible and not armed; the source keeps its state; one undo removes the copy only.

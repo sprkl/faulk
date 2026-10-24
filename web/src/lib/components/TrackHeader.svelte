@@ -137,7 +137,9 @@
   function duplicate() {
     closeMenu(false)
     const before = new Set(project.tracks.map((e) => e.id))
-    const name = copyName(label, project.tracks.map((e) => trackLabel(e, t)))
+    // The names on screen once the copy is in: an unnamed track shows its position, which the copy shifts.
+    const after = project.tracks.map((e) => trackLabel({ track: e.track, index: e.index > entry.index ? e.index + 1 : e.index }, t))
+    const name = copyName(label, after)
     dispatcher.run(duplicateTrack(entry.id, name))
     const made = project.tracks.find((e) => !before.has(e.id))
     if (made) dispatcher.run(selectTrack(made.id))
