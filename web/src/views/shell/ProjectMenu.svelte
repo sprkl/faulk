@@ -66,15 +66,18 @@
     data-testid="project-menu"
     onclick={() => (open = !open)}
   >
+    <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg>
     <span class="name" data-testid="project-name">{name}</span>
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5 L5 6.5 L8 3.5" /></svg>
+    <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5 L5 6.5 L8 3.5" /></svg>
+    {#if ready}<span class="dot" data-state={storage.status} aria-hidden="true"></span>{/if}
   </button>
   {#if ready}
-    <span class="state" data-state={storage.status} data-testid="save-state" role="status" title={where}>{status}</span>
+    <span class="state" data-state={storage.status} data-testid="save-state" role="status" title={`${status}. ${where}`}>{status}</span>
   {/if}
 
   {#if open}
     <div class="menu" role="menu" aria-label={t('project.menu')}>
+      <p class="summary" data-testid="menu-summary">{name}{ready ? ` · ${status}` : ''}</p>
       <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => storage.newProject())}>{t('project.menu.new')}</button>
       <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => storage.openFolder())}>{t('project.menu.open')}</button>
       <hr />
@@ -104,16 +107,17 @@
   .project {
     position: relative;
     display: inline-flex;
-    align-items: center;
-    gap: var(--fk-space-2);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     min-width: 0;
   }
   .trigger {
     display: inline-flex;
     align-items: center;
     gap: var(--fk-space-2);
-    height: 30px;
-    max-width: 220px;
+    height: 22px;
+    max-width: 130px;
     padding: 0 var(--fk-space-3);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-pill);
@@ -132,9 +136,53 @@
     white-space: nowrap;
   }
   .state {
-    font-size: 12px;
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: var(--fk-space-3);
+    font-size: 11px;
+    line-height: 1;
     color: var(--fk-text-muted);
     white-space: nowrap;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fk-text-muted);
+  }
+  .dot[data-state='pending'],
+  .dot[data-state='saving'] {
+    background: var(--fk-text);
+  }
+  .dot[data-state='paused'],
+  .dot[data-state='failed'],
+  .dot[data-state='conflict'] {
+    background: var(--fk-accent);
+  }
+  .doc {
+    display: none;
+  }
+  /* The top bar is full at this width: the project shows as an icon with its state's dot, and its name
+     and state (Saved at 14:32, Unsaved changes...) are read from the tooltip, by screen readers, and from
+     the menu's heading. */
+  @media (max-width: 1399px) {
+    .doc {
+      display: block;
+    }
+    .name,
+    .state,
+    .chevron {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    .trigger {
+      padding: 0 var(--fk-space-2);
+    }
   }
   .state[data-state='pending'],
   .state[data-state='saving'] {
@@ -192,6 +240,13 @@
     margin: var(--fk-space-1) 0;
     border: 0;
     border-top: 1px solid var(--fk-line);
+  }
+  .summary {
+    margin: 0;
+    padding: var(--fk-space-1) var(--fk-space-3) var(--fk-space-2);
+    border-bottom: 1px solid var(--fk-line);
+    font-size: 12px;
+    font-weight: 600;
   }
   .heading,
   .none {

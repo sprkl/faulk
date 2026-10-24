@@ -131,6 +131,18 @@
   .spacer {
     flex: 1;
   }
+  /* The bar is full at this width: a little less air between and inside its controls. */
+  @media (max-width: 1399px) {
+    .top {
+      gap: 4px;
+    }
+    .views button {
+      padding: 0 6px;
+    }
+    button.ghost {
+      padding: 0 var(--fk-space-3);
+    }
+  }
   .engine {
     display: flex;
     align-items: center;
