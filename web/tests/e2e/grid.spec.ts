@@ -1,7 +1,16 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { best, mainThreadMeter, watch } from './support'
 
 const STRICT = process.env.FAULK_E2E_STRICT_TIMING === '1'
+/** Measured windows per performance check; the best one counts, because noise only adds time. */
+const WINDOWS = 3
+/**
+ * Ceilings on the main-thread time per frame, in reference units (see `mainThreadMeter`): the sweep
+ * costs about 1 (up to 2 with a 4x slower CPU) and a scene playing about 0.25 (up to 0.4); ten times
+ * the cost (an order-of-magnitude regression) crosses both ceilings, a noisy runner does not.
+ */
+const SWEEP_CEILING = 4
+const PLAYING_CEILING = 1.2
 
 // GR-3 (#76): the launch grid in a real browser. Real worklet, engine and project core: scenes and
 // clips are made by the grid's own gestures, notes are drawn in the piano roll, and the cell states
@@ -230,10 +239,16 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) =
   const sorted = (values: number[]) => [...values].sort((a, b) => a - b)
   const pct = (values: number[], p: number) => sorted(values)[Math.min(values.length - 1, Math.floor(values.length * p))]!
   const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length
-  const swept = await sweep()
+  // The cost is the main-thread time per frame (see `mainThreadMeter`), the best of three sweeps: the
+  // frame intervals depend on the runner (vsync, neighbours) and are printed, not asserted.
+  const meter = await mainThreadMeter(page)
+  const sweeps = []
+  for (let i = 0; i < WINDOWS; i++) sweeps.push(await meter.measure(sweep))
+  const swept = sweeps[0]!.result
+  const sweptCost = best(sweeps.map((s) => s.cost.task / s.result.intervals.length / s.cost.unit))
   const mode = STRICT ? 'STRICT' : 'ceiling'
   console.log(
-    `timing: ${mode} launch grid 32 x 64: project built in ${built.ms.toFixed(0)} ms, view mounted in ${mount.toFixed(0)} ms with ${drawn} cells drawn; scroll sweep ${swept.intervals.length} frames, frame interval mean ${mean(swept.intervals).toFixed(2)} ms, p95 ${pct(swept.intervals, 0.95).toFixed(2)} ms, worst ${Math.max(...swept.intervals).toFixed(2)} ms`,
+    `timing: ${mode} launch grid 32 x 64: project built in ${built.ms.toFixed(0)} ms, view mounted in ${mount.toFixed(0)} ms with ${drawn} cells drawn; scroll sweep ${swept.intervals.length} frames, frame interval mean ${mean(swept.intervals).toFixed(2)} ms, p95 ${pct(swept.intervals, 0.95).toFixed(2)} ms, worst ${Math.max(...swept.intervals).toFixed(2)} ms; main thread per frame, best of ${WINDOWS}: ${sweptCost.toFixed(3)} reference units (reference ${sweeps[0]!.cost.unit.toFixed(1)} ms)`,
   )
   // The sweep went over the whole grid, drawing only a part of it at a time; its two ends are reachable.
   expect(swept.rows).toBe(64)
@@ -242,14 +257,14 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) =
   await page.evaluate(() => Object.assign(document.querySelector('.scroll') as HTMLElement, { scrollTop: 1e6, scrollLeft: 1e6 }))
   await expect(page.locator('[data-testid=cell][data-si="63"][data-ti="31"]')).toBeVisible()
   expect(mount).toBeLessThan(STRICT ? 250 : 750)
-  expect(mean(swept.intervals)).toBeLessThan(STRICT ? 17.5 : 25)
-  expect(pct(swept.intervals, 0.95)).toBeLessThan(STRICT ? 25 : 50)
+  expect(sweptCost).toBeLessThan(STRICT ? 2 : SWEEP_CEILING)
 
   // A scene plays: the states reach the cells while the grid is scrolled, and the frames stay short.
   await page.evaluate(() => Object.assign(document.querySelector('.scroll') as HTMLElement, { scrollTop: 0, scrollLeft: 0 }))
   await page.getByTestId('scene-row').first().getByTestId('launch-scene').click()
   await expect(cells(page).first()).toHaveAttribute('data-state', 'playing', { timeout: 10_000 })
-  const playing = await page.evaluate(
+  const play = () =>
+    page.evaluate(
     () =>
       new Promise<number[]>((done) => {
         const intervals: number[] = []
@@ -263,8 +278,14 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) =
         requestAnimationFrame(step)
       }),
   )
-  console.log(`timing: ${mode} launch grid 32 x 64, a scene playing: ${playing.length} frames, frame interval mean ${mean(playing).toFixed(2)} ms, p95 ${pct(playing, 0.95).toFixed(2)} ms, worst ${Math.max(...playing).toFixed(2)} ms`)
-  expect(mean(playing)).toBeLessThan(STRICT ? 17.5 : 25)
+  const plays = []
+  for (let i = 0; i < WINDOWS; i++) plays.push(await meter.measure(play))
+  const playing = plays[0]!.result
+  const playingCost = best(plays.map((p) => p.cost.task / (p.result.length + 1) / p.cost.unit))
+  console.log(
+    `timing: ${mode} launch grid 32 x 64, a scene playing: ${playing.length} frames, frame interval mean ${mean(playing).toFixed(2)} ms, p95 ${pct(playing, 0.95).toFixed(2)} ms, worst ${Math.max(...playing).toFixed(2)} ms; main thread per frame, best of ${WINDOWS}: ${playingCost.toFixed(3)} reference units`,
+  )
+  expect(playingCost).toBeLessThan(STRICT ? 0.5 : PLAYING_CEILING)
   expect(seen.errors).toEqual([])
 })
 

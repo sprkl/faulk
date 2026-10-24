@@ -8,6 +8,20 @@ import { watch } from './support'
 // which track sounds.
 
 const peaks = async (page: Page) => ((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').map(Number)
+/**
+ * The highest per-track peak seen since `startPeakHold`. The meter is read at 30 Hz and a short sound (a snare) can
+ * fall between two readings the test polls, so the page keeps the crest itself, on every update of the element.
+ */
+const startPeakHold = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.querySelector('[data-testid=feedback]')!
+    const held: number[] = []
+    const read = () => (el.getAttribute('data-track-peaks') ?? '').split(',').forEach((v, i) => (held[i] = Math.max(held[i] ?? 0, Number(v) || 0)))
+    new MutationObserver(read).observe(el, { attributes: true, attributeFilter: ['data-track-peaks'] })
+    read()
+    ;(window as unknown as { __heldPeaks: number[] }).__heldPeaks = held
+  })
+const heldPeak = (page: Page, track: number) => page.evaluate((i) => (window as unknown as { __heldPeaks: number[] }).__heldPeaks[i] ?? 0, track)
 const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
 const header = (page: Page, name: string) => page.getByTestId('track-header').filter({ has: page.getByRole('button', { name, exact: true }) })
 const selectedHeader = (page: Page) => page.locator('[data-testid=track-header][aria-current=true]')
@@ -58,9 +72,10 @@ for (const lang of ['en', 'fr'] as const) {
     await page.keyboard.up('KeyA')
     await expect.poll(() => masterPeak(page), { timeout: 5000 }).toBeLessThan(0.001)
     // The snare, the clap and the open hat answer on the same row.
+    await startPeakHold(page)
     for (const code of ['KeyS', 'KeyE', 'KeyU']) {
       await page.keyboard.down(code)
-      await expect.poll(async () => (await peaks(page))[1], { message: code }).toBeGreaterThan(0.01)
+      await expect.poll(() => heldPeak(page, 1), { message: code }).toBeGreaterThan(0.01)
       await page.keyboard.up(code)
       await expect.poll(() => masterPeak(page), { timeout: 5000 }).toBeLessThan(0.001)
     }
