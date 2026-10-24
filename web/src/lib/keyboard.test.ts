@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, saveShortcut } from './keyboard'
+import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, saveShortcut, spaceTogglesTransport, trackFocusOrigin } from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -39,6 +39,62 @@ describe('computer keyboard', () => {
     const box = document.createElement('div')
     box.innerHTML = '<div role="slider" tabindex="0"></div><input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
     for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
+  })
+})
+
+describe('space bar and the transport', () => {
+  const box = document.createElement('div')
+  box.innerHTML =
+    '<button id="b">b</button><a id="a" href="#">a</a><input id="t" type="text"><input id="n" type="number"><input id="c" type="checkbox"><input id="r" type="range">' +
+    '<textarea id="x"></textarea><select id="s"><option>o</option></select><div id="e" contenteditable="true"></div><div id="k" role="slider" tabindex="0"></div>' +
+    '<div id="g" tabindex="0"></div><button id="w"><span id="in">i</span></button>'
+  document.body.append(box)
+  const el = (id: string) => box.querySelector('#' + id)!
+  const mouse = () => false
+  const keyboard = () => true
+
+  it('toggles from the page, a mouse-clicked control or a plain focusable area', () => {
+    expect(spaceTogglesTransport(null, keyboard)).toBe(true)
+    expect(spaceTogglesTransport(document.body, keyboard)).toBe(true)
+    expect(spaceTogglesTransport(el('g'), keyboard)).toBe(true)
+    for (const id of ['b', 'a', 'c', 'r', 'k', 'in']) expect(spaceTogglesTransport(el(id), mouse), id).toBe(true)
+  })
+
+  it('leaves Space to a control the keyboard focused', () => {
+    for (const id of ['b', 'a', 'c', 'r', 'k', 'in']) expect(spaceTogglesTransport(el(id), keyboard), id).toBe(false)
+  })
+
+  it('always leaves Space to text fields, selects and contenteditable, however they got the focus', () => {
+    for (const id of ['t', 'n', 'x', 's', 'e']) {
+      expect(spaceTogglesTransport(el(id), mouse), id).toBe(false)
+      expect(spaceTogglesTransport(el(id), keyboard), id).toBe(false)
+    }
+  })
+
+  it('follows where the focus came from: a pressed control is pointer-focused, a Tab or script focus is keyboard-focused', () => {
+    const stop = trackFocusOrigin()
+    const press = (target: Element) => {
+      target.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      ;(target as HTMLElement).focus()
+      target.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    }
+    const b = el('b') as HTMLElement
+    press(b)
+    expect(spaceTogglesTransport(b)).toBe(true)
+    b.blur()
+    b.focus() // a script or Tab
+    expect(spaceTogglesTransport(b)).toBe(false)
+    // A press on the control that already has the focus makes it pointer-focused again.
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true)
+    // The focus moves on by the keyboard: the new control is keyboard-focused, the old one no longer matters.
+    const a = el('a') as HTMLElement
+    a.focus()
+    expect(spaceTogglesTransport(a)).toBe(false)
+    stop()
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(false)
   })
 })
 

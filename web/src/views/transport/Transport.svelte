@@ -6,7 +6,8 @@
    * but the text being typed: it reads the stores and every control is a command (`transport-commands.ts`)
    * through the dispatcher.
    */
-  import { ignoreKeyEvent } from '../../lib/keyboard'
+  import { onMount } from 'svelte'
+  import { ignoreKeyEvent, spaceTogglesTransport, trackFocusOrigin } from '../../lib/keyboard'
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup } from '../../lib/track-commands'
@@ -129,11 +130,13 @@
     if (event.detail > 0) (event.currentTarget as HTMLElement).blur()
   }
 
+  // `:focus-visible` is not enough (it turns on at the first key press), so the origin of the focus is followed.
+  onMount(() => trackFocusOrigin())
+
   function onSpace(event: KeyboardEvent) {
     if (event.code !== 'Space' || !ready || ignoreKeyEvent(event)) return
-    // A focused control keeps the space bar for itself (a button presses, a select opens).
-    const target = event.target as HTMLElement | null
-    if (target && target !== document.body && target.closest('button, input, select, textarea, [contenteditable], a, [role="slider"]')) return
+    // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
+    if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
     run(playing ? stop() : play())
   }

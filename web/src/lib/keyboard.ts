@@ -82,6 +82,69 @@ export function isTextTarget(eventTarget: EventTarget | null): boolean {
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
 }
 
+/** The elements that have a Space meaning of their own: Space presses a button or a link, ticks a box, opens a select, types in a field. */
+const SPACE_CONTROLS = 'button, input, select, textarea, [contenteditable], a, [role="slider"]'
+
+/**
+ * The element the mouse (or a touch) gave the focus to, until the focus moves. `:focus-visible` cannot tell
+ * this: a browser turns it on at the first key press, Space included, on a button the mouse just clicked.
+ */
+let pointerFocused: Element | null = null
+let pointerDown = false
+
+/**
+ * Starts following where the focus came from (a pointer press, or anything else: Tab, arrows, a script);
+ * returns the function that stops it. `spaceTogglesTransport` reads it.
+ */
+export function trackFocusOrigin(doc: Document = document): () => void {
+  const down = (event: Event) => {
+    pointerDown = true
+    // A press on the element that already has the focus gives no focus event: it is pointer-focused from now on.
+    const active = doc.activeElement
+    pointerFocused = active && active !== doc.body && active.contains(event.target as Node | null) ? active : null
+  }
+  const up = () => {
+    pointerDown = false
+  }
+  const focus = (event: Event) => {
+    pointerFocused = pointerDown ? (event.target as Element) : null
+  }
+  doc.addEventListener('pointerdown', down, true)
+  doc.addEventListener('pointerup', up, true)
+  doc.addEventListener('pointercancel', up, true)
+  doc.addEventListener('focusin', focus, true)
+  return () => {
+    doc.removeEventListener('pointerdown', down, true)
+    doc.removeEventListener('pointerup', up, true)
+    doc.removeEventListener('pointercancel', up, true)
+    doc.removeEventListener('focusin', focus, true)
+    pointerFocused = null
+    pointerDown = false
+  }
+}
+
+/** Whether the keyboard (or a script) put the focus on this control, as opposed to the mouse. */
+function keyboardFocused(element: Element): boolean {
+  return element !== pointerFocused
+}
+
+/**
+ * Whether Space toggles the transport (play, or pause at the same position) for a key event aimed at
+ * this target. It does everywhere, except where Space already means something:
+ * - a field where text is typed, a select or a contenteditable always keeps it, however it got the focus;
+ * - any other control (button, link, checkbox, knob, slider) keeps it only when the keyboard put the
+ *   focus there (Tab, arrows), so keyboard navigation stays usable. A control the mouse clicked keeps the
+ *   focus but not Space, otherwise a click on a tab or a track header would silence the space bar.
+ * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
+ */
+export function spaceTogglesTransport(target: EventTarget | null, focusVisible: (element: Element) => boolean = keyboardFocused): boolean {
+  const element = target as Element | null
+  if (!element || typeof element.closest !== 'function') return true
+  if (isTextTarget(element)) return false
+  const control = element.closest(SPACE_CONTROLS)
+  return control === null || !focusVisible(control)
+}
+
 /**
  * Save asked by the keyboard (Ctrl or Cmd + S, with Shift for save as), or null. Unlike undo, it also
  * fires inside a text field: there the browser would offer to save the page as a file, which is
