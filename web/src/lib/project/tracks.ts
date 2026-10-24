@@ -82,14 +82,16 @@ export function formatPan(pan: number): string {
 }
 
 /**
- * The name of a duplicate: the source's name with its trailing number swapped for the first free one
- * from 2 ("Synth" gives "Synth 2", then "Synth 3"; "Synth 2" gives "Synth 3"). `taken` holds the names
- * on screen, so a copy never shares one.
+ * The name of a duplicate: when the name ends with a space and a number of one or two digits, the first
+ * free number after it on the same base ("Synth 2" gives "Synth 3"); otherwise " 2", then the first free
+ * number ("Synth" gives "Synth 2", "TR 808" gives "TR 808 2": a longer number is part of the name).
+ * `taken` holds the names on screen, so a copy never shares one.
  */
 export function copyName(label: string, taken: readonly string[]): string {
-  const base = label.replace(/\s+\d+$/, '').trim() || label
+  const counted = /^(.*\S)\s+(\d{1,2})$/.exec(label)
+  const base = counted ? counted[1] : label
   const used = new Set(taken)
-  for (let n = 2; ; n++) {
+  for (let n = counted ? Number(counted[2]) + 1 : 2; ; n++) {
     // A name has at most 200 characters (the command refuses more): shorten the base, never the number.
     const whole = `${base} ${n}`
     const candidate = [...whole].length <= 200 ? whole : `${[...base].slice(0, 190).join('')} ${n}`

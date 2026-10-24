@@ -71,7 +71,11 @@ describe('the name of a duplicate', () => {
     expect(copyName('Synth', ['Synth', 'Synth 2'])).toBe('Synth 3')
     expect(copyName('Synth 2', ['Synth', 'Synth 2'])).toBe('Synth 3')
     expect(copyName('Synth', ['Synth', 'Synth 3'])).toBe('Synth 2')
-    expect(copyName('Piste 4', ['Piste 4'])).toBe('Piste 2')
+    expect(copyName('Piste 4', ['Piste 4'])).toBe('Piste 5')
+    expect(copyName('TR 808', ['TR 808'])).toBe('TR 808 2')
+    expect(copyName('TR 808', ['TR 808', 'TR 808 2'])).toBe('TR 808 3')
+    expect(copyName('Juno 106', ['Juno 106'])).toBe('Juno 106 2')
+    expect(copyName('Synth 2', ['Synth 2', 'Synth 3'])).toBe('Synth 4')
   })
 
   it('never goes past the 200 characters a name may have, and keeps a name that is only a number', () => {
