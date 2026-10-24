@@ -11,38 +11,30 @@ concurrency:
 
 jobs:
   agent-scripts:
-    # The agent guardrails (hooks, Judge Dredd brief, verification records) and the helper's
-    # Blob publication (its logic needs no dependency; @vercel/blob is loaded for real uploads only).
+    # Nothing runs on a push to develop or main: the code was tested in its pull request.
+    if: github.event_name == 'pull_request'
+    # The agent guardrails (hooks, Judge Dredd brief, verification records), the CI selection
+    # rules (scripts/ci/) and the helper's Blob publication (its logic needs no dependency;
+    # @vercel/blob is loaded for real uploads only).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+          fetch-depth: 2
 
-      # Pull requests: the heavy steps run only when the changed files can affect this job. The
-      # job always runs, so its check name always reports (a required check never stays pending).
-      # Pushes to develop and main run everything.
-      - name: Changed files
+      # See ci.yml: the job always starts on a pull request, its heavy steps run when needed.
+      - name: Select the tests
         id: changes
         shell: bash
         env:
-          EVENT: ${{ github.event_name }}
-          PATTERN: '^(scripts/|\.claude/|web/vercel\.json$|\.github/workflows/agent-scripts\.yml$)'
-        run: |
-          run=true
-          if [ "$EVENT" = pull_request ]; then
-            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
-            printf '%s\n' "$files"
-            grep -Eq "$PATTERN" <<< "$files" || run=false
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "heavy steps run: $run"
+          RUSTUP_TOOLCHAIN: stable # read the workspace with the preinstalled toolchain
+        run: node scripts/ci/select.mjs
 
       - uses: actions/setup-node@v4
-        if: steps.changes.outputs.run == 'true'
+        if: steps.changes.outputs.agent_scripts == 'true'
         with:
           node-version: 24
 
       - name: Test the agent scripts
-        if: steps.changes.outputs.run == 'true'
+        if: steps.changes.outputs.agent_scripts == 'true'
         run: node --test "scripts/**/*.test.mjs"

@@ -89,18 +89,44 @@ Run `node --test "scripts/**/*.test.mjs"` (CI runs it too), then try the changed
 
 ## CI (GitHub Actions, `.github/workflows/`)
 
-On a pull request, each job of `rust.yml` (`rust`, `helper-windows`), `ci.yml` (`web`) and `agent-scripts.yml` always starts, so its check name always reports, but its heavy steps run only when a changed file can affect it. A first step, `Changed files`, lists `git diff --name-only --no-renames HEAD^1 HEAD` (the merge commit of the pull request against its base) and matches it with the job's `PATTERN`. Pushes to `develop` and `main` run everything. A pattern that misses a path the job reads lets a broken change through green: add the path to the `PATTERN` of the job in the same change that makes the job read it.
+CI runs where it is useful and nowhere else (#330, founder's decisions of 2026-10-24): the code is tested once, in its pull request, and once more as a whole on the release.
 
-| Job | Heavy steps run when the pull request changes |
+| Event | What runs |
 |---|---|
-| `rust` | `crates/`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/src/lib/engine/proto/crate/` (the prototype crate it lints), `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by the helper's updater tests, which `cargo test --workspace` runs), `rust.yml` |
-| `helper-windows` | `crates/helper/` and the crates it depends on by path (`engine`, `commands`, `protocol`, `project`), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `web/vercel.json` and `web/src/lib/i18n/helper.ts` (read by its tests), `rust.yml` |
-| `web` | `web/`, `crates/` (the page embeds the engine and project WASM and the generated types), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `ci.yml` |
-| `agent-scripts` | `scripts/`, `.claude/`, `web/vercel.json` (read by the release script tests), `agent-scripts.yml` |
+| Pull request against `develop` (a task) | Only what the changed files can affect, chosen by `scripts/ci/select.mjs` (below). |
+| Pull request against `main` (the `develop` to `main` release, or a hotfix) | The full suite, once: workspace fmt, clippy and tests, both WASM builds, the prototype crate, the helper on Windows, the web checks with the end-to-end tests of both projects (`dev` and `preview`), the agent scripts. |
+| Push to `develop` or `main` | Nothing: the jobs of `rust.yml`, `ci.yml` and `agent-scripts.yml` are skipped (`if: github.event_name == 'pull_request'`). No nightly run either. |
+| Tag `helper-v*`, dispatch | `release-helper.yml`, unchanged. |
 
-`release-helper.yml` (Windows, macOS and Linux trial build) runs on a pull request only for the helper's updater, wiring and manifest, `scripts/helper-release/`, `web/vercel.json` and itself (not `Cargo.lock`: it changes for any dependency); it runs in full on a push to `develop` or `main` that touches `crates/helper/`, `Cargo.lock`, `scripts/helper-release/`, `web/vercel.json` or the workflow, on `helper-v*` tags and on dispatch.
+Required status checks: no branch protection or required check is configured on `develop` or `main` today (2026-10-24, `gh api repos/sprkl/faulk/branches/<branch>/protection` answers 404; the only ruleset forbids deleting branches). Should one be added, name the jobs `rust`, `helper-windows`, `web` and `agent-scripts`: on a pull request each one always starts and reports (success when its heavy steps are skipped), so a skipped test never blocks a merge. They are skipped on a push, where nothing requires them.
 
-After changing a workflow, lint it: `actionlint` with `shellcheck` available. To see the filter work, a pull request that changes only `docs/` shows `Changed files` ending with `heavy steps run: false` in each job, and one that touches `crates/` shows `true`.
+### How a pull request chooses its tests
+
+Each job starts with `node scripts/ci/select.mjs`, which lists `HEAD^1..HEAD` (the pull request merged into its base) and reads the Rust workspace with `cargo metadata --no-deps`. The rules are in `scripts/ci/select-core.mjs`, tested by `scripts/ci/select-core.test.mjs` (`node --test "scripts/**/*.test.mjs"`). A dry run needs no checkout: `node scripts/ci/select.mjs --event pull_request --base develop --files web/src/a.ts crates/engine/src/lib.rs` prints the decision (`--json` for the detail, `--files-from <file|->` for a list).
+
+| Changed file | Effect |
+|---|---|
+| `docs/`, `.scratch/`, root `*.md`, `LICENSE`, `.gitignore`, issue and pull request templates, `CODEOWNERS`, `dependabot.yml` and notes under `.github/` (not `.github/actions/`), `release-helper.yml` | Nothing. |
+| `crates/<name>/` | `fmt` and `clippy` on the workspace; `cargo test -p` for that crate, every crate that depends on it (normal or build dependency, transitively) and every crate that only dev-depends on one of those, so a change to `test-support` retests its users without rebuilding the page (`--workspace` when that is all of them); the WASM build of `engine-wasm` and of `project-wasm` when one of them depends on the changed code (their parity tests run with the tests); `helper-windows` when `helper` is tested; the prototype crate's fmt and clippy when `engine` changes (it depends on it from outside the workspace). The `web` job runs when `engine-wasm`, `project-wasm` or `protocol` depends on the changed code, i.e. when the page embeds the changed code or generates its types from it: a change to `helper` alone does not run it. |
+| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `modules/` | All of Rust, `helper-windows`, the prototype crate and the web job. |
+| `web/` | The `web` job (`gen:check`, typecheck, lint, vitest, build) and the `dev` end-to-end project, except when every changed file under `web/` is a `*.test.ts` outside `tests/e2e/` or a `.md` (no end-to-end run then). `web/src/lib/engine/proto/crate/` also runs the prototype crate's fmt and clippy; `web/vercel.json` and `web/src/lib/i18n/helper.ts` also run `cargo test -p helper` (its updater tests read them); `web/vercel.json` also runs the agent scripts. |
+| `scripts/`, `.claude/` | The agent scripts (`node --test`). |
+| `ci.yml`, `rust.yml`, `agent-scripts.yml` | The jobs they define, in full. |
+| `scripts/ci/` (the selection itself), a file this table does not know, a crate directory cargo does not list | Everything, as for a release. |
+
+Fail safe: if the file list or the workspace cannot be read (or is empty), the decision is "run everything"; an unknown path never skips a test. A path that a job reads but the table skips lets a broken change through green: add it to `select-core.mjs` and its test in the change that makes the job read it.
+
+Consequences for the lead and for local work:
+
+- A merge does not rerun anything, so two pull requests that are green apart and red together (#273, #303) are caught only if the second one was tested on the current `develop`: before merging, the lead updates a pull request that is behind (`gh pr update-branch`) and waits for its targeted CI (`issue-tracker.md` > Merge and close).
+- The `preview` end-to-end project and the cross-crate parity of an unrelated crate run only on the release pull request. `FAULK_E2E_PROJECTS=dev` (or `preview`) runs one project with its server only; unset, both. The `dev` server does not build the WASM: run `pnpm build` first, as CI does. For a change that can alter the production build (vite config, `vercel.json` headers, adapter, the landing page), also run `pnpm test:e2e --project=preview` locally before the pull request.
+- The helper trial build (`release-helper.yml`) no longer follows a merge to `develop` or `main`: a dependency bump in `Cargo.lock` is built and tested on Linux and Windows (`rust`, `helper-windows`) in its pull request, but packaged on macOS only by the next `helper-v*` tag build.
+- Back-merging `main` into `develop` after a hotfix goes through a pull request, so that it is tested like any other change (nothing runs on a push).
+- Whether GitHub should require a branch to be up to date before merging (which would make the update-branch rule mechanical) is the founder's decision; it is not enabled.
+
+`release-helper.yml` (Windows, macOS and Linux trial build) runs on a pull request only for the helper's updater, wiring and manifest, `scripts/helper-release/`, `web/vercel.json` and itself (not `Cargo.lock`: it changes for any dependency), on `helper-v*` tags and on dispatch.
+
+After changing a workflow, lint it: `actionlint` with `shellcheck` available. To see the selection work, read the `Select the tests` step of each job in a pull request: a pull request that changes only `docs/` ends with every `heavy` output `false`, one that touches `crates/helper/` only has `rust_test=-p helper`.
 
 ## Recording the verification
 

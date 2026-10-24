@@ -148,7 +148,7 @@ Quatre façons de lancer :
 - la voie normale : `git tag helper-v0.2.0 && git push origin helper-v0.2.0` ;
 - sans tag : `gh workflow run release-helper.yml --ref main -f version=0.2.0` ;
 - une release d'avant Blob : `gh workflow run release-helper.yml --ref develop -f mirror=helper-v0.1.0` ;
-- un build d'essai : `gh workflow run release-helper.yml` sans version, ou toute pull request qui modifie ce workflow, l'updater, `main.rs`, `lib.rs`, `crates/helper/Cargo.toml`, `scripts/helper-release/` ou `web/vercel.json` (le câblage, la version de Velopack et la publication passent ainsi la garde dès la PR), et tout push sur `develop` ou `main` qui touche `crates/helper/`, ces fichiers ou `Cargo.lock` (un changement de dépendance ailleurs dans le workspace est donc éprouvé à la fusion, pas dans la PR).
+- un build d'essai : `gh workflow run release-helper.yml` sans version, ou toute pull request qui modifie ce workflow, l'updater, `main.rs`, `lib.rs`, `crates/helper/Cargo.toml`, `scripts/helper-release/` ou `web/vercel.json` (le câblage, la version de Velopack et la publication passent ainsi la garde dès la PR). Aucun build d'essai ne tourne après une fusion sur `develop` ou `main` (décision du 24 octobre 2026, #330 : le code a été testé dans sa PR, et le build d'un tag `helper-v*` refait tout avant une release).
 
 `gh workflow run` ne fonctionne qu'une fois le workflow présent sur la branche par défaut (`develop`).
 
