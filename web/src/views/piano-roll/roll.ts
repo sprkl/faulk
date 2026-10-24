@@ -297,3 +297,73 @@ export function stillApplies(all: readonly Note[], changes: readonly Change[], c
   const present = new Set(all.map(noteKey))
   return changes.every((c) => present.has(noteKey(c.from)) && fits(c.to, clipLength))
 }
+
+// --- PN-2: quantize, transpose, copy and paste --------------------------------------------------
+
+/** The grids the quantize field offers, in ticks (960 per quarter note); triplets divide the beat in three. */
+export const QUANTIZE_GRIDS = [
+  { id: 'quarter', ticks: PPQ },
+  { id: 'eighth', ticks: PPQ / 2 },
+  { id: 'sixteenth', ticks: PPQ / 4 },
+  { id: 'thirty-second', ticks: PPQ / 8 },
+  { id: 'eighth-triplet', ticks: PPQ / 3 },
+  { id: 'sixteenth-triplet', ticks: PPQ / 6 },
+] as const
+export type QuantizeGrid = (typeof QUANTIZE_GRIDS)[number]['id']
+export const DEFAULT_QUANTIZE_GRID: QuantizeGrid = 'sixteenth'
+export const DEFAULT_QUANTIZE_STRENGTH = 100
+/** The most bars a clip can be given (the length field's limit). */
+export const MAX_BARS = 256
+
+/**
+ * Where `clip.notes.quantize` puts a start: the same maths as the command (the nearest line of the grid, halfway to the
+ * later one, by `strength` percent of the distance, halfway rounding away from zero), kept inside the clip for a note of
+ * `length`. The page needs it to keep the selection on the notes the command moves.
+ */
+export function quantizedStart(start: number, grid: number, strength: number, length: number, clipLength: number): number {
+  const g = Math.max(1, Math.round(grid))
+  const nearest = Math.floor((start + Math.floor(g / 2)) / g) * g
+  const scaled = (nearest - start) * clamp(Math.round(finite(strength, 0)), 0, 100)
+  const share = Math.floor((Math.abs(scaled) + 50) / 100)
+  const moved = start + (scaled < 0 ? -share : share)
+  return clamp(moved, 0, Math.max(0, clipLength - length))
+}
+
+/** The changes `clip.notes.quantize` makes to these notes. */
+export function quantizeChanges(selected: readonly Note[], grid: number, strength: number, clipLength: number): Change[] {
+  return selected.map((from) => ({ from, to: { ...from, start: quantizedStart(from.start, grid, strength, from.length, clipLength) } }))
+}
+
+/** Transposes notes by `semitones`; `null` when one would leave the keyboard (the command refuses the whole batch). */
+export function transposeChanges(selected: readonly Note[], semitones: number): Change[] | null {
+  const shift = Math.round(finite(semitones, 0))
+  if (selected.length === 0 || shift === 0) return []
+  if (selected.some((n) => n.pitch + shift < MIN_PITCH || n.pitch + shift > MAX_PITCH)) return null
+  return selected.map((from) => ({ from, to: { ...from, pitch: from.pitch + shift } }))
+}
+
+/** Notes put aside by copy or cut: their starts are relative to the earliest one, so a paste can land anywhere. */
+export function toBoard(notes: readonly Note[]): Note[] {
+  if (notes.length === 0) return []
+  const first = Math.min(...notes.map((n) => n.start))
+  return notes.map((n) => ({ ...n, start: n.start - first }))
+}
+
+/** The notes of a board put at `at`. */
+export const fromBoard = (board: readonly Note[], at: number): Note[] => board.map((n) => ({ ...n, start: n.start + Math.max(0, Math.round(finite(at, 0))) }))
+
+/** The end of the last note, or 0. */
+export const endOf = (notes: readonly Note[]): number => notes.reduce((end, n) => Math.max(end, n.start + n.length), 0)
+
+/**
+ * The length a clip needs to hold notes that end at `end`: its own when they fit, else the next whole bar. `null` when
+ * that is longer than a clip can be.
+ */
+export function lengthFor(end: number, clipLength: number, bar: number): number | null {
+  if (end <= clipLength) return clipLength
+  const length = Math.ceil(end / bar) * bar
+  return length > MAX_BARS * bar ? null : length
+}
+
+/** The span a duplicate shifts by: from the first start to the last end of the selection. */
+export const duplicateOffset = (selected: readonly Note[]): number => (selected.length === 0 ? 0 : endOf(selected) - Math.min(...selected.map((n) => n.start)))

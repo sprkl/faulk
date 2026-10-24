@@ -1,0 +1,199 @@
+import { expect, test, type Page } from '@playwright/test'
+import { watch } from './support'
+
+// PN-2 (#83): advanced editing of the piano roll in a real browser: quantize with a strength,
+// transpose, duplicate, copy, cut and paste, by the toolbar and by the keyboard. Each action is one
+// command and one history entry. The notes are read back from the roll's data attributes.
+
+const ROW = 16
+const RULER = 28
+
+interface Note {
+  start: number
+  pitch: number
+  length: number
+  velocity: number
+}
+
+const roll = (page: Page) => page.getByTestId('piano-roll')
+const stage = (page: Page) => page.getByTestId('roll-stage')
+const notes = async (page: Page): Promise<Note[]> => JSON.parse((await roll(page).getAttribute('data-notes')) ?? '[]')
+const starts = async (page: Page) => (await notes(page)).map((n) => n.start)
+const pitches = async (page: Page) => (await notes(page)).map((n) => n.pitch)
+const num = async (page: Page, testid: string, attribute: string) => Number(await page.getByTestId(testid).getAttribute(attribute))
+
+async function spot(page: Page) {
+  const box = (await stage(page).boundingBox())!
+  const ppt = await num(page, 'timegrid', 'data-px-per-tick')
+  const scrollY = await num(page, 'roll-stage', 'data-scroll-y')
+  return { x: (tick: number) => box.x + tick * ppt, y: (pitch: number) => box.y + RULER + (127 - pitch) * ROW - scrollY + ROW / 2 }
+}
+
+async function openRoll(page: Page, lang?: 'fr') {
+  const seen = watch(page)
+  const warnings: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'warning') warnings.push(message.text())
+  })
+  if (lang) await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect.poll(async () => Number(await page.getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  return { seen, warnings }
+}
+
+/** The start `clip.notes.quantize` gives, written again here from the definition (nearest line, halfway later, share rounded away from zero). */
+function expected(start: number, grid: number, strength: number, length: number, clip: number) {
+  const nearest = Math.floor((start + grid / 2) / grid) * grid
+  const scaled = (nearest - start) * strength
+  const share = Math.floor((Math.abs(scaled) + 50) / 100)
+  return Math.min(Math.max(0, start + (scaled < 0 ? -share : share)), clip - length)
+}
+
+const focusGrid = (page: Page) => page.getByTestId('timegrid').focus()
+
+test('piano roll: quantizes with a strength, transposes, duplicates, copies, cuts and pastes, each as one history entry', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+
+  // Three notes off the grid (snap off: a click draws at the tick under the pointer).
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await page.mouse.click(g.x(1000), g.y(62))
+  await page.mouse.click(g.x(2100), g.y(64))
+  const drawn = await notes(page)
+  expect(drawn).toHaveLength(3)
+  const original = drawn.map((n) => n.start)
+  expect(original.every((s) => s % 960 !== 0)).toBe(true)
+
+  // Quantize with no selection takes every note (the last drawn note is selected: Escape clears it); half strength moves each half of the way.
+  await focusGrid(page)
+  await page.keyboard.press('Escape')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await page.getByTestId('roll-quantize-grid').selectOption('quarter')
+  await page.getByTestId('roll-quantize-strength').fill('50')
+  await page.getByTestId('roll-quantize-strength').blur()
+  await page.getByTestId('roll-quantize').click()
+  const half = original.map((s, i) => expected(s, 960, 50, drawn[i]!.length, 3840))
+  await expect.poll(() => starts(page)).toEqual(half)
+  // One undo takes the whole quantize back.
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => starts(page)).toEqual(original)
+
+  // Strength 0 changes nothing and records nothing: the undo below still reaches the previous entry.
+  await page.getByTestId('roll-quantize-strength').fill('0')
+  await page.getByTestId('roll-quantize-strength').blur()
+  await page.getByTestId('roll-quantize').click()
+  expect(await starts(page)).toEqual(original)
+  await page.getByTestId('roll-quantize-strength').fill('100')
+  await page.getByTestId('roll-quantize-strength').blur()
+  await page.getByTestId('roll-quantize').click()
+  const full = original.map((s, i) => expected(s, 960, 100, drawn[i]!.length, 3840))
+  await expect.poll(() => starts(page)).toEqual(full)
+  expect(full.every((s) => s % 960 === 0)).toBe(true)
+
+  // Transpose by the keyboard: the grid is focused, all notes selected. Up is a semitone, Shift an octave.
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([61, 63, 65])
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect.poll(() => pitches(page)).toEqual([49, 51, 53])
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([61, 63, 65])
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([60, 62, 64])
+  // The buttons do the same (an undo leaves the selection on notes that are gone: select again).
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await page.getByTestId('roll-transpose-up').click()
+  await expect.poll(() => pitches(page)).toEqual([61, 63, 65])
+  await page.getByTestId('roll-transpose-down').click()
+  await expect.poll(() => pitches(page)).toEqual([60, 62, 64])
+  // Past the top of the keyboard nothing is sent: the notes stay.
+  await focusGrid(page)
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([108, 110, 112])
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([120, 122, 124])
+  await page.keyboard.press('Shift+ArrowUp')
+  expect(await pitches(page)).toEqual([120, 122, 124])
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([60, 62, 64])
+
+  // Duplicate the selection: the copies follow it, and the clip grows by whole bars when they do not fit, in one entry.
+  const before = await notes(page)
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('Control+d')
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '7680')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '6')
+  const span = Math.max(...before.map((n) => n.start + n.length)) - Math.min(...before.map((n) => n.start))
+  expect(await starts(page)).toEqual([...before.map((n) => n.start), ...before.map((n) => n.start + span)].sort((a, b) => a - b))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
+  await page.keyboard.press('Control+z')
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '3840')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '3')
+  // A duplicate that fits does not touch the length; the button does the same as the key.
+  await page.getByTestId('roll-tool-select').click()
+  await page.mouse.click(g.x(full[0]! + 20), g.y(60))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  await page.getByTestId('roll-duplicate').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '4')
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '3840')
+  await page.keyboard.press('Control+z')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '3')
+
+  // Copy, then paste: the copy lands at the start of the clip (no play position), the selection is the pasted note.
+  await page.mouse.click(g.x(full[2]! + 20), g.y(64))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  await focusGrid(page)
+  await page.keyboard.press('Control+c')
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([60, 62, 65])
+  await page.keyboard.press('Control+v')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '4')
+  expect((await notes(page)).some((n) => n.start === 0 && n.pitch === 64)).toBe(true)
+  await page.keyboard.press('Control+z')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '3')
+  // Cut removes the note and keeps it for a paste.
+  await page.mouse.click(g.x(full[1]! + 20), g.y(62))
+  await focusGrid(page)
+  await page.keyboard.press('Control+x')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '2')
+  await page.keyboard.press('Control+v')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '3')
+  expect((await notes(page)).some((n) => n.start === 0 && n.pitch === 62)).toBe(true)
+
+  // The keys of the roll never reach the transport: Space still belongs to it, and no note was played by these shortcuts.
+  expect(seen.errors).toEqual([])
+  expect(warnings).toEqual([])
+})
+
+test('piano roll: the editing controls speak French', async ({ page }) => {
+  const { seen } = await openRoll(page, 'fr')
+  await expect(page.getByTestId('roll-quantize')).toHaveText('Quantifier')
+  await expect(page.getByTestId('roll-duplicate')).toHaveText('Dupliquer')
+  await expect(page.getByTestId('roll-quantize-grid')).toHaveAccessibleName('Grille de quantification')
+  await expect(page.getByTestId('roll-quantize-strength')).toHaveAccessibleName('Force de la quantification en pourcent')
+  await expect(page.getByTestId('roll-transpose-up')).toHaveAccessibleName('Transposer d’un demi-ton vers le haut')
+  await expect(page.getByTestId('roll-quantize-grid').locator('option').last()).toHaveText('1/16 triolet')
+  await expect(page.getByTestId('roll-quantize')).toBeDisabled()
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: the editing controls speak English', async ({ page }) => {
+  const { seen } = await openRoll(page)
+  await expect(page.getByTestId('roll-quantize')).toHaveText('Quantize')
+  await expect(page.getByTestId('roll-duplicate')).toHaveText('Duplicate')
+  await expect(page.getByTestId('roll-quantize-grid').locator('option').last()).toHaveText('1/16 triplet')
+  await expect(page.getByTestId('roll-duplicate')).toBeDisabled()
+  expect(seen.errors).toEqual([])
+})

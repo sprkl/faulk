@@ -612,6 +612,57 @@ fn a_clip_upload_carries_its_loop_and_every_field_of_its_notes() {
     ));
 }
 
+#[test]
+fn quantize_transpose_and_duplicate_reach_the_engine_as_one_upload_of_the_new_notes() {
+    let (mut s, track, scene) = synced();
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": track, "at": {"at": "slot", "scene": scene}, "length": 3840}),
+    );
+    let Output::Clip(commands::clip::Output::Create { clip, .. }) = out else {
+        panic!("{out:?}")
+    };
+    run(
+        &mut s,
+        json!({"type": "clip.notes.add", "clip": clip, "notes": [
+            {"start": 100, "pitch": 60, "length": 10, "velocity": 90},
+            {"start": 110, "pitch": 60, "length": 10, "velocity": 90}
+        ]}),
+    );
+    let starts_and_pitches = |msgs: &[ControlMsg]| -> Vec<(i64, u8)> {
+        let [ControlMsg::ClipNotesUpload { notes, .. }] = msgs else {
+            panic!("{msgs:?}")
+        };
+        let mut all: Vec<(i64, u8)> = notes.iter().map(|n| (n.start.get(), n.pitch)).collect();
+        all.sort();
+        all
+    };
+    // Quantize merges the two notes into one: the engine gets the merged clip.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.notes.quantize", "clip": clip, "grid": 240, "strength": 100}),
+    );
+    assert_eq!(starts_and_pitches(&msgs), [(0, 60)]);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.notes.transpose", "clip": clip,
+            "notes": [{"start": 0, "pitch": 60, "length": 10, "velocity": 90}], "semitones": 5}),
+    );
+    assert_eq!(starts_and_pitches(&msgs), [(0, 65)]);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.notes.duplicate", "clip": clip,
+            "notes": [{"start": 0, "pitch": 65, "length": 10, "velocity": 90}], "offset": 480}),
+    );
+    assert_eq!(starts_and_pitches(&msgs), [(0, 65), (480, 65)]);
+    // Undo of the merging quantize brings both notes back (the other branch of the inverse).
+    for _ in 0..2 {
+        run(&mut s, json!({"type": "history.undo"}));
+    }
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(starts_and_pitches(&msgs), [(100, 60), (110, 60)]);
+}
+
 /// The id of a created clip.
 fn clip_of(out: &Output) -> project::ClipId {
     match out {
