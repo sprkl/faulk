@@ -238,6 +238,19 @@ export class ProjectStorage {
       this.host.saved(false)
       return this.fail(current, new Error(frame.message))
     }
+    if (mode === 'rewrite') {
+      // The folder's version is being replaced: what it holds of the tracks that this project no longer
+      // has (a track deleted since, a file an outside edit added) goes too, or it would come back on opening.
+      try {
+        const written = frame.entries.map((entry) => entry.path)
+        for (const path of Object.keys(await current.store.scan())) {
+          if (path.startsWith('tracks/') && !written.includes(path)) frame.entries.push({ type: 'remove', path })
+        }
+      } catch (error) {
+        this.host.saved(false)
+        return this.fail(current, error)
+      }
+    }
     if (frame.entries.length === 0) {
       this.host.saved(true)
       // A save the user asked for says it was done, though the folder already held everything.

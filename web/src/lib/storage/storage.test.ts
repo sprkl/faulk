@@ -715,6 +715,21 @@ describe('the folder is edited from outside', () => {
     expect(w.storage.unsaved).toBe(false)
   })
 
+  it('Keep mine also removes the track files the project no longer has, so they do not come back on opening', async () => {
+    const { w, store } = await saved()
+    store.files.set('tracks/gone/track.json', '{}')
+    store.files.set('tracks/gone/clips/c.json', '{}')
+    store.files.set('blobs/audio', 'kept')
+    w.edit()
+    store.edit('project.json', 'edited outside')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBe('external')
+    expect(await w.storage.keepMine()).toBe(true)
+    expect([...store.files.keys()].sort()).toEqual(['blobs/audio', 'project.json'])
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
   it('a folder that cannot be read as a project stops the writes and asks, instead of retrying on every focus', async () => {
     const { w, store } = await saved()
     w.host.refuseOpen = true
