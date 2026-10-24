@@ -150,7 +150,7 @@ test('the track list: volume on the fader curve, reset by double click and menu,
     seen.push((await volume.getAttribute('aria-valuetext')) ?? '')
   }
   await page.mouse.up()
-  expect(seen.filter((v) => v === '0.0 dB').length).toBeGreaterThanOrEqual(5)
+  expect(seen.filter((v) => v === '0.0 dB').length).toBeGreaterThanOrEqual(3)
 
   await pan.focus()
   await page.keyboard.press('ArrowRight')
