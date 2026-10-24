@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { best, fakeWebMidi, mainThreadMeter, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
 // control goes through the dispatcher as a command, and the meters are the engine's own report.
@@ -231,6 +231,9 @@ function frames(page: Page, ms: number) {
   )
 }
 
+/** Main-thread time per frame of the mixer view, in reference units (`mainThreadMeter`); about 0.4 here, up to 0.75 with a 4x slower CPU, so ten times the work of the view crosses it and a noisy runner does not. */
+const MIXER_CEILING = 1.5
+
 test('32 strips with every meter moving: render cost', async ({ page }) => {
   test.setTimeout(240_000)
   const { errors } = watch(page)
@@ -244,7 +247,10 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Performance.enable')
 
-  const WINDOW_MS = 6000
+  // Three windows, the best one counts: noise on a shared runner only adds time.
+  const WINDOW_MS = 3000
+  const WINDOWS = 3
+  const meter = await mainThreadMeter(page)
   await cdp.send('Profiler.enable')
   /** Share of the main thread the page's JavaScript used (CPU profile: samples that are not idle or the browser's own). */
   const busyShare = async () => {
@@ -261,23 +267,49 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
     })
     return busy / total
   }
-  /** The strips' bars as drawn, to show that the meters do move. */
-  const barsSignature = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="mixer-meter"] .bar')].map((b) => (b as HTMLElement).style.transform).join('|'))
   const measure = async (label: string, moving: boolean) => {
     await page.waitForTimeout(500)
+    // The note is pulsed (on, off, on...) all through the windows, so that the meters keep moving whatever the
+    // engine's level settles to; the style writes the page makes meanwhile are counted, to prove the windows measure a moving mixer.
+    await page.evaluate(() => {
+      const w = window as unknown as { __fakeMidi: { send(b: number[]): void }; __pulse?: number; __writes?: number; __observer?: MutationObserver }
+      w.__writes = 0
+      w.__observer?.disconnect()
+      w.__observer = new MutationObserver((list) => (w.__writes! += list.length))
+      w.__observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true })
+      let on = false
+      w.__pulse = window.setInterval(() => {
+        w.__fakeMidi.send(on ? [0x80, 69, 0] : [0x90, 69, 127])
+        on = !on
+      }, 120)
+    })
+    const started = Date.now()
     const before = await counters(cdp)
-    const signatureBefore = moving ? await barsSignature() : ''
-    const [f, share] = await Promise.all([frames(page, WINDOW_MS), busyShare()])
+    const windows = []
+    for (let i = 0; i < WINDOWS; i++) {
+      windows.push(await meter.measure(() => Promise.all([frames(page, WINDOW_MS), busyShare()])))
+    }
     const after = await counters(cdp)
-    const perSecond = (key: keyof Counters) => ((after[key] - before[key]) * 1000) / WINDOW_MS
+    const elapsed = Date.now() - started
+    const writes = await page.evaluate(() => {
+      const w = window as unknown as { __pulse: number; __writes: number; __observer: MutationObserver }
+      clearInterval(w.__pulse)
+      w.__observer.disconnect()
+      return w.__writes
+    })
+    await send(page, [0x80, 69, 0])
+    if (moving) expect(writes, 'style writes while the meters pulse').toBeGreaterThan(100)
+    const perSecond = (key: keyof Counters) => ((after[key] - before[key]) * 1_000_000) / elapsed
+    // The cost: main-thread time per frame in reference units (see `mainThreadMeter`), best window.
+    const units = windows.map((w) => w.cost.task / w.result[0].frames / w.cost.unit)
+    const cost = best(units)
+    const [f, share] = windows[units.indexOf(cost)]!.result
     console.log(
       `mixer-cost ${label}: frames p50 ${f.p50.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, max ${f.max.toFixed(1)} ms over ${f.frames} frames, long tasks ${f.longTasks}; ` +
-        `JavaScript busy share ${(share * 100).toFixed(2)} %; per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
-        `nodes ${after.Nodes}, listeners ${after.JSEventListeners}` +
-        (moving ? `; bars moved: ${signatureBefore !== (await barsSignature())}` : ''),
+        `JavaScript busy share ${(share * 100).toFixed(2)} %; main thread per frame ${cost.toFixed(4)} reference units (best of ${WINDOWS}); per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
+        `style writes ${writes}; nodes ${after.Nodes}, listeners ${after.JSEventListeners}`,
     )
-    if (moving) expect(signatureBefore).not.toBe(await barsSignature())
-    return { f, share }
+    return { f, share, cost }
   }
 
   const mixer = await measure('mixer view, 32 strips', true)
@@ -285,9 +317,9 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
   const baseline = await measure('play view, 32 tracks (baseline)', false)
   console.log(`mixer-cost extra JavaScript busy share ${((mixer.share - baseline.share) * 100).toFixed(2)} points`)
 
-  // Ceilings that catch an order-of-magnitude regression on a shared runner, not a budget.
-  expect(mixer.f.p50).toBeLessThan(34)
-  expect(mixer.share).toBeLessThan(0.5)
+  // A ceiling that catches an order-of-magnitude regression on a shared runner, not a budget. The frame
+  // intervals are printed, not asserted: they follow the runner (vsync, neighbours), not the code.
+  expect(mixer.cost).toBeLessThan(MIXER_CEILING)
   await send(page, [0x80, 69, 0])
   expect(errors).toEqual([])
 })
