@@ -7,7 +7,7 @@ import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, ProjectEvent } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry } from '../project/core'
-import { isSaveCommand, newProject as newProjectCommand } from '../project-commands'
+import { isSaveCommand, isStorageCommand, newProject as newProjectCommand } from '../project-commands'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
@@ -343,12 +343,13 @@ export class Dispatcher {
       if (step.events.length === 0) this.refresh()
       // Applied, but its engine messages did not encode: the Web engine is behind the project.
       // The helper takes the command itself, whatever its mirror of the stream.
-      if (this.native) this.native.send(command)
-      else {
+      if (this.native) {
+        if (!isStorageCommand(command)) this.native.send(command)
+      } else {
         console.error(`engine stream: error ${step.streamError}`)
         void this.stopWeb(step.streamError, 0)
       }
-    } else this.engine?.send(command, step.push)
+    } else if (!(this.native && isStorageCommand(command))) this.engine?.send(command, step.push)
     applyEffects(command, {
       mode: this.state.mode,
       midi: this.midi,

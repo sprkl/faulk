@@ -904,6 +904,25 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.dispatcher.host.projectId()).toBe(session.project.view!.project.id)
   })
 
+  it('in Boost the storage commands stay in the page: the helper is never sent a command it does not know', async () => {
+    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    vi.spyOn(session.storage, 'save').mockResolvedValue(true)
+    vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run({ type: 'project.save' })
+    session.dispatcher.run({ type: 'project.save_as' })
+    session.dispatcher.run({ type: 'project.new' })
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.storage.save).toHaveBeenCalledTimes(1)
+    // A command for the engine still reaches the helper.
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    expect(nativeEngine.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
+  })
+
   it('a copy takes a new identity and the page sees it at once (the lock of the copy is asked for under it)', async () => {
     const session = newSession()
     await session.dispatcher.start()

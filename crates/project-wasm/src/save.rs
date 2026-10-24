@@ -190,7 +190,12 @@ impl Saver {
             if matches!(mode, Mode::Everything | Mode::Copy) {
                 (SaveState::new(), BTreeSet::new(), BTreeSet::new(), None)
             } else if mode == Mode::Rewrite {
-                (SaveState::new(), self.blobs.clone(), self.root.clone(), None)
+                (
+                    SaveState::new(),
+                    self.blobs.clone(),
+                    self.root.clone(),
+                    None,
+                )
             } else {
                 (
                     self.state.clone(),

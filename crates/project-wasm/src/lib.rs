@@ -35,7 +35,7 @@ thread_local! {
 
 /// No core: a null handle.
 pub const ERR_NO_CORE: i32 = -1;
-/// The input is not what the call takes (`pw_saved`: not a `ProjectChanges`).
+/// The input is not what the call takes (`pw_save`: not a save mode).
 pub const ERR_BAD_INPUT: i32 = -2;
 /// The call's JSON did not serialize (a value the project's writers refuse): nothing
 /// at [`pw_out`] nor [`pw_engine`]. The call itself may have happened ([`pw_run`] applied
@@ -538,7 +538,7 @@ pub unsafe extern "C" fn pw_stage(core: *mut Core, len: u32) -> i32 {
     }
 }
 
-/// [`Core::save`] in `mode` ([`Mode::from_code`]: 0 changed, 1 forced, 2 everything): the
+/// [`Core::save`] in `mode` ([`Mode::from_code`]: 0 changed, 1 forced, 2 everything, 3 copy, 4 rewrite): the
 /// frame of [`save`] at [`pw_out`], its length returned; [`ERR_BAD_INPUT`] for another mode.
 ///
 /// # Safety

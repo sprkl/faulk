@@ -10,3 +10,9 @@ export const saveAs = (): Command => ({ type: 'project.save_as' })
  * when no engine plays (audio not started, or stopped after a refused stream).
  */
 export const isSaveCommand = (command: Command): boolean => command.type === 'project.save' || command.type === 'project.save_as'
+
+/**
+ * Whether a command concerns the page's storage and never the engine: the helper does not take it (it
+ * keeps no project folder of its own yet), so in Boost it stays in the page.
+ */
+export const isStorageCommand = (command: Command): boolean => isSaveCommand(command) || command.type === 'project.new'
