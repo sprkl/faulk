@@ -452,7 +452,7 @@
         <button title={t('arrangement.zoomOut')} aria-label={t('arrangement.zoomOut')} disabled={!canZoomOut} data-testid="arr-zoom-out" onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button>
         <button title={t('arrangement.zoomIn')} aria-label={t('arrangement.zoomIn')} disabled={!canZoomIn} data-testid="arr-zoom-in" onclick={() => zoomBy(ZOOM_STEP)}>+</button>
       </span>
-      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={() => (follow ? (follow = false) : followAgain())}>{t('arrangement.follow')}</button>
+      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}>{t('arrangement.follow')}</button>
       <span class="help" title={t('arrangement.help')}>?</span>
       <span class="count" data-testid="arr-count">{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0} · {t('arrangement.selected', { n: selection.length })}{/if}</span>
     </div>
