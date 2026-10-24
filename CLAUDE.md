@@ -77,11 +77,9 @@ The code is always right; documentation, `docs/` included, may be stale. When a 
 
 ## Working on an issue
 
-An issue is carried through autonomously, from plan to a reviewed pull request, without waiting for the user's go-ahead between steps. The detailed steps are in `docs/agents/issue-tracker.md` > Working on a task.
-
+An issue is carried through autonomously, from plan to a reviewed pull request, without waiting for the user's go-ahead between steps. The detailed steps are in `docs/agents/issue-tracker.md` > Working on a task. There is no Copilot code review (founder's decision of 2026-10-24): Judge Dredd is the review.
 
 1. **Plan**: read the issue, its spec and the code, write the plan, and settle Judge Dredd's findings when its review is required (task that changes a contract, the real-time audio path, the guardrails or more than ~10 files; optional otherwise).
-
 2. **Implement** on the task's own branch from `develop`, with the checks of the Definition of done below, then Judge Dredd's delivery review.
 3. **Pull request**: commit, push the branch and open the pull request against `develop`. Pushing the task branch and opening its pull request need no approval.
 4. **Merge** when the pull request is ready (see below), with a merge commit.
