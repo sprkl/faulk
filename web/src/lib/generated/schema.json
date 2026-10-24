@@ -501576,6 +501576,83 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.compressor",
+      "kind_id": 5,
+      "memory_bytes": 80,
+      "midi_output": null,
+      "name": "Compressor",
+      "named_keys": [],
+      "params": [
+        {
+          "default": -18,
+          "description": "Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.",
+          "id": 0,
+          "key": "threshold",
+          "max": 0,
+          "min": -60,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 4,
+          "description": "How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.",
+          "id": 1,
+          "key": "ratio",
+          "max": 20,
+          "min": 1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0.01,
+          "description": "Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.",
+          "id": 2,
+          "key": "attack",
+          "max": 0.2,
+          "min": 0.0001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.15,
+          "description": "Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.",
+          "id": 3,
+          "key": "release",
+          "max": 2,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain added after the compression to make up for the level it took away, from 0 to 24 dB.",
+          "id": 4,
+          "key": "makeup",
+          "max": 24,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "param_defaults": {

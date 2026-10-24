@@ -7,6 +7,7 @@
 use crate::device::{DeviceDescriptor, Factory};
 use crate::msg::DeviceKind;
 
+pub mod compressor;
 pub mod drums;
 pub mod echo;
 pub mod osc_synth;
@@ -28,7 +29,12 @@ impl core::fmt::Debug for Builtin {
 }
 
 /// The built-in devices, one line per device (the next DV tasks add theirs).
-pub const REGISTRY: &[Builtin] = &[osc_synth::BUILTIN, drums::BUILTIN, echo::BUILTIN];
+pub const REGISTRY: &[Builtin] = &[
+    osc_synth::BUILTIN,
+    drums::BUILTIN,
+    echo::BUILTIN,
+    compressor::BUILTIN,
+];
 
 /// The registry's line of `kind`.
 pub fn builtin(kind: DeviceKind) -> Option<&'static Builtin> {
