@@ -1,4 +1,5 @@
 import type { Command } from '../generated/protocol'
+import type { ExportRequest } from '../project/core'
 
 /**
  * What the page itself does for a command the project applied, beside the project and the
@@ -24,6 +25,8 @@ export interface EffectPorts {
   exportPack(): void
   /** `project.import_pack`: the user picks a `.faulkpack` and its project replaces the current one. */
   importPack(): void
+  /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
+  exportAudio(request: ExportRequest): void
   /** `project.new` ran as a command (not through the project menu): the folder it was in is gone. */
   projectReplaced(): void
 }
@@ -60,6 +63,15 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.import_pack':
       ports.importPack()
+      return
+    case 'project.export_audio':
+      ports.exportAudio({
+        region: command.region ?? undefined,
+        bit_depth: command.bit_depth ?? undefined,
+        sample_rate: command.sample_rate ?? undefined,
+        from_bar: command.from_bar ?? undefined,
+        to_bar: command.to_bar ?? undefined,
+      })
       return
     case 'project.new':
       ports.projectReplaced()

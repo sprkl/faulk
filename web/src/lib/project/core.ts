@@ -5,6 +5,7 @@
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
 import type {
   Command,
+  ExportReport,
   ProjectEvent,
   ProjectView,
   RunReport,
@@ -24,6 +25,7 @@ interface CoreExports {
   pw_setup(core: number): number
   pw_snapshot(core: number): number
   pw_project(core: number): number
+  pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
@@ -195,6 +197,20 @@ export class CoreError extends Error {
   }
 }
 
+/** The settings of an export (`project.export_audio`'s fields; the core fills in the defaults). */
+export interface ExportRequest {
+  region?: 'song' | 'loop' | 'bars'
+  bit_depth?: 'pcm16' | 'pcm24' | 'float32'
+  sample_rate?: number
+  from_bar?: number
+  to_bar?: number
+}
+
+/** An export the core prepared: its plan and the two streams of the engine that renders it. */
+export type ExportJob =
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; stop: Uint8Array }
+  | Exclude<ExportReport, { status: 'ready' }>
+
 /** What running a command means for the engine. */
 export type EngineStep =
   /** Bytes to push (possibly empty). */
@@ -304,6 +320,19 @@ export class ProjectCore {
   /** The project and the session as they are now. */
   project(): ProjectView {
     return this.output<ProjectView>('project', this.exports.pw_project(this.live()))
+  }
+
+  /**
+   * Prepares the render of `project.export_audio` for `request` (`crates/commands/src/export.rs`):
+   * the plan, and the streams for an engine of its own. Changes nothing in the project nor in the
+   * stream of the engine that plays it.
+   */
+  exportJob(request: ExportRequest): ExportJob {
+    const len = this.input(JSON.stringify(request))
+    const report = this.output<ExportReport>('export_job', this.exports.pw_export_job(this.live(), len))
+    if (report.status !== 'ready') return report
+    const bytes = this.engine()
+    return { status: 'ready', plan: report.plan, setup: bytes.slice(0, report.setup_len), stop: bytes.slice(report.setup_len) }
   }
 
   /**

@@ -7,7 +7,7 @@
   import { exportPack, importPack, save, saveAs } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
-  const { ui, storage, project, dispatcher } = useStores()
+  const { ui, storage, project, dispatcher, audioExport } = useStores()
   const t = ui.t
 
   let open = $state(false)
@@ -96,6 +96,10 @@
       </button>
       <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}>{t('project.menu.exportPack')}</button>
       <button role="menuitem" disabled={!ready} data-testid="menu-import-pack" onclick={() => choose(() => dispatcher.run(importPack()))}>{t('project.menu.importPack')}</button>
+      <hr />
+      <button role="menuitem" disabled={!ready} data-testid="menu-export" onclick={() => choose(() => audioExport.show())}>
+        {t('project.menu.export')}
+      </button>
       {#if storage.supported}
         <hr />
         <p class="heading">{t('project.menu.recent')}</p>

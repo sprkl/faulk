@@ -204,6 +204,11 @@ export class ProjectStorage {
     private readonly deps: StorageDeps,
   ) {}
 
+  /** The folder the project is saved into, for a file dialog that opens there (the export). */
+  folderHandle(): FolderHandle | null {
+    return this.current?.handle ?? null
+  }
+
   /** Whether this browser can keep a project in a folder at all. */
   get supported(): boolean {
     return this.deps.picker.supported

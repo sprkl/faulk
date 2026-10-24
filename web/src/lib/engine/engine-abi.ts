@@ -30,6 +30,27 @@ export interface EngineExports {
   fk_host_counter(channel: number, which: number): number
 }
 
+/**
+ * The offline export's exports (`fk_export_*`, issue #297): an engine of its own in the
+ * instance of the export Worker, never in the worklet. Codes below 0 are `MsgError::code` or
+ * -100 (a message rejected), -101 (the engine stuck), -102 (a length it refuses).
+ */
+export interface ExportExports extends EngineExports {
+  fk_export_new(sampleRate: number, bits: number, bodyLo: number, bodyHi: number): number
+  fk_export_free(ex: number): void
+  fk_export_inbox(ex: number, len: number): number
+  fk_export_submit(ex: number, len: number): number
+  fk_export_set_stop(ex: number, len: number): number
+  /** Renders up to `maxFrames`: the phase after (0 content, 1 tail, 2 done) or an error code. */
+  fk_export_step(ex: number, maxFrames: number): number
+  fk_export_pcm(ex: number): number
+  fk_export_pcm_len(ex: number): number
+  fk_export_header(ex: number): number
+  fk_export_header_len(ex: number): number
+  /** 0 rendered, 1 written, 2 content frames, 3 peak (linear), 4 clipped, 5 tail cut, 6 header bytes. */
+  fk_export_stat(ex: number, which: number): number
+}
+
 /** Roles of the two instances, for the module's allocation counters. */
 export const ROLE_PREPARE = 1
 export const ROLE_RENDER = 2

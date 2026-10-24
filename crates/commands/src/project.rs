@@ -6,9 +6,10 @@
 use crate::contract::{
     CommandError, Context, FolderError, OpenedFolder, Outcome, ProjectEvent, State, Undo,
 };
+use crate::export::{self, ExportBitDepth, ExportRegion, ExportSettings};
 use crate::macros::domain;
 use project::file::{OpenOptions, SessionLoad, load_session, open};
-use project::{EngineSlots, ProjectId};
+use project::{EngineSlots, ProjectId, Tick};
 use std::collections::BTreeSet;
 
 /// Longest project name accepted, in characters: the project's own limit.
@@ -87,6 +88,53 @@ domain! {
     /// not kept anywhere.
     "project.import_pack" (kind = "live", undo = "none", destructive = false)
     ImportPack {} => {};
+
+    /// Render the project to an audio file (WAV) and save it, offline: the same engine
+    /// that plays the song, run faster than real time, so the file is the song as it
+    /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
+    /// to the end of the last placement of the arrangement, then the tail, so that an
+    /// effect such as the echo rings out; the file ends where the sound falls under
+    /// -90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same
+    /// tail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both
+    /// counted from 1, required with it and refused without it, the last one included,
+    /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
+    /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
+    /// file; the solo and mute state are. It is refused when there is nothing to render
+    /// (empty arrangement, no loop region for `loop`, a `bars` range that starts after the
+    /// end of the arrangement or is out of order) or the range lasts more than 30 minutes
+    /// (a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks
+    /// where to save the file (a folder picker needs a click), so an agent that is not
+    /// driven by a user gets the render in the page to confirm. Changes nothing in the
+    /// project, so it never enters the history and has nothing to undo.
+    "project.export_audio" (kind = "live", undo = "none", destructive = false)
+    ExportAudio {
+        #[serde(default)]
+        region: Option<ExportRegion>,
+        #[serde(default)]
+        bit_depth: Option<ExportBitDepth>,
+        #[serde(default)]
+        #[schemars(range(min = 44100, max = 96000))]
+        sample_rate: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        from_bar: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        to_bar: Option<u32>,
+    } => {
+        /// What is rendered: `song`, `loop` or `bars`.
+        region: ExportRegion,
+        /// The sample format of the file.
+        bit_depth: ExportBitDepth,
+        /// The sample rate of the file, in Hz.
+        sample_rate: u32,
+        /// Where the render starts, in ticks (960 per quarter note).
+        start_tick: Tick,
+        /// Where the content ends, in ticks; the tail follows.
+        end_tick: Tick,
+        /// Seconds of content, without the tail.
+        duration_secs: f64,
+    };
 }
 
 /// Applies a command of this domain.
@@ -104,6 +152,28 @@ pub fn apply(
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
+        // Like a save, the render belongs to the host (the page's worker and file picker):
+        // the command checks the request against the project and says what will be
+        // rendered.
+        Command::ExportAudio {
+            region,
+            bit_depth,
+            sample_rate,
+            from_bar,
+            to_bar,
+        } => {
+            let settings =
+                ExportSettings::of(*region, *bit_depth, *sample_rate, *from_bar, *to_bar)?;
+            let plan = export::plan(&state.project, settings)?;
+            Ok(nothing(Output::ExportAudio {
+                region: settings.region,
+                bit_depth: settings.bit_depth,
+                sample_rate: settings.sample_rate,
+                start_tick: plan.start_tick,
+                end_tick: plan.end_tick,
+                duration_secs: plan.duration_secs,
+            }))
+        }
         Command::Rename { name } => {
             let name = name.trim();
             if name.is_empty() {
