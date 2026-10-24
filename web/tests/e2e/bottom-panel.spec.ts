@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { watch } from './support'
 
 // #317: the bottom panel resizes (drag and keyboard), folds, and remembers its height per view in the
-// page's preferences. Real browser, 1280 x 800 like the navigation test.
+// page's preferences. Real browser, 1536 x 770 (a common laptop screen); the navigation test covers 1280 and 1920.
 
 const PANEL = 'bottom-panel'
 const panel = (page: Page) => page.getByTestId(PANEL)
@@ -14,7 +14,7 @@ const near = (page: Page, expected: number) => expect.poll(async () => Math.abs(
 const valueNow = async (page: Page) => Number(await handle(page).getAttribute('aria-valuenow'))
 
 test.beforeEach(async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 1536, height: 770 })
 })
 
 test('the handle is a separator that resizes the panel by drag and by keyboard', async ({ page }) => {
@@ -162,19 +162,41 @@ test('at its smallest the piano roll still shows an octave, and the mixer scroll
   const RULER = 28
   expect(stageHeight - RULER).toBeGreaterThanOrEqual(12 * ROW)
 
-  // Largest panel over the mixer: the view scrolls and its last strip can be reached.
+  // Largest panel over the mixer: the view scrolls and the whole strip can be reached.
+  await handle(page).focus()
   await page.keyboard.press('End')
   await page.getByTestId('nav-mixer').click()
   const view = page.getByTestId('view')
   await expect(page.getByTestId('mixer')).toBeVisible()
-  const scrolls = await view.evaluate((el) => ({ overflow: getComputedStyle(el).overflowY, can: el.scrollHeight > el.clientHeight }))
-  expect(scrolls.overflow).toBe('auto')
-  const master = page.getByTestId('mixer-master')
-  await master.scrollIntoViewIfNeeded()
-  const v = (await view.boundingBox())!
-  const m = (await master.boundingBox())!
+  // The main area is squeezed to about 120 px: a strip of 400 px or more only fits by scrolling (the view's or the mixer's own).
+  expect((await view.boundingBox())!.height).toBeLessThan(200)
+  expect((await page.getByTestId('mixer-strip').first().boundingBox())!.height).toBeGreaterThan(200)
+  for (const id of ['mixer-strip', 'mixer-master']) {
+    const strip = page.getByTestId(id).first()
+    // Scroll every scrolling ancestor to its start, then to its end: the strip's top, then its bottom (faders, peaks), must come into view.
+    for (const end of [false, true]) {
+      await strip.evaluate((el, toEnd) => {
+        for (let node = el.parentElement; node; node = node.parentElement) node.scrollTop = toEnd ? node.scrollHeight : 0
+      }, end)
+      const v = (await view.boundingBox())!
+      const m = (await strip.boundingBox())!
+      if (end) expect(m.y + m.height, id).toBeLessThanOrEqual(v.y + v.height + 1)
+      else expect(m.y, id).toBeGreaterThanOrEqual(v.y - 1)
+    }
+  }
+  expect(errors).toEqual([])
+})
+
+test('with the devices panel at its default height a mixer strip is whole at 770 px', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('nav-mixer').click()
+  await expect(page.getByTestId('mixer-strip').first()).toBeVisible()
+  const v = (await page.getByTestId('view').boundingBox())!
+  const m = (await page.getByTestId('mixer-strip').first().boundingBox())!
   expect(m.y).toBeGreaterThanOrEqual(v.y - 1)
   expect(m.y + m.height).toBeLessThanOrEqual(v.y + v.height + 1)
-  void scrolls.can
   expect(errors).toEqual([])
 })
