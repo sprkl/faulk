@@ -120,12 +120,23 @@ describe('decodeFeedback, the launch grid', () => {
     ])
   })
 
+  it('reads a track the grid holds with no clip as held, in no cell', () => {
+    const r = decodeFeedback(
+      report(2, undefined, [
+        [1, 65535, 5],
+        [0, 3, 2, 3840],
+      ]),
+    )!
+    expect(r.held).toEqual([1])
+    expect(r.clips).toEqual([{ track: 0, scene: 3, state: 'playing', anchor: 3840 }])
+  })
+
   it('reads a report without cells (an older engine writes none) as an idle grid', () => {
     expect(decodeFeedback(report(2))!.clips).toEqual([])
   })
 
   it('refuses a state it does not know, more cells than two per track, and cells cut short', () => {
-    for (const state of [0, 5, 255]) expect(decodeFeedback(report(1, undefined, [[0, 0, state]]))).toBeNull()
+    for (const state of [0, 6, 255]) expect(decodeFeedback(report(1, undefined, [[0, 0, state]]))).toBeNull()
     const three: Cell[] = [[0, 0, 2], [0, 1, 1], [0, 2, 1]]
     expect(decodeFeedback(report(1, undefined, three))).toBeNull()
     expect(decodeFeedback(report(1, undefined, [[0, 0, 2]]).slice(0, -1))).toBeNull()

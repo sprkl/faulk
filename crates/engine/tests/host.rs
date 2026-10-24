@@ -632,7 +632,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     assert!(engine::host::decode_feedback(&many).is_none());
     let mut unknown = bytes.clone();
     let state_at = 56 + 2 * 16 + 6;
-    for state in [0u8, 5, 255] {
+    for state in [0u8, 6, 255] {
         unknown[state_at] = state;
         assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
     }

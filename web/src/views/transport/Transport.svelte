@@ -10,6 +10,8 @@
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup } from '../../lib/track-commands'
+  import { offTimeline } from '../../lib/off-timeline'
+  import { backToArrangement } from '../../lib/scene-commands'
   import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
   import {
     barTicks,
@@ -38,6 +40,8 @@
   const ready = $derived(engine.started && project.view !== null)
   const playing = $derived(engine.feedback?.transport === 'playing' || engine.feedback?.transport === 'recording')
   const tick = $derived(engine.feedback?.playheadTick ?? 0)
+  // Lit while at least one track plays from the launch grid instead of its timeline.
+  const detached = $derived(engine.started && offTimeline(engine.feedback, project.view?.slots).size > 0)
   const position = $derived(formatPosition(tick, signature))
   const clock = $derived(bpm === null ? formatTime(0) : formatTime(secondsOf(tick, bpm)))
 
@@ -155,6 +159,18 @@
   </button>
   <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stop')} data-testid="transport-stop" onclick={press(() => run(stop()))}>
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1" fill="currentColor" /></svg>
+  </button>
+  <button
+    class="tool"
+    class:on={detached}
+    disabled={!ready}
+    aria-pressed={detached}
+    aria-label={t('transport.backToArrangement')}
+    title={detached ? t('transport.backToArrangementHint') : t('transport.backToArrangementIdle')}
+    data-testid="transport-back-to-arrangement"
+    onclick={press(() => run(backToArrangement()))}
+  >
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4 H14 M2 8 H14 M2 12 H8 M12 14 L9 11 L12 8" /></svg>
   </button>
   <button class="tool" disabled aria-label={t('transport.record')} title={t('transport.recordSoon')} data-testid="transport-record">
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--fk-rec)" /></svg>

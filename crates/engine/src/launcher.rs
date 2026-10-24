@@ -34,13 +34,18 @@
 //! - the clip a launch waits to start: [`ClipState::Queued`] while the transport runs,
 //!   [`ClipState::Armed`] while it is stopped (the order waits for the transport itself).
 //!
+//! A track the grid holds without a clip playing (after a stop, or when the clip ended; the
+//! arrangement is silent) is reported as [`ClipState::Held`], in no cell ([`HELD_SCENE`]): the
+//! page lights "back to arrangement" from it. A track that plays
+//! a clip is held too, and says so by that clip.
+//!
 //! The order waiting for a track is the one not yet taken by its player (`Track::launch`,
 //! the newest), else the one its player queued. The clip a track plays is reported in the
-//! cell it sits in now; a clip cleared from its cell while it plays is not reported.
+//! cell it sits in now; a clip cleared from its cell while it plays is reported as held.
 //! Nothing here allocates or fails.
 
 use crate::engine::{ClipContent, LaunchRequest, State, Track};
-use crate::msg::{ActiveClip, ClipState, SceneSlot, TrackSlot};
+use crate::msg::{ActiveClip, ClipState, HELD_SCENE, SceneSlot, TrackSlot};
 use crate::time::Tick;
 
 /// Whether a track takes part in a stop: it plays, waits for a launch or has one.
@@ -76,11 +81,17 @@ pub fn stop_all(state: &mut State) {
 /// `BackToArrangement` (module doc).
 pub fn back_to_arrangement(state: &mut State) {
     for track in state.tracks.as_mut_slice().iter_mut().flatten() {
-        // A track the grid holds without a clip (after a stop) goes back too.
-        if engaged(track) || track.player.taken() {
-            track.launch = None;
-            track.back = true;
-        }
+        back_track(track);
+    }
+}
+
+/// `BackTrackToArrangement`: the same release for one track; a track that follows its
+/// arrangement is left alone.
+pub fn back_track(track: &mut Track) {
+    // A track the grid holds without a clip (after a stop) goes back too.
+    if engaged(track) || track.player.taken() {
+        track.launch = None;
+        track.back = true;
     }
 }
 
@@ -117,6 +128,7 @@ pub fn active_clips(state: &State, running: bool, mut push: impl FnMut(ActiveCli
             }
             _ => None,
         };
+        let mut reported = false;
         if let Some(playing) = track.player.playing() {
             // The clip is reported where it sits; one cleared from its cell is not.
             let cell = track
@@ -126,6 +138,7 @@ pub fn active_clips(state: &State, running: bool, mut push: impl FnMut(ActiveCli
                 .copied()
                 .flatten();
             if cell == Some(playing.clip) {
+                reported = true;
                 let leaves = order.is_some() && next.is_none();
                 push(ActiveClip {
                     track: slot,
@@ -138,6 +151,16 @@ pub fn active_clips(state: &State, running: bool, mut push: impl FnMut(ActiveCli
                     anchor: playing.anchor,
                 });
             }
+        }
+        // A track the grid holds with no clip to report (none plays, or the one that plays was
+        // cleared from its cell): its arrangement is silent.
+        if !reported && track.player.taken() {
+            push(ActiveClip {
+                track: slot,
+                scene: HELD_SCENE,
+                state: ClipState::Held,
+                anchor: Tick(0),
+            });
         }
         if let Some(scene) = next {
             push(ActiveClip {

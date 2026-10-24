@@ -422,6 +422,7 @@ impl ControlMsg {
             }
             ControlMsg::TrackRemove { track }
             | ControlMsg::StopTrack { track }
+            | ControlMsg::BackTrackToArrangement { track }
             | ControlMsg::AllNotesOff { track } => w.u32(track.0),
             ControlMsg::TrackSetMix {
                 track,
@@ -747,6 +748,7 @@ impl ControlMsg {
             Tag::StopTrack => ControlMsg::StopTrack { track: r.track()? },
             Tag::StopAll => ControlMsg::StopAll,
             Tag::BackToArrangement => ControlMsg::BackToArrangement,
+            Tag::BackTrackToArrangement => ControlMsg::BackTrackToArrangement { track: r.track()? },
             Tag::Play => ControlMsg::Play { from: r.tick()? },
             Tag::Stop => ControlMsg::Stop,
             Tag::Seek => ControlMsg::Seek { tick: r.tick()? },

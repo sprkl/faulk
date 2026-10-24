@@ -59,6 +59,12 @@ domain! {
     /// its arrangement. Played live: not undoable, not saved.
     "launch.back_to_arrangement" (kind = "live", undo = "none", destructive = false)
     BackToArrangement {} => {};
+
+    /// Give one track back to its arrangement: what `launch.back_to_arrangement` does, for
+    /// the track alone; the other tracks are left as they are. Does nothing to a track that
+    /// follows its arrangement. Played live: not undoable, not saved.
+    "launch.back_track_to_arrangement" (kind = "live", undo = "none", destructive = false)
+    BackTrackToArrangement { track: TrackId } => {};
 }
 
 type Out = Outcome<Command, Output>;
@@ -125,5 +131,14 @@ pub fn apply(
         }
         Command::StopAll {} => Ok(done(Output::StopAll {})),
         Command::BackToArrangement {} => Ok(done(Output::BackToArrangement {})),
+        Command::BackTrackToArrangement { track } => {
+            if !project.tracks.contains_key(track) {
+                return Err(CommandError::NotFound {
+                    entity: "track".into(),
+                    id: track.to_string(),
+                });
+            }
+            Ok(done(Output::BackTrackToArrangement {}))
+        }
     }
 }
