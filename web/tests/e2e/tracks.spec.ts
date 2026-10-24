@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { watch } from './support'
 
 // UI-2 (#106): the track list and its headers in a real browser. Real worklet, engine and project
@@ -13,7 +13,6 @@ const TEXTS = {
     solo: (name: string) => `Solo ${name}`,
     volume: (name: string) => `Volume of ${name}`,
     pan: (name: string) => `Pan of ${name}`,
-    remove: (name: string) => `Delete ${name}`,
     undo: 'Undo',
     rename: 'Track name',
     midi: 'MIDI',
@@ -25,7 +24,6 @@ const TEXTS = {
     solo: (name: string) => `Solo ${name}`,
     volume: (name: string) => `Volume de ${name}`,
     pan: (name: string) => `Panoramique de ${name}`,
-    remove: (name: string) => `Supprimer ${name}`,
     undo: 'Annuler',
     rename: 'Nom de la piste',
     midi: 'MIDI',
@@ -48,6 +46,12 @@ async function horizontalOverflow(page: Page): Promise<string[]> {
     if (document.documentElement.scrollWidth > innerWidth) bad.push('page: scrolls sideways')
     return bad
   })
+}
+
+/** Delete a track from the `⋯` menu of its header. */
+async function removeTrack(header: Locator) {
+  await header.getByTestId('track-more').click()
+  await header.getByTestId('track-delete').click()
 }
 
 async function addTrack(page: Page, item: string) {
@@ -177,14 +181,14 @@ for (const lang of ['en', 'fr'] as const) {
       }
 
       // Delete, then undo: the track comes back with its name and mute, in place.
-      await kit.getByRole('button', { name: x.remove('Kit'), exact: true }).click()
+      await removeTrack(kit)
       expect(await names(page)).toEqual(['Synth', x.track(2)])
       await expect(page.locator('.solo[aria-pressed=true]')).toHaveCount(1)
       await page.getByRole('button', { name: x.undo, exact: true }).click()
       expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3)])
       await expect(header(page, 'Kit').getByRole('button', { name: x.mute('Kit'), exact: true })).toHaveAttribute('aria-pressed', 'true')
       // Deleting every track leaves an empty list that says so; undo brings the last one back.
-      for (let n = 3; n > 0; n--) await page.getByRole('button', { name: /^(Delete|Supprimer) /, exact: false }).first().click()
+      for (let n = 3; n > 0; n--) await removeTrack(page.getByTestId('track-header').first())
       await expect(page.getByTestId('tracks-empty')).toBeVisible()
       await expect(page.getByTestId('keys-target')).toBeVisible()
       await page.keyboard.press('Control+z')

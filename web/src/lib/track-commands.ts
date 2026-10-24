@@ -11,6 +11,10 @@ export const createTrack = (kind: TrackKind, instrument: string | null, color: s
     : { type: 'track.create', kind, color }
 
 export const deleteTrack = (track: string): Command => ({ type: 'track.delete', track })
+/** Puts a track at `index` in the list, 0 first: one command, one history entry, whatever the distance. */
+export const moveTrack = (track: string, index: number): Command => ({ type: 'track.move', track, index })
+/** Copies a track right below the source; `name` is the copy's (the command keeps the source's name without it). */
+export const duplicateTrack = (track: string, name: string): Command => ({ type: 'track.duplicate', track, name })
 export const renameTrack = (track: string, name: string): Command => ({ type: 'track.rename', track, name })
 export const setTrackColor = (track: string, color: string): Command => ({ type: 'track.set_color', track, color })
 export const selectTrack = (track: string): Command => ({ type: 'view.select_track', track })
