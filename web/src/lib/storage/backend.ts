@@ -46,6 +46,12 @@ async function directory(root: FileSystemDirectoryHandle, parts: string[], creat
 const PROJECT_ROOT_FILES: readonly string[] = ['project.json']
 const PROJECT_ROOT_DIRS: readonly string[] = ['tracks', 'blobs']
 
+/** Whether a scan looks at this path (what `apply` stamps must be what `scan` lists). */
+function isProjectPath(path: string): boolean {
+  const [head] = path.split('/')
+  return path === 'project.json' || (path.includes('/') && PROJECT_ROOT_DIRS.includes(head!))
+}
+
 /** Every file of the project below `dir` that a scan looks at: [path, handle], skipping `.git`, `.faulk`, swap files and what is not the project's. */
 async function* walk(dir: FileSystemDirectoryHandle, base = ''): AsyncGenerator<[string, FileSystemFileHandle]> {
   for await (const entry of children(dir)) {
@@ -166,7 +172,7 @@ export class FolderBackend implements ProjectStore {
           throw error
         })
         const handle = existing ? await this.replace(existing, entry.bytes) : await this.create(dir, name, entry.bytes)
-        if (!entry.path.startsWith('.faulk/')) written[entry.path] = stamp(await handle.getFile())
+        if (isProjectPath(entry.path)) written[entry.path] = stamp(await handle.getFile())
       }
       return written
     } catch (error) {

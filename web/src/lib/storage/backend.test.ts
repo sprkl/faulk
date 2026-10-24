@@ -25,6 +25,13 @@ describe('FolderBackend.apply', () => {
     expect(stamps['project.json']).toBe(`7:${(await (await dir.getFileHandle('project.json')).getFile()).lastModified}`)
   })
 
+  it('stamps exactly what a scan lists: the support files and the session are not in it', async () => {
+    const { store } = folder()
+    const stamps = await store.apply([write('tracks/a/track.json', '1'), write('.gitignore', '.faulk/'), write('.gitattributes', 'x'), write('.faulk/session.json', '{}'), write('project.json', '{}')])
+    expect(Object.keys(stamps).sort()).toEqual(['project.json', 'tracks/a/track.json'])
+    expect(await store.scan()).toEqual(stamps)
+  })
+
   it('replaces a file whole or not at all: a write that fails at close leaves the old file intact', async () => {
     const { dir, store } = folder()
     await store.apply([write('project.json', 'old')])
@@ -53,12 +60,12 @@ describe('FolderBackend.apply', () => {
   it('where move is not available, makes the file in place, and a write that fails removes it again', async () => {
     const { dir, store } = folder()
     dir.hooks.noMove = true
-    const stamps = await store.apply([write('a.json', '1')])
+    const stamps = await store.apply([write('a.json', '1'), write('tracks/t.json', '2')])
     expect(dir.text('a.json')).toBe('1')
-    expect(Object.keys(stamps)).toEqual(['a.json'])
+    expect(Object.keys(stamps)).toEqual(['tracks/t.json'])
     dir.hooks.failClose = (file) => file === 'b.json'
     await expect(store.apply([write('b.json', '2')])).rejects.toBeInstanceOf(StoreError)
-    expect(dir.paths()).toEqual(['a.json'])
+    expect(dir.paths().sort()).toEqual(['a.json', 'tracks/t.json'])
   })
 
   it('a move the browser refuses (not allowed, invalid) falls back to making the file in place, once and for good', async () => {
