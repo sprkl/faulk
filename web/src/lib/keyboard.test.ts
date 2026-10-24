@@ -123,6 +123,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'],
+      'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/piano-roll/PianoRollView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/play/PlayView.svelte': [],
