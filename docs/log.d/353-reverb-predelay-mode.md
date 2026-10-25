@@ -1,0 +1,2 @@
+2026-10-25
+* **Update** (#353): the Reverb gains `time_change` (Glide, Fade, Jump) for its pre-delay, the same setting as the Echo, sharing its code (`devices/time_change.rs`). Glide, the default, renders exactly as before (fingerprinted on `develop` at 6b2023c, as are the Echo's Fade and Jump). `PROTOCOL_VERSION` stays 7, as for the Echo's (#342): no published helper is at version 7 yet, the next release carries both parameters, and the helper runs no device chain until BO-1. `specs/02-decoupage-mvp.md` (DV-4) updated.

@@ -104,13 +104,17 @@ for (const lang of ['en', 'fr'] as const) {
     // then undone back to the insertion and its removal.
     await panel.getByRole('button', { name: x.add('Reverb'), exact: true }).click()
     const reverb = card(page, 'Reverb')
-    await expect(reverb.locator('[data-testid^=param-]')).toHaveCount(4)
+    await expect(reverb.locator('[data-testid^=param-]')).toHaveCount(5)
     const size = reverb.getByTestId('param-size').getByRole('slider')
     const sizeBefore = await size.getAttribute('aria-valuetext')
     await size.focus()
     await page.keyboard.press('ArrowRight')
     await expect.poll(() => size.getAttribute('aria-valuetext')).not.toBe(sizeBefore)
     await expect(reverb.getByTestId('param-mix').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
+    // The pre-delay follows the same time-change setting as the Echo: Glide by default.
+    const reverbGlide = reverb.getByRole('radio', { name: lang === 'en' ? 'Glide' : 'Glissé', exact: true })
+    await expect(reverbGlide).toHaveAttribute('aria-checked', 'true')
+    await expect(reverb.getByTestId('param-time_change').getByRole('radio')).toHaveCount(3)
     await reverb.getByRole('button', { name: x.remove('Reverb'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await page.keyboard.press('Control+z')
