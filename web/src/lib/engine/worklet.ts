@@ -1,11 +1,14 @@
 // Runs on the audio thread, inside an AudioWorkletGlobalScope: the render instance of the
 // engine module (MO-2). It knows no command: the prepare Worker feeds the engine through
-// the shared memory, the page reads the engine's report from it. Once initialized, nothing
+// the shared memory, the page reads the engine's report from it. Once initialized (the
+// engine's message path warmed up on a private channel, #355), nothing
 // here posts a message or allocates, except re-taking the two output views after the memory
 // grew (one comparison per block, CT-3).
-import { MAX_FRAMES, becomeRenderInstance, instantiate, type EngineExports, type RenderSetup } from './engine-abi'
+import { MAX_FRAMES, becomeRenderInstance, instantiate, warmUp, type EngineExports, type RenderSetup } from './engine-abi'
 
 declare function registerProcessor(name: string, processor: unknown): void
+/** The sample rate of the audio context, a global of the AudioWorkletGlobalScope. */
+declare const sampleRate: number
 declare class AudioWorkletProcessor {
   readonly port: MessagePort
 }
@@ -34,11 +37,16 @@ class FaulkProcessor extends AudioWorkletProcessor {
       try {
         const exports = instantiate(new WebAssembly.Module(message.bytes), message.memory)
         becomeRenderInstance(exports, message.setup)
+        // V8 compiles a wasm function at its first call: run every message once on a private
+        // channel now, so that the first block that applies a message does not pay for it on
+        // the audio thread (#355). It touches nothing of the real channel and sounds nowhere.
+        // A failure (even a trap) costs only that first block's time, so it does not stop the engine.
+        const warm = warmUp(exports, sampleRate)
         this.memory = message.memory
         this.channel = message.setup.channel
         this.exports = exports
         this.takeViews()
-        this.port.postMessage({ type: 'ready' })
+        this.port.postMessage(warm === 0 ? { type: 'ready' } : { type: 'ready', warm })
       } catch (error) {
         // Errors in a worklet message handler are otherwise silent.
         this.port.postMessage({ type: 'error', message: String(error) })

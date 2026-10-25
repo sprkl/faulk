@@ -238,9 +238,13 @@ test.describe('MO-2: the engine channel in the browser', () => {
   test('the DAW plays a note and takes a parameter through the channel', async ({ page }) => {
     await fakeWebMidi(page)
     const { errors } = watch(page)
+    // The warm-up of the apply path (#355) must go through in the real worklet (it warns when it fails).
+    const warnings: string[] = []
+    page.on('console', (m) => m.type() === 'warning' && warnings.push(m.text()))
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toContainText('Web')
+    expect(warnings.filter((w) => w.includes('warm-up'))).toEqual([])
     await page.getByRole('radio', { name: 'E2E Keys' }).check()
     const meter = page.getByRole('meter').first()
     const level = async () => Number(await meter.getAttribute('aria-valuenow'))
