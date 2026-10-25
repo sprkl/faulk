@@ -126,6 +126,7 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
     clock: readFileSync(`${proto}clock-worker.js`, 'utf8'),
     worker: readFileSync(`${proto}prepare-worker.js`, 'utf8'),
     worklet: readFileSync(`${proto}proto-worklet.js`, 'utf8'),
+    rpc: readFileSync(fileURLToPath(new URL('fixtures/measure-rpc.js', import.meta.url)), 'utf8'),
   }
   return page.evaluate(async ({ mode, sources }) => {
     const blob = (source: string) => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
@@ -134,32 +135,38 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
     const clock = new Int32Array(clockBuffer)
     const clockWorker = new Worker(blob(sources.clock))
     clockWorker.postMessage(clockBuffer)
-    const calibrate = async () => {
+    const rpc = new Function(`return (${sources.rpc}
+)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>, transfer?: Transferable[]) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
+    const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+      Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
+    const calibrate = async (ms = 300) => {
       const c0 = Atomics.load(clock, 0)
       const t0 = performance.now()
-      await sleep(300)
+      await sleep(ms)
       const c1 = Atomics.load(clock, 0)
       const t1 = performance.now()
       return ((c1 - c0) >>> 0) / ((t1 - t0) * 1000)
     }
+    // The spinning Worker is slow for its first few hundred ms (#283): wait until three windows agree.
+    const settle = async () => {
+      const rates = [await calibrate(200)]
+      for (let i = 0; i < 40; i++) {
+        rates.push(await calibrate(200))
+        const [a, b, c] = rates.slice(-3)
+        if (rates.length >= 5 && Math.max(a, b, c) < 1.1 * Math.min(a, b, c)) return c
+      }
+      throw new Error('clock: the counter rate never settled')
+    }
     await sleep(100)
-    const ticksPerUs = await calibrate()
+    const ticksPerUs = await settle()
 
     const context = new AudioContext()
-    await context.resume()
+    await deadline(`audio context (state ${context.state})`, context.resume())
     await context.audioWorklet.addModule(blob(sources.worklet))
     const node = new AudioWorkletNode(context, 'faulk-proto', { numberOfInputs: 0, outputChannelCount: [2] })
-    const fromWorklet: ((m: Record<string, unknown>) => void)[] = []
-    node.port.onmessage = (e) => {
-      const m = e.data
-      if (m.type === 'error') throw new Error(`worklet: ${m.message}`)
-      fromWorklet.shift()?.(m)
-    }
-    const ask = (message: Record<string, unknown>, transfer: Transferable[] = []) =>
-      new Promise<Record<string, unknown>>((resolve) => {
-        fromWorklet.push(resolve)
-        node.port.postMessage(message, transfer)
-      })
+    const ask = rpc(node.port, 'worklet', 15_000)
+    // A trap inside `process` is reported on the node, not on its port.
+    node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
 
     let worker: Worker | undefined
     let askWorker: ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) | undefined
@@ -182,17 +189,7 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
         }
       }
       worker = new Worker(blob(sources.worker))
-      const fromWorker: ((m: Record<string, unknown>) => void)[] = []
-      worker.onmessage = (e) => {
-        const m = e.data
-        if (m.type === 'error') throw new Error(`prepare worker: ${m.message}`)
-        fromWorker.shift()?.(m)
-      }
-      askWorker = (message) =>
-        new Promise((resolve) => {
-          fromWorker.push(resolve)
-          worker!.postMessage(message)
-        })
+      askWorker = rpc(worker, 'prepare Worker', 15_000)
       const w = await askWorker({ type: 'init', bytes, memory, sampleRate: context.sampleRate })
       ready = await ask({ type: 'init', mode, bytes, memory, proto: w.proto, inst: w.inst, stackTop: w.stackTop, clock: clockBuffer, ticksPerUs })
     }
@@ -251,7 +248,9 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
 
     clockWorker.terminate()
     worker?.terminate()
-    await context.close()
+    // The counter kept its pace between the settled calibration and the end (#283), or every figure above is off.
+    if (Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck) throw new Error(`clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`)
+    await deadline(`closing the audio context (state ${context.state})`, context.close())
     return {
       mode,
       ticksPerUs,

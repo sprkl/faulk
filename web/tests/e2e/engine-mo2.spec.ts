@@ -40,6 +40,8 @@ type Report = {
   pumpUsPerMsg: number
   pumpUsPerCall: number
   pumpMaxUs: number
+  firstUs: number
+  rate: number
   views: number
   peak: number
   renderAllocs: number
@@ -56,6 +58,7 @@ async function measure(page: Page) {
     clock: readFileSync(here('../../src/lib/engine/proto/clock-worker.js'), 'utf8'),
     prepare: readFileSync(here('fixtures/measure-prepare.js'), 'utf8'),
     worklet: readFileSync(here('fixtures/measure-worklet.js'), 'utf8'),
+    rpc: readFileSync(here('fixtures/measure-rpc.js'), 'utf8'),
   }
   const load = {
     // Before the first render: the setup, a waveform, the held note (the session's start).
@@ -74,14 +77,32 @@ async function measure(page: Page) {
       const clock = new Int32Array(clockBuffer)
       const clockWorker = new Worker(blob(sources.clock))
       clockWorker.postMessage(clockBuffer)
-      const calibrate = async () => {
-        const c0 = Atomics.load(clock, 0)
-        const t0 = performance.now()
-        await sleep(300)
-        return ((Atomics.load(clock, 0) - c0) >>> 0) / ((performance.now() - t0) * 1000)
+      const rpc = new Function(`return (${sources.rpc}
+)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
+      const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+        Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
+      // The counter's rate over a window: ticks gained divided by the µs `performance.now()` counted.
+      const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })
+      const rateSince = (m: { c: number; t: number }) => ((Atomics.load(clock, 0) - m.c) >>> 0) / ((performance.now() - m.t) * 1000)
+      const calibrate = async (ms = 300) => {
+        const m = mark()
+        await sleep(ms)
+        return rateSince(m)
+      }
+      // The spinning Worker is slow for its first few hundred ms (baseline tier, about six times
+      // below its later rate, for 200 to 800 ms, #283): wait until three windows agree before using its rate.
+      const settle = async () => {
+        const rates = [await calibrate(200)]
+        for (let i = 0; i < 40; i++) {
+          rates.push(await calibrate(200))
+          const [a, b, c] = rates.slice(-3)
+          // At least a second, and the last three windows within 10 % of each other.
+          if (rates.length >= 5 && Math.max(a, b, c) < 1.1 * Math.min(a, b, c)) return c
+        }
+        throw new Error('clock: the counter rate never settled')
       }
       await sleep(100)
-      const ticksPerUs = await calibrate()
+      const ticksPerUs = await settle()
 
       let memory: WebAssembly.Memory | undefined
       for (const maximum of [65536, 32768, 16384]) {
@@ -94,50 +115,45 @@ async function measure(page: Page) {
       }
       const bytes = u8(load.wasm)
       const context = new AudioContext()
-      await context.resume()
+      await deadline(`audio context (state ${context.state})`, context.resume())
       const worker = new Worker(blob(sources.prepare))
-      const fromWorker: ((m: Record<string, unknown>) => void)[] = []
-      worker.onmessage = (e) => {
-        if (e.data.type === 'error') throw new Error(`prepare: ${e.data.message}`)
-        fromWorker.shift()?.(e.data)
-      }
-      const askWorker = (m: Record<string, unknown>) =>
-        new Promise<Record<string, unknown>>((resolve) => {
-          fromWorker.push(resolve)
-          worker.postMessage(m)
-        })
+      const askWorker = rpc(worker, 'prepare Worker', 15_000)
       const ready = await askWorker({ type: 'init', bytes: bytes.slice(0), memory, sampleRate: context.sampleRate })
 
       await context.audioWorklet.addModule(blob(sources.worklet))
       const node = new AudioWorkletNode(context, 'faulk-measure', { numberOfInputs: 0, outputChannelCount: [2] })
-      const fromWorklet: ((m: Record<string, unknown>) => void)[] = []
-      node.port.onmessage = (e) => {
-        if (e.data.type === 'error') throw new Error(`worklet: ${e.data.message}`)
-        fromWorklet.shift()?.(e.data)
+      const ask = rpc(node.port, 'worklet', 15_000)
+      // A trap inside `process` is reported on the node, not on its port.
+      node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
+      // A reset opens a measured window; its report is converted at the counter's rate over that window.
+      let since = mark()
+      const reset = async () => {
+        await ask({ type: 'reset' })
+        since = mark()
       }
-      const ask = (m: Record<string, unknown>) =>
-        new Promise<Record<string, unknown>>((resolve) => {
-          fromWorklet.push(resolve)
-          node.port.postMessage(m)
-        })
+      const report = async () => {
+        const rate = rateSince(since)
+        await ask({ type: 'rate', ticksPerUs: rate })
+        return { ...(await ask({ type: 'report' })), rate } as unknown as Record<string, number>
+      }
       const role = (await ask({ type: 'init', bytes, memory, setup: ready.setup, clock: clockBuffer, ticksPerUs })).role
       node.connect(context.destination)
 
       await askWorker({ type: 'push', streams: load.start.map(u8) })
       await sleep(300)
-      await ask({ type: 'reset' })
+      await reset()
       await sleep(1000)
-      const idle = (await ask({ type: 'report' })) as unknown as Record<string, number>
+      const idle = await report()
 
-      await ask({ type: 'reset' })
+      await reset()
       for (let burst = 0; burst < 10; burst++) {
         await askWorker({ type: 'push', streams: Array.from({ length: 100 }, () => u8(load.param)) })
         await sleep(50)
       }
       await sleep(200)
-      const params = (await ask({ type: 'report' })) as unknown as Record<string, number>
+      const params = await report()
 
-      await ask({ type: 'reset' })
+      await reset()
       await askWorker({ type: 'push', streams: load.tracks.map(u8) })
       // 4 095 messages drain at 128 per block (about 32 blocks); the Worker resends what
       // the full rings refused.
@@ -147,12 +163,12 @@ async function measure(page: Page) {
         await sleep(100)
       }
       await sleep(300)
-      const tracks = (await ask({ type: 'report' })) as unknown as Record<string, number>
+      const tracks = await report()
       const counters = await askWorker({ type: 'counters' })
       const check = await calibrate()
       clockWorker.terminate()
       worker.terminate()
-      await context.close()
+      await deadline(`closing the audio context (state ${context.state})`, context.close())
       return { ticksPerUs, check, role, idle, params, tracks, counters, sampleRate: context.sampleRate, maximum: memory!.buffer.byteLength }
     },
     { sources, load },
@@ -178,12 +194,16 @@ test.describe('MO-2: the engine channel in the browser', () => {
         [
           `MO-2 run ${i + 1}/${runs.length} at ${run.sampleRate} Hz, clock ${run.ticksPerUs.toFixed(1)} ticks/µs (check ${run.check.toFixed(1)})`,
           `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
-          `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(p.pumpMaxUs)} µs, ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
-          `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(t.pumpMaxUs)} µs (incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
+          `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(Math.max(p.pumpMaxUs, p.firstUs))} µs (first ${us(p.firstUs)}), ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
+          `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(Math.max(t.pumpMaxUs, t.firstUs))} µs (first ${us(t.firstUs)}; incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
           `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)
+      // The clock must not have changed pace between its calibration and the end (#283): a
+      // rate off by more than 25 % would make every figure above wrong by as much.
+      expect(Math.abs(run.check - run.ticksPerUs)).toBeLessThan(0.25 * run.check)
+      for (const r of [p, t]) expect(Math.abs(r.rate - run.check)).toBeLessThan(0.25 * run.check)
       expect(run.role).toBe(2)
       // Every message was applied: none rejected, none skipped, the table at its limit.
       expect(run.counters.rejected).toBe(0)
@@ -206,7 +226,9 @@ test.describe('MO-2: the engine channel in the browser', () => {
     const reports = runs.map((r) => ({ p: r.params as unknown as Report, t: r.tracks as unknown as Report }))
     const perParam = median(reports.map((r) => r.p.pumpUsPerMsg))
     const perTrack = median(reports.map((r) => r.t.pumpUsPerMsg))
-    const longest = median(reports.map((r) => r.t.pumpMaxUs))
+    // The longest pump counts the first one that applied anything too: the engine is warm here (the
+    // setup went through before the window), so it is not a cold start.
+    const longest = median(reports.map((r) => Math.max(r.t.pumpMaxUs, r.t.firstUs)))
     console.log(`asserted (median of ${runs.length}): ${us(perParam)} / ${us(perTrack)} µs per message, longest pump ${us(longest)} µs`)
     expect(perParam).toBeLessThan(timingLimit(2))
     expect(perTrack).toBeLessThan(timingLimit(2))

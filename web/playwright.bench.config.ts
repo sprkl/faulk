@@ -15,5 +15,10 @@ export default defineConfig({
   retries: 0,
   timeout: 30 * 60_000,
   reporter: 'list',
-  use: { channel: process.env.FAULK_E2E_CHANNEL || undefined, locale: 'en-US' },
+  // `FAULK_BENCH_JSFLAGS` is handed to V8 (e.g. `--no-wasm-lazy-compilation`, to tell a first-call cost from a steady one, #283).
+  use: {
+    channel: process.env.FAULK_E2E_CHANNEL || undefined,
+    locale: 'en-US',
+    launchOptions: { args: process.env.FAULK_BENCH_JSFLAGS ? [`--js-flags=${process.env.FAULK_BENCH_JSFLAGS}`] : [] },
+  },
 })
