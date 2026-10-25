@@ -29,6 +29,15 @@ import {
   VELOCITY_HOME,
   DEFAULT_VELOCITY,
   type Layout,
+  quantizedStart,
+  quantizeChanges,
+  transposeChanges,
+  toBoard,
+  fromBoard,
+  endOf,
+  lengthFor,
+  duplicateOffset,
+  MAX_BARS,
 } from './roll'
 
 const view = { pxPerTick: 0.1, scrollTick: 0 }
@@ -306,6 +315,66 @@ describe('changes that outlive their clip', () => {
     expect(fits(note(0, 128), 3840)).toBe(false)
     expect(fits(note(0, 60, 0), 3840)).toBe(false)
     expect(fits(note(0, 60, 480, 0), 3840)).toBe(false)
+  })
+})
+
+describe('quantize, transpose, copy and paste (PN-2)', () => {
+  it('quantizes a start like the command: nearest line, halfway to the later one, by a share of the distance', () => {
+    // The same table as `quantizing_a_start_moves_a_share_of_the_way_to_the_nearest_line` in crates/commands/src/clip.rs.
+    expect(quantizedStart(150, 240, 100, 10, 3840)).toBe(240)
+    expect(quantizedStart(119, 240, 100, 10, 3840)).toBe(0)
+    expect(quantizedStart(120, 240, 100, 10, 3840)).toBe(240)
+    expect(quantizedStart(150, 240, 0, 10, 3840)).toBe(150)
+    expect(quantizedStart(150, 240, 50, 10, 3840)).toBe(195)
+    expect(quantizedStart(150, 240, 1, 10, 3840)).toBe(151)
+    expect(quantizedStart(20, 240, 1, 10, 3840)).toBe(20)
+    expect(quantizedStart(30, 240, 25, 10, 3840)).toBe(22)
+    expect(quantizedStart(210, 240, 25, 10, 3840)).toBe(218)
+    expect(quantizedStart(77, 1, 100, 10, 3840)).toBe(77)
+    expect(quantizedStart(77, 100_000, 100, 10, 3840)).toBe(0)
+  })
+
+  it('keeps a note that would cross the clip end inside it, and a note as long as the clip at 0', () => {
+    expect(quantizedStart(3000, 1920, 100, 480, 3840)).toBe(3360)
+    expect(quantizedStart(3360, 1920, 100, 480, 3840)).toBe(3360)
+    expect(quantizedStart(0, 1920, 100, 3840, 3840)).toBe(0)
+    expect(quantizedStart(-10, 240, 100, 10, 3840)).toBe(0)
+  })
+
+  it('lists the changes of a quantize', () => {
+    const changes = quantizeChanges([note(100, 60, 50), note(240, 62, 50)], 240, 100, 3840)
+    expect(changes.map((c) => c.to.start)).toEqual([0, 240])
+  })
+
+  it('transposes, and gives nothing when a note would leave the keyboard', () => {
+    expect(transposeChanges([note(0, 60), note(0, 62)], 12)?.map((c) => c.to.pitch)).toEqual([72, 74])
+    expect(transposeChanges([note(0, 60)], 0)).toEqual([])
+    expect(transposeChanges([], 1)).toEqual([])
+    expect(transposeChanges([note(0, 60), note(0, 127)], 1)).toBeNull()
+    expect(transposeChanges([note(0, 0)], -1)).toBeNull()
+    expect(transposeChanges([note(0, 120)], 7)?.[0]?.to.pitch).toBe(127)
+  })
+
+  it('puts notes aside relative to the earliest and puts them back anywhere', () => {
+    const board = toBoard([note(960, 60), note(480, 62)])
+    expect(board.map((n) => n.start)).toEqual([480, 0])
+    expect(fromBoard(board, 100).map((n) => n.start)).toEqual([580, 100])
+    expect(toBoard([])).toEqual([])
+    expect(fromBoard(board, -50).map((n) => n.start)).toEqual([480, 0])
+  })
+
+  it('grows a clip to the next whole bar, never past the longest clip', () => {
+    expect(endOf([note(0, 60, 480), note(960, 60, 480)])).toBe(1440)
+    expect(endOf([])).toBe(0)
+    expect(lengthFor(3840, 3840, 3840)).toBe(3840)
+    expect(lengthFor(3841, 3840, 3840)).toBe(7680)
+    expect(lengthFor(MAX_BARS * 3840, 3840, 3840)).toBe(MAX_BARS * 3840)
+    expect(lengthFor(MAX_BARS * 3840 + 1, 3840, 3840)).toBeNull()
+  })
+
+  it('follows the selection by its span when duplicating', () => {
+    expect(duplicateOffset([note(480, 60, 480), note(1440, 62, 480)])).toBe(1440)
+    expect(duplicateOffset([])).toBe(0)
   })
 })
 

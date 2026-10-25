@@ -35,7 +35,7 @@ export function defaultOctave(instrumentKind: string | null): number {
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
  * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, and Ctrl or Cmd + A selects all. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. None of them plays a note: the playing keys are letters and Semicolon.
+ * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
  */
 export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace', 'PageUp', 'PageDown', 'End', 'Tab']
 
@@ -80,6 +80,70 @@ export function isTextTarget(eventTarget: EventTarget | null): boolean {
   if (!target || typeof target.closest !== 'function') return false
   if (target.closest('textarea, select, [contenteditable=""], [contenteditable="true"]')) return true
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
+}
+
+/** The elements that have a Space meaning of their own: Space presses a button or a link, ticks a box, opens a select, types in a field. */
+const SPACE_CONTROLS = 'button, input, select, textarea, [contenteditable], a, [role="slider"]'
+
+/**
+ * The element the mouse (or a touch) gave the focus to, until the focus moves. `:focus-visible` cannot tell
+ * this: a browser turns it on at the first key press, Space included, on a button the mouse just clicked.
+ */
+let pointerFocused: Element | null = null
+/** The last device the user acted with: a focus that follows a pointer press (even from a script, in a click handler, or on a window refocus) is the pointer's. */
+let lastInput: 'pointer' | 'keyboard' = 'keyboard'
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])
+
+/**
+ * Starts following where the focus came from: the last input before it was a pointer press (mouse, touch,
+ * pen) or a key (Tab, arrows; Space and modifiers do not count). Returns the function that stops it.
+ * `spaceTogglesTransport` reads it.
+ */
+export function trackFocusOrigin(doc: Document = document): () => void {
+  const down = (event: Event) => {
+    lastInput = 'pointer'
+    // A press on the element that already has the focus gives no focus event: it is pointer-focused from now on.
+    const active = doc.activeElement
+    pointerFocused = active && active !== doc.body && active.contains(event.target as Node | null) ? active : null
+  }
+  const key = (event: KeyboardEvent) => {
+    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) lastInput = 'keyboard'
+  }
+  const focus = (event: Event) => {
+    pointerFocused = lastInput === 'pointer' ? (event.target as Element) : null
+  }
+  doc.addEventListener('pointerdown', down, true)
+  doc.addEventListener('keydown', key, true)
+  doc.addEventListener('focusin', focus, true)
+  return () => {
+    doc.removeEventListener('pointerdown', down, true)
+    doc.removeEventListener('keydown', key, true)
+    doc.removeEventListener('focusin', focus, true)
+    pointerFocused = null
+    lastInput = 'keyboard'
+  }
+}
+
+/** Whether the keyboard (or a script) put the focus on this control, as opposed to the mouse. */
+function keyboardFocused(element: Element): boolean {
+  return element !== pointerFocused
+}
+
+/**
+ * Whether Space toggles the transport (play, or pause at the same position) for a key event aimed at
+ * this target. It does everywhere, except where Space already means something:
+ * - a field where text is typed, a select or a contenteditable always keeps it, however it got the focus;
+ * - any other control (button, link, checkbox, knob, slider) keeps it only when the keyboard put the
+ *   focus there (Tab, arrows), so keyboard navigation stays usable. A control the mouse clicked keeps the
+ *   focus but not Space, otherwise a click on a tab or a track header would silence the space bar.
+ * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
+ */
+export function spaceTogglesTransport(target: EventTarget | null, focusVisible: (element: Element) => boolean = keyboardFocused): boolean {
+  const element = target as Element | null
+  if (!element || typeof element.closest !== 'function') return true
+  if (isTextTarget(element)) return false
+  const control = element.closest(SPACE_CONTROLS)
+  return control === null || !focusVisible(control)
 }
 
 /**

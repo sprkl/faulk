@@ -98,7 +98,8 @@ const readWav = (page: Page, name: string): Promise<Wav | null> =>
  * notes stay in bar 1: the other bars are silent).
  */
 async function makeSong(page: Page, bars = 1) {
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // Tall enough for the roll to show the whole range of the notes below under the ruler, even with the toolbar on two lines.
+  await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()

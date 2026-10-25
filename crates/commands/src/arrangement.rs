@@ -201,7 +201,8 @@ domain! {
     /// Copy placements, in one command. The copies start `by` ticks after the originals
     /// (default: right after the selection, one selection length later; negative copies
     /// earlier). By default each copy is independent: a new clip, a copy of the source
-    /// (same name, colour, length, loop and notes, not in the launch grid), one per
+    /// (the next name, "Clip 2" gives "Clip 3"; same colour, length, loop and notes; not
+    /// in the launch grid), one per
     /// distinct source clip, so placements that were linked stay linked among the copies
     /// and editing a copy never changes the original (founder's decision 11). With
     /// `linked: true` the copies are new placements of the same clips. The copies win
@@ -220,6 +221,56 @@ domain! {
         /// The new placements, in the order of the list.
         placements: Vec<PlacementId>,
         /// The clips created (none when `linked`).
+        clips: Vec<ClipId>,
+        /// How many other placements were carved.
+        overwritten: u32,
+        /// How many clips of the arrangement lost their last placement and were deleted.
+        clips_removed: u32,
+    };
+
+    /// Put a MIDI clip of the launch grid in the arrangement, on its own track, as a
+    /// placement at the timeline tick `start` that plays the whole clip once (offset 0,
+    /// the clip's length). By default the placement plays an independent copy: a new
+    /// clip, a copy of the grid clip (the next name like `clip.duplicate`, "Clip 2" gives "Clip 3"; same colour, length, loop and notes, not in
+    /// the launch grid), so editing one never changes the other (founder's decision 11).
+    /// With `linked: true` the placement references the grid clip itself: editing the
+    /// clip in the grid changes what the arrangement plays. The placement wins on overlap
+    /// (`overwritten` counts the placements it carved). Refused for a clip that is not in
+    /// the launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio
+    /// clip, or when the clip would leave the timeline. Undo: `arrangement.restore`,
+    /// which removes the placement and the copy.
+    "arrangement.place_from_slot" (kind = "edit", undo = "inverse", destructive = false)
+    PlaceFromSlot {
+        clip: ClipId,
+        start: Tick,
+        #[serde(default)]
+        linked: bool,
+    } => {
+        /// The new placement.
+        placement: PlacementId,
+        /// The independent copy created (none when `linked`).
+        clip: Option<ClipId>,
+        /// How many other placements were carved.
+        overwritten: u32,
+        /// How many clips of the arrangement lost their last placement and were deleted.
+        clips_removed: u32,
+    };
+
+    /// `arrangement.place_from_slot` for a whole scene of the launch grid, in one command
+    /// and one history entry: every MIDI clip of the scene is placed on its own track at
+    /// the same tick `start`, as a copy (default) or linked to the grid clip. Empty slots
+    /// place nothing; audio clips are skipped. Refused when the scene has no MIDI clip.
+    /// The placements win on overlap. Undo: `arrangement.restore`.
+    "arrangement.place_scene" (kind = "edit", undo = "inverse", destructive = false)
+    PlaceScene {
+        scene: SceneId,
+        start: Tick,
+        #[serde(default)]
+        linked: bool,
+    } => {
+        /// The new placements, in the order of the tracks.
+        placements: Vec<PlacementId>,
+        /// The independent copies created (none when `linked`).
         clips: Vec<ClipId>,
         /// How many other placements were carved.
         overwritten: u32,
@@ -623,6 +674,41 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             length,
             offset,
         } => place(state, ctx, clip, *start, *length, *offset),
+        Command::PlaceFromSlot {
+            clip,
+            start,
+            linked,
+        } => {
+            let sent = send_from_grid(state, ctx, std::slice::from_ref(clip), *start, *linked)?;
+            let (placement, copy) = sent
+                .placed
+                .into_iter()
+                .next()
+                .ok_or_else(|| invalid("clip", "nothing to place"))?;
+            let overwritten = sent.overwritten;
+            commit(state, sent.works, |clips_removed| Output::PlaceFromSlot {
+                placement,
+                clip: copy,
+                overwritten,
+                clips_removed,
+            })
+        }
+        Command::PlaceScene {
+            scene,
+            start,
+            linked,
+        } => {
+            let clips = scene_clips(&state.project, scene)?;
+            let sent = send_from_grid(state, ctx, &clips, *start, *linked)?;
+            let overwritten = sent.overwritten;
+            let (placements, copies): (Vec<_>, Vec<_>) = sent.placed.into_iter().unzip();
+            commit(state, sent.works, |clips_removed| Output::PlaceScene {
+                placements,
+                clips: copies.into_iter().flatten().collect(),
+                overwritten,
+                clips_removed,
+            })
+        }
         Command::Move { placements, by } => move_placements(state, ctx, placements, *by),
         Command::Resize {
             placement,
@@ -678,6 +764,124 @@ fn place(
             overwritten,
             clips_removed,
         }
+    })
+}
+
+/// What sending clips of the grid to the arrangement works out, before it is committed.
+struct Sent {
+    works: Works,
+    /// Per clip, in order: the placement and the independent copy (none when linked).
+    placed: Vec<(PlacementId, Option<ClipId>)>,
+    overwritten: u32,
+}
+
+/// The MIDI clips of a scene, one per track, in the order of the tracks.
+fn scene_clips(project: &Project, scene: &SceneId) -> Result<Vec<ClipId>, CommandError> {
+    if !project.scenes.contains_key(scene) {
+        return Err(not_found("scene", scene));
+    }
+    let mut out = Vec::new();
+    // In the order the tracks are shown.
+    let mut ordered: Vec<_> = project.tracks.iter().collect();
+    ordered.sort_by(|a, b| a.1.order.cmp(&b.1.order).then_with(|| a.0.cmp(b.0)));
+    for (track_id, track) in ordered {
+        if midi_track(project, track_id).is_err() {
+            continue;
+        }
+        for (id, clip) in &track.clips {
+            if clip.slot.as_ref() == Some(scene) && matches!(clip.content, ClipContent::Midi { .. })
+            {
+                out.push(id.clone());
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(invalid("scene", "the scene holds no MIDI clip to place"));
+    }
+    Ok(out)
+}
+
+/// Puts each clip of the grid in the arrangement of its own track at `start`, whole, as
+/// an independent copy or linked. The clips are checked and placed all or none.
+fn send_from_grid(
+    state: &State,
+    ctx: &mut Context,
+    ids: &[ClipId],
+    start: Tick,
+    linked: bool,
+) -> Result<Sent, CommandError> {
+    let project = &state.project;
+    let mut works = Works::new();
+    let mut placed = Vec::new();
+    let mut overwritten = 0;
+    let mut seen = HashSet::new();
+    let mut new_clips = 0usize;
+    // The names of the copies made so far: the project does not hold them yet.
+    let mut new_names: Vec<String> = Vec::new();
+    let mut notes_added = 0usize;
+    let notes_in_project = project_notes(project);
+    for id in ids {
+        if !seen.insert(id) {
+            return Err(invalid("clip", format!("clip {id} is listed twice")));
+        }
+        let track_id = locate(project, id)?;
+        let track = midi_track(project, &track_id)?;
+        let clip = track.clips.get(id).ok_or_else(|| not_found("clip", id))?;
+        let (clip_length, _, notes) = midi_ref(clip)?;
+        if clip.slot.is_none() {
+            return Err(invalid(
+                "clip",
+                "the clip does not sit in the launch grid: use arrangement.place or arrangement.duplicate",
+            ));
+        }
+        let length = clip_length.get();
+        check_extent(start.get(), length, "start")?;
+        if !works.contains_key(&track_id) {
+            works.insert(track_id.clone(), TrackWork::new(project, &track_id)?);
+        }
+        let work = works
+            .get_mut(&track_id)
+            .ok_or_else(|| not_found("track", &track_id))?;
+        let mut copy = None;
+        let target = if linked {
+            id.clone()
+        } else {
+            notes_added = notes_added.saturating_add(notes.len());
+            check_total(
+                "clips per track",
+                track.clips.len(),
+                work.new_clips.len() + 1,
+                MAX_CLIPS_PER_TRACK,
+            )?;
+            check_total(
+                "clips",
+                project.counts().clips,
+                new_clips + 1,
+                project::limits::MAX_CLIPS,
+            )?;
+            check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
+            new_clips += 1;
+            let copy_id = ClipId::generate(&mut ctx.ids);
+            let mut copied = clip.clone();
+            copied.name = project.copy_clip_name(&clip.name, &new_names);
+            new_names.push(copied.name.clone());
+            copied.slot = None;
+            work.new_clips.insert(copy_id.clone(), copied);
+            if let Some(geo) = work.geo.get(id).copied() {
+                work.geo.insert(copy_id.clone(), geo);
+            }
+            copy = Some(copy_id.clone());
+            copy_id
+        };
+        overwritten += work.carve(&mut ctx.ids, start.get(), start.get() + length)?;
+        let placement = PlacementId::generate(&mut ctx.ids);
+        work.put(placement.clone(), &target, start.get(), length, 0);
+        placed.push((placement, copy));
+    }
+    Ok(Sent {
+        works,
+        placed,
+        overwritten,
     })
 }
 
@@ -862,6 +1066,8 @@ fn duplicate(
     let mut overwritten = 0;
     let mut new_placements: BTreeMap<PlacementId, PlacementId> = BTreeMap::new();
     let mut new_clip_ids = Vec::new();
+    // The names of the copies made so far: the project does not hold them yet.
+    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (track_id, list) in groups {
@@ -896,6 +1102,8 @@ fn duplicate(
                 check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
                 let copy_id = ClipId::generate(&mut ctx.ids);
                 let mut copy = clip.clone();
+                copy.name = project.copy_clip_name(&clip.name, &new_names);
+                new_names.push(copy.name.clone());
                 copy.slot = None;
                 work.new_clips.insert(copy_id.clone(), copy);
                 if let Some(geo) = work.geo.get(source).copied() {

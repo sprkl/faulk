@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, saveShortcut } from './keyboard'
+import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, saveShortcut, spaceTogglesTransport, trackFocusOrigin } from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -39,6 +39,72 @@ describe('computer keyboard', () => {
     const box = document.createElement('div')
     box.innerHTML = '<div role="slider" tabindex="0"></div><input type="range"><input type="radio"><input type="checkbox"><button>b</button>'
     for (const el of box.children) expect(ignoreKeyEvent({ ...base, target: el }), el.outerHTML).toBe(false)
+  })
+})
+
+describe('space bar and the transport', () => {
+  const box = document.createElement('div')
+  box.innerHTML =
+    '<button id="b">b</button><a id="a" href="#">a</a><input id="t" type="text"><input id="n" type="number"><input id="c" type="checkbox"><input id="r" type="range">' +
+    '<textarea id="x"></textarea><select id="s"><option>o</option></select><div id="e" contenteditable="true"></div><div id="k" role="slider" tabindex="0"></div>' +
+    '<div id="g" tabindex="0"></div><button id="w"><span id="in">i</span></button>'
+  document.body.append(box)
+  const el = (id: string) => box.querySelector('#' + id)!
+  const mouse = () => false
+  const keyboard = () => true
+
+  it('toggles from the page, a mouse-clicked control or a plain focusable area', () => {
+    expect(spaceTogglesTransport(null, keyboard)).toBe(true)
+    expect(spaceTogglesTransport(document.body, keyboard)).toBe(true)
+    expect(spaceTogglesTransport(el('g'), keyboard)).toBe(true)
+    for (const id of ['b', 'a', 'c', 'r', 'k', 'in']) expect(spaceTogglesTransport(el(id), mouse), id).toBe(true)
+  })
+
+  it('leaves Space to a control the keyboard focused', () => {
+    for (const id of ['b', 'a', 'c', 'r', 'k', 'in']) expect(spaceTogglesTransport(el(id), keyboard), id).toBe(false)
+  })
+
+  it('always leaves Space to text fields, selects and contenteditable, however they got the focus', () => {
+    for (const id of ['t', 'n', 'x', 's', 'e']) {
+      expect(spaceTogglesTransport(el(id), mouse), id).toBe(false)
+      expect(spaceTogglesTransport(el(id), keyboard), id).toBe(false)
+    }
+  })
+
+  it('follows where the focus came from: a pressed control is pointer-focused, a Tab or script focus is keyboard-focused', () => {
+    const stop = trackFocusOrigin()
+    const press = (target: Element) => {
+      target.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      ;(target as HTMLElement).focus()
+      target.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    }
+    const tab = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }))
+    const b = el('b') as HTMLElement
+    const a = el('a') as HTMLElement
+    press(b)
+    expect(spaceTogglesTransport(b)).toBe(true)
+    // Space and modifiers do not turn the origin into the keyboard's.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    b.blur()
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(true)
+    // A focus a click handler gives by script (a menu giving it back), or the window giving it back, is still the pointer's.
+    a.focus()
+    expect(spaceTogglesTransport(a)).toBe(true)
+    // Tab: the keyboard's.
+    tab()
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(false)
+    // A press on the control that already has the focus makes it pointer-focused again.
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true)
+    tab()
+    a.focus()
+    expect(spaceTogglesTransport(a)).toBe(false)
+    stop()
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(false)
   })
 })
 
@@ -137,6 +203,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       handlers[file.replace('/src/', '')] = reads.sort()
     }
     expect(handlers).toEqual({
+      'lib/keyboard.ts': ['Space'], // trackFocusOrigin only notes that a key was pressed; it triggers nothing
       'lib/components/Slider.svelte': [],
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
@@ -144,8 +211,9 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Enter', 'Enter', 'Escape', 'Escape', 'Escape', 'Escape', 'Escape', 'F2', 'F2'],
-      'views/piano-roll/PianoRollView.svelte': ['Backspace', 'Delete', 'Escape'],
+      'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/play/PlayView.svelte': [],
+      'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],

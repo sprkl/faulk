@@ -14,9 +14,13 @@ import { expect, test } from '@playwright/test'
 //
 // A measurement, not a test: numbers are printed, the assertions prove the queue drained and the
 // stream was applied whole (count equal to the engine's own, nothing rejected, nothing skipped). The budget of MO-2 for a pump is 500 µs.
+// The first pump that applies anything is printed apart: it runs wasm code for the first time (V8 compiles a function at its first
+// call, #283). `FAULK_BENCH_WARM=<n>` sends the first n pushes before the measured window to show what a warm-up buys (the count
+// assertions are then skipped); `FAULK_BENCH_JSFLAGS` passes V8 flags to Chromium (see playwright.bench.config.ts).
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const STREAM = process.env.FAULK_BENCH_STREAM ?? ''
+const WARM = Number(process.env.FAULK_BENCH_WARM ?? 0)
 
 /** The fixture format of crates/engine-wasm/tests/parity.rs: the pushes, in order. */
 function pushes(path: string): Buffer[] {
@@ -40,6 +44,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
       clock: readFileSync(here('../../src/lib/engine/proto/clock-worker.js'), 'utf8'),
       prepare: readFileSync(here('../e2e/fixtures/measure-prepare.js'), 'utf8'),
       worklet: readFileSync(here('../e2e/fixtures/measure-worklet.js'), 'utf8'),
+      rpc: readFileSync(here('../e2e/fixtures/measure-rpc.js'), 'utf8'),
     }
     const all = pushes(STREAM)
     // Cross-origin isolation (shared memory), a blank page, the stream and the module.
@@ -57,7 +62,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
     try {
       await page.goto(origin + '/')
       const result = await page.evaluate(
-        async ({ sources, count }) => {
+        async ({ sources, count, warm }) => {
           const blob = (s: string) => URL.createObjectURL(new Blob([s], { type: 'text/javascript' }))
           const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
           const isolated = crossOriginIsolated
@@ -65,11 +70,30 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           const clock = new Int32Array(clockBuffer)
           const clockWorker = new Worker(blob(sources.clock))
           clockWorker.postMessage(clockBuffer)
+          const rpc = new Function(`return (${sources.rpc}
+)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
+          const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+            Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
+          // The counter's rate over a window (the Worker that spins is slow for its first few hundred ms, #283).
+          const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })
+          const rateSince = (m: { c: number; t: number }) => ((Atomics.load(clock, 0) - m.c) >>> 0) / ((performance.now() - m.t) * 1000)
+          const calibrate = async (ms: number) => {
+            const m = mark()
+            await sleep(ms)
+            return rateSince(m)
+          }
+          const settle = async () => {
+            const rates = [await calibrate(200)]
+            for (let i = 0; i < 40; i++) {
+              rates.push(await calibrate(200))
+              const [a, b, c] = rates.slice(-3)
+              // At least a second, and the last three windows within 10 % of each other.
+              if (rates.length >= 5 && Math.max(a, b, c) < 1.1 * Math.min(a, b, c)) return c
+            }
+            throw new Error('clock: the counter rate never settled')
+          }
           await sleep(100)
-          const c0 = Atomics.load(clock, 0)
-          const t0 = performance.now()
-          await sleep(300)
-          const ticksPerUs = ((Atomics.load(clock, 0) - c0) >>> 0) / ((performance.now() - t0) * 1000)
+          const ticksPerUs = await settle()
 
           let memory: WebAssembly.Memory | undefined
           for (const maximum of [65536, 32768, 16384]) {
@@ -83,35 +107,32 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           const bytes = await (await fetch('/engine.wasm')).arrayBuffer()
           const stream = new Uint8Array(await (await fetch('/stream')).arrayBuffer())
           const context = new AudioContext()
-          await context.resume()
+          await deadline(`audio context (state ${context.state})`, context.resume())
           const worker = new Worker(blob(sources.prepare))
-          const fromWorker: ((m: Record<string, unknown>) => void)[] = []
-          worker.onmessage = (e) => {
-            if (e.data.type === 'error') throw new Error(`prepare: ${e.data.message}`)
-            fromWorker.shift()?.(e.data)
-          }
-          const askWorker = (m: Record<string, unknown>) =>
-            new Promise<Record<string, unknown>>((resolve) => {
-              fromWorker.push(resolve)
-              worker.postMessage(m)
-            })
+          const askWorker = rpc(worker, 'prepare Worker', 60_000)
           const ready = await askWorker({ type: 'init', bytes: bytes.slice(0), memory, sampleRate: context.sampleRate })
           await context.audioWorklet.addModule(blob(sources.worklet))
           const node = new AudioWorkletNode(context, 'faulk-measure', { numberOfInputs: 0, outputChannelCount: [2] })
-          const fromWorklet: ((m: Record<string, unknown>) => void)[] = []
-          node.port.onmessage = (e) => {
-            if (e.data.type === 'error') throw new Error(`worklet: ${e.data.message}`)
-            fromWorklet.shift()?.(e.data)
+          const ask = rpc(node.port, 'worklet', 15_000)
+          // A trap inside `process` is reported on the node, not on its port.
+          node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
+          let since = mark()
+          const reset = async () => {
+            await ask({ type: 'reset' })
+            since = mark()
           }
-          const ask = (m: Record<string, unknown>) =>
-            new Promise<Record<string, unknown>>((resolve) => {
-              fromWorklet.push(resolve)
-              node.port.postMessage(m)
-            })
+          // The report is converted at the counter's rate over the window the reset opened.
+          const report = async () => {
+            const rate = rateSince(since)
+            await ask({ type: 'rate', ticksPerUs: rate })
+            return { ...(await ask({ type: 'report' })), rate } as unknown as Record<string, number>
+          }
           await ask({ type: 'init', bytes, memory, setup: ready.setup, clock: clockBuffer, ticksPerUs })
           node.connect(context.destination)
           await sleep(500)
-          const idle = (await ask({ type: 'report' })) as unknown as Record<string, number>
+          await reset()
+          await sleep(500)
+          const idle = await report()
           const memBefore = memory!.buffer.byteLength
 
           // Cut the stream into its pushes again (the file format: 0, u32 length, bytes).
@@ -123,9 +144,13 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
             at += 5 + (stream[at] === 0 ? n : 0)
           }
 
-          await ask({ type: 'reset' })
+          if (warm > 0) {
+            await askWorker({ type: 'push', streams: pushes.slice(0, warm) })
+            await sleep(500)
+          }
+          await reset()
           const start = performance.now()
-          await askWorker({ type: 'push', streams: pushes })
+          await askWorker({ type: 'push', streams: pushes.slice(warm) })
           let done = 0
           for (let i = 0; i < 600; i++) {
             const c = await askWorker({ type: 'counters' })
@@ -136,32 +161,37 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
             await sleep(50)
           }
           await sleep(300)
-          const swap = (await ask({ type: 'report' })) as unknown as Record<string, number>
+          const swap = await report()
+          // The rate again after the load: the counter must have kept its pace (#283).
+          const check = await calibrate(300)
           const counters = await askWorker({ type: 'counters' })
           clockWorker.terminate()
           worker.terminate()
-          await context.close()
-          return { isolated, ticksPerUs, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
+          await deadline(`closing the audio context (state ${context.state})`, context.close())
+          return { isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
         },
-        { sources, count: all.length },
+        { sources, count: all.length, warm: WARM },
       )
       const us = (n: number) => n.toFixed(2)
       const s = result.swap
       console.log(
         [
-          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs, cross-origin isolated ${result.isolated}`,
+          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs (window ${s.rate.toFixed(1)}, check ${result.check.toFixed(1)}), cross-origin isolated ${result.isolated}`,
           `  prepare and apply complete in ${result.done.toFixed(0)} ms wall from the first push to an empty queue (the worklet applies at most 128 messages per block)`,
-          `  worklet: ${s.applied} messages applied over ${s.blocks} blocks (at most ${s.maxApplied} per block), pump ${us(s.pumpUsPerMsg)} µs per message, longest pump ${us(s.pumpMaxUs)} µs, ${us(s.pumpUsPerCall)} µs per pump incl. empty ones; skipped ${s.skipped}; render-side allocations ${s.renderAllocs}, frees ${s.renderFrees}; silent blocks ${s.silent}`,
+          `  worklet: ${s.applied} messages applied over ${s.blocks} blocks (at most ${s.maxApplied} per block), pump ${us(s.pumpUsPerMsg)} µs per message, longest pump ${us(s.pumpMaxUs)} µs after the first one, which cost ${us(s.firstUs)} µs for ${s.firstApplied} messages (V8 compiles a wasm function on its first call), ${us(s.pumpUsPerCall)} µs per pump incl. empty ones; skipped ${s.skipped}; render-side allocations ${s.renderAllocs}, frees ${s.renderFrees}; silent blocks ${s.silent}`,
           `  prepare side: rejected ${result.counters.rejected}, codes ${JSON.stringify(result.counters.codes)}; tracks ${s.tracksHeld} in ${s.tracksCapacity} slots`,
           `  shared linear memory: ${(result.memBefore / 1048576).toFixed(0)} MiB before, ${(result.memAfter / 1048576).toFixed(0)} MiB after the whole project`,
         ].join('\n'),
       )
       expect(result.isolated).toBe(true)
       expect(result.done).toBeGreaterThan(0)
+      // The counter kept its pace between the calibration and the end (#283), or every figure is off.
+      expect(Math.abs(s.rate - result.check)).toBeLessThan(0.25 * result.check)
+      expect(Math.abs(result.ticksPerUs - result.check)).toBeLessThan(0.25 * result.check)
       // The whole stream was applied: the worklet's count equals the engine's own, and the
       // number of messages the native bench printed when set (2403 for the shipped stream).
-      expect(s.applied).toBe(s.hostApplied)
-      if (process.env.FAULK_BENCH_EXPECT_APPLIED) expect(s.applied).toBe(Number(process.env.FAULK_BENCH_EXPECT_APPLIED))
+      if (!WARM) expect(s.applied).toBe(s.hostApplied)
+      if (!WARM && process.env.FAULK_BENCH_EXPECT_APPLIED) expect(s.applied).toBe(Number(process.env.FAULK_BENCH_EXPECT_APPLIED))
       expect(result.counters.rejected).toBe(0)
       expect(result.counters.codes).toEqual([])
       expect(s.skipped).toBe(0)

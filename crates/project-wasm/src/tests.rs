@@ -512,6 +512,47 @@ fn open_replaces_the_project_or_changes_nothing() {
     assert_eq!(report["status"], "refused");
 }
 
+/// A folder saved before clips were named opens with its clips named, as the opening of a
+/// project and not as an edit: no history, nothing for the folder to lack (#316).
+#[test]
+fn opening_a_folder_with_unnamed_clips_names_them_without_an_edit() {
+    let source = Handle::new(KIND_EMPTY);
+    let track = source.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
+    let at = json!({"at": "arrangement", "start": 0});
+    source.apply(json!({"type": "clip.create", "track": track, "at": at}));
+    let mut old = source.state().clone();
+    for t in old.project.tracks.values_mut() {
+        for c in t.clips.values_mut() {
+            c.name.clear();
+        }
+    }
+    let (_, frame) = folder_of(&old, "old");
+
+    let h = Handle(pw_new(
+        KIND_SINGLE_SYNTH,
+        1,
+        1_760_000_000_000.0,
+        71,
+        72,
+        73,
+    ));
+    h.call0(pw_setup);
+    assert_eq!(h.stage_raw(&frame), 0);
+    let (report, _) = h.open("old");
+    assert_eq!(report["status"], "applied", "{report}");
+    let tracks = h.view()["project"]["tracks"].clone();
+    let names: Vec<&str> = tracks
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|t| t["clips"].as_object().unwrap().values())
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Clip 1"]);
+    assert_eq!(h.core().undo_depth(), 0, "no history entry");
+    assert!(!h.dirty(), "opening is not an edit");
+}
+
 #[test]
 fn a_malformed_folder_frame_stages_nothing() {
     let h = Handle::new(KIND_EMPTY);
@@ -561,10 +602,43 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_stage_stored(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_save(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_saved(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_dirty(core::ptr::null_mut()), ERR_NO_CORE);
         pw_free(core::ptr::null_mut());
+    }
+}
+
+#[test]
+fn project_list_stored_answers_with_the_list_the_page_staged_once() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let list = json!({
+        "recent": [{"id": "r1", "name": "Song"}],
+        "browser": [{"dir": "d1", "name": "Draft"}],
+    });
+    let text = list.to_string();
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_stored(h.0, text.len() as u32) }, 0);
+    let output = h.apply(json!({"type": "project.list_stored"}));
+    assert_eq!(output["recent"], list["recent"]);
+    assert_eq!(output["browser"], list["browser"]);
+    // It served one answer: asking again gives nothing, never an old list.
+    let output = h.apply(json!({"type": "project.list_stored"}));
+    assert_eq!(output["recent"], json!([]));
+    assert_eq!(output["browser"], json!([]));
+    // A list that is not a list is refused and stages nothing (including an unknown field).
+    for bad in ["{", "[]", r#"{"recent":[],"browser":[],"extra":1}"#] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(
+            unsafe { pw_stage_stored(h.0, bad.len() as u32) },
+            ERR_BAD_INPUT,
+            "{bad}"
+        );
+        let output = h.apply(json!({"type": "project.list_stored"}));
+        assert_eq!(output["recent"], json!([]), "{bad}");
     }
 }
 

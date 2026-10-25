@@ -98,6 +98,7 @@ pub fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) ->
         scene_ids.push(id);
         order = Some(key);
     }
+    let mut clip_count = 0usize;
     let mut order: Option<OrderKey> = None;
     for spec in tracks {
         let key = OrderKey::between(None, order.as_ref()).unwrap();
@@ -211,7 +212,11 @@ pub fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) ->
             track.clips.insert(
                 id,
                 Clip {
-                    name: String::new(),
+                    // Named, as a clip is since it is created: opening names the others.
+                    name: {
+                        clip_count += 1;
+                        format!("Clip {clip_count}")
+                    },
                     color: None,
                     slot,
                     launch_quantize: None,

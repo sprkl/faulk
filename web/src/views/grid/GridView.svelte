@@ -12,12 +12,14 @@
   import { tick, untrack } from 'svelte'
   import type { ClipState } from '../../lib/engine/feedback'
   import type { Command } from '../../lib/generated/protocol'
+  import { barStart, placeFromSlot, placeScene } from '../../lib/arrangement-commands'
+  import { barTicks } from '../transport/time'
   import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
   import { trackLabel } from '../../lib/project/tracks'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
-  import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, clipNumbers, sortedScenes, visibleRange } from './cells'
+  import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
@@ -57,16 +59,13 @@
   }
   const clips = $derived(project.view ? cellClips(project.view.project) : new Map())
   const counts = $derived(clipCounts(clips))
-  const numbers = $derived(project.view ? clipNumbers(project.view.project) : new Map<string, number>())
   /** Where each clip of the grid sits, by clip. */
   const homes = $derived(clipHomes(clips))
-  /** The name of a clip: its own, or "Clip n" as the piano roll calls it; an audio clip has no number. */
-  const nameOf = (id: string, clip: { name: string }) => {
-    const own = clip.name.trim()
-    if (own) return own
-    const n = numbers.get(id)
-    return n === undefined ? t('grid.clipPlain') : t('grid.clipDefault', { n })
-  }
+  /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
+  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
+  const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
+  /** The name of a clip: the one stored in the project (every MIDI clip has one); an audio clip without a name is just "Clip". */
+  const nameOf = (clip: { name: string }) => clip.name.trim() || t('grid.clipPlain')
   // The report comes about 30 times a second: the cells depend on this signature, which changes only with a state.
   const signature = $derived(engine.started ? activeSignature(engine.feedback) : '')
   const active = $derived.by(() => {
@@ -292,11 +291,29 @@
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
+  /** The bar the play position is in: where a clip or a scene sent to the arrangement is put. */
+  function sendTick(): number {
+    const signature = project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 }
+    return barStart(engine.started ? (engine.feedback?.playheadTick ?? 0) : 0, barTicks(signature))
+  }
+
+  function sendToArrangement(id: string, linked: boolean) {
+    cellMenu = null
+    if (!homes.has(id)) return
+    run(placeFromSlot(id, sendTick(), linked))
+    void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  function sendSceneToArrangement(scene: string, linked: boolean) {
+    menuFor = null
+    run(placeScene(scene, sendTick(), linked))
+  }
+
   async function startClipRename(id: string) {
     const home = homes.get(id)
     if (!home?.cell.launchable) return
     cellMenu = null
-    clipDraft = nameOf(id, home.cell.clip)
+    clipDraft = nameOf(home.cell.clip)
     renamingClip = id
     await tick()
     clipField?.focus()
@@ -310,9 +327,8 @@
     if (!home) return
     const name = clipDraft.trim()
     const stored = home.cell.clip.name.trim()
-    // An unchanged default name stays unnamed; anything else is the user's.
-    const unchanged = name === stored || (stored === '' && name === nameOf(id, home.cell.clip))
-    if (commit && !unchanged) run(renameClip(id, name))
+    // An empty name asks for the default one: the command gives a MIDI clip the next "Clip n".
+    if (commit && name !== stored) run(renameClip(id, name))
   }
 
   function onClipRenameKey(event: KeyboardEvent, id: string) {
@@ -371,7 +387,7 @@
       const home = homes.get(press.clip)
       if (!home) return endPress()
       press.active = true
-      dragging = { clip: press.clip, name: nameOf(press.clip, home.cell.clip) }
+      dragging = { clip: press.clip, name: nameOf(home.cell.clip) }
     }
     dragAt = { x: event.clientX, y: event.clientY }
     dragCopy = event.altKey
@@ -597,6 +613,8 @@
                 <button role="menuitem" type="button" onclick={() => startRename(sc.id, si)}>{t('grid.rename')}</button>
                 <button role="menuitem" type="button" disabled={si === 0} onclick={() => move(sc.id, si - 1)}>{t('grid.moveUp')}</button>
                 <button role="menuitem" type="button" disabled={si === scenes.length - 1} onclick={() => move(sc.id, si + 1)}>{t('grid.moveDown')}</button>
+                <button role="menuitem" type="button" data-testid="scene-send" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, false)}>{t('grid.sendScene')}</button>
+                <button role="menuitem" type="button" data-testid="scene-send-linked" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, true)}>{t('grid.sendSceneLinked')}</button>
                 <button role="menuitem" type="button" data-testid="scene-delete" onclick={() => requestDelete(sc.id)}>{t('grid.delete')}</button>
               </div>
             {:else if confirmFor === sc.id}
@@ -617,7 +635,7 @@
             {@const label = trackLabel(entry, t)}
             {@const here = tabCell === key}
             {#if cell}
-              {@const clipName = nameOf(cell.id, cell.clip)}
+              {@const clipName = nameOf(cell.clip)}
               {@const reported = active.get(key)}
               {@const state = reported?.restarting ? 'restarting' : (reported?.state ?? 'idle')}
               <div class="slot" class:open={cellMenu === cell.id} role="gridcell" aria-colindex={entry.index + 2} style:--track-color={entry.track.color ?? undefined} data-slot-clip={cell.id} onkeydown={onSlotKey} onfocusout={onSlotFocusOut}>
@@ -663,6 +681,8 @@
                     <div class="pop cpop" role="menu" data-testid="clip-menu">
                       <button role="menuitem" type="button" data-testid="clip-menu-rename" onclick={() => startClipRename(cell.id)}>{t('grid.rename')}</button>
                       <button role="menuitem" type="button" data-testid="clip-menu-duplicate" disabled={freeBelow(entry.id, si) === null} onclick={() => duplicateFromMenu(cell.id)}>{t('grid.duplicate')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-send" onclick={() => sendToArrangement(cell.id, false)}>{t('grid.send')}</button>
+                      <button role="menuitem" type="button" data-testid="clip-menu-send-linked" onclick={() => sendToArrangement(cell.id, true)}>{t('grid.sendLinked')}</button>
                       <button role="menuitem" type="button" data-testid="clip-menu-delete" onclick={() => removeClip(cell.id, entry.index, si)}>{t('grid.delete')}</button>
                     </div>
                   {/if}

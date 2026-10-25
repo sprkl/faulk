@@ -13,6 +13,7 @@
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, viewById } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
+  import { clampHeight, panelMax } from './panel-size'
   import ExportDialog from './ExportDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
@@ -24,6 +25,13 @@
   const { engine, ui, dispatcher, storage } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
+
+  // The panel's row: folded to its tabs, or the height the user gave this view; else the stylesheet's default.
+  let bodyHeight = $state(0)
+  const stored = $derived(ui.panelHeights[ui.panel])
+  const panelRow = $derived(
+    ui.panelCollapsed ? 'auto' : stored === undefined ? undefined : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
+  )
 
   onMount(() => {
     void dispatcher.checkHelper()
@@ -59,7 +67,8 @@
     const action = historyShortcut(event)
     if (!action) return
     event.preventDefault()
-    dispatcher.run(action === 'undo' ? undo() : redo())
+    // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
+    dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
   }
 
   $effect(() => {
@@ -100,12 +109,16 @@
   {#if engine.pairingMessage && ui.view !== 'play'}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
-  <div class="body" data-panel={ui.panel}>
+  {#if engine.refusal}
+    {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
+    <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
+  {/if}
+  <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
     <main class="main" aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       <current.component />
     </main>
-    <BottomPanel />
+    <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
   </div>
 </div>
 
@@ -124,12 +137,28 @@
     border-bottom: 1px solid var(--fk-line);
     background: var(--fk-surface);
   }
+  /* A refusal of the core: temporary, over the page, never in the way of a click. */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: var(--fk-space-4);
+    transform: translateX(-50%);
+    z-index: 50;
+    max-width: min(32rem, calc(100vw - 2 * var(--fk-space-4)));
+    margin: 0;
+    padding: var(--fk-space-2) var(--fk-space-4);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-surface);
+    box-shadow: var(--fk-shadow-float);
+    pointer-events: none;
+  }
   .body {
     flex: 1;
     min-height: 0;
     display: grid;
     grid-template-columns: 272px minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(120px, 28%);
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(120px, 28%));
     grid-template-areas:
       'tracks main'
       'tracks panel';
@@ -137,7 +166,7 @@
   /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
   .body[data-panel='piano-roll'] {
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
-    grid-template-rows: minmax(0, 1fr) minmax(240px, 1.2fr);
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(360px, 1.2fr));
   }
   .main {
     grid-area: main;

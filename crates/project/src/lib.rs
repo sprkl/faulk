@@ -19,6 +19,7 @@ pub mod file;
 pub mod ids;
 pub mod limits;
 pub mod model;
+pub mod names;
 pub mod order;
 pub mod serde_util;
 pub mod session;

@@ -5,7 +5,7 @@
 //! adapter) and every hosted plugin wrapper implements the [`Device`] trait and has a
 //! static [`DeviceDescriptor`]. This module declares the contract; it holds no device: the
 //! built-in devices and their registry are in [`crate::devices`] (DV-1: the synth,
-//! [`crate::devices::osc_synth`]). The shared parameter smoother is AM-3's; routing the
+//! [`crate::devices::osc_synth`]). The shared parameter smoother is [`crate::param::Smoother`] (AM-3); routing the
 //! events of a track and splitting blocks at loop wraps is MO-4's ([`crate::events`]).
 //!
 //! # The chain of a track
@@ -60,7 +60,11 @@
 //! value at frame `k + i` is `start + (target − start) · min(i, n) / n`, `start` being the
 //! value at frame `k`: a linear ramp that reaches the target exactly `n` frames after the
 //! event. A new value during a ramp starts a new ramp from where the value is. Stepped and
-//! enumerated parameters are never smoothed.
+//! enumerated parameters are never smoothed. The ramp above is the only response the
+//! smoothing time describes. A parameter whose response is the device's own (the Echo's
+//! delay time: an exponential glide, a crossfade or a jump, chosen by another parameter)
+//! declares a smoothing of 0 and says in its `description` which parameter sets the response;
+//! that parameter's description tells each response (issue #342).
 //! [`Device::set_param`] (a value set by hand or by an agent, `RtMsg::ParamSet`) behaves as a
 //! [`Event::ParamValue`] at offset 0 of the next block. [`Device::reset`] snaps every
 //! smoothed value to its target.
@@ -464,6 +468,11 @@ pub trait Device: Send {
     /// targets; parameter values are kept. The engine also calls it on the audio thread when
     /// an audio effect is switched on or off: it must take constant time and allocate nothing
     /// (never wipe a large buffer there: hide its content with a counter or a flag).
+    ///
+    /// It is also the hard cut of `ControlMsg::AllSoundOff` (#331): after a fade of the output,
+    /// the engine calls it on every device of every track, so a device must leave no voice
+    /// and no tail (delay line, reverb tank, filter memory) behind. A device without a
+    /// `reset` does not compile, which keeps a future effect from ringing through a cut.
     fn reset(&mut self);
 
     /// Voices sounding after the last block, releasing ones included, for the visual

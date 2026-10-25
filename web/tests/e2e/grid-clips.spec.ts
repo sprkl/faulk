@@ -61,8 +61,9 @@ test('grid: delete, rename, duplicate, copy and move a clip from its cell', asyn
   await expect(page.getByTestId('grid')).toBeVisible()
   const origin = at(page, 0, 0)
 
-  // The default name is the piano roll's "Clip n".
+  // The default name is stored in the project at creation, and every view shows it.
   await expect(origin).toContainText('Clip 1')
+  expect((await view()).tracks[midi[0]!]!.clips[clipId]!.name).toBe('Clip 1')
 
   // Delete: a playing clip stops cleanly, the cell empties, one undo brings the clip back with its notes.
   await origin.click()

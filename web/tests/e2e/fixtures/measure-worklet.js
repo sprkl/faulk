@@ -1,10 +1,17 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck: plain JavaScript loaded from a blob by engine-mo2.spec.ts only (MO-2, #55).
+// @ts-nocheck: plain JavaScript loaded from a blob by engine-mo2.spec.ts and tests/bench/engine-swap.bench.ts (MO-2, #55; QA-7, #130).
 /* global AudioWorkletProcessor, registerProcessor */
 // What src/lib/engine/worklet.ts does, with the pump timed apart: `fk_render` is exactly
 // `fk_pump` then `fk_render_block`, and the clock (a Worker spinning on a shared counter, as
 // in CT-3: an AudioWorkletGlobalScope has no `performance`) is read around `fk_pump`.
 // `process` allocates nothing: plain numbers updated in place.
+// The counter's rate is not constant: the spinning Worker runs about six times slower while its
+// loop is still in V8's baseline tier (a few hundred ms after it starts), then speeds up and
+// follows the core's frequency (#283). The page therefore calibrates over the very window it
+// measures and hands the rate over (`rate`) just before it asks for the report.
+// The first pump that applies anything after a reset is kept apart (`firstUs`): V8 compiles a
+// wasm function on its first call (lazy compilation), so that pump runs code for the first time
+// and costs several times a warm one; `pumpMaxUs` is the longest of the others.
 const wasi = () => ({
   random_get: () => 0,
   environ_get: () => 0,
@@ -21,7 +28,7 @@ class Measure extends AudioWorkletProcessor {
   constructor() {
     super()
     this.e = null
-    this.stats = { blocks: 0, silent: 0, pumpTicks: 0, busyTicks: 0, pumpMax: 0, pumpCalls: 0, applied: 0, maxApplied: 0, views: 0, peak: 0 }
+    this.stats = { blocks: 0, silent: 0, pumpTicks: 0, busyTicks: 0, pumpMax: 0, firstTicks: 0, firstApplied: 0, pumpCalls: 0, applied: 0, maxApplied: 0, views: 0, peak: 0 }
     this.port.onmessage = (event) => {
       const m = event.data
       try {
@@ -39,6 +46,9 @@ class Measure extends AudioWorkletProcessor {
           this.allocs0 = e.fk_allocs(2)
           this.frees0 = e.fk_frees(2)
           this.port.postMessage({ type: 'ready', role: e.fk_role() })
+        } else if (m.type === 'rate') {
+          this.ticksPerUs = m.ticksPerUs
+          this.port.postMessage({ type: 'rate' })
         } else if (m.type === 'reset') {
           for (const k of Object.keys(this.stats)) this.stats[k] = 0
           this.port.postMessage({ type: 'reset' })
@@ -51,6 +61,7 @@ class Measure extends AudioWorkletProcessor {
             pumpUsPerMsg: s.applied ? s.busyTicks / s.applied / this.ticksPerUs : 0,
             pumpUsPerCall: s.pumpCalls ? s.pumpTicks / s.pumpCalls / this.ticksPerUs : 0,
             pumpMaxUs: s.pumpMax / this.ticksPerUs,
+            firstUs: s.firstTicks / this.ticksPerUs,
             renderAllocs: e.fk_allocs(2) - this.allocs0,
             renderFrees: e.fk_frees(2) - this.frees0,
             hostApplied: e.fk_host_counter(this.ch, 0),
@@ -81,7 +92,10 @@ class Measure extends AudioWorkletProcessor {
     if (applied > 0) {
       s.busyTicks += took
       s.applied += applied
-      if (took > s.pumpMax) s.pumpMax = took
+      if (s.firstApplied === 0) {
+        s.firstTicks = took
+        s.firstApplied = applied
+      } else if (took > s.pumpMax) s.pumpMax = took
       if (applied > s.maxApplied) s.maxApplied = applied
     }
     const out = outputs[0]

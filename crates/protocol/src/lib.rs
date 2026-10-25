@@ -9,7 +9,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 7;
+
+// Version 7 (#83): the commands gain `clip.notes.quantize`, `clip.notes.transpose` and `clip.notes.duplicate`.
+
+// Version 6 (#331): the commands gain `live.all_sound_off`, and the engine's control stream gains
+// the `AllSoundOff` message (tag 93).
 
 // Version 5 (#314): the feedback reports a track the launch grid holds without a clip as
 // `ClipState::Held` (wire value 5), and the commands gain `launch.back_track_to_arrangement`.

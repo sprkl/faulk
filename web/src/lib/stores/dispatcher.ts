@@ -4,10 +4,18 @@ import { peakOf } from '../engine/feedback'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
-import type { Command, ProjectEvent } from '../generated/protocol'
+import type { Command, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
-import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry } from '../project/core'
-import { isSaveCommand, isStorageCommand, newProject as newProjectCommand } from '../project-commands'
+import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
+import {
+  isListStored,
+  isNewProject,
+  isSaveCommand,
+  isStorageCommand,
+  isStoredProjectCommand,
+  listStored as listStoredCommand,
+  newProject as newProjectCommand,
+} from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
@@ -16,10 +24,14 @@ import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, WEB_ONLY_NOTICE, type OpenOutcome, type OpenRefusal } from './open'
 import type { ProjectStore } from './project.svelte'
+import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 
 /** The epoch of the first engine stream of the page's project core (newer than a fresh engine's 0). */
 const FIRST_EPOCH = 1
+
+/** How long a refusal stays on screen, in milliseconds. */
+export const REFUSAL_TOAST_MS = 6000
 
 /**
  * The only path from the UI to an engine: every user action is a `Command` passed to `run`.
@@ -183,6 +195,7 @@ export class Dispatcher {
     const step = engineStep(() => core.run(newProjectCommand()))
     if ('refused' in step) {
       console.warn('the project refused project.new', step.refused)
+      this.showRefusal(step.refused)
       return false
     }
     await this.adopt(core, step)
@@ -239,6 +252,7 @@ export class Dispatcher {
     projectName: () => this.project.view?.project.name ?? null,
     packExport: async (files) => (await this.ensureCore()).packExport(files),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
+    prepare: async () => void (await this.ensureCore()),
   }
 
   /** The project's storage; set once by `createStores`. */
@@ -249,7 +263,8 @@ export class Dispatcher {
 
   /** What the audio export needs of the page's project. */
   readonly exportHost: ExportHost = {
-    run: (command) => this.run(command),
+    // The dialog shows the refusal of the export itself.
+    run: (command) => this.run(command, { quiet: true }),
     songBars: () => {
       const view = this.project.view
       if (!view) return 1
@@ -265,7 +280,7 @@ export class Dispatcher {
     projectName: () => this.project.view?.project.name ?? '',
     hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
-    folder: () => this.storage?.folderHandle() ?? null,
+    folder: async () => (await this.storage?.folderHandle()) ?? null,
   }
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
@@ -355,15 +370,38 @@ export class Dispatcher {
    * engine gets what it means for it; the project store gets the events; the page-local
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
-  run(command: Command) {
+  run(command: Command, options: { quiet?: boolean } = {}) {
+    // A query that waits for the storage: it answers asynchronously, with the lists it read.
+    if (isListStored(command)) {
+      void this.listStored().catch((error: unknown) => console.error(error))
+      return
+    }
+    // Replaces the project: the storage asks before the core does, whoever sends it (a click or an agent).
+    // The question is a dialog of the page and needs no click. Works before audio starts, like opening.
+    if (isNewProject(command)) {
+      // Without a storage (a bare dispatcher) nothing is kept anywhere, so there is nothing to ask about.
+      void (this.storage ? this.storage.newProject() : this.newProject()).catch((error: unknown) => console.error(error))
+      return
+    }
     const core = this.core
+    // The banner that offers the project of last time shows on a fresh page, before any core exists: the
+    // core is made, then the command runs (a click's permission to prompt outlasts the few milliseconds).
+    if (!core && isStoredProjectCommand(command)) {
+      void this.ensureCore().then(
+        () => this.run(command, options),
+        (error: unknown) => console.error(error),
+      )
+      return
+    }
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
     // Saving needs none: it is about the folder.
     if (!core || (!this.engine && !isSaveCommand(command))) return
     const step = engineStep(() => core.run(command))
     if ('refused' in step) {
-      // The views only send commands the project takes: a refusal is a page bug.
+      // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
+      // so a refusal is the core's: the user is told, the developer message stays in the console.
       console.warn('the project refused a command', command, step.refused)
+      if (!options.quiet) this.showRefusal(step.refused)
       return
     }
     this.mirror(step.events)
@@ -389,11 +427,59 @@ export class Dispatcher {
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
       importPack: () => void this.storage?.importPack(),
+      reopenLast: () => void this.storage?.reopenLast(),
+      openFolder: () => void this.storage?.openFolder(),
+      openRecent: (id) => void this.storage?.openRecent(id),
+      openBrowserProject: (dir) => void this.storage?.openBrowserProject(dir),
+      deleteBrowserProject: (dir) => void this.storage?.deleteBrowserProject(dir),
+      keepMine: () => void this.storage?.keepMine(),
+      loadFolderVersion: () => void this.storage?.loadDisk(),
+      allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
-      projectReplaced: () => this.storage?.forgetFolder(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
+  }
+
+  /**
+   * `project.list_stored`: the storage reads the folders and the browser's projects again, stages what it
+   * found in the core (`Context::stored`) and the command answers with it. The projects the page can open,
+   * newest first. The core is made when none exists yet (the page lists before audio starts).
+   */
+  async listStored(): Promise<StoredProjects> {
+    const core = await this.ensureCore()
+    if (this.storage) {
+      await this.storage.refreshStored()
+      core.stageStored({
+        recent: this.storage.recent.map(({ id, name }) => ({ id, name })),
+        browser: this.storage.browserProjects.map(({ dir, name }) => ({ dir, name })),
+      })
+    }
+    const { report } = core.run(listStoredCommand())
+    if (report.status !== 'applied' || !('recent' in report.output)) {
+      throw new Error(`project.list_stored: ${JSON.stringify(report)}`)
+    }
+    return { recent: report.output.recent, browser: report.output.browser }
+  }
+
+  private refusalTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * Tells the user a command was refused: one toast at a time. A refusal replaces the one shown;
+   * the same one again only raises its count, so a burst never piles up. A report that is not a
+   * refusal (a malformed command, a page bug) shows nothing.
+   */
+  private showRefusal(report: RunReport) {
+    if (report.status !== 'refused') return
+    const next = refusalOf(report.error)
+    const shown = this.state.refusal
+    const same = shown && shown.key === next.key && shown.whatKey === next.whatKey && shown.vars.max === next.vars.max
+    this.state.refusal = { ...next, count: same ? shown.count + 1 : 1 }
+    if (this.refusalTimer) clearTimeout(this.refusalTimer)
+    this.refusalTimer = setTimeout(() => {
+      this.refusalTimer = null
+      this.state.refusal = null
+    }, REFUSAL_TOAST_MS)
   }
 
   /** Feeds the project store with the events of an applied command. */

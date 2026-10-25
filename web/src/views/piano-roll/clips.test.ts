@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Clip, Track } from '../../lib/generated/protocol'
-import { clipLabel, editedClip, midiClips } from './clips'
+import { clipLabel, clipOrigin, editedClip, midiClips } from './clips'
 
 const midi = (name = ''): Clip => ({ name, content: { midi: { length: 3840, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] } } })
 const audio = (): Clip => ({ name: 'a', content: { audio: { frames: 10, media: 'm', source_start: 0 } } }) as unknown as Clip
@@ -30,10 +30,21 @@ describe('the clips the roll offers', () => {
     expect(editedClip([], 'a')).toBeNull()
   })
 
-  it('names a clip by its own name or by its place', () => {
-    const [a, b] = midiClips(track({ a: midi('Bass'), b: midi('  ') }))
-    const fallback = (n: number) => `Clip ${n}`
-    expect(clipLabel(a!, 0, fallback)).toBe('Bass')
-    expect(clipLabel(b!, 1, fallback)).toBe('Clip 2')
+  it('names a clip by the name the project stores, whatever its place in the list', () => {
+    const [a, b, c] = midiClips(track({ a: midi('Clip 7'), b: midi('Bass'), c: midi('  ') }))
+    expect(clipLabel(a!, 'Clip')).toBe('Clip 7')
+    expect(clipLabel(b!, 'Clip')).toBe('Bass')
+    expect(clipLabel(c!, 'Clip')).toBe('Clip')
+  })
+
+  it('says where a clip comes from: its grid cell, the arrangement, or both', () => {
+    const inGrid = (name: string, slot: string): Clip => ({ ...midi(name), slot }) as Clip
+    const t = track({ g: inGrid('G', 's2'), p: midi('P'), both: inGrid('B', 's1'), none: midi('N') }, { p1: ['p', 0], p2: ['both', 0] })
+    const by = Object.fromEntries(midiClips(t).map((c) => [c.id, c]))
+    const labels = { grid: (id: string) => `Grid · Scene ${id.slice(1)}`, arrangement: (start: number) => `Arrangement · ${start}` }
+    expect(clipOrigin(by.g!, labels)).toBe('Grid · Scene 2')
+    expect(clipOrigin(by.p!, labels)).toBe('Arrangement · 0')
+    expect(clipOrigin(by.both!, labels)).toBe('Grid · Scene 1, Arrangement · 0')
+    expect(clipOrigin(by.none!, labels)).toBe('')
   })
 })

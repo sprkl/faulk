@@ -95,6 +95,7 @@ class FakeStore implements ProjectStore {
 
 /** The core, reduced to its revision counter: `save` gives one file, `project.json`, that carries the revision. */
 class FakeHost implements ProjectHost {
+  prepare?: () => Promise<void>
   revision = 0
   clean = 0
   pending = 0
@@ -322,6 +323,14 @@ function world(): World {
 /** Lets promise chains run without moving the clock. */
 const settle = () => vi.advanceTimersByTimeAsync(0)
 
+/** Lets a question the storage asks open, answers it (yes goes ahead), and gives what the action came to. */
+async function settling<T>(w: World, action: Promise<T>, yes: boolean): Promise<T> {
+  await settle()
+  expect(w.storage.confirm).not.toBeNull()
+  w.storage.respond(yes)
+  return action
+}
+
 /** A world whose project was saved as into a folder called `name`. */
 async function saved(name = 'song') {
   const w = world()
@@ -376,6 +385,35 @@ describe('save as', () => {
     expect(w.storage.savedAt).toBe(Date.now())
     expect(w.locks).toEqual(new Set(['project-1']))
     expect(w.recents.map((r) => r.name)).toEqual(['song'])
+  })
+
+  it('does not say saved before the project is remembered: a reload right then must still offer it', async () => {
+    const w = world()
+    const handle = handleOf('song')
+    w.picks.push({ status: 'chosen', handle })
+    w.edit()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const remember = w.deps.recent.remember
+    let reached = false
+    w.deps.recent.remember = async (h) => {
+      reached = true
+      await gate
+      await remember(h)
+    }
+    const done = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    // The folder is written but not yet among the recent projects: a page reloaded now finds nothing to offer.
+    expect(w.recents).toEqual([])
+    expect(w.storage.status).not.toBe('saved')
+    expect(w.storage.savedAt).toBeNull()
+    release()
+    expect(await done).toBe(true)
+    expect(w.recents.map((r) => r.name)).toEqual(['song'])
+    expect(w.storage.status).toBe('saved')
+    expect(w.storage.savedAt).toBe(Date.now())
   })
 
   it('leaves everything as it was when the user cancels, or the browser refuses the folder', async () => {
@@ -772,14 +810,48 @@ describe('a new project', () => {
     expect(w.storage.unsaved).toBe(false)
   })
 
-  it('a project.new run as a command forgets the folder at once', async () => {
-    const { w, store } = await saved()
-    w.storage.forgetFolder()
-    await settle()
-    expect(w.storage.folder).toBeNull()
+  it('Cancel on a project with no folder leaves the project, its changes and the core untouched (#346)', async () => {
+    const w = world()
     w.edit()
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS)
-    expect(store.applied.length).toBe(1)
+    const asking = w.storage.newProject()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'new', name: null })
+    // Nothing was replaced while the question is open.
+    expect(w.host.news).toBe(0)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.host.news).toBe(0)
+    expect(w.storage.unsaved).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+  })
+
+  it('Cancel on a project in a folder keeps the folder attached and its changes written (#346)', async () => {
+    const { w, store } = await saved()
+    // A write that cannot happen: the changes are kept nowhere, so the user is asked.
+    w.permission.set(w.stores.keys().next().value!, 'prompt')
+    w.edit()
+    const asking = w.storage.newProject()
+    await settle()
+    expect(w.storage.confirm?.action).toBe('new')
+    expect(w.host.news).toBe(0)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.host.news).toBe(0)
+    expect(w.storage.folder).toEqual({ name: 'song' })
+    expect(store.closed).toBe(false)
+  })
+
+  it('a second new project waits for the first question, and asks nothing once the first replaced the project', async () => {
+    const w = world()
+    w.edit()
+    const first = w.storage.newProject()
+    const second = w.storage.newProject()
+    await settle()
+    w.storage.respond(true)
+    expect(await first).toBe(true)
+    expect(await second).toBe(true)
+    expect(w.host.news).toBe(2)
+    expect(w.storage.confirm).toBeNull()
   })
 })
 
@@ -814,7 +886,7 @@ describe('the folder is edited from outside', () => {
     await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS * 2)
     expect(store.files.get('project.json')).toBe('from git')
 
-    expect(await w.storage.keepMine()).toBe(true)
+    expect(await settling(w, w.storage.keepMine(), true)).toBe(true)
     expect(w.host.saves.at(-1)).toBe('rewrite')
     expect(store.files.get('project.json')).toBe('rev 2')
     expect(w.storage.block).toBeNull()
@@ -824,7 +896,7 @@ describe('the folder is edited from outside', () => {
     await w.storage.wake()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.storage.block).toBe('external')
-    expect(await w.storage.loadDisk()).toBe(true)
+    expect(await settling(w, w.storage.loadDisk(), true)).toBe(true)
     expect(w.host.opened.length).toBe(1)
     expect(w.storage.block).toBeNull()
     expect(w.storage.unsaved).toBe(false)
@@ -840,7 +912,7 @@ describe('the folder is edited from outside', () => {
     await w.storage.wake()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.storage.block).toBe('external')
-    expect(await w.storage.keepMine()).toBe(true)
+    expect(await settling(w, w.storage.keepMine(), true)).toBe(true)
     expect([...store.files.keys()].sort()).toEqual(['blobs/audio', 'project.json'])
     expect(store.files.get('project.json')).toBe('rev 2')
   })
@@ -1218,6 +1290,209 @@ describe('save as from a draft', () => {
     expect(w.host.saves.at(-1)).toBe('changed')
   })
 
+  it('deletes the draft before it says saved: a reload right then cannot find the project twice', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const seen: { place: string; savedAt: number | null; status: string }[] = []
+    const remove = w.browser.remove.bind(w.browser)
+    w.browser.remove = async (d) => {
+      seen.push({ place: w.storage.place, savedAt: w.storage.savedAt, status: w.storage.status })
+      await gate
+      await remove(d)
+    }
+    const done = w.storage.saveAs()
+    for (let i = 0; i < 200 && !seen.length; i++) await Promise.resolve()
+    expect(seen.length).toBe(1)
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    // The draft is being deleted: the page does not say the folder holds the project yet.
+    expect(w.storage.place).not.toBe('folder')
+    release()
+    expect(await done).toBe(true)
+    expect(w.browser.removed).toEqual([dir])
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+    expect(w.storage.savedAt).toBe(Date.now())
+  })
+
+  it('keeps the draft when the folder did not make it into the recent projects (remember reports no failure)', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    w.deps.recent.remember = async () => undefined
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+    expect(w.browser.removed).toEqual([])
+    expect(w.browser.handles.has(dir)).toBe(true)
+  })
+
+  it('keeps the draft’s directory lock until the draft is gone, and gives it back whatever happened', async () => {
+    const { w, dir } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    const locked: boolean[] = []
+    const remove = w.browser.remove.bind(w.browser)
+    w.browser.remove = async (d) => {
+      locked.push([...w.locks].some((l) => l.includes(dir)))
+      await remove(d)
+    }
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(locked).toEqual([true])
+    expect([...w.locks].some((l) => l.includes(dir))).toBe(false)
+    // And when the removal throws.
+    const again = await drafted()
+    again.w.picks.push({ status: 'chosen', handle: handleOf('song2') })
+    again.w.browser.remove = async () => {
+      throw new Error('locked')
+    }
+    expect(await again.w.storage.saveAs()).toBe(true)
+    expect([...again.w.locks].some((l) => l.includes(again.dir))).toBe(false)
+  })
+
+  it('does not hold Save or the export folder back for ever when an attach fails', async () => {
+    const { w } = await saved()
+    const other = handleOf('other')
+    w.picks.push({ status: 'chosen', handle: other })
+    // A copy has its own identity (the core gives it one).
+    w.host.id = 'project-copy'
+    w.deps.openStore = async (handle) => {
+      const s = new FakeStore(handle.name)
+      s.cleanUp = async () => {
+        throw new Error('cleanup')
+      }
+      w.stores.set(handle, s)
+      return s
+    }
+    w.edit()
+    await w.storage.saveAs().catch(() => undefined)
+    // Whatever became of the failed attach, the next calls are not left waiting on it.
+    expect(await w.storage.folderHandle()).toBe(other)
+    expect(await w.storage.save()).toBe(true)
+    expect(w.host.saves.at(-1)).toBe('forced')
+  })
+
+  it('still says saved when the draft cannot be deleted (the folder holds the project, a leftover draft is harmless)', async () => {
+    const { w } = await drafted()
+    w.picks.push({ status: 'chosen', handle: handleOf('song') })
+    w.browser.remove = async () => {
+      throw new Error('locked')
+    }
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(w.storage.status).toBe('saved')
+  })
+
+  it.each(['remember', 'remove'] as const)('orders Save and the export folder after a move into a folder under way (held at %s): the new folder, never a second pick', async (hold) => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    w.picks.push({ status: 'chosen', handle: folder })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached = false
+    const remove = w.browser.remove.bind(w.browser)
+    const remember = w.deps.recent.remember
+    // Held at `remember`, the draft is still the project's home; at `remove` it is detached and nobody is current.
+    if (hold === 'remember')
+      w.deps.recent.remember = async (h) => {
+        reached = true
+        await gate
+        await remember(h)
+      }
+    else
+      w.browser.remove = async (d) => {
+        reached = true
+        await gate
+        await remove(d)
+      }
+    const moving = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    // A second pick must never be needed: Save finds the folder once the move is over.
+    w.picks.push({ status: 'chosen', handle: handleOf('other') })
+    const handle = w.storage.folderHandle()
+    const saving = w.storage.save()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    release()
+    expect(await moving).toBe(true)
+    expect(await handle).toBe(folder)
+    expect(await saving).toBe(true)
+    expect(w.picks.length).toBe(1)
+    expect(w.host.saves.at(-1)).toBe('forced')
+    expect(w.storage.folder).toEqual({ name: 'song' })
+  })
+
+  it('answers the export folder: nothing without a project, and without waiting for an ordinary write (the file dialog needs the click)', async () => {
+    const w = world()
+    expect(await w.storage.folderHandle()).toBeNull()
+    const { w: s, store, handle } = await saved()
+    let release!: () => void
+    store.hold = new Promise<void>((resolve) => (release = resolve))
+    s.edit()
+    const writing = s.storage.flush()
+    let answered = false
+    const asked = s.storage.folderHandle().then((h) => ((answered = true), h))
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    expect(answered).toBe(true)
+    release()
+    await writing
+    expect(await asked).toBe(handle)
+  })
+
+  it('lets Save go on after a task of the queue failed, and cancelling the dialog it opens changes nothing', async () => {
+    const { w, dir } = await drafted()
+    const folder = w.browser.handles.get(dir)!
+    w.stores.get(folder)!.fail = new StoreError('io', 'disk')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.status).toBe('failed')
+    w.stores.get(folder)!.fail = null
+    // A failed write into the draft: Save is "try again", it writes the draft and opens no dialog.
+    expect(await w.storage.save()).toBe(true)
+    expect(w.storage.place).toBe('browser')
+    // Saved draft: Save asks for a folder; the user cancels; the draft stays the home.
+    expect(await w.storage.save()).toBe(false)
+    expect(w.storage.place).toBe('browser')
+    expect(w.browser.removed).toEqual([])
+  })
+
+  it('holds Save and the export folder for the whole move, not only its attach: no second folder dialog while the media are copied', async () => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    const target = new FakeStore('song')
+    w.stores.set(folder, target)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let reached = false
+    target.copyBlobsFrom = async () => {
+      reached = true
+      await gate
+    }
+    w.picks.push({ status: 'chosen', handle: folder })
+    const moving = w.storage.saveAs()
+    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+    expect(reached).toBe(true)
+    // The draft is still the project's home here, and attach has not started.
+    w.picks.push({ status: 'chosen', handle: handleOf('other') })
+    const asked = w.storage.folderHandle()
+    const saving = w.storage.save()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    release()
+    expect(await moving).toBe(true)
+    expect(await asked).toBe(folder)
+    expect(await saving).toBe(true)
+    expect(w.picks.length).toBe(1)
+    expect(w.storage.folder).toEqual({ name: 'song' })
+  })
+
+  it('asks for a folder when Save is pressed on a draft that nothing is moving', async () => {
+    const { w } = await drafted()
+    const folder = handleOf('song')
+    w.picks.push({ status: 'chosen', handle: folder })
+    expect(await w.storage.save()).toBe(true)
+    expect(w.storage.place).toBe('folder')
+    expect(await w.storage.folderHandle()).toBe(folder)
+  })
+
   it('leaves the draft as it was, with its locks, when the folder is refused, not empty, or fails', async () => {
     const { w, dir, store: draft } = await drafted()
     const before = new Map(draft.files)
@@ -1577,5 +1852,323 @@ describe('helpers', () => {
     expect(projectIdOf([])).toBeNull()
     expect(changedPaths({ a: '1', b: '2' }, { a: '1', b: '3', c: '1' }).sort()).toEqual(['b', 'c'])
     expect(changedPaths({ a: '1' }, {})).toEqual(['a'])
+  })
+})
+
+// ---------------------------------------------------------------------- #323: commands for the storage actions
+
+/** A page whose click has gone: the browser would refuse a prompt or a chooser. */
+const withoutClick = () => vi.stubGlobal('navigator', { userActivation: { isActive: false } })
+const withClick = () => vi.stubGlobal('navigator', { userActivation: { isActive: true } })
+
+describe('the way out of a conflict, whoever asks', () => {
+  async function conflict() {
+    const { w, store } = await saved()
+    w.edit()
+    store.edit('project.json', 'from git')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBe('external')
+    return { w, store }
+  }
+
+  it('does nothing, and says so, when the folder is not in conflict', async () => {
+    const { w, store } = await saved()
+    w.edit()
+    const writes = w.host.saves.length
+    expect(await w.storage.keepMine()).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+    expect(await w.storage.loadDisk()).toBe(false)
+    // No question was asked, nothing was written over the folder, nothing was reloaded.
+    expect(w.storage.confirm).toBeNull()
+    expect(w.host.saves.length).toBe(writes)
+    expect(w.host.opened).toEqual([])
+    expect(store.files.get('project.json')).toBe('rev 1')
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('has no project to settle before any is open', async () => {
+    const w = world()
+    expect(await w.storage.keepMine()).toBe(false)
+    expect(await w.storage.loadDisk()).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+  })
+
+  it('asks before Keep mine replaces the folder, and Cancel leaves both versions as they are', async () => {
+    const { w, store } = await conflict()
+    const asking = w.storage.keepMine()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'keepMine', name: 'song' })
+    expect(store.files.get('project.json')).toBe('from git')
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.storage.block).toBe('external')
+    expect(store.files.get('project.json')).toBe('from git')
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('asks before Load replaces the project, and Cancel keeps the changes', async () => {
+    const { w } = await conflict()
+    const asking = w.storage.loadDisk()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'loadFolder', name: 'song' })
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    expect(w.storage.block).toBe('external')
+    expect(w.host.opened).toEqual([])
+    expect(w.host.dirty()).toBe(true)
+  })
+
+  it('looks again after the answer: a conflict settled while the question was open is not acted on', async () => {
+    const { w, store } = await conflict()
+    const asking = w.storage.keepMine()
+    await settle()
+    // The conflict went away meanwhile (the user settled it another way).
+    w.storage.block = null
+    w.storage.respond(true)
+    expect(await asking).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
+    expect(store.files.get('project.json')).toBe('from git')
+
+    const other = await conflict()
+    const loading = other.w.storage.loadDisk()
+    await settle()
+    other.w.storage.block = null
+    other.w.storage.respond(true)
+    expect(await loading).toBe(false)
+    expect(other.w.host.opened).toEqual([])
+  })
+
+  it('holds the writes of the project while a question is open, and writes once it is answered', async () => {
+    const { w, dir } = await twoInBrowser()
+    const asking = w.storage.deleteBrowserProject(dir)
+    await settle()
+    expect(w.storage.confirm?.action).toBe('delete')
+    // A change made while the question is open waits: nothing is lost, and it is written after.
+    w.edit()
+    const created = w.browser.created.length
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2)
+    expect(w.browser.created.length).toBe(created)
+    expect(w.storage.unsaved).toBe(true)
+    w.storage.respond(false)
+    expect(await asking).toBe(false)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.browser.created.length).toBe(created + 1)
+    expect(w.host.dirty()).toBe(false)
+  })
+})
+
+/** A draft in the browser, and the page moved on to a new project: the draft is one of the browser's projects, not the open one. */
+async function twoInBrowser() {
+  const made = await drafted()
+  expect(await made.w.storage.newProject()).toBe(true)
+  await made.w.storage.refreshBrowserProjects()
+  return made
+}
+
+describe('the commands that open a project', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function remembered(permission: PermissionState) {
+    const w = world()
+    const handle = handleOf('last')
+    const store = new FakeStore('last')
+    store.files = new Map([['project.json', JSON.stringify({ id: 'abc' })]])
+    w.stores.set(handle, store)
+    w.recents = [{ id: 'last', name: 'last', handle, at: 1 }]
+    w.permission.set(handle, permission)
+    return { w, handle }
+  }
+
+  it('Reopen with nothing to reopen says so and changes nothing', async () => {
+    const w = world()
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.nothingToReopen')
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('a folder whose permission is gone needs a click; with none, nothing is asked of the browser', async () => {
+    const { w, handle } = await remembered('prompt')
+    withoutClick()
+    expect(await w.storage.openRecent('last')).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.permission.get(handle)).toBe('prompt')
+    expect(w.host.opened).toEqual([])
+    withClick()
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+  })
+
+  it('a folder the browser still allows opens without a click', async () => {
+    const { w } = await remembered('granted')
+    withoutClick()
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.notice).toBeNull()
+  })
+
+  it('a folder that is not among the recent ones is refused, after looking at the list again', async () => {
+    const { w } = await remembered('granted')
+    // The list this page read is behind the browser's: it is read again before saying no.
+    w.storage.recent = []
+    expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+
+    const other = await remembered('granted')
+    expect(await other.w.storage.openRecent('nothing-like-it')).toBe(false)
+    expect(other.w.storage.notice).toBe('storage.recentGone')
+    expect(other.w.host.opened).toEqual([])
+  })
+
+  it('save as and save of a project with no folder need a click: no chooser opens, the notice says why (#346)', async () => {
+    const w = world()
+    w.edit()
+    const picked = handleOf('picked')
+    w.stores.set(picked, new FakeStore('picked'))
+    w.picks.push({ status: 'chosen', handle: picked })
+    withoutClick()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(await w.storage.save()).toBe(false)
+    expect(w.picks.length).toBe(1)
+    expect(w.storage.folder).toBeNull()
+    expect(w.host.saves).toEqual([])
+    withClick()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'picked' })
+    expect(w.storage.notice).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('save as in a browser with no folder to offer keeps saying so, click or not', async () => {
+    const w = world()
+    w.supported = false
+    withoutClick()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.unsupported')
+    vi.unstubAllGlobals()
+  })
+
+  it('the folder picker needs a click, and a refused call leaves the pick for the next one', async () => {
+    const w = world()
+    const picked = handleOf('picked')
+    w.stores.set(picked, Object.assign(new FakeStore('picked'), { files: new Map([['project.json', '{}']]) }))
+    w.picks.push({ status: 'chosen', handle: picked })
+    withoutClick()
+    expect(await w.storage.openFolder()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    // Nothing opened a chooser: the pick was not consumed.
+    expect(w.picks.length).toBe(1)
+    withClick()
+    expect(await w.storage.openFolder()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'picked' })
+  })
+
+  it('opens only a project of the browser’s own list, never a name made up', async () => {
+    const { w, dir } = await twoInBrowser()
+    for (const made of ['../escape', '', 'x/y', `${dir}x`]) {
+      expect(await w.storage.openBrowserProject(made)).toBe(false)
+      expect(w.storage.notice).toBe('storage.browserGone')
+    }
+    expect(w.host.opened).toEqual([])
+    expect(await w.storage.openBrowserProject(dir)).toBe(true)
+    expect(w.storage.place).toBe('browser')
+  })
+
+  it('deletes only a project of the browser’s own list, and never asks about one that is not', async () => {
+    const { w, dir } = await twoInBrowser()
+    // The banner offers a draft that is gone: no question about a nameless project, and the banner goes.
+    w.storage.reopen = { id: 'gone', name: 'Ghost', kind: 'browser' }
+    for (const made of ['gone', '../escape', '']) {
+      expect(await w.storage.deleteBrowserProject(made)).toBe(false)
+      expect(w.storage.confirm).toBeNull()
+      expect(w.storage.notice).toBe('storage.browserGone')
+    }
+    expect(w.storage.reopen).toBeNull()
+    expect(w.browser.removed).toEqual([])
+    expect(w.browser.handles.has(dir)).toBe(true)
+  })
+
+  it('the recent folders and the browser’s projects are read again on demand', async () => {
+    const { w } = await remembered('granted')
+    expect(w.storage.recent).toEqual([])
+    await w.storage.refreshStored()
+    expect(w.storage.recent.map((r) => r.id)).toEqual(['last'])
+    expect(w.storage.browserProjects).toEqual([])
+  })
+})
+
+describe('allow access after the permission is gone', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function paused() {
+    const { w, handle, store } = await saved()
+    w.permission.set(handle, 'prompt')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('permission')
+    return { w, handle, store }
+  }
+
+  it('needs a click: with none the browser is not asked and the changes wait', async () => {
+    const { w, handle, store } = await paused()
+    withoutClick()
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.notice).toBe('storage.needsClick')
+    expect(w.storage.block).toBe('permission')
+    expect(w.permission.get(handle)).toBe('prompt')
+    expect(store.files.get('project.json')).toBe('rev 1')
+    withClick()
+    expect(await w.storage.resume()).toBe(true)
+    expect(w.storage.block).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('stays paused when the user says no', async () => {
+    const { w } = await paused()
+    w.asked = 'denied'
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.block).toBe('permission')
+  })
+
+  it('does nothing without a project', async () => {
+    const w = world()
+    expect(await w.storage.resume()).toBe(false)
+  })
+})
+
+describe('the core is ready before the first click (#323)', () => {
+  it('a page start makes the project core ahead of any click, and a failure of that is only logged', async () => {
+    const w = world()
+    const prepare = vi.fn(() => Promise.resolve())
+    w.host.prepare = prepare
+    await w.storage.restore()
+    expect(prepare).toHaveBeenCalledTimes(1)
+
+    const failing = world()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    failing.host.prepare = () => Promise.reject(new Error('no wasm'))
+    await failing.storage.restore()
+    await settle()
+    expect(log).toHaveBeenCalled()
+    log.mockRestore()
+  })
+
+  it('allow access gives up when the folder was replaced while the prompt was open', async () => {
+    const { w, handle, store } = await saved()
+    w.permission.set(handle, 'prompt')
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.block).toBe('permission')
+    w.deps.askPermission = async () => {
+      // A new project replaces this one while the browser's prompt is open.
+      const replacing = w.storage.newProject()
+      await settle()
+      w.storage.respond(true)
+      await replacing
+      return 'granted'
+    }
+    expect(await w.storage.resume()).toBe(false)
+    expect(w.storage.folder).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 1')
   })
 })

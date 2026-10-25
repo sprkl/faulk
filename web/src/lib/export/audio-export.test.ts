@@ -87,7 +87,7 @@ function setup(
     hasContent: () => overrides.hasContent ?? true,
     hasLoop: () => overrides.hasLoop ?? false,
     songBars: () => 4,
-    folder: () => null,
+    folder: async () => null,
   }
   const deps: ExportDeps = {
     pick: vi.fn(async () => overrides.pick ?? ({ status: 'chosen', sink } as SinkChoice)),
@@ -337,6 +337,7 @@ describe('an export', () => {
     deps.pick = vi.fn(() => new Promise<SinkChoice>((resolve) => (choose = resolve)))
     exporter.show()
     exporter.start()
+    await flush()
     expect(exporter.phase).toBe('picking')
     exporter.cancel()
     choose({ status: 'chosen', sink })
@@ -344,6 +345,21 @@ describe('an export', () => {
     expect(exporter.phase).toBe('options')
     expect(sink.aborted).toBe(true)
     expect(worker.started).toBeNull()
+  })
+
+  it('cancels while the project folder is awaited (a save under way): the file dialog never opens', async () => {
+    let known: (folder: null) => void = () => undefined
+    const { exporter, deps, host } = setup()
+    host.folder = () => new Promise((resolve) => (known = resolve))
+    deps.pick = vi.fn()
+    exporter.show()
+    exporter.start()
+    await flush()
+    exporter.cancel()
+    known(null)
+    await flush()
+    expect(deps.pick).not.toHaveBeenCalled()
+    expect(exporter.phase).toBe('options')
   })
 
   it('closing the dialog cancels a render under way', async () => {

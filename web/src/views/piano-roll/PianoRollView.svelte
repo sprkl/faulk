@@ -6,9 +6,9 @@
    * drag back, and no command is sent while the pointer moves). Selecting notes, the clip being
    * edited, the tool and the zoom are the page's view state, not project data.
    */
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
-  import { addNotes, auditionOff, auditionOn, createClipAtStart, removeNotes, setClipLength, setClipLoop, updateNotes } from '../../lib/clip-commands'
+  import { addNotes, auditionOff, auditionOn, createClipAtStart, duplicateNotes, quantizeNotes, removeNotes, renameClip, setClipLength, setClipLoop, transposeNotes, updateNotes } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
@@ -19,7 +19,8 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
-  import { clipLabel, editedClip, midiClips } from './clips'
+  import { sortedScenes } from '../grid/cells'
+  import { clipLabel, clipOrigin, editedClip, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
@@ -46,19 +47,33 @@
     velocityPosition,
     VELOCITY_HOME,
     afterChanges,
+    DEFAULT_QUANTIZE_GRID,
+    DEFAULT_QUANTIZE_STRENGTH,
+    MAX_BARS,
+    QUANTIZE_GRIDS,
+    duplicateOffset,
+    endOf,
+    floorTick,
+    fromBoard,
+    lengthFor,
+    quantizeChanges,
+    toBoard,
+    transposeChanges,
+    type QuantizeGrid,
     type Change,
     type Layout,
     type Rect,
   } from './roll'
   import { liveTick, playheadIn, settle } from './playhead'
   import Surface from './Surface.svelte'
+  import { boardNotes, setBoard } from './clipboard'
 
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
-  /** The most bars a clip can be given from the length field. */
-  const MAX_BARS = 256
+
+
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
   const KEYS_WIDTH = 56
@@ -88,7 +103,51 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
-  const clipName = $derived(edited ? clipLabel(edited, clips.indexOf(edited), (n) => t('pianoRoll.clipDefault', { n })) : '')
+  const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
+  const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
+  /** "Scene n" or the scene's own name: the grid's label for it. */
+  const sceneLabel = (id: string) => {
+    const entry = scenes.find((s) => s.id === id)
+    return entry ? entry.scene.name.trim() || t('pianoRoll.sceneDefault', { n: entry.index + 1 }) : t('pianoRoll.sceneGone')
+  }
+  /** Where a clip comes from, in words: "Grid · Scene 1", "Arrangement · bar 2". */
+  const originOf = (entry: MidiClip) =>
+    clipOrigin(entry, {
+      grid: (id) => t('pianoRoll.originGrid', { scene: sceneLabel(id) }),
+      arrangement: (start) => t('pianoRoll.originArrangement', { n: Math.floor(start / bar) + 1 }),
+    })
+  /** A clip in the list: its name, then where it comes from. */
+  const listLabel = (entry: MidiClip) => {
+    const origin = originOf(entry)
+    const name = clipLabel(entry, t('pianoRoll.clipPlain'))
+    return origin ? `${name} (${origin})` : name
+  }
+  const origin = $derived(edited ? originOf(edited) : '')
+
+  // Renaming the clip being edited: the way to name a clip that lives in the arrangement only.
+  let renaming = $state(false)
+  let draft = $state('')
+  let nameField: HTMLInputElement | undefined = $state()
+  async function startRename() {
+    if (!edited) return
+    draft = clipName
+    renaming = true
+    await tick()
+    nameField?.focus()
+    nameField?.select()
+  }
+  function finishRename(commit: boolean) {
+    if (!renaming) return
+    renaming = false
+    const name = draft.trim()
+    if (commit && edited && name !== edited.clip.name.trim()) run(renameClip(edited.id, name))
+  }
+  function onRenameKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    finishRename(event.key === 'Enter')
+  }
 
   // View state.
   let tool = $state<Tool>('draw')
@@ -379,6 +438,15 @@
       else picked = new Set()
     } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
       picked = new Set(notes.map(noteKey))
+    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'x', 'v', 'd'].includes(event.key.toLowerCase())) {
+      const key = event.key.toLowerCase()
+      if (key === 'c') copyChosen()
+      else if (key === 'x') {
+        if (copyChosen()) removeSelected()
+      } else if (key === 'v') pasteBoard()
+      else duplicateChosen()
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else return
     event.preventDefault()
   }
@@ -495,13 +563,18 @@
     const clamped = Math.min(MAX_BARS, Math.max(1, Math.round(bars)))
     const length = clamped * bar
     if (length === clipLength) return
-    // A loop over the whole clip stays over the whole clip when the clip grows (a shorter clip trims it itself): one history entry.
-    const whole = edited.looping?.start === 0 && edited.looping.end === clipLength
-    if (!whole || length < clipLength) return run(setClipLength(edited.id, length))
+    const commands = lengthCommands(edited, length)
+    if (commands.length === 1) return run(commands[0]!)
     run(beginGroup())
-    run(setClipLength(edited.id, length))
-    run(setClipLoop(edited.id, { start: 0, end: length }))
+    for (const command of commands) run(command)
     run(endGroup())
+  }
+
+  /** The commands that give a clip another length: a loop over the whole clip stays over the whole clip when the clip grows (a shorter clip trims it itself). */
+  function lengthCommands(target: MidiClip, length: number): Command[] {
+    const whole = target.looping?.start === 0 && target.looping.end === target.length
+    if (!whole || length < target.length) return [setClipLength(target.id, length)]
+    return [setClipLength(target.id, length), setClipLoop(target.id, { start: 0, end: length })]
   }
 
   function onLengthChange(event: Event & { currentTarget: HTMLInputElement }) {
@@ -513,6 +586,85 @@
   }
 
   const toggleLoop = () => edited && run(setClipLoop(edited.id, edited.looping ? null : { start: 0, end: clipLength }))
+
+  // --- quantize, transpose, duplicate, copy and paste (PN-2) -----------------------------------------------------
+  let quantizeGrid = $state<QuantizeGrid>(DEFAULT_QUANTIZE_GRID)
+  let quantizeStrength = $state(DEFAULT_QUANTIZE_STRENGTH)
+  const gridTicks = $derived(QUANTIZE_GRIDS.find((g) => g.id === quantizeGrid)?.ticks ?? 240)
+
+  /** Quantizes the chosen notes, or every note when none is chosen. Nothing is sent when no start would move. */
+  function quantizeNow() {
+    if (!edited) return
+    const chosen = chosenNotes.length > 0
+    const changes = quantizeChanges(chosen ? chosenNotes : notes, gridTicks, quantizeStrength, clipLength).filter((c) => noteKey(c.from) !== noteKey(c.to))
+    if (changes.length === 0) return
+    run(quantizeNotes(edited.id, chosen ? [...chosenNotes] : null, gridTicks, quantizeStrength))
+    if (chosen) picked = afterChanges(picked, changes)
+  }
+  function onStrengthChange(event: Event & { currentTarget: HTMLInputElement }) {
+    const input = event.currentTarget
+    const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
+    if (Number.isFinite(value)) quantizeStrength = Math.min(100, Math.max(0, Math.round(value)))
+    input.value = String(quantizeStrength)
+  }
+
+  /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */
+  function transposeChosen(semitones: number) {
+    if (!edited) return
+    const changes = transposeChanges(chosenNotes, semitones)
+    if (!changes || changes.length === 0) return
+    run(transposeNotes(edited.id, [...chosenNotes], semitones))
+    picked = afterChanges(picked, changes)
+    sound(changes[0]!.to.pitch, changes[0]!.to.velocity)
+    release()
+  }
+
+  /**
+   * Sends notes that end at `end` through `send`, growing the clip first to the next whole bar when they do not fit (one
+   * history entry for both). False when the clip cannot hold them.
+   */
+  function withRoomFor(end: number, send: () => void): boolean {
+    if (!edited) return false
+    const length = lengthFor(end, clipLength, bar)
+    if (length === null) return false
+    if (length === clipLength) {
+      send()
+      return true
+    }
+    run(beginGroup())
+    for (const command of lengthCommands(edited, length)) run(command)
+    // The project may have refused the new length (a placement next to the clip): then there is no room, and nothing is added.
+    const grown = clipLength >= length
+    if (grown) send()
+    run(endGroup())
+    return grown
+  }
+
+  /** Copies of the chosen notes right after the selection, which they become. */
+  function duplicateChosen() {
+    if (!edited || chosenNotes.length === 0) return
+    const source = [...chosenNotes]
+    const offset = duplicateOffset(source)
+    if (offset <= 0) return
+    const copies = source.map((n) => ({ ...n, start: n.start + offset }))
+    const id = edited.id
+    if (withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) picked = new Set(copies.map(noteKey))
+  }
+
+  function copyChosen(): boolean {
+    if (chosenNotes.length === 0) return false
+    setBoard(toBoard(chosenNotes))
+    return true
+  }
+
+  /** The notes put aside, at the play position of the clip (snapped down to the grid), else at its start. */
+  function pasteBoard() {
+    const board = boardNotes()
+    if (!edited || board.length === 0) return
+    const pasted = fromBoard(board, floorTick(playhead ?? 0, step))
+    const id = edited.id
+    if (withRoomFor(endOf(pasted), () => run(addNotes(id, pasted)))) picked = new Set(pasted.map(noteKey))
+  }
 </script>
 
 <svelte:window onblur={silence} />
@@ -542,13 +694,17 @@
     <div class="toolbar">
       {#if clips.length > 1}
         <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (ui.editedClip = e.currentTarget.value)}>
-          {#each clips as entry, i (entry.id)}
-            <option value={entry.id}>{clipLabel(entry, i, (n) => t('pianoRoll.clipDefault', { n }))}</option>
+          {#each clips as entry (entry.id)}
+            <option value={entry.id}>{listLabel(entry)}</option>
           {/each}
         </select>
-      {:else}
-        <span class="name" data-testid="roll-clip-name">{clipName}</span>
       {/if}
+      {#if renaming}
+        <input class="rename" data-testid="roll-clip-rename" aria-label={t('pianoRoll.clipName')} maxlength="200" bind:this={nameField} bind:value={draft} onkeydown={onRenameKey} onblur={() => finishRename(true)} />
+      {:else}
+        <button class="name" type="button" title={t('pianoRoll.renameHint')} data-testid="roll-clip-name" ondblclick={startRename} onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button>
+      {/if}
+      <span class="origin" data-testid="roll-clip-origin">{origin}</span>
       <div class="group" role="radiogroup" aria-label={t('pianoRoll.tools')}>
         <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}>{t('pianoRoll.draw')}</button>
         <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}>{t('pianoRoll.select')}</button>
@@ -569,6 +725,21 @@
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
       <button disabled={chosenNotes.length === 0} data-testid="roll-delete" onclick={removeSelected}>{t('pianoRoll.delete')}</button>
+      <div class="group" role="group" aria-label={t('pianoRoll.edit')}>
+        <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}>{t('pianoRoll.duplicate')}</button>
+        <button title={t('pianoRoll.transposeDownHint')} aria-label={t('pianoRoll.transposeDown')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-down" onclick={() => transposeChosen(-1)}>−1</button>
+        <button title={t('pianoRoll.transposeUpHint')} aria-label={t('pianoRoll.transposeUp')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-up" onclick={() => transposeChosen(1)}>+1</button>
+      </div>
+      <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
+        <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
+          {#each QUANTIZE_GRIDS as grid (grid.id)}
+            <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
+          {/each}
+        </select>
+        <input type="number" min="0" max="100" step="1" value={quantizeStrength} aria-label={t('pianoRoll.quantizeStrength')} title={t('pianoRoll.quantizeStrength')} data-testid="roll-quantize-strength" onchange={onStrengthChange} />
+        <span>%</span>
+        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}>{t('pianoRoll.quantize')}</button>
+      </div>
       <span class="count" data-testid="roll-count">{t('pianoRoll.count', { n: notes.length })}{#if chosenNotes.length > 0} · {t('pianoRoll.selected', { n: chosenNotes.length })}{/if}</span>
     </div>
 
@@ -663,6 +834,19 @@
   }
   .name {
     font-weight: 600;
+    background: none;
+    border: 0;
+    padding: 0 var(--fk-space-1);
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+  }
+  .origin {
+    color: var(--fk-text-muted);
+  }
+  .rename {
+    font: inherit;
+    width: 14em;
   }
   .group {
     display: flex;
