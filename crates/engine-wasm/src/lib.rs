@@ -313,6 +313,25 @@ pub unsafe extern "C" fn fk_render(ch: *mut Channel, frames: u32) -> u32 {
     unsafe { host(ch) }.map_or(0, |h| h.render(frames as usize) as u32)
 }
 
+/// Warms the apply path (#355): runs every message of the engine once on a throwaway channel
+/// of its own at `sample_rate`, so that V8, which compiles a WebAssembly function at its first
+/// call, does it here and not in the first pump that applies messages. Call it once from the
+/// render instance's message handler, after [`fk_set_role`] and before any audio. It touches
+/// no channel of the caller, makes no sound, and allocates (setup, not the audio path): its
+/// allocations are counted under role 0, so the render role's counters stay at zero. Returns 0,
+/// the `MsgError::code` that stopped it, or -100 when a message was rejected or skipped.
+#[unsafe(no_mangle)]
+pub extern "C" fn fk_warm(sample_rate: f32) -> i32 {
+    let previous = ROLE.with(|r| r.replace(0));
+    let outcome = engine::warm::warm_up(sample_rate);
+    ROLE.with(|r| r.set(previous));
+    match outcome {
+        Ok(report) if report.rejected == 0 && report.skipped == 0 => 0,
+        Ok(_) => -100,
+        Err(error) => error.code(),
+    }
+}
+
 /// Address of the left output ([`MAX_FRAMES`] floats); null for a null channel.
 ///
 /// # Safety
