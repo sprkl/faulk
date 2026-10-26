@@ -125,28 +125,36 @@ export async function mainThreadMeter(page: Page) {
   }
 }
 
-/** How many times a measurement whose clock drifted is taken again before the test fails (#359). */
+/** How many times a measurement whose clock drifted is taken again before it is given up (#359). */
 export const CLOCK_ATTEMPTS = 4
 
 /**
  * Runs a measurement and takes it again when its clock drifted. The counter the timings are read
- * from is a Worker spinning on a shared counter, and a shared runner can change its pace during
- * the measurement (a neighbour, a preempted thread): every figure of that run is then wrong by as
- * much, so the run says nothing about the code and is dropped. `drift` returns a description of
- * the drift, or nothing when the clock held. A run that never holds fails by name; the budgets
- * themselves are not touched, strict or not, and a real regression is not a drift: it fails the
- * assertions of every attempt that does hold.
+ * from is a Worker spinning on a shared counter, and a shared runner changes its pace while the
+ * other threads load the same core (a two-vCPU runner flips between about 55 and 110 ticks/us
+ * within one run, in CI run 40388605597): every figure of that run is then wrong by as much.
+ * `drift` returns a description of the drift, or nothing when the clock held.
+ *
+ * Strict mode (reference machine): up to CLOCK_ATTEMPTS runs, then it fails by name; the budgets
+ * are never touched. Otherwise: two runs, then the last one is kept with a printed note, because
+ * the only assertions are the ceilings at ten times the budget, and a clock that is off by 2x
+ * cannot hide a gross regression from them (an injected busy loop still fails them). A real
+ * regression is not a drift: it fails the assertions of the run that is kept.
  */
 export async function withStableClock<T>(what: string, run: () => Promise<T>, drift: (result: T) => string | undefined): Promise<T> {
+  const attempts = STRICT_TIMING ? CLOCK_ATTEMPTS : 2
   const seen: string[] = []
-  for (let attempt = 1; attempt <= CLOCK_ATTEMPTS; attempt++) {
-    const result = await run()
+  let result: T
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    result = await run()
     const problem = drift(result)
     if (!problem) return result
     seen.push(problem)
-    console.log(`${what}: attempt ${attempt}/${CLOCK_ATTEMPTS} dropped, the clock drifted (${problem})`)
+    console.log(`${what}: attempt ${attempt}/${attempts} dropped, the clock drifted (${problem})`)
   }
-  throw new Error(`${what}: the clock drifted in all ${CLOCK_ATTEMPTS} attempts, nothing measured (${seen.join('; ')}); the runner is too busy, not a regression of the code`)
+  if (STRICT_TIMING) throw new Error(`${what}: the clock drifted in all ${attempts} attempts, nothing measured (${seen.join('; ')}); the machine is not a reference machine, not a regression of the code`)
+  console.log(`${what}: the clock drifted in both attempts, the last run is kept and held to the ceilings only (10x the budgets), not to the budgets`)
+  return result!
 }
 
 /** The smallest of the values: noise on a shared runner only ever adds time, so the best window is the truest. */

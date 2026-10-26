@@ -215,8 +215,8 @@ test.describe('MO-2: the engine channel in the browser', () => {
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)
-      // The clock held (#283): measure() took the run again until it did (#359).
-      expect(clockDrift(run)).toBeUndefined()
+      // The clock held (#283), held to in strict mode: measure() took the run again until it did, and outside strict mode keeps the last run (#359).
+      if (STRICT_TIMING) expect(clockDrift(run)).toBeUndefined()
       expect(run.role).toBe(2)
       // Every message was applied: none rejected, none skipped, the table at its limit.
       expect(run.counters.rejected).toBe(0)
