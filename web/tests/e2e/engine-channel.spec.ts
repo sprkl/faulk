@@ -318,6 +318,7 @@ function table(run: Run) {
 
 test.describe('CT-3: the project → engine channel in the browser', () => {
   test('way (a), plain memory: messages and growth on the render thread', async ({ page, baseURL }) => {
+    test.setTimeout(60_000) // room for the runs taken again when the clock drifts (#359)
     await serveProto(page, baseURL!)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
@@ -351,6 +352,7 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
   })
 
   test('way (b), shared memory: a Worker prepares, the worklet pumps', async ({ page, baseURL }) => {
+    test.setTimeout(60_000) // room for the runs taken again when the clock drifts (#359)
     await serveProto(page, baseURL!)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
