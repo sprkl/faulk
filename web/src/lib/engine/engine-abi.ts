@@ -23,6 +23,8 @@ export interface EngineExports {
   fk_pump(channel: number): number
   fk_render_block(channel: number, frames: number): number
   fk_render(channel: number, frames: number): number
+  /** Runs every message once on a throwaway channel (#355): 0, or an error code. */
+  fk_warm(sampleRate: number): number
   fk_left(channel: number): number
   fk_right(channel: number): number
   fk_feedback(channel: number): number
@@ -82,13 +84,17 @@ export function engineMemory(): WebAssembly.Memory {
 
 /**
  * The WASI functions the module imports (`wasm32-wasip1-threads`). Only `random_get` does
- * something (the prepare side's hash maps seed from it); the render instance calls none.
+ * something (the prepare side's hash maps seed from it); the render instance calls it only
+ * for the warm-up's private channel (#355), where `crypto` may be missing.
  */
 export function wasiImports(memory: WebAssembly.Memory) {
   return {
     random_get(ptr: number, len: number) {
       const bytes = new Uint8Array(len)
-      crypto.getRandomValues(bytes)
+      // An AudioWorkletGlobalScope has no `crypto`: the render instance's hash maps (the warm-up
+      // builds some) then seed from `Math.random`, which is enough for a throwaway channel.
+      if (typeof crypto !== 'undefined') crypto.getRandomValues(bytes)
+      else for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256)
       new Uint8Array(memory.buffer, ptr, len).set(bytes)
       return 0
     },
@@ -147,4 +153,24 @@ export function becomeRenderInstance(render: EngineExports, setup: RenderSetup) 
   render.__stack_pointer.value = setup.stackTop
   render.__wasm_init_tls(setup.tls)
   render.fk_set_role(ROLE_RENDER)
+}
+
+/**
+ * Warms the render instance's apply path (#355, `fk_warm`): every engine message goes once
+ * through a private channel, so that V8 compiles those wasm functions now and not in the first
+ * block that applies a message. Call it once, after `becomeRenderInstance` and before any audio.
+ * Returns 0 on success. It never throws: a trap (a panic, a refused allocation) is caught and
+ * the instance put back as it was (stack pointer, role), since a cold first block is better
+ * than no engine; the result is then -1. What a real trap leaves behind is the private channel
+ * it never dropped, a leak in the shared heap for the engine's lifetime.
+ */
+export function warmUp(render: EngineExports, sampleRate: number): number {
+  const stack = render.__stack_pointer.value
+  try {
+    return render.fk_warm(sampleRate)
+  } catch {
+    render.__stack_pointer.value = stack
+    render.fk_set_role(ROLE_RENDER)
+    return -1
+  }
 }

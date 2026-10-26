@@ -21,6 +21,8 @@ import { expect, test } from '@playwright/test'
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const STREAM = process.env.FAULK_BENCH_STREAM ?? ''
 const WARM = Number(process.env.FAULK_BENCH_WARM ?? 0)
+// `FAULK_BENCH_WARMUP=0` skips the engine's own warm-up of the apply path (#355): the cold start it removes.
+const WARMUP = process.env.FAULK_BENCH_WARMUP !== '0'
 
 /** The fixture format of crates/engine-wasm/tests/parity.rs: the pushes, in order. */
 function pushes(path: string): Buffer[] {
@@ -62,7 +64,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
     try {
       await page.goto(origin + '/')
       const result = await page.evaluate(
-        async ({ sources, count, warm }) => {
+        async ({ sources, count, warm, warmup }) => {
           const blob = (s: string) => URL.createObjectURL(new Blob([s], { type: 'text/javascript' }))
           const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
           const isolated = crossOriginIsolated
@@ -127,7 +129,10 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
             await ask({ type: 'rate', ticksPerUs: rate })
             return { ...(await ask({ type: 'report' })), rate } as unknown as Record<string, number>
           }
-          await ask({ type: 'init', bytes, memory, setup: ready.setup, clock: clockBuffer, ticksPerUs })
+          const initAt = performance.now()
+          const started = await ask({ type: 'init', bytes, memory, setup: ready.setup, clock: clockBuffer, ticksPerUs, warm: warmup })
+          const initMs = performance.now() - initAt
+          if (warmup && started.warm !== 0) throw new Error(`the warm-up failed: ${started.warm}`)
           node.connect(context.destination)
           await sleep(500)
           await reset()
@@ -168,15 +173,15 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           clockWorker.terminate()
           worker.terminate()
           await deadline(`closing the audio context (state ${context.state})`, context.close())
-          return { isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
+          return { initMs, isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
         },
-        { sources, count: all.length, warm: WARM },
+        { sources, count: all.length, warm: WARM, warmup: WARMUP },
       )
       const us = (n: number) => n.toFixed(2)
       const s = result.swap
       console.log(
         [
-          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs (window ${s.rate.toFixed(1)}, check ${result.check.toFixed(1)}), cross-origin isolated ${result.isolated}`,
+          `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs (window ${s.rate.toFixed(1)}, check ${result.check.toFixed(1)}), cross-origin isolated ${result.isolated}, worklet init (instantiate${WARMUP ? ' and warm-up' : ''}) ${result.initMs.toFixed(1)} ms`,
           `  prepare and apply complete in ${result.done.toFixed(0)} ms wall from the first push to an empty queue (the worklet applies at most 128 messages per block)`,
           `  worklet: ${s.applied} messages applied over ${s.blocks} blocks (at most ${s.maxApplied} per block), pump ${us(s.pumpUsPerMsg)} µs per message, longest pump ${us(s.pumpMaxUs)} µs after the first one, which cost ${us(s.firstUs)} µs for ${s.firstApplied} messages (V8 compiles a wasm function on its first call), ${us(s.pumpUsPerCall)} µs per pump incl. empty ones; skipped ${s.skipped}; render-side allocations ${s.renderAllocs}, frees ${s.renderFrees}; silent blocks ${s.silent}`,
           `  prepare side: rejected ${result.counters.rejected}, codes ${JSON.stringify(result.counters.codes)}; tracks ${s.tracksHeld} in ${s.tracksCapacity} slots`,
@@ -195,6 +200,8 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
       expect(result.counters.rejected).toBe(0)
       expect(result.counters.codes).toEqual([])
       expect(s.skipped).toBe(0)
+      // Opt-in strict figure (a quiet reference machine): the first applying pump under the given µs (#355).
+      if (process.env.FAULK_BENCH_FIRST_MAX_US) expect(s.firstUs).toBeLessThan(Number(process.env.FAULK_BENCH_FIRST_MAX_US))
       expect(s.tracksHeld).toBe(100)
       expect(s.renderAllocs).toBe(0)
       expect(s.renderFrees).toBe(0)

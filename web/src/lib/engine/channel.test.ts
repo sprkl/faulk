@@ -4,8 +4,8 @@
 // encoded here.
 import { readFileSync } from 'node:fs'
 import { Worker } from 'node:worker_threads'
-import { describe, expect, it } from 'vitest'
-import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, type EngineExports } from './engine-abi'
+import { describe, expect, it, vi } from 'vitest'
+import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, warmUp, type EngineExports } from './engine-abi'
 import { peakOf, readFeedback } from './feedback'
 import { PushQueue } from './push-queue'
 
@@ -22,9 +22,11 @@ type Processor = {
 }
 
 /** The processor worklet.ts registers, built under a stub of the AudioWorkletGlobalScope. */
+let registered: (new () => Processor) | null = null
+
 async function shippedProcessor(): Promise<Processor> {
   const scope = globalThis as unknown as Record<string, unknown>
-  let registered: (new () => Processor) | null = null
+  scope.sampleRate = 48_000
   scope.AudioWorkletProcessor = class {
     port = {
       onmessage: null,
@@ -37,6 +39,7 @@ async function shippedProcessor(): Promise<Processor> {
   scope.registerProcessor = (_name: string, processor: new () => Processor) => {
     registered = processor
   }
+  // The module registers once (imports are cached): the class is kept for the next call.
   await import('./worklet')
   return new registered!()
 }
@@ -88,15 +91,33 @@ describe('the shipped engine module, two instances on one shared memory', () => 
     expect(Number(render.__stack_pointer.value)).not.toBe(Number(prepare.__stack_pointer.value))
   })
 
-  it('renders the recorded session as the native engine does, without allocating', () => {
+  it.each([false, true])('renders the recorded session as the native engine does, without allocating (warmed up: %s)', (warmed) => {
     const memory = sharedMemory()
     const { prepare, render, ch } = channel(memory)
     const native = new Float32Array(readFileSync(new URL('session.native.f32', fixtures)).buffer.slice(0))
     const out: number[] = []
     const allocs = [render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]
+    let warmDone = !warmed
+    let rendered = 0
     for (const step of steps('session.stream')) {
       if ('push' in step) expect(push(prepare, memory, ch, step.push)).toBe(0)
-      else
+      else {
+        // After the first render: the pump has applied the setup, so the real channel holds its track.
+        if (!warmDone && rendered > 0) {
+          // The warm-up of the apply path (#355) in the middle of the session, notes about to
+          // sound: it runs on a private channel, so the populated real one is untouched.
+          warmDone = true
+          const before = [0, 1, 2, 3, 4].map((which) => render.fk_host_counter(ch, which))
+          const roleAllocs = [render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]
+          expect(warmUp(render, 48_000)).toBe(0)
+          expect([0, 1, 2, 3, 4].map((which) => render.fk_host_counter(ch, which))).toEqual(before)
+          expect(before[4]).toBeGreaterThan(0) // the real channel holds a track already
+          expect(render.fk_role()).toBe(ROLE_RENDER) // the role is back
+          // Its allocations are not the render role's: the audio path's counters did not move.
+          expect([render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]).toEqual(roleAllocs)
+          expect(render.fk_frees(0)).toBe(render.fk_allocs(0)) // everything the warm-up took was freed
+        }
+        rendered++
         for (let b = 0; b < step.render; b++) {
           const n = render.fk_render(ch, QUANTUM)
           const left = new Float32Array(memory.buffer, render.fk_left(ch), MAX_FRAMES)
@@ -104,6 +125,7 @@ describe('the shipped engine module, two instances on one shared memory', () => 
           for (let i = 0; i < n; i++) out.push(left[i])
           for (let i = 0; i < n; i++) out.push(right[i])
         }
+      }
     }
     expect(out.length).toBe(native.length)
     let worst = 0
@@ -113,6 +135,37 @@ describe('the shipped engine module, two instances on one shared memory', () => 
     expect([render.fk_allocs(ROLE_RENDER), render.fk_frees(ROLE_RENDER)]).toEqual(allocs)
     expect(prepare.fk_prepare_counter(ch, 0)).toBe(0) // rejected
     expect(prepare.fk_allocs(ROLE_PREPARE)).toBeGreaterThan(0)
+  })
+
+  it('warms up in a scope without `crypto`, as the AudioWorkletGlobalScope is', async () => {
+    const memory = sharedMemory()
+    const prepare = instantiate(module, memory)
+    const setup = createChannel(prepare, 48_000)
+    const processor = await shippedProcessor()
+    vi.stubGlobal('crypto', undefined)
+    try {
+      processor.port.onmessage!({ data: { type: 'init', bytes: bytes.slice(0), memory, setup } } as MessageEvent)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(processor.port.sent).toEqual([{ type: 'ready' }]) // no `warm` field: the warm-up went through
+  })
+
+  it('puts the render instance back when the warm-up traps', () => {
+    const memory = sharedMemory()
+    const { render } = channel(memory)
+    const stack = render.__stack_pointer.value
+    const trapping = {
+      ...render,
+      fk_warm: () => {
+        render.fk_set_role(0)
+        render.__stack_pointer.value = Number(stack) - 4096
+        throw new WebAssembly.RuntimeError('unreachable')
+      },
+    }
+    expect(warmUp(trapping, 48_000)).toBe(-1)
+    expect(render.__stack_pointer.value).toBe(stack)
+    expect(render.fk_role()).toBe(ROLE_RENDER)
   })
 
   it('writes a report the page reads', () => {

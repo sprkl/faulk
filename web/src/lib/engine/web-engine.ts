@@ -7,7 +7,8 @@ import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
 import wasmUrl from './wasm/engine.wasm?url'
 
-type FromWorklet = { type: 'ready' } | { type: 'error'; message: string }
+/** `warm` is the code of a warm-up that failed (#355): the engine plays, its first block is cold. */
+type FromWorklet = { type: 'ready'; warm?: number } | { type: 'error'; message: string }
 
 /** How often the page reads the engine's report, in ms (the engine writes ~30 per second). */
 const FEEDBACK_MS = 33
@@ -86,8 +87,10 @@ export class WebEngine implements Engine {
     await new Promise<void>((resolve, reject) => {
       node.port.onmessage = (event: MessageEvent<FromWorklet>) => {
         const data = event.data
-        if (data.type === 'ready') resolve()
-        else reject(new Error(`audio worklet: ${data.message}`))
+        if (data.type === 'ready') {
+          if (data.warm) console.warn(`audio worklet: the warm-up failed (${data.warm})`)
+          resolve()
+        } else reject(new Error(`audio worklet: ${data.message}`))
       }
       const setup = { channel: ready.channel, stackTop: ready.stackTop, tls: ready.tls }
       node.port.postMessage({ type: 'init', bytes: engineWasm, memory, setup } satisfies WorkletMessage, [engineWasm])
