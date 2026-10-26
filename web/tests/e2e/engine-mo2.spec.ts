@@ -195,7 +195,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
 
   test('a Worker prepares, the worklet pumps: cost per message within the budget', async ({ page }) => {
     await page.goto('/app')
-    test.setTimeout(STRICT_TIMING ? 180_000 : 60_000) // room for the runs taken again when the clock drifts
+    test.setTimeout(STRICT_TIMING ? 420_000 : 60_000) // room for the runs taken again when the clock drifts
     // On a reference machine the timing is the median of several runs, each its own full
     // measurement; every run is printed and checked for correctness, not only the first.
     const runs = [await measure(page)]
