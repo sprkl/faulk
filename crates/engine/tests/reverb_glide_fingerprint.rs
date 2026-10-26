@@ -1,7 +1,7 @@
 //! Issue #353: the Reverb's default (Glide) pre-delay renders the very same samples as before
-//! the `time_change` setting existed. The fingerprints below were taken on `develop` at
+//! the `time_change` setting existed. The fingerprint below was taken on `develop` at
 //! 6b2023c, the build that preceded it (FNV-1a over the bits of every output sample), by this
-//! very test with the three values at zero.
+//! very test.
 
 use engine::device::{AudioIo, BlockCtx, Device, Event, EventBuffer, Transport};
 use engine::devices::reverb::{DAMPING, MIX, PREDELAY, Reverb, SIZE};
@@ -98,18 +98,11 @@ fn fingerprint(rate: f32) -> u64 {
 
 #[test]
 fn the_default_pre_delay_renders_as_before_time_change_existed() {
-    let got = [
-        fingerprint(48_000.0),
-        fingerprint(44_100.0),
-        fingerprint(96_000.0),
-    ];
-    println!("fingerprints {got:#018x?}");
-    assert_eq!(
-        got,
-        [
-            0x209b_dd7a_30a6_17a8,
-            0x71a7_b20e_5137_f3fa,
-            0xa79c_f569_d0ba_6783
-        ]
-    );
+    // 48 kHz only: it is the damping filter's reference rate, where its `powf` has an exponent of
+    // exactly 1. At other rates that `powf` comes from the platform's math library, whose last bit
+    // differs between Windows and Linux, so a fingerprint taken on one does not hold on the other.
+    // The other rates are covered by the native/WASM parity test, within its tolerance.
+    let got = fingerprint(48_000.0);
+    println!("fingerprint {got:#018x}");
+    assert_eq!(got, 0x209b_dd7a_30a6_17a8);
 }
