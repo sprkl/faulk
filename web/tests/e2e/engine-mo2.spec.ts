@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMode, watch } from './support'
+import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMode, watch, withStableClock } from './support'
 
 // MO-2 (#55): the shipped engine channel in a real AudioWorklet in Chromium. The shipped module
 // (src/lib/engine/wasm/engine.wasm, wasm32-wasip1-threads) runs as two instances on one shared
@@ -52,7 +52,22 @@ type Report = {
   tracksHeld: number
 }
 
-async function measure(page: Page) {
+/** The first thing that tells the counter changed pace during a run (#283), or nothing. */
+function clockDrift(run: Awaited<ReturnType<typeof measureOnce>>): string | undefined {
+  // A rate off by more than 25 % would make every figure of the run wrong by as much.
+  const off = (a: number, b: number) => Math.abs(a - b) > 0.25 * b
+  if (off(run.ticksPerUs, run.check)) return `${run.ticksPerUs.toFixed(1)} ticks/µs settled, ${run.check.toFixed(1)} at the end`
+  for (const [name, r] of [['1000 parameters', run.params], ['4095 tracks', run.tracks]] as const)
+    if (off(r.rate, run.check)) return `${r.rate.toFixed(1)} ticks/µs over the ${name} window, ${run.check.toFixed(1)} at the end`
+  return undefined
+}
+
+/** One run, taken again when the runner made the counter change pace (#359). */
+function measure(page: Page) {
+  return withStableClock('MO-2', () => measureOnce(page), clockDrift)
+}
+
+async function measureOnce(page: Page) {
   const session = pushes('session.stream')
   const sources = {
     clock: readFileSync(here('../../src/lib/engine/proto/clock-worker.js'), 'utf8'),
@@ -180,7 +195,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
 
   test('a Worker prepares, the worklet pumps: cost per message within the budget', async ({ page }) => {
     await page.goto('/app')
-    test.setTimeout(STRICT_TIMING ? 180_000 : 30_000)
+    test.setTimeout(STRICT_TIMING ? 180_000 : 60_000) // room for the runs taken again when the clock drifts
     // On a reference machine the timing is the median of several runs, each its own full
     // measurement; every run is printed and checked for correctness, not only the first.
     const runs = [await measure(page)]
@@ -200,10 +215,8 @@ test.describe('MO-2: the engine channel in the browser', () => {
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)
-      // The clock must not have changed pace between its calibration and the end (#283): a
-      // rate off by more than 25 % would make every figure above wrong by as much.
-      expect(Math.abs(run.check - run.ticksPerUs)).toBeLessThan(0.25 * run.check)
-      for (const r of [p, t]) expect(Math.abs(r.rate - run.check)).toBeLessThan(0.25 * run.check)
+      // The clock held (#283): measure() took the run again until it did (#359).
+      expect(clockDrift(run)).toBeUndefined()
       expect(run.role).toBe(2)
       // Every message was applied: none rejected, none skipped, the table at its limit.
       expect(run.counters.rejected).toBe(0)

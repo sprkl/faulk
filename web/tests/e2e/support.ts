@@ -125,6 +125,30 @@ export async function mainThreadMeter(page: Page) {
   }
 }
 
+/** How many times a measurement whose clock drifted is taken again before the test fails (#359). */
+export const CLOCK_ATTEMPTS = 4
+
+/**
+ * Runs a measurement and takes it again when its clock drifted. The counter the timings are read
+ * from is a Worker spinning on a shared counter, and a shared runner can change its pace during
+ * the measurement (a neighbour, a preempted thread): every figure of that run is then wrong by as
+ * much, so the run says nothing about the code and is dropped. `drift` returns a description of
+ * the drift, or nothing when the clock held. A run that never holds fails by name; the budgets
+ * themselves are not touched, strict or not, and a real regression is not a drift: it fails the
+ * assertions of every attempt that does hold.
+ */
+export async function withStableClock<T>(what: string, run: () => Promise<T>, drift: (result: T) => string | undefined): Promise<T> {
+  const seen: string[] = []
+  for (let attempt = 1; attempt <= CLOCK_ATTEMPTS; attempt++) {
+    const result = await run()
+    const problem = drift(result)
+    if (!problem) return result
+    seen.push(problem)
+    console.log(`${what}: attempt ${attempt}/${CLOCK_ATTEMPTS} dropped, the clock drifted (${problem})`)
+  }
+  throw new Error(`${what}: the clock drifted in all ${CLOCK_ATTEMPTS} attempts, nothing measured (${seen.join('; ')}); the runner is too busy, not a regression of the code`)
+}
+
 /** The smallest of the values: noise on a shared runner only ever adds time, so the best window is the truest. */
 export function best(values: number[]): number {
   return Math.min(...values)

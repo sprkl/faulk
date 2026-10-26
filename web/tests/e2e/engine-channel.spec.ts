@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { ceiling } from './support'
+import { ceiling, withStableClock } from './support'
 
 // CT-3 (#39): the two ways of § 2.3 for the project → engine channel in the browser, measured
 // on the render thread of a real AudioWorklet in Chromium, with the real synth rendering a note
@@ -101,6 +101,7 @@ type Run = {
   mode: 'a' | 'b'
   ticksPerUs: number
   ticksPerUsCheck: number
+  drift: string | undefined
   idle: Report
   load: Report
   worker?: {
@@ -118,8 +119,13 @@ type Run = {
   workletRole: number
 }
 
+/** One measurement, taken again when the runner made the counter change pace (#359). */
+function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
+  return withStableClock(`way (${mode})`, () => measureOnce(page, mode), (run) => run.drift)
+}
+
 /** The whole measurement of one way, run inside the page. */
-async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
+async function measureOnce(page: Page, mode: 'a' | 'b'): Promise<Run> {
   // Worklet and worker scripts are loaded from blob URLs: a request made from a worklet
   // scope does not go through page.route, and a blob of an isolated page is isolated too.
   const sources = {
@@ -249,12 +255,17 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
     clockWorker.terminate()
     worker?.terminate()
     // The counter kept its pace between the settled calibration and the end (#283), or every figure above is off.
-    if (Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck) throw new Error(`clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`)
+    // Reported, not thrown: the context must still be closed, and the caller takes the run again (#359).
+    const drift =
+      Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck
+        ? `clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`
+        : undefined
     await deadline(`closing the audio context (state ${context.state})`, context.close())
     return {
       mode,
       ticksPerUs,
       ticksPerUsCheck,
+      drift,
       idle,
       load,
       worker:
