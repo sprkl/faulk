@@ -130,6 +130,38 @@ fn scenario() -> Vec<Step> {
         &mut steps,
     );
     steps.push(Step::Render(&[777, 128, 2048, 2048, 2048]));
+    // Each way to change the pre-delay while the reverb rings: fade (with a change during
+    // the fade), jump, and back to glide.
+    submit(
+        &[
+            set(reverb::TIME_CHANGE, reverb::FADE),
+            set(reverb::PREDELAY, 0.12),
+            note(62, 110),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[500, 37, 128]));
+    submit(&[set(reverb::PREDELAY, 0.03)], &mut steps);
+    steps.push(Step::Render(MIXED));
+    steps.push(Step::Render(&[2_048; 4]));
+    submit(
+        &[
+            set(reverb::TIME_CHANGE, reverb::JUMP),
+            set(reverb::PREDELAY, 0.07),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(MIXED));
+    submit(&[set(reverb::PREDELAY, 0.0)], &mut steps);
+    steps.push(Step::Render(&[777, 128, 2048]));
+    submit(
+        &[
+            set(reverb::TIME_CHANGE, reverb::GLIDE),
+            set(reverb::PREDELAY, 0.05),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[2_048; 4]));
     // Switched off and on: no tail comes back.
     submit(&[enable(false)], &mut steps);
     steps.push(Step::Render(MIXED));

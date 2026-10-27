@@ -623503,7 +623503,7 @@
     {
       "kind": "faulk.echo",
       "kind_id": 3,
-      "memory_bytes": 6144208,
+      "memory_bytes": 6144240,
       "midi_output": null,
       "name": "Echo",
       "named_keys": [],
@@ -623611,7 +623611,7 @@
     {
       "kind": "faulk.reverb",
       "kind_id": 4,
-      "memory_bytes": 597832,
+      "memory_bytes": 597912,
       "midi_output": null,
       "name": "Reverb",
       "named_keys": [],
@@ -623644,7 +623644,7 @@
         },
         {
           "default": 0.01,
-          "description": "Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail.",
+          "description": "Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail. A new value takes effect as time_change says.",
           "id": 2,
           "key": "predelay",
           "max": 0.20000000298023224,
@@ -623667,6 +623667,23 @@
           "step": 0,
           "unit": "none",
           "values": []
+        },
+        {
+          "default": 0,
+          "description": "What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.",
+          "id": 4,
+          "key": "time_change",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "glide",
+            "fade",
+            "jump"
+          ]
         }
       ],
       "role": "effect",

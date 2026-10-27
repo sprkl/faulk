@@ -9,7 +9,8 @@
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use engine::device::{AudioIo, BlockCtx, Device, Event, EventBuffer, Transport};
 use engine::devices::reverb::{
-    DAMPING, DESCRIPTOR, MIX, PREDELAY, RT60_MAX, RT60_MIN, Reverb, SIZE,
+    DAMPING, DESCRIPTOR, FADE, FADE_SECONDS, GLIDE, JUMP, MIX, PREDELAY, RT60_MAX, RT60_MIN,
+    Reverb, SIZE, TIME_CHANGE,
 };
 use engine::msg::ParamId;
 
@@ -444,4 +445,288 @@ fn the_pre_delay_glides_instead_of_jumping() {
         l.iter().position(|s| s.abs() > 1e-9).unwrap()
     };
     assert_eq!(settled, plain);
+}
+
+// Issue #353: the pre-delay's `time_change` setting (Glide, Fade, Jump), shared with the Echo.
+
+fn sine(len: usize, hz: f32) -> Vec<f32> {
+    (0..len)
+        .map(|n| 0.5 * (core::f32::consts::TAU * hz * n as f32 / SR).sin())
+        .collect()
+}
+
+/// Power of `x` at `hz` (one DFT bin).
+fn power_at(x: &[f32], hz: f32) -> f64 {
+    let (mut re, mut im) = (0.0f64, 0.0f64);
+    for (n, s) in x.iter().enumerate() {
+        let phase = f64::from(core::f32::consts::TAU) * f64::from(hz) * n as f64 / f64::from(SR);
+        re += f64::from(*s) * phase.cos();
+        im -= f64::from(*s) * phase.sin();
+    }
+    (re * re + im * im) / (x.len() as f64).powi(2)
+}
+
+/// Largest step between two neighbouring samples.
+fn max_step(x: &[f32]) -> f32 {
+    x.windows(2).fold(0.0, |m, w| m.max((w[1] - w[0]).abs()))
+}
+
+/// A bright, short, fully wet room set to `mode`, 10 ms of pre-delay.
+fn room(mode: f32) -> Reverb {
+    with(&[
+        (SIZE, 0.0),
+        (DAMPING, 0.0),
+        (MIX, 1.0),
+        (PREDELAY, 0.01),
+        (TIME_CHANGE, mode),
+    ])
+}
+
+/// A 1 kHz sine whose pre-delay moves to `to` seconds at frame `at`; the left output.
+fn moved(mode: f32, to: f32, at: usize) -> Vec<f32> {
+    let mut r = room(mode);
+    let x = sine(at + 36_000, 1_000.0);
+    run(&mut r, (&x, &x), 200, &[(at, ev(PREDELAY, to))]).0
+}
+
+#[test]
+fn the_time_change_setting_is_appended_and_defaults_to_glide() {
+    let p = DESCRIPTOR.param(ParamId(TIME_CHANGE)).unwrap();
+    assert_eq!((TIME_CHANGE, p.key), (4, "time_change"));
+    assert_eq!(
+        (p.default, p.min, p.max, p.step),
+        (GLIDE as f64, 0.0, 2.0, 1.0)
+    );
+    assert_eq!(p.values, ["glide", "fade", "jump"]);
+    // Declared like the Echo's: the response is the device's own, not a ramp.
+    assert_eq!(p.smoothing_seconds, 0.0);
+    // The other ids did not move.
+    let ids: Vec<u32> = DESCRIPTOR.params.iter().map(|p| p.id.0).collect();
+    assert_eq!(ids, [0, 1, 2, 3, 4]);
+    assert_eq!((FADE, JUMP), (1.0, 2.0));
+}
+
+#[test]
+fn glide_bends_the_pitch_and_fade_and_jump_keep_it() {
+    // 1 kHz in, the pre-delay 10 ms to 50 ms at frame 24 000. Under Glide it moves 0.25 frame
+    // per frame, so the input is read at three quarters of its speed for 7 680 frames; the
+    // window is inside that, after the shortest comb (1 116 frames) and some of its tail.
+    let at = 24_000;
+    let window = |y: &[f32]| y[at + 4_500..at + 7_000].to_vec();
+    let band = |y: &[f32]| (power_at(&window(y), 1_000.0), power_at(&window(y), 750.0));
+    let (g1k, g750) = band(&moved(GLIDE, 0.05, at));
+    let (f1k, f750) = band(&moved(FADE, 0.05, at));
+    let (j1k, j750) = band(&moved(JUMP, 0.05, at));
+    println!(
+        "power at 1 kHz / 750 Hz: glide {g1k:.2e} / {g750:.2e}, fade {f1k:.2e} / {f750:.2e}, jump {j1k:.2e} / {j750:.2e}"
+    );
+    assert!(g750 > 3.0 * g1k, "glide: {g750} at 750 Hz, {g1k} at 1 kHz");
+    assert!(f1k > 100.0 * f750, "fade: {f1k} at 1 kHz, {f750} at 750 Hz");
+    assert!(j1k > 100.0 * j750, "jump: {j1k} at 1 kHz, {j750} at 750 Hz");
+}
+
+#[test]
+fn fade_does_not_click_and_jump_does() {
+    // A move of half a period (24 frames at 1 kHz): the phase of the pre-delayed sine
+    // flips. The largest step between two samples, against the same sine with
+    // no move at all.
+    let at = 24_000;
+    let to = 0.01 + 24.0 / SR;
+    let steady = {
+        let mut r = room(0.0);
+        let x = sine(at + 36_000, 1_000.0);
+        run(&mut r, (&x, &x), 200, &[]).0
+    };
+    let reference = max_step(&steady[at..]);
+    let fade = max_step(&moved(FADE, to, at)[at..]);
+    let jump = max_step(&moved(JUMP, to, at)[at..]);
+    println!(
+        "largest step: steady {reference:.4}, fade {fade:.4} ({:.2}x), jump {jump:.4} ({:.2}x)",
+        fade / reference,
+        jump / reference
+    );
+    assert!(fade < reference * 1.15, "fade {fade}, steady {reference}");
+    assert!(jump > reference * 1.5, "jump {jump}, steady {reference}");
+}
+
+/// The first non-zero sample of the left output for an impulse at `imp`, the pre-delay set to
+/// `to` at frame `ev_at` (the pre-delay starts at 0 and the setting is `mode`).
+fn onset(mode: f32, to: f32, ev_at: usize, imp: usize) -> usize {
+    let mut r = with(&[
+        (SIZE, 0.0),
+        (DAMPING, 0.0),
+        (MIX, 1.0),
+        (PREDELAY, 0.0),
+        (TIME_CHANGE, mode),
+    ]);
+    let x = impulse(imp + 20_000, imp);
+    let (l, _) = run(&mut r, (&x, &x), 256, &[(ev_at, ev(PREDELAY, to))]);
+    l.iter().position(|s| s.abs() > 1e-9).unwrap()
+}
+
+/// The same, for a pre-delay that was `to` from the start.
+fn plain_onset(to: f32, imp: usize) -> usize {
+    let mut r = with(&[(SIZE, 0.0), (DAMPING, 0.0), (MIX, 1.0), (PREDELAY, to)]);
+    let x = impulse(imp + 20_000, imp);
+    let (l, _) = run(&mut r, (&x, &x), 256, &[]);
+    l.iter().position(|s| s.abs() > 1e-9).unwrap()
+}
+
+#[test]
+fn jump_applies_the_new_pre_delay_at_the_exact_frame() {
+    // An impulse at frame 3 000 (in the middle of a block). The change at 3 000 is applied
+    // before that frame is rendered: the impulse is read at the new delay. At 3 001 it is
+    // applied after it: the impulse is read at the old one.
+    let imp = 3_000;
+    let new = plain_onset(0.1, imp);
+    let old = plain_onset(0.0, imp);
+    assert_eq!(new - old, 4_800);
+    assert_eq!(onset(JUMP, 0.1, imp, imp), new);
+    assert_eq!(onset(JUMP, 0.1, imp + 1, imp), old);
+    // Glide does not: it is still near the old delay.
+    assert!(onset(GLIDE, 0.1, imp, imp) < old + 300);
+}
+
+#[test]
+fn fade_lands_on_the_exact_pre_delay_and_a_later_change_waits() {
+    let fade_frames = (FADE_SECONDS * SR).round() as usize;
+    assert_eq!(fade_frames, 2_400);
+    let ev_at = 1_000;
+    // Once the fade is over, an impulse is read at the exact new delay.
+    let imp = ev_at + fade_frames + 1;
+    assert_eq!(onset(FADE, 0.1, ev_at, imp), plain_onset(0.1, imp));
+    // A change during the fade waits for it, then fades toward the latest target: after both
+    // fades, the delay is the second target.
+    let mut r = with(&[
+        (SIZE, 0.0),
+        (DAMPING, 0.0),
+        (MIX, 1.0),
+        (PREDELAY, 0.0),
+        (TIME_CHANGE, FADE),
+    ]);
+    let imp = ev_at + 2 * fade_frames + 100;
+    let x = impulse(imp + 20_000, imp);
+    let events = [
+        (ev_at, ev(PREDELAY, 0.1)),
+        (ev_at + 500, ev(PREDELAY, 0.05)),
+    ];
+    let (l, _) = run(&mut r, (&x, &x), 256, &events);
+    let got = l.iter().position(|s| s.abs() > 1e-9).unwrap();
+    assert_eq!(got, plain_onset(0.05, imp));
+}
+
+#[test]
+fn jump_cuts_a_running_fade_and_leaving_fade_lets_it_finish() {
+    let ev_at = 1_000;
+    let imp = ev_at + 1_000;
+    // Fade to 0.1 s starts at 1 000; the setting moves to Jump at 1 500: the delay lands on
+    // the target at once, so an impulse read afterwards has the exact new delay.
+    let run_with = |second: f32| {
+        let mut r = with(&[
+            (SIZE, 0.0),
+            (DAMPING, 0.0),
+            (MIX, 1.0),
+            (PREDELAY, 0.0),
+            (TIME_CHANGE, FADE),
+        ]);
+        let x = impulse(imp + 20_000, imp);
+        let events = [
+            (ev_at, ev(PREDELAY, 0.1)),
+            (ev_at + 500, ev(TIME_CHANGE, second)),
+        ];
+        let (l, _) = run(&mut r, (&x, &x), 256, &events);
+        l.iter().position(|s| s.abs() > 1e-9).unwrap()
+    };
+    assert_eq!(run_with(JUMP), plain_onset(0.1, imp));
+    // Back to Glide during the fade: the fade finishes, the delay is the target after it.
+    let imp_late = ev_at + 2_400 + 10;
+    let mut r = with(&[
+        (SIZE, 0.0),
+        (DAMPING, 0.0),
+        (MIX, 1.0),
+        (PREDELAY, 0.0),
+        (TIME_CHANGE, FADE),
+    ]);
+    let x = impulse(imp_late + 20_000, imp_late);
+    let events = [
+        (ev_at, ev(PREDELAY, 0.1)),
+        (ev_at + 500, ev(TIME_CHANGE, GLIDE)),
+    ];
+    let (l, _) = run(&mut r, (&x, &x), 256, &events);
+    let got = l.iter().position(|s| s.abs() > 1e-9).unwrap();
+    assert_eq!(got, plain_onset(0.1, imp_late));
+}
+
+#[test]
+fn every_setting_stays_finite_and_bounded_under_a_stream_of_changes() {
+    let x = noise(SR as usize * 3, 21);
+    for mode in [GLIDE, FADE, JUMP] {
+        let mut r = room(mode);
+        // A new pre-delay every 700 frames (several arrive during a fade), the setting
+        // itself switched now and then; `run` checks for NaN and denormals and runs under the
+        // allocation detector.
+        let mut events = Vec::new();
+        let mut seed = 5u32;
+        for k in 0..200 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let at = 100 + k * 700;
+            events.push((
+                at,
+                ev(PREDELAY, (seed >> 8) as f32 / (1u32 << 24) as f32 * 0.2),
+            ));
+            if k % 37 == 0 {
+                events.push((at + 1, ev(TIME_CHANGE, (k % 3) as f32)));
+            }
+        }
+        let (l, rr) = run(&mut r, (&x, &x), 333, &events);
+        assert!(peak(&l).max(peak(&rr)) < 20.0, "{mode}");
+    }
+}
+
+#[test]
+fn reset_ends_a_fade_and_starts_at_the_target() {
+    let x = noise(10_000, 8);
+    let build = || {
+        with(&[
+            (SIZE, 0.4),
+            (MIX, 1.0),
+            (PREDELAY, 0.05),
+            (TIME_CHANGE, FADE),
+        ])
+    };
+    let mut r = build();
+    // A fade is running (it starts at frame 100 and lasts 2 400 frames) and the line is full
+    // when the reset comes, at frame 1 000.
+    let _ = run(
+        &mut r,
+        (&x[..1_000], &x[..1_000]),
+        256,
+        &[(100, ev(PREDELAY, 0.15))],
+    );
+    assert_no_alloc(|| r.reset());
+    let after = run(&mut r, (&x, &x), 256, &[]);
+    // The parameter values are kept (the target is 0.15 s now): the same as a new device
+    // built with it.
+    let mut fresh = with(&[
+        (SIZE, 0.4),
+        (MIX, 1.0),
+        (PREDELAY, 0.15),
+        (TIME_CHANGE, FADE),
+    ]);
+    assert!(
+        after == run(&mut fresh, (&x, &x), 256, &[]),
+        "same sound as a new device"
+    );
+}
+
+#[test]
+fn glide_is_the_default_setting() {
+    let x = noise(20_000, 2);
+    let events = [(500, ev(PREDELAY, 0.15))];
+    let mut a = Reverb::new(SR).unwrap();
+    let mut b = Reverb::new(SR).unwrap();
+    b.set_param(ParamId(TIME_CHANGE), GLIDE);
+    a.reset();
+    b.reset();
+    assert!(run(&mut a, (&x, &x), 256, &events) == run(&mut b, (&x, &x), 256, &events));
 }

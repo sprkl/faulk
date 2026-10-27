@@ -1138,3 +1138,17 @@ fn a_fade_never_makes_the_feedback_loop_louder_on_correlated_material() {
         peak(&out)
     );
 }
+
+/// The same phrase in Fade and in Jump, fingerprinted on `develop` at 6b2023c, before the
+/// delay's motion was shared with the Reverb's pre-delay (#353): moving that code did not
+/// change the Echo's sound by one bit, in any of its three settings.
+const FADE_FINGERPRINT: u64 = 0x658f_0c06_4a9e_84e0;
+const JUMP_FINGERPRINT: u64 = 0x4352_b570_d00d_c82f;
+
+#[test]
+fn fade_and_jump_are_the_ones_of_before_the_motion_was_shared_bit_for_bit() {
+    let fade = fingerprint(&glide_phrase(&[(TIME_CHANGE, FADE)]));
+    let jump = fingerprint(&glide_phrase(&[(TIME_CHANGE, JUMP)]));
+    println!("fade {fade:#x}, jump {jump:#x}");
+    assert_eq!((fade, jump), (FADE_FINGERPRINT, JUMP_FINGERPRINT));
+}
