@@ -40,8 +40,8 @@ domain! {
     /// Stop playback and put the playhead back where playback started (the last
     /// `transport.seek`, or the start of the project at first), so the position shown is the
     /// one `transport.play` restarts from. Sent again with the playhead already there, it
-    /// goes back to the start of the project (tick 0). To pause, stop then `transport.seek`
-    /// to the current position. Played live: not undoable, not saved.
+    /// goes back to the start of the project (tick 0). The app's Space bar pauses by stopping,
+    /// then seeking to the playhead it read before. Played live: not undoable, not saved.
     "transport.stop" (kind = "live", undo = "none", destructive = false)
     Stop {} => {};
 
