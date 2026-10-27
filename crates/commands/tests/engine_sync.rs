@@ -981,9 +981,6 @@ fn stop_brings_the_head_to_the_cue_and_a_second_stop_to_the_start() {
     run(&mut s, stop());
     run(&mut s, seek(960));
     assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(0)]);
-    // The pause (stop, then a seek to the playhead) keeps the position it was given.
-    run(&mut s, play());
-    assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(0)]);
     run(&mut s, seek(1234));
     assert_eq!(
         run(&mut s, play()).1,
@@ -993,4 +990,40 @@ fn stop_brings_the_head_to_the_cue_and_a_second_stop_to_the_start() {
     // brings the head to where play restarts.
     s.resync().unwrap();
     assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(0)]);
+}
+
+#[test]
+fn a_pause_keeps_the_marker_so_stop_goes_back_to_it() {
+    let (mut s, _, _) = synced();
+    let stop = || json!({"type": "transport.stop"});
+    let play = || json!({"type": "transport.play"});
+    let seek = |tick: i64| json!({"type": "transport.seek", "tick": tick});
+    let pause = |tick: i64| json!({"type": "transport.pause", "tick": tick});
+    let to = |tick: i64| ControlMsg::Seek { tick: Tick(tick) };
+    // Marker at 7680, play, pause at 20000: the head stays there and play resumes from it.
+    run(&mut s, seek(7680));
+    run(&mut s, play());
+    assert_eq!(run(&mut s, pause(20000)).1, [ControlMsg::Stop, to(20000)]);
+    assert_eq!(
+        run(&mut s, play()).1,
+        [ControlMsg::Play { from: Tick(20000) }]
+    );
+    // Pause, resume, stop: the marker.
+    run(&mut s, pause(30000));
+    run(&mut s, play());
+    assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(7680)]);
+    // Pause then stop: the marker too, not the start; the second stop goes to the start.
+    run(&mut s, play());
+    run(&mut s, pause(40000));
+    assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(7680)]);
+    assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(0)]);
+    // No marker laid: a pause then a stop goes back to the start.
+    run(&mut s, play());
+    run(&mut s, pause(960));
+    assert_eq!(run(&mut s, stop()).1, [ControlMsg::Stop, to(0)]);
+    // A pause outside the range is refused like a seek.
+    assert!(
+        s.run(&cmd(json!({"type": "transport.pause", "tick": -1})))
+            .is_err()
+    );
 }

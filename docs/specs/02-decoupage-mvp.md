@@ -443,8 +443,8 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **TR-3 — Commandes de transport**
 - But : `transport.play`, `transport.stop`, `transport.seek`, `transport.set_tempo`, `transport.set_time_signature`, `transport.set_loop`, `transport.toggle_loop`, `transport.set_metronome` (le domaine `metronome` n'existe pas : CT-4).
 - Critères : tempo, signature, boucle et métronome sont des `edit` (annulables, enregistrés) ; lecture et arrêt sont `live` ; bornes de tempo refusées proprement.
-- Décision du fondateur (2026-10-26, #360) : `play` part de la tête de lecture, qui est toujours la position affichée. `stop` ramène la tête au repère ; un second `stop`, la tête déjà sur le repère, la ramène à 0 ; Espace reste la pause (#332). La description de `transport.stop` le dit aux agents.
-- Choix de mise en œuvre à valider par le fondateur (#360) : le repère est la position d'où la lecture a démarré (dernier `seek`, y compris celui de la pause d'Espace, 0 au début), et non seulement le dernier clic sur la règle ; un double-clic sur Stop compte donc pour deux arrêts.
+- Décision du fondateur (2026-10-26, #360) : `play` part de la tête de lecture, qui est toujours la position affichée. `stop` ramène la tête au repère ; un second `stop`, la tête déjà sur le repère, la ramène à 0 ; Espace reste la pause (#332), qui ne déplace pas le repère. La description de `transport.stop` le dit aux agents.
+- Mise en œuvre (#360) : le repère est la dernière position posée par `transport.seek` (clic sur la règle, utilisateur ou agent), 0 au début ; Espace envoie `transport.pause` (arrêt à la position lue, repère inchangé), donc pause puis reprise puis Stop, ou pause puis Stop, reviennent au repère. Un double-clic sur Stop compte pour deux arrêts et se termine sur 1.1.000.
 - Touche : `crates/commands/src/transport.rs`.
 - Dépend de : PR-2, TR-1.
 - Phase : 2.

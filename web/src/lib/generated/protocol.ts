@@ -646,6 +646,9 @@ type: "transport.play"
 type: "transport.stop"
 } | {
 tick: Tick
+type: "transport.pause"
+} | {
+tick: Tick
 type: "transport.seek"
 } | {
 bpm: number
@@ -1286,6 +1289,8 @@ export type TransportOutput = ({
 type: "transport.play"
 } | {
 type: "transport.stop"
+} | {
+type: "transport.pause"
 } | {
 type: "transport.seek"
 } | {
