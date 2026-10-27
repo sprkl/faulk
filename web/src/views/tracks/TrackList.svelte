@@ -228,3 +228,5 @@
     }
   }
 </style>
+
+<!-- measurement of #377, to be discarded -->
