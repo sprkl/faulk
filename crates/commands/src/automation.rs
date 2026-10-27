@@ -6,8 +6,9 @@
 //! - A lane belongs to a track and automates one parameter of it: a parameter of one of
 //!   the track's devices (`{"device": {"device": <id>, "param": <key>}}`, validated against
 //!   the device's descriptor) or the track's `gain` or `pan` (`{"mixer": {"param": "gain"}}`).
-//!   A track has at most one lane per parameter. The master and the devices of the master's
-//!   chain are not automatable yet (a lane lives in a track).
+//!   `automation.lane.create` refuses a second lane on a parameter (a restore gives back what
+//!   was there, even two lanes that a merge left on one parameter). The master and the devices
+//!   of the master's chain are not automatable yet (a lane lives in a track).
 //! - A lane holds at most one point per tick: `{tick, value, shape}`. `shape` is the
 //!   transition from the point to the next one, `linear` (default) or `step`. A tick lies in
 //!   `[0, 2^40]`.
@@ -145,10 +146,11 @@ domain! {
     /// Put points back in a lane exactly as given, and take the points at `remove` out: the
     /// inverse of `automation.points.remove`, `automation.points.update` and
     /// `automation.lane.clear`, one history entry, all or nothing. Unlike
-    /// `automation.points.add`, a value is kept as it is (not rounded to the step, not
-    /// clamped), so that an undo gives back the very points that were there; a point at a
-    /// tick that already holds one replaces it. A tick in range, a finite value, and a gain or
-    /// pan within its range are still required, and the safety limits of points. Refused when
+    /// `automation.points.add`, a value is kept as it is (not rounded to the step), so that an
+    /// undo gives back the very points that were there; a point at a tick that already holds
+    /// one replaces it. A tick in range, a finite value within the parameter's range (a
+    /// device parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and
+    /// the safety limits of points. Refused when
     /// a tick is in both lists or twice in one. Undo: `automation.points.restore` with the
     /// points it replaced and the ticks it added.
     "automation.points.restore" (kind = "edit", undo = "inverse", destructive = false)
@@ -256,8 +258,9 @@ enum Rule {
 }
 
 impl Rule {
-    /// The value as it is, when the parameter can hold it: finite, and for a gain or a pan
-    /// within its range. What an undo gives back.
+    /// The value as it is, when the parameter can hold it: finite and within the parameter's
+    /// range. Not rounded to its step: an undo gives back the very value that was there, which
+    /// a file may hold off the step.
     fn verbatim(self, value: f64) -> Result<f64, CommandError> {
         if !value.is_finite() {
             return Err(invalid(
@@ -268,7 +271,8 @@ impl Rule {
         let range = match self {
             Self::Gain => Some((MIN_GAIN_DB, MAX_GAIN_DB)),
             Self::Pan => Some((-1.0, 1.0)),
-            Self::Param(_) => None,
+            Self::Param(Some(descriptor)) => Some((descriptor.min, descriptor.max)),
+            Self::Param(None) => None,
         };
         match range {
             Some((min, max)) if !(min..=max).contains(&value) => Err(invalid(
@@ -341,6 +345,25 @@ fn rule_of(state: &State, track: &Track, target: &AutomationTarget) -> Result<Ru
             Ok(Rule::Param(param))
         }
     }
+}
+
+/// Whether the points of a lane that `device.restore` brings back hold values the device's
+/// parameter can hold (finite, within its range): the same check as the restore commands of
+/// this domain make, for a device that is not in the track yet.
+pub(crate) fn check_restored_lane(
+    device: &project::Device,
+    lane: &AutomationLane,
+) -> Result<(), CommandError> {
+    let AutomationTarget::Device { param, .. } = &lane.target else {
+        return Ok(());
+    };
+    let descriptor =
+        descriptor_of(registry(), device).and_then(|d| d.params.iter().find(|p| p.key == param));
+    let rule = Rule::Param(descriptor);
+    for point in lane.points.values() {
+        rule.verbatim(point.value)?;
+    }
+    Ok(())
 }
 
 /// The track that holds a lane.
@@ -494,7 +517,10 @@ fn lane_restore(
         ));
     }
     let track = track_ref(state, track_id)?;
-    rule_of(state, track, &snapshot.target)?;
+    let rule = rule_of(state, track, &snapshot.target)?;
+    for point in snapshot.points.values() {
+        rule.verbatim(point.value)?;
+    }
     check_lane_limits(caps, state, track)?;
     if snapshot.points.len() > caps.points_per_lane {
         return Err(limit("automation points", caps.points_per_lane));

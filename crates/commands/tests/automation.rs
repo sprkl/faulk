@@ -241,6 +241,16 @@ fn a_lane_restore_is_refused_when_it_does_not_fit() {
     let mut bad = snapshot.clone();
     bad.target = device_target(&f.chain.player, "gain");
     assert_eq!(code(&restore(&f.track, &fresh, bad), &f.state), "not_found");
+    // A device parameter keeps its range: the effect's `gain` is 0 to 2.
+    let mut high = lane(&f.state, &f.track, &f.effect_lane).clone();
+    high.points.insert(
+        Tick(5),
+        AutomationPoint {
+            value: 9.0,
+            shape: Shape::Step,
+        },
+    );
+    assert_eq!(code(&restore(&f.track, &fresh, high), &f.state), "invalid");
     // A point the project would refuse leaves the state untouched.
     for (value, tick) in [(99.0, 0), (f64::NAN, 0), (0.0, -1), (0.0, (1 << 40) + 1)] {
         let mut bad = snapshot.clone();
@@ -549,6 +559,13 @@ fn undo_gives_back_the_very_points_even_when_they_are_off_the_step() {
     // edit, a descriptor that changed): remove, update and clear must undo to the same bytes.
     let f = fx();
     let mut s = f.state.clone();
+    // `mute` has a step of 1: 0.3 is off it.
+    let mute = create(
+        &mut s,
+        &mut more_context(),
+        &f.track,
+        device_target(&f.chain.b, "mute"),
+    );
     {
         let l = s
             .project
@@ -566,10 +583,10 @@ fn undo_gives_back_the_very_points_even_when_they_are_off_the_step() {
             },
         );
         let e = s.project.tracks.get_mut(&f.track).unwrap();
-        e.automation.get_mut(&f.effect_lane).unwrap().points.insert(
+        e.automation.get_mut(&mute).unwrap().points.insert(
             Tick(100),
             AutomationPoint {
-                value: 9.0,
+                value: 0.3,
                 shape: Shape::Step,
             },
         );
@@ -588,12 +605,10 @@ fn undo_gives_back_the_very_points_even_when_they_are_off_the_step() {
             points: vec![linear(100, -1.0)],
         }),
         a(automation::Command::PointsUpdate {
-            lane: f.effect_lane.clone(),
+            lane: mute.clone(),
             points: vec![linear(100, 1.0)],
         }),
-        a(automation::Command::LaneDelete {
-            lane: f.effect_lane.clone(),
-        }),
+        a(automation::Command::LaneDelete { lane: mute.clone() }),
     ];
     for command in commands {
         go(&mut s, &command);
@@ -625,6 +640,13 @@ fn a_points_restore_puts_points_back_as_they_are_and_checks_what_it_must() {
     );
     go(&mut s, &undo());
     assert_eq!(s.project, f.state.project);
+    // A device parameter keeps its range too: the effect's `gain` is 0 to 2.
+    let out_of_range = a(automation::Command::PointsRestore {
+        lane: f.effect_lane.clone(),
+        points: vec![linear(10, 9.0)],
+        remove: vec![],
+    });
+    assert_eq!(code(&out_of_range, &f.state), "invalid");
     for bad in [
         restore(vec![linear(10, 99.0)], vec![]),
         restore(vec![linear(10, f64::NAN)], vec![]),
@@ -768,6 +790,16 @@ fn a_device_restore_checks_the_lanes_it_brings_and_takes_them_back_out_when_refu
     let mut lacking = good.clone();
     lacking.target = device_target(&c.a, "nope");
     assert_eq!(code(&with(lacking), &s), "invalid");
+    // A value the parameter cannot hold (`gain` is 0 to 2) is refused too.
+    let mut high = good.clone();
+    high.points.insert(
+        Tick(5),
+        AutomationPoint {
+            value: 9.0,
+            shape: Shape::Step,
+        },
+    );
+    assert_eq!(code(&with(high), &s), "invalid");
     // A point the project refuses: the device and the lanes go back out.
     let mut nan = good.clone();
     nan.points.insert(

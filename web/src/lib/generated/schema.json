@@ -500,7 +500,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+            "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
             "properties": {
               "lane": {
                 "$ref": "#/$defs/LaneId"
@@ -4738,7 +4738,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -11296,7 +11296,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -17875,7 +17875,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -24427,7 +24427,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -30972,7 +30972,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -37517,7 +37517,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -44062,7 +44062,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -50607,7 +50607,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -57170,7 +57170,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -63715,7 +63715,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -70260,7 +70260,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -76813,7 +76813,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -83366,7 +83366,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -89919,7 +89919,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -96464,7 +96464,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -103009,7 +103009,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -109554,7 +109554,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -116185,7 +116185,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -122770,7 +122770,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -129337,7 +129337,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -135892,7 +135892,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -142454,7 +142454,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -149023,7 +149023,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -155589,7 +155589,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -162144,7 +162144,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -168711,7 +168711,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -175274,7 +175274,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -181836,7 +181836,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -188398,7 +188398,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -194962,7 +194962,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -201541,7 +201541,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -208104,7 +208104,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -214684,7 +214684,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -221250,7 +221250,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -227805,7 +227805,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -234367,7 +234367,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -240941,7 +240941,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -247530,7 +247530,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -254090,7 +254090,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -260656,7 +260656,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -267234,7 +267234,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -273823,7 +273823,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -280385,7 +280385,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -286951,7 +286951,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -293524,7 +293524,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -300105,7 +300105,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -306672,7 +306672,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -313239,7 +313239,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -319806,7 +319806,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -326386,7 +326386,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -332958,7 +332958,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -339535,7 +339535,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -346094,7 +346094,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -352654,7 +352654,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -359216,7 +359216,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -365778,7 +365778,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -372344,7 +372344,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -378899,7 +378899,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -385450,7 +385450,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -392001,7 +392001,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -398552,7 +398552,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -405097,7 +405097,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -411642,7 +411642,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -418193,7 +418193,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -424789,7 +424789,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -431363,7 +431363,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -437938,7 +437938,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -444500,7 +444500,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -451070,7 +451070,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -457670,7 +457670,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -464261,7 +464261,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -470852,7 +470852,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -477406,7 +477406,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -483968,7 +483968,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -490526,7 +490526,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -497085,7 +497085,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -503652,7 +503652,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -510219,7 +510219,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -516786,7 +516786,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -522843,7 +522843,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+        "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -523346,7 +523346,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -529911,7 +529911,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -536456,7 +536456,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -543001,7 +543001,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -549552,7 +549552,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -556103,7 +556103,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -562665,7 +562665,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -569244,7 +569244,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -575802,7 +575802,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -582370,7 +582370,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -588922,7 +588922,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -595519,7 +595519,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -602092,7 +602092,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -608658,7 +608658,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -615220,7 +615220,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -621789,7 +621789,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -628351,7 +628351,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -634896,7 +634896,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -641456,7 +641456,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -648021,7 +648021,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -654579,7 +654579,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -661150,7 +661150,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -667714,7 +667714,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -674275,7 +674275,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -680820,7 +680820,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -687365,7 +687365,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -693929,7 +693929,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -700493,7 +700493,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -707045,7 +707045,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -713597,7 +713597,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+                  "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
                   "properties": {
                     "lane": {
                       "$ref": "#/$defs/LaneId"
@@ -720159,7 +720159,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step, not\nclamped), so that an undo gives back the very points that were there; a point at a\ntick that already holds one replaces it. A tick in range, a finite value, and a gain or\npan within its range are still required, and the safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
+              "description": "Put points back in a lane exactly as given, and take the points at `remove` out: the\ninverse of `automation.points.remove`, `automation.points.update` and\n`automation.lane.clear`, one history entry, all or nothing. Unlike\n`automation.points.add`, a value is kept as it is (not rounded to the step), so that an\nundo gives back the very points that were there; a point at a tick that already holds\none replaces it. A tick in range, a finite value within the parameter's range (a\ndevice parameter's, -96 to +6 dB for a gain, -1 to 1 for a pan) are still required, and\nthe safety limits of points. Refused when\na tick is in both lists or twice in one. Undo: `automation.points.restore` with the\npoints it replaced and the ticks it added.",
               "properties": {
                 "lane": {
                   "$ref": "#/$defs/LaneId"

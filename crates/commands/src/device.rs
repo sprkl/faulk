@@ -676,6 +676,7 @@ fn check_lanes(
                 format!("lane {id} does not target a parameter of device {device_id}"),
             ));
         }
+        crate::automation::check_restored_lane(snapshot, lane)?;
     }
     if track.automation.len().saturating_add(lanes.len()) > project::limits::MAX_LANES_PER_TRACK {
         return Err(CommandError::Limit {
