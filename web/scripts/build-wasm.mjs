@@ -4,12 +4,21 @@
 // (crates/project-wasm, for wasm32-unknown-unknown).
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { withTargetLock } from './target-lock.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const lib = fileURLToPath(new URL('../src/lib/', import.meta.url))
 const cargo = process.env.CARGO ?? 'cargo'
+
+// Where cargo puts its output: `target/` of the checkout, or what CARGO_TARGET_DIR, CARGO_BUILD_TARGET_DIR
+// or `build.target-dir` say (a build cache shared by several checkouts). Cargo itself answers.
+function targetDirectory() {
+  const json = execFileSync(cargo, ['metadata', '--no-deps', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  return JSON.parse(json).target_directory
+}
+const targetDir = targetDirectory()
 
 const builds = [
   { crate: 'engine-wasm', target: 'wasm32-wasip1-threads', file: 'engine_wasm.wasm', out: 'engine/wasm/engine.wasm' },
@@ -17,8 +26,11 @@ const builds = [
 ]
 
 for (const { crate, target, file, out } of builds) {
-  execFileSync(cargo, ['build', '-q', '-p', crate, '--release', '--target', target], { cwd: root, stdio: 'inherit' })
-  mkdirSync(dirname(lib + out), { recursive: true })
-  copyFileSync(`${root}target/${target}/release/${file}`, lib + out)
+  // Build and copy under one lock: a checkout that shares the target directory must not replace the artifact in between.
+  withTargetLock(targetDir, () => {
+    execFileSync(cargo, ['build', '-q', '-p', crate, '--release', '--target', target], { cwd: root, stdio: 'inherit' })
+    mkdirSync(dirname(lib + out), { recursive: true })
+    copyFileSync(join(targetDir, target, 'release', file), lib + out)
+  })
   console.log(`built src/lib/${out}`)
 }
