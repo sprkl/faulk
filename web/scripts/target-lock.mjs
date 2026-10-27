@@ -31,11 +31,21 @@ function alive(pid) {
  */
 function abandoned(lock) {
   try {
-    if (Date.now() - statSync(lock).mtimeMs > STALE_MS) return true
-    const pid = Number(readFileSync(join(lock, 'owner'), 'utf8'))
-    return Number.isInteger(pid) && pid > 0 && !alive(pid)
+    const pid = ownerOf(lock)
+    if (pid) return !alive(pid) // a live owner keeps its lock, however long the build takes
+    return Date.now() - statSync(lock).mtimeMs > STALE_MS // no pid written: only age tells
   } catch {
-    return false // just released, or its owner has not written its pid yet
+    return false // just released
+  }
+}
+
+/** @param {string} lock */
+function ownerOf(lock) {
+  try {
+    const pid = Number(readFileSync(join(lock, 'owner'), 'utf8'))
+    return Number.isInteger(pid) && pid > 0 ? pid : 0
+  } catch {
+    return 0
   }
 }
 
@@ -59,8 +69,11 @@ export function withTargetLock(targetDir, fn) {
       if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e
       if (abandoned(lock)) {
         try {
-          renameSync(lock, `${lock}.dead-${process.pid}`) // one waiter wins this
-          rmSync(`${lock}.dead-${process.pid}`, { recursive: true, force: true })
+          const moved = `${lock}.dead-${process.pid}`
+          renameSync(lock, moved) // one waiter wins this
+          const pid = ownerOf(moved)
+          if (pid && alive(pid)) renameSync(moved, lock) // a new, live lock taken in between: give it back
+          else rmSync(moved, { recursive: true, force: true })
         } catch {
           /* another waiter took it over first */
         }
