@@ -6,7 +6,7 @@
    */
   import { effectDescriptors, instrumentDescriptors, type DeviceDescriptor } from '../../lib/devices'
   import { setInstrument } from '../../lib/device-commands'
-  import { addEffectCommand, type ChainEntry } from '../../lib/project/chain'
+  import { addEffectCommand, addMasterEffectCommand, type ChainEntry } from '../../lib/project/chain'
   import { useStores } from '../../lib/stores'
 
   let {
@@ -14,8 +14,12 @@
     midi,
     chain,
     descriptors,
+    master = false,
   }: {
+    /** The track whose chain it is; ignored for the master. */
     track: string
+    /** The browser of the master's chain: effects only, added with `master: true`. */
+    master?: boolean
     /** Whether the track is a MIDI track: an audio track keeps its clip player, no instrument is chosen. */
     midi: boolean
     chain: readonly ChainEntry[]
@@ -31,9 +35,15 @@
   const current = $derived(chain.find((e) => e.effectIndex === null)?.kind ?? null)
 </script>
 
-<nav class="browser" aria-label={t('devices.browser')} data-testid="device-browser">
-  <h3 class="label">{t('devices.instruments')}</h3>
-  {#if midi}
+<nav class="browser" aria-label={master ? t('devices.browserMaster') : t('devices.browser')} data-testid="device-browser">
+  {#if master}
+    <p class="muted" data-testid="browse-master-hint">{t('devices.masterHint')}</p>
+  {:else}
+    <h3 class="label">{t('devices.instruments')}</h3>
+  {/if}
+  {#if master}
+    <!-- the master holds effects only -->
+  {:else if midi}
     <ul>
       {#each instruments as d (d.kind)}
         <li>
@@ -59,11 +69,11 @@
       {#each effects as d (d.kind)}
         <li>
           <button
-            aria-label={t('devices.add', { name: d.name })}
-            title={t('devices.add', { name: d.name })}
+            aria-label={master ? t('devices.addMaster', { name: d.name }) : t('devices.add', { name: d.name })}
+            title={master ? t('devices.addMaster', { name: d.name }) : t('devices.add', { name: d.name })}
             data-testid="browse-effect"
             data-kind={d.kind}
-            onclick={() => dispatcher.run(addEffectCommand(track, d.kind, chain))}>{d.name}</button
+            onclick={() => dispatcher.run(master ? addMasterEffectCommand(d.kind, chain) : addEffectCommand(track, d.kind, chain))}>{d.name}</button
           >
         </li>
       {/each}

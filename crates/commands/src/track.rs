@@ -521,7 +521,7 @@ fn instrument_of(track: &Track) -> Option<(&DeviceId, &Device)> {
 
 fn chain_changed(track: &TrackId) -> Vec<ProjectEvent> {
     vec![ProjectEvent::DeviceChainChanged {
-        track: track.clone(),
+        track: Some(track.clone()),
     }]
 }
 

@@ -42,6 +42,15 @@ export class ProjectStore {
   private setParam(device: string, param: string, value: number): boolean {
     const view = this.view
     if (!view) return false
+    const masterHeld = view.project.master_devices?.[device]
+    if (masterHeld) {
+      const project = {
+        ...view.project,
+        master_devices: { ...view.project.master_devices, [device]: { ...masterHeld, params: { ...masterHeld.params, [param]: value } } },
+      }
+      this.view = { ...view, project }
+      return true
+    }
     for (const [trackId, track] of Object.entries(view.project.tracks)) {
       const held = track?.devices[device]
       if (!track || !held) continue

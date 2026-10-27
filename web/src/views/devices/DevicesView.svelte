@@ -3,7 +3,7 @@
    * The device panel: the selected track's chain (instrument first, then the effects) as cards
    * generated from the descriptors, and the browser to add devices. It writes nothing per device.
    */
-  import { chainOf } from '../../lib/project/chain'
+  import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import DeviceBrowser from './DeviceBrowser.svelte'
@@ -13,10 +13,21 @@
   const t = ui.t
 
   const selected = $derived(project.selected)
-  const chain = $derived(selected ? chainOf(selected.track) : [])
+  // The master's chain shows until another track is selected (from the list, the grid or the mixer).
+  const master = $derived(ui.masterSelection !== null && ui.masterSelection === (project.selected?.id ?? ''))
+  const chain = $derived(master ? masterChainOf(project.view?.project.master_devices) : selected ? chainOf(selected.track) : [])
 </script>
 
-{#if selected}
+{#if master}
+  <div class="devices" data-testid="devices" data-target="master">
+    <DeviceBrowser track="" midi={false} {chain} master />
+    <div class="chain" role="group" aria-label={t('devices.chain', { name: t('mixer.master') })} data-testid="device-chain">
+      {#each chain as entry (entry.id)}
+        <DeviceCard {entry} {chain} />
+      {/each}
+    </div>
+  </div>
+{:else if selected}
   <div class="devices" data-testid="devices">
     <DeviceBrowser track={selected.id} midi={isMidi(selected.track)} {chain} />
     <div class="chain" role="group" aria-label={t('devices.chain', { name: trackLabel(selected, t) })} data-testid="device-chain">

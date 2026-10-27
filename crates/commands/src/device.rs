@@ -10,6 +10,11 @@
 //!   the **effects**, 0 first (right after the instrument); an index past the end means
 //!   last. The instrument is never counted, moved or removed by these commands:
 //!   `track.set_instrument` replaces it.
+//! - The master has a chain too (#364): effects only, run on the sum of the tracks before
+//!   the master's fader. `device.insert` and `device.restore` name the chain they work on:
+//!   `track` for a track's, `master: true` for the master's, exactly one of the two. The
+//!   other commands find a device by its identifier, which is unique in the project. The
+//!   master is not a track: it has no instrument, no clip, no solo, and cannot be removed.
 //! - The order of a chain is a fractional key in the document: `device.insert` and
 //!   `device.move` turn the index into a key, and their inverses put the exact key back.
 //! - `device.remove` takes the device with its settings; its inverse, `device.restore`,
@@ -29,26 +34,42 @@ use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
 use engine::devices::{Builtin, REGISTRY};
 use engine::{Param, Synth};
 use project::limits::MAX_DEVICES_PER_TRACK;
+use project::order::by_order;
 use project::{
     AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource, OrderKey, Track,
     TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// For `skip_serializing_if`: a `master: false` is left out of the command.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 domain! {
     domain = "device", schema = ("DeviceCommand", "DeviceOutput");
 
-    /// Insert an effect in a track's chain. `kind` is the type id of a built-in effect
-    /// (an instrument is refused: `track.set_instrument` replaces the instrument).
-    /// `index` is the position among the track's effects, 0 first (right after the
-    /// instrument); an index past the end means last. The new device starts at its
-    /// default settings, not bypassed. Refused with `invalid` when the effects around
-    /// that position share an order key (a merge made them equal), and with `limit` at the
-    /// safety limit of devices per track. Undo: `device.remove`.
+    /// Insert an effect in a track's chain, or in the master's. Name the chain with
+    /// `track` (a track's identifier) or with `master: true` (the master: the effects
+    /// there process the sum of all the tracks before the master's volume), exactly one
+    /// of the two. `kind` is the type id of a built-in effect (an instrument is refused:
+    /// `track.set_instrument` replaces a track's instrument, and the master has none).
+    /// `index` is the position among the chain's effects, 0 first (right after the
+    /// instrument on a track); an index past the end means last. The new device starts at
+    /// its default settings, not bypassed. Refused with `invalid` when both or neither of
+    /// `track` and `master` are given, when the effects around that position share an
+    /// order key (a merge made them equal), and with `limit` at the safety limit of
+    /// devices per chain. Undo: `device.remove`.
     "device.insert" (kind = "edit", undo = "inverse", destructive = false)
     Insert {
-        track: TrackId,
+        /// The track whose chain gets the effect; absent for the master.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<TrackId>,
+        /// `true` to insert in the master's chain instead of a track's.
+        #[serde(default, skip_serializing_if = "is_false")]
+        master: bool,
         kind: String,
         index: u32,
     } => {
@@ -56,31 +77,38 @@ domain! {
         device: DeviceId,
     };
 
-    /// Remove an effect from its track, with its settings. Refused for an instrument (the
-    /// oscillator, the clip player: replace it with `track.set_instrument`) and for a
-    /// device an automation lane targets. Undo: `device.restore` brings it back with its
-    /// identifier, position, settings and bypass.
+    /// Remove an effect from its track or from the master, with its settings. Refused for
+    /// an instrument (the oscillator, the clip player: replace it with
+    /// `track.set_instrument`) and for a device an automation lane targets. Undo:
+    /// `device.restore` brings it back with its identifier, position, settings and bypass.
     "device.remove" (kind = "edit", undo = "inverse", destructive = false)
     Remove { device: DeviceId } => {
-        /// The track the device was in.
-        track: TrackId,
+        /// The track the device was in; `null` when it was in the master's chain.
+        track: Option<TrackId>,
     };
 
     /// Bring a removed effect back with its identifier, as `device.remove` took it out:
-    /// the inverse of a remove. `snapshot` is the whole device: its order key, bypass,
-    /// source, settings and state. Refused when the identifier is already in use, at the
-    /// safety limit of devices, or when the snapshot is not an effect (a built-in device
-    /// must be one of the registry, with only parameters it declares; a module device is
-    /// taken as it is) or does not fit the chain. Undo: `device.remove`.
+    /// the inverse of a remove. `track` or `master: true` names the chain, as for
+    /// `device.insert`. `snapshot` is the whole device: its order key, bypass, source,
+    /// settings and state. Refused when both or neither of `track` and `master` are given,
+    /// when the identifier is already in use, at the safety limit of devices, or when the
+    /// snapshot is not an effect (a built-in device must be one of the registry, with only
+    /// parameters it declares; a module device is taken as it is) or does not fit the
+    /// chain. Undo: `device.remove`.
     "device.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore {
-        track: TrackId,
+        /// The track whose chain gets the effect back; absent for the master.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<TrackId>,
+        /// `true` to restore into the master's chain instead of a track's.
+        #[serde(default, skip_serializing_if = "is_false")]
+        master: bool,
         device: DeviceId,
         snapshot: Device,
     } => {};
 
-    /// Move an effect to `index` among its track's effects, 0 first (right after the
-    /// instrument); an index past the end means last. The instrument cannot be moved.
+    /// Move an effect to `index` among the effects of its chain (a track's or the master's),
+    /// 0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.
     /// Refused with `invalid` when the effects around that position share an order key.
     /// Undo: `device.restore_order` puts the exact previous order key back.
     "device.move" (kind = "edit", undo = "inverse", destructive = false)
@@ -162,13 +190,32 @@ pub(crate) fn apply_in(
     ctx: &mut Context,
 ) -> Result<Out, CommandError> {
     match command {
-        Command::Insert { track, kind, index } => insert(registry, state, ctx, track, kind, *index),
+        Command::Insert {
+            track,
+            master,
+            kind,
+            index,
+        } => insert(
+            registry,
+            state,
+            ctx,
+            &chain_target(track, *master)?,
+            kind,
+            *index,
+        ),
         Command::Remove { device } => remove(state, device),
         Command::Restore {
             track,
+            master,
             device,
             snapshot,
-        } => restore(registry, state, track, device, snapshot),
+        } => restore(
+            registry,
+            state,
+            &chain_target(track, *master)?,
+            device,
+            snapshot,
+        ),
         Command::Move { device, index } => move_device(state, device, *index),
         Command::RestoreOrder { device, order } => restore_order(state, device, order),
         Command::SetBypass { device, bypass } => set_bypass(state, device, *bypass),
@@ -203,10 +250,58 @@ fn unchanged(output: Output) -> Out {
     }
 }
 
-fn chain_changed(track: &TrackId) -> Vec<ProjectEvent> {
+/// The chain a device lives in: a track's, or the master's (#364).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Place {
+    Track(TrackId),
+    Master,
+}
+
+impl Place {
+    /// The track, `None` for the master: the form of the command outputs and events.
+    fn track(&self) -> Option<TrackId> {
+        match self {
+            Self::Track(t) => Some(t.clone()),
+            Self::Master => None,
+        }
+    }
+
+    /// The command fields `(track, master)` that name this chain.
+    fn fields(&self) -> (Option<TrackId>, bool) {
+        (self.track(), matches!(self, Self::Master))
+    }
+}
+
+/// The chain `track` / `master` of a command names: exactly one of the two.
+fn chain_target(track: &Option<TrackId>, master: bool) -> Result<Place, CommandError> {
+    match (track, master) {
+        (Some(t), false) => Ok(Place::Track(t.clone())),
+        (None, true) => Ok(Place::Master),
+        (Some(_), true) => Err(invalid(
+            "master",
+            "name the track or the master, not both: give `track`, or `master: true`",
+        )),
+        (None, false) => Err(invalid(
+            "track",
+            "name the chain: a `track`, or `master: true` for the master's chain",
+        )),
+    }
+}
+
+fn chain_changed(place: &Place) -> Vec<ProjectEvent> {
     vec![ProjectEvent::DeviceChainChanged {
-        track: track.clone(),
+        track: place.track(),
     }]
+}
+
+type Devices = BTreeMap<DeviceId, Device>;
+
+/// The chain at `place`.
+fn chain_mut<'a>(state: &'a mut State, place: &Place) -> Result<&'a mut Devices, CommandError> {
+    match place {
+        Place::Master => Ok(&mut state.project.master_devices),
+        Place::Track(t) => Ok(&mut track_mut(state, t)?.devices),
+    }
 }
 
 fn limit() -> CommandError {
@@ -216,14 +311,17 @@ fn limit() -> CommandError {
     }
 }
 
-/// The track that holds `device`.
-fn track_of(state: &State, device: &DeviceId) -> Result<TrackId, CommandError> {
+/// The chain that holds `device`: the master's, or a track's.
+fn place_of(state: &State, device: &DeviceId) -> Result<Place, CommandError> {
+    if state.project.master_devices.contains_key(device) {
+        return Ok(Place::Master);
+    }
     state
         .project
         .tracks
         .iter()
         .find(|(_, t)| t.devices.contains_key(device))
-        .map(|(id, _)| id.clone())
+        .map(|(id, _)| Place::Track(id.clone()))
         .ok_or_else(|| not_found("device", device))
 }
 
@@ -318,9 +416,8 @@ pub(crate) fn check_device(
 }
 
 /// The effects of a chain in order, without `except`.
-fn effects<'a>(track: &'a Track, except: Option<&DeviceId>) -> Vec<(&'a DeviceId, &'a Device)> {
-    track
-        .devices_in_order()
+fn effects<'a>(devices: &'a Devices, except: Option<&DeviceId>) -> Vec<(&'a DeviceId, &'a Device)> {
+    by_order(devices, |d| &d.order)
         .into_iter()
         .filter(|(id, d)| d.role == DeviceRole::Effect && Some(*id) != except)
         .collect()
@@ -330,17 +427,16 @@ fn effects<'a>(track: &'a Track, except: Option<&DeviceId>) -> Vec<(&'a DeviceId
 /// `except`, the device being moved). What the chain holds before its effects (the
 /// instrument) bounds the key below.
 fn key_at(
-    track: &Track,
+    devices: &Devices,
     except: Option<&DeviceId>,
     index: usize,
 ) -> Result<OrderKey, CommandError> {
-    let chain: Vec<&OrderKey> = track
-        .devices_in_order()
+    let chain: Vec<&OrderKey> = by_order(devices, |d| &d.order)
         .into_iter()
         .filter(|(id, _)| Some(*id) != except)
         .map(|(_, d)| &d.order)
         .collect();
-    let fx = effects(track, except).len();
+    let fx = effects(devices, except).len();
     let position = (chain.len() - fx) + index.min(fx);
     let key = OrderKey::for_index(&chain, position).map_err(|e| invalid("index", e.to_string()))?;
     // Neighbours that share a key leave none between them: refuse rather than report a
@@ -358,7 +454,7 @@ fn insert(
     registry: &[Builtin],
     state: &mut State,
     ctx: &mut Context,
-    track_id: &TrackId,
+    place: &Place,
     kind: &str,
     index: u32,
 ) -> Result<Out, CommandError> {
@@ -368,6 +464,12 @@ fn insert(
         .ok_or_else(|| not_found("device kind", kind))?;
     match builtin.descriptor.role {
         EngineRole::Effect => {}
+        EngineRole::Instrument if *place == Place::Master => {
+            return Err(invalid(
+                "kind",
+                format!("{kind} is an instrument: the master holds effects only"),
+            ));
+        }
         EngineRole::Instrument => {
             return Err(invalid(
                 "kind",
@@ -381,28 +483,24 @@ fn insert(
             ));
         }
     }
-    let track = track_mut(state, track_id)?;
-    if track.devices.len() >= MAX_DEVICES_PER_TRACK {
+    let devices = chain_mut(state, place)?;
+    if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
-    let key = key_at(track, None, usize::try_from(index).unwrap_or(usize::MAX))?;
+    let key = key_at(devices, None, usize::try_from(index).unwrap_or(usize::MAX))?;
     let id = DeviceId::generate(&mut ctx.ids);
-    track
-        .devices
-        .insert(id.clone(), built(builtin, DeviceRole::Effect, key));
+    devices.insert(id.clone(), built(builtin, DeviceRole::Effect, key));
     Ok(Outcome {
         output: Output::Insert { device: id.clone() },
         undo: Undo::Inverse(Box::new(Command::Remove { device: id })),
-        events: chain_changed(track_id),
+        events: chain_changed(place),
         control: vec![],
     })
 }
 
 fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> {
-    let track_id = track_of(state, device_id)?;
-    let track = track_mut(state, &track_id)?;
-    let device = track
-        .devices
+    let place = place_of(state, device_id)?;
+    let device = chain_mut(state, &place)?
         .get(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
     if device.role == DeviceRole::Instrument {
@@ -411,26 +509,29 @@ fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> 
             "an instrument is not removed: track.set_instrument replaces it",
         ));
     }
-    if has_lane(track, device_id) {
+    if let Place::Track(track_id) = &place
+        && has_lane(track_mut(state, track_id)?, device_id)
+    {
         return Err(invalid(
             "device",
             "an automation lane targets this device: remove the lane first",
         ));
     }
-    let snapshot = track
-        .devices
+    let snapshot = chain_mut(state, &place)?
         .remove(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
+    let (track, master) = place.fields();
     Ok(Outcome {
         output: Output::Remove {
-            track: track_id.clone(),
+            track: track.clone(),
         },
         undo: Undo::Inverse(Box::new(Command::Restore {
-            track: track_id.clone(),
+            track,
+            master,
             device: device_id.clone(),
             snapshot,
         })),
-        events: chain_changed(&track_id),
+        events: chain_changed(&place),
         control: vec![],
     })
 }
@@ -438,7 +539,7 @@ fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> 
 fn restore(
     registry: &[Builtin],
     state: &mut State,
-    track_id: &TrackId,
+    place: &Place,
     device_id: &DeviceId,
     snapshot: &Device,
 ) -> Result<Out, CommandError> {
@@ -452,17 +553,17 @@ fn restore(
         ));
     }
     check_device(registry, device_id, snapshot)?;
-    let track = track_mut(state, track_id)?;
-    if track.devices.len() >= MAX_DEVICES_PER_TRACK {
+    let devices = chain_mut(state, place)?;
+    if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
-    track.devices.insert(device_id.clone(), snapshot.clone());
+    devices.insert(device_id.clone(), snapshot.clone());
     // The snapshot is data from outside: the whole project must stay valid with it (the
     // chain keeps its instrument first, parameters are finite, limits hold). A refusal
     // takes the device back out, so the state is untouched.
     if let Err(violations) = state.project.validate() {
-        if let Some(track) = state.project.tracks.get_mut(track_id) {
-            track.devices.remove(device_id);
+        if let Ok(devices) = chain_mut(state, place) {
+            devices.remove(device_id);
         }
         let first = violations
             .first()
@@ -474,37 +575,35 @@ fn restore(
         undo: Undo::Inverse(Box::new(Command::Remove {
             device: device_id.clone(),
         })),
-        events: chain_changed(track_id),
+        events: chain_changed(place),
         control: vec![],
     })
 }
 
 fn move_device(state: &mut State, device_id: &DeviceId, index: u32) -> Result<Out, CommandError> {
-    let track_id = track_of(state, device_id)?;
-    let track = track_mut(state, &track_id)?;
-    let role = track
-        .devices
+    let place = place_of(state, device_id)?;
+    let devices = chain_mut(state, &place)?;
+    let role = devices
         .get(device_id)
         .map(|d| d.role)
         .ok_or_else(|| not_found("device", device_id))?;
     if role != DeviceRole::Effect {
         return Err(invalid("device", "an instrument stays first in its chain"));
     }
-    let previous_index = effects(track, None)
+    let previous_index = effects(devices, None)
         .iter()
         .position(|(id, _)| *id == device_id)
         .unwrap_or(0);
     let output = Output::Move {
         previous_index: u32::try_from(previous_index).unwrap_or(u32::MAX),
     };
-    let others = effects(track, Some(device_id)).len();
+    let others = effects(devices, Some(device_id)).len();
     let index = usize::try_from(index).unwrap_or(usize::MAX).min(others);
     if index == previous_index {
         return Ok(unchanged(output));
     }
-    let key = key_at(track, Some(device_id), index)?;
-    let device = track
-        .devices
+    let key = key_at(devices, Some(device_id), index)?;
+    let device = devices
         .get_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
     let before = std::mem::replace(&mut device.order, key);
@@ -514,7 +613,7 @@ fn move_device(state: &mut State, device_id: &DeviceId, index: u32) -> Result<Ou
             device: device_id.clone(),
             order: before,
         })),
-        events: chain_changed(&track_id),
+        events: chain_changed(&place),
         control: vec![],
     })
 }
@@ -524,10 +623,9 @@ fn restore_order(
     device_id: &DeviceId,
     order: &OrderKey,
 ) -> Result<Out, CommandError> {
-    let track_id = track_of(state, device_id)?;
-    let track = track_mut(state, &track_id)?;
-    let device = track
-        .devices
+    let place = place_of(state, device_id)?;
+    let devices = chain_mut(state, &place)?;
+    let device = devices
         .get_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
     if device.role != DeviceRole::Effect {
@@ -538,14 +636,14 @@ fn restore_order(
         return Ok(unchanged(output));
     }
     let before = std::mem::replace(&mut device.order, order.clone());
-    // The effect must not land before the instrument.
-    let instrument_first = track
-        .devices_in_order()
+    // The effect must not land before the instrument (the master's chain has none: any
+    // position holds).
+    let instrument_first = by_order(&*devices, |d| &d.order)
         .iter()
         .position(|(_, d)| d.role == DeviceRole::Instrument)
         .is_none_or(|i| i == 0);
     if !instrument_first {
-        if let Some(device) = track.devices.get_mut(device_id) {
+        if let Some(device) = devices.get_mut(device_id) {
             device.order = before;
         }
         return Err(invalid(
@@ -559,7 +657,7 @@ fn restore_order(
             device: device_id.clone(),
             order: before,
         })),
-        events: chain_changed(&track_id),
+        events: chain_changed(&place),
         control: vec![],
     })
 }
@@ -567,9 +665,7 @@ fn restore_order(
 fn set_bypass(state: &mut State, device_id: &DeviceId, bypass: bool) -> Result<Out, CommandError> {
     let device = state
         .project
-        .tracks
-        .values_mut()
-        .find_map(|t| t.devices.get_mut(device_id))
+        .device_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
     if is_clip_player(device) {
         return Err(invalid("device", "the clip player cannot be bypassed"));
@@ -609,9 +705,7 @@ fn set_param(
     }
     let device = state
         .project
-        .tracks
-        .values_mut()
-        .find_map(|t| t.devices.get_mut(device_id))
+        .device_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
     // A built-in device declares its parameters: the id is checked against the descriptor
     // and the value is clamped to the range and rounded to the step. A device without a

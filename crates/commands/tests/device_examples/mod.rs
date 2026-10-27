@@ -32,6 +32,26 @@ pub fn own_context() -> Context {
     )
 }
 
+/// Inserts an effect in the master's chain through the command, with the ids of
+/// [`own_context`].
+pub fn insert_master(state: &mut State, ctx: &mut Context, index: u32) -> DeviceId {
+    let out = commands::run(
+        &d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: EFFECT.into(),
+            index,
+        }),
+        state,
+        ctx,
+    )
+    .unwrap();
+    let commands::Output::Device(device::Output::Insert { device }) = out.output else {
+        panic!("{:?}", out.output)
+    };
+    device
+}
+
 /// The state and the ids the device tests use.
 pub struct Chain {
     /// A MIDI track playing the synth, then effect `a`, then effect `b`.
@@ -43,13 +63,17 @@ pub struct Chain {
     /// An audio track holding the clip player.
     pub audio_track: TrackId,
     pub player: DeviceId,
+    /// The master's chain: effects `ma` then `mb`.
+    pub ma: DeviceId,
+    pub mb: DeviceId,
 }
 
 /// Inserts an effect through the command, with the ids of [`own_context`].
 pub fn insert(state: &mut State, ctx: &mut Context, track: &TrackId, index: u32) -> DeviceId {
     let out = commands::run(
         &d(device::Command::Insert {
-            track: track.clone(),
+            track: Some(track.clone()),
+            master: false,
             kind: EFFECT.into(),
             index,
         }),
@@ -69,6 +93,8 @@ pub fn chain() -> Chain {
     let mut ctx = own_context();
     let a = insert(&mut state, &mut ctx, &f.track, 0);
     let b = insert(&mut state, &mut ctx, &f.track, 1);
+    let ma = insert_master(&mut state, &mut ctx, 0);
+    let mb = insert_master(&mut state, &mut ctx, 1);
     let synth = state.project.tracks[&f.track]
         .devices_in_order()
         .first()
@@ -92,6 +118,8 @@ pub fn chain() -> Chain {
         b,
         audio_track: f.audio_track,
         player,
+        ma,
+        mb,
     }
 }
 
@@ -126,29 +154,73 @@ pub fn examples() -> Vec<(Command, State)> {
             instrument: "faulk.drums".into(),
         }),
     );
+    let master_removed = after(
+        c.state.clone(),
+        &d(device::Command::Remove {
+            device: c.ma.clone(),
+        }),
+    );
     vec![
+        // The master's chain: insert first and last, remove, the inverse of a remove
+        // (a restore into the master), move, bypass, set a parameter.
+        (
+            d(device::Command::Insert {
+                track: None,
+                master: true,
+                kind: EFFECT.into(),
+                index: 0,
+            }),
+            plain.clone(),
+        ),
+        on(d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: EFFECT.into(),
+            index: u32::MAX,
+        })),
+        on(d(device::Command::Remove {
+            device: c.ma.clone(),
+        })),
+        (master_removed.1, master_removed.0),
+        on(d(device::Command::Move {
+            device: c.mb.clone(),
+            index: 0,
+        })),
+        on(d(device::Command::SetBypass {
+            device: c.mb.clone(),
+            bypass: true,
+        })),
+        on(d(device::Command::SetParam {
+            device: c.ma.clone(),
+            param: "gain".into(),
+            value: 0.25,
+        })),
         // Insert: first, in the middle, past the end; on an audio track (after the clip
         // player).
         (
             d(device::Command::Insert {
-                track: c.track.clone(),
+                track: Some(c.track.clone()),
+                master: false,
                 kind: EFFECT.into(),
                 index: 0,
             }),
             plain,
         ),
         on(d(device::Command::Insert {
-            track: c.track.clone(),
+            track: Some(c.track.clone()),
+            master: false,
             kind: EFFECT.into(),
             index: 1,
         })),
         on(d(device::Command::Insert {
-            track: c.track.clone(),
+            track: Some(c.track.clone()),
+            master: false,
             kind: EFFECT.into(),
             index: u32::MAX,
         })),
         on(d(device::Command::Insert {
-            track: c.audio_track.clone(),
+            track: Some(c.audio_track.clone()),
+            master: false,
             kind: EFFECT.into(),
             index: 0,
         })),

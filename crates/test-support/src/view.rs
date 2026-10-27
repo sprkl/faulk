@@ -15,7 +15,7 @@ use commands::engine_msgs::{db_to_gain, finite_f32};
 use engine::devices::REGISTRY;
 use engine::msg::{
     AutomationPoint, AutomationTarget, ControlMsg, Curve, DeviceKind, HEADER_BYTES, Header,
-    Note as EngineNote, Span as EngineSpan, TrackKind, state_pairs,
+    Note as EngineNote, Span as EngineSpan, TrackKind, TrackSlot, state_pairs,
 };
 use engine::time::{LoopRegion, Quantize, Tempo, Tick, TimeSignature};
 use project::{
@@ -82,6 +82,8 @@ pub struct EngineView {
     pub loop_region: Option<LoopRegion>,
     pub metronome: Option<(bool, f32, u8)>,
     pub master: Option<(f32, f32, bool)>,
+    /// The master's chain of effects (#364).
+    pub master_devices: BTreeMap<DeviceId, DeviceView>,
     pub tracks: BTreeMap<TrackId, TrackView>,
     pub clips: BTreeMap<ClipId, ClipView>,
     pub lanes: BTreeMap<LaneId, LaneView>,
@@ -129,6 +131,7 @@ struct Model {
     loop_region: Option<LoopRegion>,
     metronome: Option<(bool, f32, u8)>,
     master: Option<(f32, f32, bool)>,
+    master_devices: BTreeMap<u16, DeviceView>,
     tracks: BTreeMap<u32, SlotTrack>,
     clips: BTreeMap<u32, ClipView>,
     lanes: BTreeMap<u32, (u32, AutomationTarget, Vec<AutomationPoint>)>,
@@ -188,7 +191,7 @@ impl Model {
                 let params = state_pairs(&state)
                     .map(|(id, v)| (id.0, v))
                     .collect::<BTreeMap<_, _>>();
-                self.track(track.0).devices.insert(
+                self.devices(track.0).insert(
                     device.0,
                     DeviceView {
                         kind,
@@ -198,7 +201,7 @@ impl Model {
                 );
             }
             ControlMsg::DeviceRemove { track, device } => {
-                self.track(track.0).devices.remove(&device.0);
+                self.devices(track.0).remove(&device.0);
             }
             ControlMsg::DeviceSetEnabled {
                 track,
@@ -290,9 +293,17 @@ impl Model {
             .unwrap_or_else(|| panic!("a message names track slot {slot}, which is empty"))
     }
 
+    /// The device row of a track, or the master's chain for `TrackSlot::MASTER`.
+    fn devices(&mut self, track: u32) -> &mut BTreeMap<u16, DeviceView> {
+        if TrackSlot(track).is_master() {
+            &mut self.master_devices
+        } else {
+            &mut self.track(track).devices
+        }
+    }
+
     fn device(&mut self, track: u32, device: u16) -> &mut DeviceView {
-        self.track(track)
-            .devices
+        self.devices(track)
             .get_mut(&device)
             .unwrap_or_else(|| panic!("no device in slot {device} of track {track}"))
     }
@@ -328,6 +339,18 @@ impl EngineView {
                 .cloned()
                 .unwrap_or_else(|| panic!("device slot {slot} of {track} is not in the table"))
         };
+        let master_devices = model
+            .master_devices
+            .iter()
+            .map(|(d, v)| {
+                let id = slots
+                    .master_devices
+                    .id_at(u32::from(*d))
+                    .cloned()
+                    .unwrap_or_else(|| panic!("master device slot {d} is not in the table"));
+                (id, v.clone())
+            })
+            .collect();
         let mut tracks = BTreeMap::new();
         for (slot, t) in &model.tracks {
             let id = track_id(*slot);
@@ -412,6 +435,7 @@ impl EngineView {
             loop_region: model.loop_region,
             metronome: model.metronome,
             master: model.master,
+            master_devices,
             tracks,
             clips,
             lanes,
@@ -437,6 +461,25 @@ impl EngineView {
                 .find(|p| p.key == key)
                 .map(|p| p.id.0)
         };
+        let master_devices: BTreeMap<DeviceId, DeviceView> = project
+            .master_devices
+            .iter()
+            .filter_map(|(d, dev)| {
+                let b = builtin(&dev.source)?;
+                Some((
+                    d.clone(),
+                    DeviceView {
+                        kind: b.descriptor.kind_id,
+                        enabled: dev.enabled,
+                        params: dev
+                            .params
+                            .iter()
+                            .filter_map(|(k, v)| Some((param(&dev.source, k)?, finite_f32(*v))))
+                            .collect(),
+                    },
+                ))
+            })
+            .collect();
         let mut tracks = BTreeMap::new();
         let mut clips = BTreeMap::new();
         let mut lanes = BTreeMap::new();
@@ -585,6 +628,7 @@ impl EngineView {
                 project.master.pan as f32,
                 project.master.mute,
             )),
+            master_devices,
             tracks,
             clips,
             lanes,

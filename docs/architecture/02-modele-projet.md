@@ -57,6 +57,7 @@ pub struct Project {
     pub transport: TransportSettings,    // saved transport settings (see 1.3)
     pub scenes: BTreeMap<SceneId, Scene>,
     pub master: Mixer,                   // master bus (no sends)
+    pub master_devices: BTreeMap<DeviceId, Device>, // master's chain: effects only, run on the sum before the master fader (#364); absent from project.json when empty
     pub tracks: BTreeMap<TrackId, Track>,
 }
 
@@ -167,7 +168,7 @@ Pourquoi un dossier plutôt qu'un fichier : le chemin dit déjà *quoi* a chang�
 
 ```
 Mon morceau/
-├── project.json                      # format version, project id, name, tempo, time signature, transport settings, scenes, master mixer
+├── project.json                      # format version, project id, name, tempo, time signature, transport settings, scenes, master mixer, master chain (effects only, when it has any)
 ├── tracks/
 │   └── <track>/                      # folder named by the track ULID, never by its name
 │       ├── track.json                # name, colour, mixer, routing, order key

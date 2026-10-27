@@ -83,6 +83,8 @@ pub enum ViolationKind {
     /// The clip player on a MIDI track or as an effect, or another instrument on an audio
     /// track.
     WrongInstrument,
+    /// A device of the master's chain that is not an effect: the master holds effects only.
+    NotAnEffect,
     /// An audio file with no channel or more than [`MAX_CHANNELS`].
     BadChannels,
     /// More count-in bars than [`MAX_COUNT_IN_BARS`].
@@ -236,6 +238,7 @@ impl Project {
         );
         self.validate_transport(&mut c);
         c.mixer(&self.master, "master");
+        self.validate_master_chain(&mut c);
 
         c.count(self.scenes.len(), c.limits.scenes, "scenes");
         for (id, scene) in &self.scenes {
@@ -278,6 +281,38 @@ impl Project {
             "transport/metronome",
             ViolationKind::CountIn,
         );
+    }
+
+    /// The master's chain: effects only, built-in or module, with finite parameters.
+    fn validate_master_chain<'p>(&'p self, c: &mut Checker<'p>) {
+        c.count(
+            self.master_devices.len(),
+            c.limits.devices_per_track,
+            "master",
+        );
+        for (id, device) in self.master_devices_in_order() {
+            let path = format!("master/devices/{id}");
+            c.id(&id.0, &path);
+            c.check(
+                device.role == DeviceRole::Effect
+                    && !matches!(&device.source, DeviceSource::Builtin { id, .. } if id == CLIP_PLAYER),
+                &path,
+                ViolationKind::NotAnEffect,
+            );
+            match &device.source {
+                DeviceSource::Builtin { id, .. } => {
+                    c.check(is_key(id), &path, ViolationKind::BadKey)
+                }
+                DeviceSource::Module { name, .. } => {
+                    c.name(name, &path, true);
+                }
+            }
+            c.count(device.params.len(), c.limits.params_per_device, &path);
+            for (param, value) in &device.params {
+                c.check(is_key(param), &path, ViolationKind::BadKey);
+                c.check(value.is_finite(), &path, ViolationKind::NotFinite);
+            }
+        }
     }
 
     fn validate_track<'p>(

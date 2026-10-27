@@ -29,6 +29,21 @@ describe('the device browser', () => {
     expect(none).not.toContain('browse-effect"')
   })
 
+  it('on the master offers effects only, adds them with master: true and says so in both languages', () => {
+    const en = stores()
+    en.ui.setLang('en')
+    const body = render(DeviceBrowser, { props: { track: '', midi: false, master: true, chain: [], descriptors: [fakeInstrument, fakeEffect] }, context: storesContext(en) }).body
+    expect(body).toContain('data-testid="browse-effect" data-kind="faulk.fake_fx"')
+    expect(body).toContain('data-testid="browse-master-hint"')
+    expect(body).toContain('Add Fake FX to the master')
+    expect(body).not.toContain('browse-instrument')
+    expect(body).not.toContain('browse-audio')
+    const fr = stores()
+    fr.ui.setLang('fr')
+    const frBody = render(DeviceBrowser, { props: { track: '', midi: false, master: true, chain: [], descriptors: [fakeEffect] }, context: storesContext(fr) }).body
+    expect(frBody).toContain('Ajouter Fake FX au master')
+  })
+
   it('offers no instrument on an audio track', () => {
     const body = render(DeviceBrowser, { props: { track: 't', midi: false, chain: [], descriptors: [fakeInstrument, fakeEffect] }, context: storesContext(stores()) }).body
     expect(body).toContain('data-testid="browse-audio"')

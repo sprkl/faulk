@@ -345,6 +345,9 @@ pub struct State {
     pub playback: Playback,
     pub selected: Option<TrackSlot>,
     pub tracks: Slots<Box<Track>>,
+    /// The master's chain (#364): effects only, run in slot order over the sum of the tracks,
+    /// before the master's fader ([`crate::graph`]). Addressed by [`TrackSlot::MASTER`].
+    pub master_devices: Slots<Box<DeviceEntry>>,
     pub clips: Paged<Box<Clip>>,
     pub lanes: Paged<Box<Lane>>,
     pub sources: Slots<Box<Source>>,
@@ -378,6 +381,7 @@ impl State {
             playback: Playback::default(),
             selected: None,
             tracks: Table::try_filled(initial::TRACKS)?,
+            master_devices: Table::try_filled(initial::DEVICES_PER_TRACK)?,
             clips: Paged::try_new(initial::CLIP_PAGES)?,
             lanes: Paged::try_new(initial::LANE_PAGES)?,
             sources: Table::try_filled(initial::SOURCES)?,
@@ -397,10 +401,27 @@ impl State {
             .as_deref_mut()
     }
 
-    /// The device in `device` of track `track`, if it exists.
+    /// The device row of track `track`, or of the master's chain for [`TrackSlot::MASTER`].
+    pub fn chain(&self, track: TrackSlot) -> Option<&Slots<Box<DeviceEntry>>> {
+        if track.is_master() {
+            Some(&self.master_devices)
+        } else {
+            Some(&self.track(track)?.devices)
+        }
+    }
+
+    /// [`State::chain`], to mutate it.
+    pub fn chain_mut(&mut self, track: TrackSlot) -> Option<&mut Slots<Box<DeviceEntry>>> {
+        if track.is_master() {
+            Some(&mut self.master_devices)
+        } else {
+            Some(&mut self.track_mut(track)?.devices)
+        }
+    }
+
+    /// The device in `device` of track `track` (or of the master), if it exists.
     pub fn device(&self, track: TrackSlot, device: DeviceSlot) -> Option<&DeviceEntry> {
-        self.track(track)?
-            .devices
+        self.chain(track)?
             .as_slice()
             .get(device.0 as usize)?
             .as_deref()
@@ -522,6 +543,8 @@ impl TrackShadow {
 struct Shadow {
     /// One entry per slot of the track table.
     tracks: Vec<Option<TrackShadow>>,
+    /// The master's chain (#364): its device row only (`scenes_capacity` is not used).
+    master: TrackShadow,
     clips: PagedShadow,
     lanes: PagedShadow,
     sources: usize,
@@ -601,6 +624,7 @@ impl Shadow {
         tracks.resize_with(initial::TRACKS, || None);
         Ok(Shadow {
             tracks,
+            master: TrackShadow::try_new()?,
             clips: PagedShadow::try_new(initial::CLIP_PAGES)?,
             lanes: PagedShadow::try_new(initial::LANE_PAGES)?,
             sources: initial::SOURCES,
@@ -611,8 +635,25 @@ impl Shadow {
         self.tracks.get(slot.0 as usize)?.as_ref()
     }
 
+    /// The shadow of the device row of a track, or of the master's chain.
+    fn chain(&self, track: TrackSlot) -> Option<&TrackShadow> {
+        if track.is_master() {
+            Some(&self.master)
+        } else {
+            self.track(track)
+        }
+    }
+
+    fn chain_mut(&mut self, track: TrackSlot) -> Option<&mut TrackShadow> {
+        if track.is_master() {
+            Some(&mut self.master)
+        } else {
+            self.tracks.get_mut(track.0 as usize)?.as_mut()
+        }
+    }
+
     fn has_device(&self, track: TrackSlot, device: DeviceSlot) -> bool {
-        self.track(track)
+        self.chain(track)
             .and_then(|t| t.devices.get(device.0 as usize))
             .is_some_and(Option::is_some)
     }
@@ -1196,7 +1237,7 @@ impl Preparer {
     }
 
     fn remove_device(&mut self, track: TrackSlot, device: DeviceSlot) {
-        if let Some(Some(t)) = self.shadow.tracks.get_mut(track.0 as usize)
+        if let Some(t) = self.shadow.chain_mut(track)
             && let Some(flag) = t.devices.get_mut(device.0 as usize)
         {
             *flag = None;
@@ -1249,7 +1290,7 @@ impl Preparer {
         kind: DeviceKind,
         state: &[u8],
     ) -> Result<RtMsg, MsgError> {
-        let shadow = self.existing_track(track)?;
+        let shadow = self.shadow.chain(track).ok_or(MsgError::NoSuchTarget)?;
         let capacity = shadow.devices.len();
         // A MIDI effect receives at most what the track gives a sub-block, or what the
         // largest MIDI effect before it writes (MO-4: chained outputs never fill). One
@@ -1268,6 +1309,11 @@ impl Preparer {
         }
         built.reset();
         let descriptor = built.descriptor();
+        // The master's chain holds effects only (#364): nothing feeds an instrument or a
+        // MIDI effect there, and the graph runs the chain without notes.
+        if track.is_master() && descriptor.role != DeviceRole::Effect {
+            return Err(MsgError::NoSuchTarget);
+        }
         let events_out = match (descriptor.role, descriptor.midi_output) {
             (DeviceRole::MidiEffect, Some(bounds)) => Some(EventBuffer::try_with_capacity(
                 bounds.capacity(input_events),
@@ -1287,7 +1333,7 @@ impl Preparer {
             flags = Some(try_vec(g.capacity(), None)?);
         }
         // Commit.
-        if let Some(Some(t)) = self.shadow.tracks.get_mut(track.0 as usize) {
+        if let Some(t) = self.shadow.chain_mut(track) {
             if let Some(mut flags) = flags {
                 flags[..t.devices.len()].copy_from_slice(&t.devices);
                 t.devices = flags;
@@ -1650,6 +1696,15 @@ impl Engine {
             }
             track.graph.release_notes();
         }
+        for entry in self
+            .state
+            .master_devices
+            .as_mut_slice()
+            .iter_mut()
+            .flatten()
+        {
+            entry.device.reset();
+        }
     }
 
     /// The musical clock (TR-1), as of the start of the next block.
@@ -1908,12 +1963,14 @@ impl Engine {
                 state.selected = track;
                 None
             }
-            RtMsg::DevicePut { track, put } => match state.track_mut(track) {
-                Some(t) => {
+            RtMsg::DevicePut { track, put } => match state.chain_mut(track) {
+                Some(chain) => {
                     let midi = takes_notes(&put.value);
-                    let (spare, out) = put_slot(&mut t.devices, put);
+                    let (spare, out) = put_slot(chain, put);
                     skipped = out;
-                    if midi || spare.item.as_deref().is_some_and(takes_notes) {
+                    if (midi || spare.item.as_deref().is_some_and(takes_notes))
+                        && let Some(t) = state.track_mut(track)
+                    {
                         t.graph.release_notes();
                     }
                     Some(Garbage::Devices(spare))
@@ -1927,19 +1984,20 @@ impl Engine {
                 }
             },
             RtMsg::DeviceRemove { track, device } => {
-                match state.track_mut(track).map(|t| {
-                    let old = take_slot(&mut t.devices, device.0.into());
-                    if let Ok(Some(entry)) = &old
-                        && takes_notes(entry)
-                    {
-                        t.graph.release_notes();
-                    }
-                    old
+                match state.chain_mut(track).map(|chain| {
+                    let old = take_slot(chain, device.0.into());
+                    let release = matches!(&old, Ok(Some(entry)) if takes_notes(entry));
+                    (old, release)
                 }) {
-                    Some(Ok(old)) => Some(Garbage::Devices(Spare {
-                        table: None,
-                        item: old,
-                    })),
+                    Some((Ok(old), release)) => {
+                        if release && let Some(t) = state.track_mut(track) {
+                            t.graph.release_notes();
+                        }
+                        Some(Garbage::Devices(Spare {
+                            table: None,
+                            item: old,
+                        }))
+                    }
                     _ => {
                         skipped = true;
                         None
@@ -2156,8 +2214,7 @@ fn takes_notes(entry: &DeviceEntry) -> bool {
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {
     state
-        .track_mut(track)?
-        .devices
+        .chain_mut(track)?
         .as_mut_slice()
         .get_mut(device.0 as usize)?
         .as_deref_mut()

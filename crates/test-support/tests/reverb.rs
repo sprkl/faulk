@@ -33,7 +33,8 @@ fn the_reverb_has_a_tail_that_follows_its_size_and_the_bypass() {
         }));
     }
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: f.track.clone(),
+        track: Some(f.track.clone()),
+        master: false,
         kind: "faulk.reverb".into(),
         index: 0,
     }));

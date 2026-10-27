@@ -61,6 +61,19 @@ export class UiStore {
     this.panel = panel
   }
 
+  /**
+   * Set when the devices panel shows the master's chain instead of the selected track's: it holds
+   * the id of the track selected then (`''` for none), so that any other selection ends it, whether
+   * or not the panel is open.
+   */
+  masterSelection = $state<string | null>(null)
+
+  /** Shows the devices panel on the master's chain (`master`, with the id of the selected track) or on the selected track's. */
+  showDevices(master: boolean, selected?: string) {
+    this.masterSelection = master ? (selected ?? '') : null
+    this.panel = 'devices'
+  }
+
   setPanelHeight(panel: PanelViewId, height: number) {
     this.panelHeights = { ...this.panelHeights, [panel]: height }
     write(HEIGHTS_KEY, JSON.stringify(this.panelHeights))
