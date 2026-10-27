@@ -153,6 +153,9 @@ pub struct TrackSlots {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EngineSlots {
     pub tracks: SlotTable<TrackId>,
+    /// The master's devices sent to the engine (#364); the slot of a device is its place in
+    /// the master's chain, as for a track.
+    pub master_devices: SlotTable<DeviceId>,
     /// What each track with a slot holds in the engine.
     pub track: BTreeMap<TrackId, TrackSlots>,
     pub clips: SlotTable<ClipId>,

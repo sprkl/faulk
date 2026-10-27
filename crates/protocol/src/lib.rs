@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
+
+// Version 8 (#364): the master has a chain of effects. `device.insert` and `device.restore` take `track` or `master: true`, `device.remove` answers `track: null` for a master device, the event `device_chain_changed` carries `track: null` for the master, and the project holds `master_devices`. The engine addresses that chain with the track slot `u32::MAX` in the four device messages. The helper does not run device chains yet (BO-1, #102).
 
 // Version 7 (#83): the commands gain `clip.notes.quantize`, `clip.notes.transpose` and `clip.notes.duplicate`.
 

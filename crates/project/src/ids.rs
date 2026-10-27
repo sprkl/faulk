@@ -184,7 +184,7 @@ typed_id!(
     SceneId
 );
 typed_id!(
-    /// Identifier of a device in a track's chain.
+    /// Identifier of a device in a track's chain or in the master's.
     DeviceId
 );
 typed_id!(

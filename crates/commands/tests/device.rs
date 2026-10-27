@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 mod clip_examples;
 mod device_examples;
 
-use device_examples::{EFFECT, chain, d, insert, own_context, t};
+use device_examples::{EFFECT, chain, d, insert, insert_master, own_context, t};
 
 fn refused(command: &Command, state: &State) -> CommandError {
     check_refusal(command, state, &context()).unwrap()
@@ -63,7 +63,8 @@ fn mv(device: &DeviceId, index: u32) -> Command {
 
 fn ins(track: &TrackId, index: u32) -> Command {
     d(device::Command::Insert {
-        track: track.clone(),
+        track: Some(track.clone()),
+        master: false,
         kind: EFFECT.into(),
         index,
     })
@@ -189,7 +190,8 @@ fn insert_refuses_what_it_cannot_build() {
     assert_eq!(code(&ins(&missing, 0), &c.state), "not_found");
     let kind = |kind: &str| {
         d(device::Command::Insert {
-            track: c.track.clone(),
+            track: Some(c.track.clone()),
+            master: false,
             kind: kind.into(),
             index: 0,
         })
@@ -255,7 +257,8 @@ fn remove_then_undo_brings_the_device_back_with_its_settings() {
     assert_eq!(ids(&s, &c.track), [c.synth.clone(), c.b.clone()]);
     // The documented inverse carries the device as it was.
     let Command::Device(device::Command::Restore {
-        track,
+        track: Some(track),
+        master: false,
         device: id,
         snapshot,
     }) = *inverse
@@ -325,7 +328,8 @@ fn restore_refuses_what_is_not_an_effect_the_chain_can_hold() {
         panic!()
     };
     let Command::Device(device::Command::Restore {
-        track,
+        track: Some(track),
+        master: false,
         device: id,
         snapshot,
     }) = *inverse
@@ -334,7 +338,8 @@ fn restore_refuses_what_is_not_an_effect_the_chain_can_hold() {
     };
     let restore = |track: &TrackId, id: &DeviceId, snapshot: Device| {
         d(device::Command::Restore {
-            track: track.clone(),
+            track: Some(track.clone()),
+            master: false,
             device: id.clone(),
             snapshot,
         })
@@ -645,7 +650,7 @@ fn set_instrument_replaces_the_instrument_in_its_place_and_undoes_exactly() {
     assert_eq!(
         events(&out),
         [ProjectEvent::DeviceChainChanged {
-            track: c.track.clone()
+            track: Some(c.track.clone())
         }]
     );
     check(
@@ -832,7 +837,10 @@ impl Replay {
                     kind,
                     state,
                 } => {
-                    assert!(self.tracks.contains_key(&track.0), "{msg:?}: no such track");
+                    assert!(
+                        track.is_master() || self.tracks.contains_key(&track.0),
+                        "{msg:?}: no such track"
+                    );
                     let values = engine::msg::state_pairs(state)
                         .map(|(id, v)| (id.0, v.to_bits()))
                         .collect();
@@ -921,6 +929,10 @@ impl World {
         fresh.apply(&msgs);
         assert_eq!(self.replay, fresh, "the engine drifted from the project");
         assert_eq!(self.s.ctx.engine.track, slots.track, "slots drifted");
+        assert_eq!(
+            self.s.ctx.engine.master_devices, slots.master_devices,
+            "the master's slots drifted"
+        );
         self.s.state.project.validate().unwrap();
     }
 }
@@ -1100,4 +1112,281 @@ fn the_undo_of_set_instrument_swaps_the_instrument_in_the_engine() {
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
     let out = w.exec(&undo());
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
+}
+
+// ---------------------------------------------------------------- the master's chain (#364)
+
+/// The master's chain in order.
+fn master_ids(state: &State) -> Vec<DeviceId> {
+    state
+        .project
+        .master_devices_in_order()
+        .into_iter()
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+fn ins_master(index: u32) -> Command {
+    d(device::Command::Insert {
+        track: None,
+        master: true,
+        kind: EFFECT.into(),
+        index,
+    })
+}
+
+#[test]
+fn the_master_holds_effects_in_order_and_each_command_finds_them_by_id() {
+    let c = chain();
+    assert_eq!(master_ids(&c.state), [c.ma.clone(), c.mb.clone()]);
+    // The track's chain is untouched by the master's.
+    assert_eq!(ids(&c.state, &c.track).len(), 3);
+    let mut s = c.state.clone();
+    // An index counts the effects: first, last, past the end.
+    let out = go(&mut s, &ins_master(0));
+    let Output::Device(device::Output::Insert { device: first }) = out.output else {
+        panic!()
+    };
+    assert_eq!(
+        events(&go(&mut s, &ins_master(u32::MAX))),
+        [ProjectEvent::DeviceChainChanged { track: None }]
+    );
+    assert_eq!(master_ids(&s)[0], first);
+    assert_eq!(master_ids(&s).len(), 4);
+    s.project.validate().unwrap();
+    // Move, bypass, set a parameter and remove go through the device identifier.
+    go(&mut s, &mv(&c.mb, 0));
+    assert_eq!(master_ids(&s)[0], c.mb);
+    go(&mut s, &bypass(&c.ma, true));
+    assert!(!s.project.master_devices[&c.ma].enabled);
+    let out = go(&mut s, &param(&c.ma, "gain", 0.25));
+    assert_eq!(
+        out.output,
+        Output::Device(device::Output::SetParam {
+            previous: 1.0,
+            value: 0.25
+        })
+    );
+    let out = go(&mut s, &remove(&c.ma));
+    assert_eq!(
+        out.output,
+        Output::Device(device::Output::Remove { track: None })
+    );
+    assert!(!s.project.master_devices.contains_key(&c.ma));
+    s.project.validate().unwrap();
+}
+
+#[test]
+fn every_master_chain_command_undoes_and_redoes_exactly() {
+    let c = chain();
+    for command in [
+        ins_master(0),
+        ins_master(u32::MAX),
+        remove(&c.ma),
+        mv(&c.mb, 0),
+        bypass(&c.mb, true),
+        param(&c.ma, "gain", 0.5),
+    ] {
+        let mut s = c.state.clone();
+        let mut ctx = context();
+        run(&command, &mut s, &mut ctx).unwrap();
+        let after = s.project.clone();
+        run(&undo(), &mut s, &mut ctx).unwrap();
+        assert_eq!(s.project, c.state.project, "undo of {command:?}");
+        run(&redo(), &mut s, &mut ctx).unwrap();
+        assert_eq!(s.project, after, "redo of {command:?}");
+    }
+}
+
+#[test]
+fn the_undo_of_a_master_remove_is_a_restore_into_the_master_with_its_settings() {
+    let c = chain();
+    let mut s = c.state.clone();
+    go(&mut s, &param(&c.ma, "gain", 0.5));
+    go(&mut s, &bypass(&c.ma, true));
+    let before = s.project.master_devices[&c.ma].clone();
+    let out = go(&mut s, &remove(&c.ma));
+    let Undo::Inverse(inverse) = &out.undo else {
+        panic!("{:?}", out.undo)
+    };
+    let Command::Device(device::Command::Restore {
+        track,
+        master,
+        device,
+        snapshot,
+    }) = &**inverse
+    else {
+        panic!("{inverse:?}")
+    };
+    assert_eq!((track, *master, device), (&None, true, &c.ma));
+    assert_eq!(snapshot, &before);
+    go(&mut s, &undo());
+    assert_eq!(s.project.master_devices[&c.ma], before);
+}
+
+#[test]
+fn the_master_chain_is_named_by_exactly_one_of_track_and_master() {
+    let c = chain();
+    let both = d(device::Command::Insert {
+        track: Some(c.track.clone()),
+        master: true,
+        kind: EFFECT.into(),
+        index: 0,
+    });
+    assert_eq!(code(&both, &c.state), "invalid");
+    let neither = d(device::Command::Insert {
+        track: None,
+        master: false,
+        kind: EFFECT.into(),
+        index: 0,
+    });
+    assert_eq!(code(&neither, &c.state), "invalid");
+    let snapshot = c.state.project.master_devices[&c.ma].clone();
+    for (track, master) in [(Some(c.track.clone()), true), (None, false)] {
+        let restore = d(device::Command::Restore {
+            track,
+            master,
+            device: DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
+            snapshot: snapshot.clone(),
+        });
+        assert_eq!(code(&restore, &c.state), "invalid");
+    }
+    // The wire form: `master` is optional and `track` too.
+    let json =
+        serde_json::json!({"type": "device.insert", "master": true, "kind": EFFECT, "index": 0});
+    let command: Command = serde_json::from_value(json).unwrap();
+    assert_eq!(command, ins_master(0));
+    let json = serde_json::json!({"type": "device.insert", "track": c.track.to_string(), "kind": EFFECT, "index": 0});
+    let command: Command = serde_json::from_value(json).unwrap();
+    assert_eq!(command, ins(&c.track, 0));
+    assert!(
+        !serde_json::to_string(&ins(&c.track, 0))
+            .unwrap()
+            .contains("master")
+    );
+}
+
+#[test]
+fn the_master_refuses_an_instrument_an_unknown_effect_and_a_chain_past_the_limit() {
+    let c = chain();
+    let kind = |kind: &str| {
+        d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: kind.into(),
+            index: 0,
+        })
+    };
+    let e = refused(&kind("faulk.osc_synth"), &c.state);
+    assert_eq!(e.code(), "invalid");
+    assert!(e.to_string().contains("master"), "{e}");
+    assert_eq!(code(&kind("faulk.drums"), &c.state), "invalid");
+    assert_eq!(code(&kind("faulk.nothing"), &c.state), "not_found");
+    // A snapshot of an instrument is not restored into the master either.
+    let synth = c.state.project.tracks[&c.track].devices[&c.synth].clone();
+    let restore = d(device::Command::Restore {
+        track: None,
+        master: true,
+        device: DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
+        snapshot: synth,
+    });
+    assert_eq!(code(&restore, &c.state), "invalid");
+    // The safety limit of devices per chain.
+    let mut s = c.state.clone();
+    let mut ctx = own_context();
+    while s.project.master_devices.len() < ::project::limits::MAX_DEVICES_PER_TRACK {
+        insert_master(&mut s, &mut ctx, u32::MAX);
+    }
+    assert_eq!(code(&ins_master(0), &s), "limit");
+    // The restore of an effect already in a track is refused: ids are unique.
+    let dup = d(device::Command::Restore {
+        track: None,
+        master: true,
+        device: c.a.clone(),
+        snapshot: c.state.project.tracks[&c.track].devices[&c.a].clone(),
+    });
+    assert_eq!(code(&dup, &c.state), "invalid");
+}
+
+#[test]
+fn the_master_chain_reaches_the_engine_as_a_snapshot_would_give_it() {
+    let c = chain();
+    let mut w = World::new(c.state.clone());
+    let mut done = 0;
+    for command in [
+        ins_master(0),
+        ins_master(u32::MAX),
+        mv(&c.mb, 0),
+        bypass(&c.ma, true),
+        param(&c.ma, "gain", 0.5),
+        remove(&c.ma),
+        bypass(&c.ma, false),
+    ] {
+        // Once removed, a device cannot be addressed: skip what no longer applies.
+        match w.s.run(&command) {
+            Ok((outcome, _)) => {
+                assert!(
+                    outcome.control.iter().all(|m| match m {
+                        ControlMsg::DeviceInsert { track, .. }
+                        | ControlMsg::DeviceRemove { track, .. }
+                        | ControlMsg::DeviceSetEnabled { track, .. }
+                        | ControlMsg::ParamSet { track, .. } => track.is_master(),
+                        _ => true,
+                    }),
+                    "{command:?}: {:?}",
+                    outcome.control
+                );
+                w.replay.apply(&outcome.control);
+                w.check();
+                done += 1;
+            }
+            Err(commands::engine_msgs::SyncError::Refused(_)) => {}
+            Err(e) => panic!("{command:?}: {e:?}"),
+        }
+    }
+    assert!(done >= 6, "{done}");
+    for _ in 0..done {
+        w.exec(&undo());
+    }
+    assert_eq!(w.s.state.project, c.state.project);
+    for _ in 0..done {
+        w.exec(&redo());
+    }
+}
+
+#[test]
+fn the_snapshot_sends_the_master_chain_after_the_master_and_before_the_tracks() {
+    let c = chain();
+    let (msgs, _) = snapshot(&c.state.project, &c.state.session);
+    let master_at = msgs
+        .iter()
+        .position(|m| matches!(m, ControlMsg::SetMaster { .. }))
+        .unwrap();
+    let first_track = msgs
+        .iter()
+        .position(|m| matches!(m, ControlMsg::TrackCreate { .. }))
+        .unwrap();
+    let inserts: Vec<usize> = msgs
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| matches!(m, ControlMsg::DeviceInsert { track, .. } if track.is_master()))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(inserts.len(), 2);
+    assert!(inserts.iter().all(|i| *i > master_at && *i < first_track));
+}
+
+#[test]
+fn a_bypass_and_a_parameter_on_the_master_reach_the_engine_and_the_track_ones_do_not_change() {
+    let c = chain();
+    let mut w = World::new(c.state.clone());
+    let out = w.exec(&bypass(&c.ma, true));
+    assert_eq!(kinds(&out.control), ["enabled"]);
+    let out = w.exec(&param(&c.ma, "gain", 0.5));
+    assert_eq!(out.control.len(), 1, "{:?}", out.control);
+    let out = w.exec(&bypass(&c.a, true));
+    assert!(out.control.iter().all(|m| !matches!(
+        m,
+        ControlMsg::DeviceSetEnabled { track, .. } if track.is_master()
+    )));
 }

@@ -290,7 +290,8 @@ pub fn demo_song(bars: i64, echo: Option<f64>) -> State {
     if let Some(feedback) = echo {
         let Output::Device(device::Output::Insert { device: echo }) =
             s.exec(Command::Device(device::Command::Insert {
-                track: lead.clone(),
+                track: Some(lead.clone()),
+                master: false,
                 kind: "faulk.echo".into(),
                 index: 0,
             }))

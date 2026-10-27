@@ -141,6 +141,23 @@ pub fn messages() -> Vec<Phase> {
         });
         placed.push((track, device, desc));
     }
+    // The effects of the registry again, in the master's chain (#364): its own row, its own
+    // path through the graph.
+    let mut master_placed = Vec::new();
+    for builtin in REGISTRY {
+        let desc = builtin.descriptor;
+        if desc.role != DeviceRole::Effect {
+            continue;
+        }
+        let device = d(master_placed.len() as u16);
+        structure.push(M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device,
+            kind: desc.kind_id,
+            state: Vec::new(),
+        });
+        master_placed.push((TrackSlot::MASTER, device, desc));
+    }
     structure.extend([
         M::ClipNotesUpload {
             clip: ClipSlot(0),
@@ -283,7 +300,7 @@ pub fn messages() -> Vec<Phase> {
             mute: false,
         },
     ];
-    for (track, device, desc) in &placed {
+    for (track, device, desc) in placed.iter().chain(&master_placed) {
         mix.push(M::DeviceSetEnabled {
             track: *track,
             device: *device,
@@ -365,7 +382,7 @@ pub fn messages() -> Vec<Phase> {
             source: SourceSlot(0),
         },
     ];
-    for (track, device, _) in placed.iter().rev() {
+    for (track, device, _) in master_placed.iter().chain(placed.iter().rev()) {
         removals.push(M::DeviceRemove {
             track: *track,
             device: *device,

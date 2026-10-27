@@ -1,11 +1,11 @@
 <script lang="ts">
   /**
    * One strip of the mixer: a track's (colour, name, devices, arm, mute, solo, pan, fader, meter)
-   * or the master's (fader and meter only: no command changes the master's pan or mute). It holds
+   * or the master's (its devices, fader and meter: no command changes the master's pan or mute). It holds
    * no project state: it reads the stores and every control is a command through the dispatcher.
    * The name is read-only here; renaming stays in the track list.
    */
-  import { chainOf } from '../../lib/project/chain'
+  import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
@@ -28,20 +28,25 @@
 
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
-  const chain = $derived(entry ? chainOf(entry.track) : [])
+  const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
   const chainText = $derived(
     chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '),
   )
 
   /** Shows the track's devices: selects it (the Devices panel follows the selection) and opens that panel. */
   function showDevices() {
-    if (!entry) return
+    if (!entry) {
+      // The master is not a track: the panel shows its chain without touching the selection.
+      ui.showDevices(true, project.selected?.id)
+      return
+    }
     if (project.selected?.id !== entry.id) dispatcher.run(selectTrack(entry.id))
-    ui.showPanel('devices')
+    ui.showDevices(false)
   }
 
   const select = () => {
     if (entry && !selected) dispatcher.run(selectTrack(entry.id))
+    if (entry) ui.masterSelection = null
   }
 </script>
 
@@ -65,6 +70,10 @@
       </button>
     {:else}
       <p class="name master-name">{name}</p>
+      <p class="meta" title={chainText} data-testid="mixer-chain">{chainText}</p>
+      <button class="devices" type="button" title={t('mixer.devicesHint', { name })} aria-label={t('mixer.devicesHint', { name })} data-testid="mixer-master-devices" onclick={showDevices}>
+        {t('mixer.devices')} ({chain.length})
+      </button>
     {/if}
   </div>
 

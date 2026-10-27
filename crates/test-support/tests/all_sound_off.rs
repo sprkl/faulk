@@ -21,7 +21,8 @@ fn set(s: &mut Session, device: &project::DeviceId, param: &str, value: f64) {
 /// An echo after the synth of the fixture's track: free time, the highest feedback, mostly wet.
 fn echo_after(s: &mut Session, track: &project::TrackId) -> project::DeviceId {
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: track.clone(),
+        track: Some(track.clone()),
+        master: false,
         kind: "faulk.echo".into(),
         index: 0,
     }));

@@ -30,7 +30,9 @@
 //!    replaces the stream (two streams are never merged), and the live input and a
 //!    schedule use separate ranges ([`crate::events::SCHEDULE_FIRST_VOICE`]);
 //! 2. every **retiring** track (below), with a target of silence;
-//! 3. the master's strip over the sum.
+//! 3. the master's chain of effects over the sum (#364): `run_chain` over the whole block, as
+//!    a track's chain but with no note stream; then the master's strip. The master's meter
+//!    and the export read after the strip, so after the chain.
 //!
 //! One stereo scratch serves every track, since they render one after another: the
 //! buffers of the graph are allocated once, by [`crate::engine::channel`], off the audio
@@ -476,7 +478,7 @@ impl Graph {
         }
         self.retiring = kept;
 
-        self.master_pass(state, clock, left, right);
+        self.master_pass(state, clock, &ctx, left, right);
     }
 
     /// The master's strip over the sum (module doc), with the timed parameters of the
@@ -485,6 +487,7 @@ impl Graph {
         &mut self,
         state: &mut State,
         clock: &BlockClock<'_>,
+        ctx: &BlockCtx,
         left: &mut [f32],
         right: &mut [f32],
     ) {
@@ -505,8 +508,19 @@ impl Graph {
             true,
             fade,
         );
+        // The master's chain (#364) runs over the whole sum, before the fader: effects only,
+        // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
+        scratch.sink.clear();
+        run_chain(
+            state.master_devices.as_mut_slice(),
+            &scratch.sink,
+            &mut scratch.merged,
+            &mut scratch.unused,
+            ctx,
+            left,
+            right,
+        );
         let sink = &mut scratch.sink;
-        sink.clear();
         let Some(schedule) = state.master_schedule.as_deref_mut() else {
             master.apply_in_place(left, right, core::iter::empty(), fade);
             return;

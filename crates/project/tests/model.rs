@@ -513,6 +513,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
         WrongInstrument => "WrongInstrument",
+        NotAnEffect => "NotAnEffect",
         BadChannels => "BadChannels",
         CountIn => "CountIn",
         MissingInstrument => "MissingInstrument",
@@ -521,7 +522,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 31] = [
+const ALL_KINDS: [&str; 32] = [
     "MissingInstrument",
     "BadSampleRate",
     "Format",
@@ -550,6 +551,7 @@ const ALL_KINDS: [&str; 31] = [
     "TooManyInstruments",
     "InstrumentNotFirst",
     "WrongInstrument",
+    "NotAnEffect",
     "BadChannels",
     "CountIn",
     "TooMany",
@@ -1143,6 +1145,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 audio_track(fx).devices.get_mut(&p).unwrap().role = DeviceRole::Effect;
             }),
             "WrongInstrument",
+        ),
+        (
+            "an instrument in the master's chain",
+            Box::new(|fx| {
+                let synth = fx.synth.clone();
+                let device = midi_track(fx).devices[&synth].clone();
+                let id = DeviceId::generate(&mut IdGenerator::new(1_800_000_000_000, 7));
+                fx.project.master_devices.insert(id, device);
+            }),
+            "NotAnEffect",
         ),
         (
             "audio file with 0 channels",

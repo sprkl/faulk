@@ -525,6 +525,14 @@ impl Reader<'_> {
 /// compiled code of modules.
 pub fn referenced_blobs(project: &Project) -> BTreeSet<Hash> {
     let mut out = BTreeSet::new();
+    for device in project.master_devices.values() {
+        if let Some(h) = device.state {
+            out.insert(h);
+        }
+        if let DeviceSource::Module { hash, .. } = &device.source {
+            out.insert(*hash);
+        }
+    }
     for track in project.tracks.values() {
         for device in track.devices.values() {
             if let Some(h) = device.state {
