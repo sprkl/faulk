@@ -4,13 +4,15 @@
    * `role="slider"` element, not a native range input, so the drag has a magnet on the default value
    * and a fine mode (Ctrl, Cmd on macOS), a double click or the context menu puts the default value
    * back as one command, and the keyboard (arrows, Ctrl + arrows, Page keys, Home, End, Delete) works
-   * on a focused control. The position is 0 to 1; the owner converts it to its unit, sends the command
+   * on a focused control. Enter, or `edit()` (the readout next to the control), opens a field to type
+   * the value (`entry`, `ValueField.svelte`); the owner reads the text and sends the command. The position is 0 to 1; the owner converts it to its unit, sends the command
    * and groups a drag as one history entry with `onbegin` and `onend` (`gesture.ts`). It holds no
    * project state.
    */
   import type { Snippet } from 'svelte'
   import { createDrag, DRAG_SLOP_PX, fineKey, keyAction, type Drag } from '../continuous'
   import { useStores } from '../stores'
+  import ValueField from './ValueField.svelte'
   import ValueMenu from './ValueMenu.svelte'
 
   /** The thumb of a fader or a pan, in pixels: the travel is the control's length minus this. */
@@ -31,6 +33,7 @@
     testid,
     onposition,
     onreset,
+    entry,
     onbegin,
     onend,
     children,
@@ -54,6 +57,8 @@
     onposition: (position: number) => void
     /** Puts the default value back, as one command. */
     onreset: () => void
+    /** Typing a value: the text the field opens with (the displayed value) and what applies a text (true when accepted). Without it the control has no field. */
+    entry?: { text: () => string; commit: (text: string) => boolean }
     /** A drag starts and ends: the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
@@ -65,6 +70,14 @@
 
   let root: HTMLDivElement | undefined = $state()
   let menu = $state<{ x: number; y: number } | null>(null)
+  // The text the value field opened with; null while it is closed.
+  let typing = $state<string | null>(null)
+
+  /** Opens the field to type a value: Enter on the focused control, and the readouts next to it, call it. */
+  export function edit() {
+    if (!entry || pointer || menu || typing !== null) return
+    typing = entry.text()
+  }
 
   // The drag in progress, from the press to the release.
   let pointer: { id: number; x: number; y: number } | null = null
@@ -133,6 +146,13 @@
   function onKeyDown(event: KeyboardEvent) {
     // Not while a drag is held: a reset must never land inside its history group.
     if (event.target !== event.currentTarget || event.altKey || pointer) return
+    if (event.key === 'Enter' && entry && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      // A held key does not reopen the field the instant it closes.
+      if (!event.repeat) edit()
+      return
+    }
     const base = keyed && Math.abs(position - keyed.sent) < KEY_TOLERANCE ? keyed.sent : position
     const action = keyAction(event.key, { position: base, home, fine: fineKey(event) })
     if (!action) return
@@ -209,6 +229,19 @@
     <span class="thumb" style={vertical ? `bottom: ${along(position)}` : `left: ${along(position)}`}></span>
   {/if}
 </div>
+
+{#if typing !== null && root}
+  <ValueField
+    anchor={root}
+    initial={typing}
+    {label}
+    commit={(text) => entry?.commit(text) ?? false}
+    onclose={(refocus) => {
+      typing = null
+      if (refocus) root?.focus()
+    }}
+  />
+{/if}
 
 {#if menu}
   <ValueMenu x={menu.x} y={menu.y} value={defaultText} onreset={() => { closeMenu(); onreset() }} onclose={() => closeMenu()} />

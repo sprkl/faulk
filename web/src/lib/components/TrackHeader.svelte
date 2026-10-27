@@ -54,6 +54,10 @@
   const instrument = $derived(instrumentName(track))
   const mixer = $derived(track.mixer)
 
+  // The controls whose readouts open the field to type a value.
+  let gainControl: ReturnType<typeof GainControl> | undefined = $state()
+  let panControl: ReturnType<typeof PanControl> | undefined = $state()
+
   let renaming = $state(false)
   let draft = $state('')
   let field = $state<HTMLInputElement | null>(null)
@@ -298,13 +302,13 @@
           onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
         >
       {/if}
-      <GainControl gainDb={mixer.gain_db} label={t('tracks.volume', { name: label })} set={(gain) => setVolume(entry.id, gain)} />
-      <span class="value readout">{formatGain(mixer.gain_db)}</span>
+      <GainControl bind:this={gainControl} gainDb={mixer.gain_db} label={t('tracks.volume', { name: label })} set={(gain) => setVolume(entry.id, gain)} />
+      <button class="value readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="track-gain-readout" onmousedown={(e) => e.preventDefault()} onclick={() => gainControl?.edit()}>{formatGain(mixer.gain_db)}</button>
     </div>
     <div class="strip pan">
       <span class="label">{t('tracks.panShort')}</span>
-      <PanControl track={entry.id} pan={mixer.pan} label={t('tracks.pan', { name: label })} />
-      <span class="value readout">{formatPan(mixer.pan)}</span>
+      <PanControl bind:this={panControl} track={entry.id} pan={mixer.pan} label={t('tracks.pan', { name: label })} />
+      <button class="value readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="track-pan-readout" onmousedown={(e) => e.preventDefault()} onclick={() => panControl?.edit()}>{formatPan(mixer.pan)}</button>
     </div>
   {/if}
 </li>
@@ -505,6 +509,11 @@
     color: #131211;
   }
   .readout {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font: inherit;
+    cursor: text;
     flex: none;
     width: 5ch;
     text-align: right;

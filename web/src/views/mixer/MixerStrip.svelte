@@ -26,6 +26,10 @@
   const { project, ui, dispatcher } = useStores()
   const t = ui.t
 
+  // The controls whose readouts open the field to type a value.
+  let panControl: ReturnType<typeof PanControl> | undefined = $state()
+  let faderControl: ReturnType<typeof MixerFader> | undefined = $state()
+
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
@@ -79,8 +83,8 @@
 
   {#if entry}
     <div class="pan">
-      <PanControl track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
-      <span class="readout">{formatPan(entry.track.mixer.pan)}</span>
+      <PanControl bind:this={panControl} track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
+      <button class="readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="mixer-pan-readout" onmousedown={(e) => e.preventDefault()} onclick={() => panControl?.edit()}>{formatPan(entry.track.mixer.pan)}</button>
     </div>
     <div class="toggles">
       <button
@@ -117,6 +121,7 @@
 
   <div class="levels">
     <MixerFader
+      bind:this={faderControl}
       gainDb={mixer?.gain_db}
       label={entry ? t('tracks.volume', { name }) : t('mixer.masterVolume')}
       set={entry ? (gain) => setVolume(entry.id, gain) : setMasterVolume}
@@ -124,7 +129,7 @@
     />
     <MixerMeter {snap} label={t('mixer.level', { name })} peakLabel={t('mixer.peak', { name })} clipLabel={t('mixer.clip')} {onreset} />
   </div>
-  <span class="readout gain" data-testid="mixer-gain">{formatGain(mixer?.gain_db)} dB</span>
+  <button class="readout gain" type="button" tabindex="-1" title={t('controls.type')} data-testid="mixer-gain" onmousedown={(e) => e.preventDefault()} onclick={() => faderControl?.edit()}>{formatGain(mixer?.gain_db)} dB</button>
 </li>
 
 <style>
@@ -209,6 +214,10 @@
     width: 100%;
   }
   .readout {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: text;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
     font-size: 11px;
