@@ -261,6 +261,7 @@ fn remove_then_undo_brings_the_device_back_with_its_settings() {
         master: false,
         device: id,
         snapshot,
+        ..
     }) = *inverse
     else {
         panic!("{inverse:?}")
@@ -280,7 +281,7 @@ fn remove_then_undo_brings_the_device_back_with_its_settings() {
 }
 
 #[test]
-fn an_instrument_and_a_device_with_a_lane_are_not_removed() {
+fn an_instrument_is_not_removed_and_a_device_takes_its_lanes_with_it() {
     let c = chain();
     assert_eq!(code(&remove(&c.synth), &c.state), "invalid");
     assert_eq!(code(&remove(&c.player), &c.state), "invalid");
@@ -288,10 +289,25 @@ fn an_instrument_and_a_device_with_a_lane_are_not_removed() {
     assert_eq!(code(&remove(&missing), &c.state), "not_found");
     let mut s = c.state.clone();
     with_lane(&mut s, &c.track, &c.a);
-    let e = refused(&remove(&c.a), &s);
-    assert!(e.to_string().contains("lane"), "{e}");
-    // A device the lane does not target goes.
+    let before = s.clone();
+    // A device the lane does not target goes, the lane stays.
     go(&mut s, &remove(&c.b));
+    assert_eq!(s.project.tracks[&c.track].automation.len(), 1);
+    go(&mut s, &undo());
+    assert_eq!(s.project, before.project);
+    // The device the lane targets goes with it, and undo brings both back.
+    let out = go(&mut s, &remove(&c.a));
+    assert!(s.project.tracks[&c.track].automation.is_empty());
+    assert!(matches!(
+        events(&out).as_slice(),
+        [
+            ProjectEvent::AutomationLaneDeleted { .. },
+            ProjectEvent::DeviceChainChanged { .. }
+        ]
+    ));
+    go(&mut s, &undo());
+    assert_eq!(s.project, before.project);
+    s.project.validate().unwrap();
 }
 
 fn with_lane(state: &mut State, track: &TrackId, device: &DeviceId) {
@@ -332,6 +348,7 @@ fn restore_refuses_what_is_not_an_effect_the_chain_can_hold() {
         master: false,
         device: id,
         snapshot,
+        ..
     }) = *inverse
     else {
         panic!()
@@ -342,6 +359,7 @@ fn restore_refuses_what_is_not_an_effect_the_chain_can_hold() {
             master: false,
             device: id.clone(),
             snapshot,
+            lanes: Default::default(),
         })
     };
     // The good one applies.
@@ -741,6 +759,7 @@ fn restore_instrument_refuses_what_does_not_fit_and_leaves_the_state_alone() {
         current,
         device: id,
         snapshot,
+        ..
     }) = *inverse
     else {
         panic!()
@@ -1214,6 +1233,7 @@ fn the_undo_of_a_master_remove_is_a_restore_into_the_master_with_its_settings() 
         master,
         device,
         snapshot,
+        ..
     }) = &**inverse
     else {
         panic!("{inverse:?}")
@@ -1248,6 +1268,7 @@ fn the_master_chain_is_named_by_exactly_one_of_track_and_master() {
             master,
             device: DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
             snapshot: snapshot.clone(),
+            lanes: Default::default(),
         });
         assert_eq!(code(&restore, &c.state), "invalid");
     }
@@ -1289,6 +1310,7 @@ fn the_master_refuses_an_instrument_an_unknown_effect_and_a_chain_past_the_limit
         master: true,
         device: DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
         snapshot: synth,
+        lanes: Default::default(),
     });
     assert_eq!(code(&restore, &c.state), "invalid");
     // The safety limit of devices per chain.
@@ -1304,6 +1326,7 @@ fn the_master_refuses_an_instrument_an_unknown_effect_and_a_chain_past_the_limit
         master: true,
         device: c.a.clone(),
         snapshot: c.state.project.tracks[&c.track].devices[&c.a].clone(),
+        lanes: Default::default(),
     });
     assert_eq!(code(&dup, &c.state), "invalid");
 }

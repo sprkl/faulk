@@ -21,8 +21,9 @@
 //!   brings it back under the same identifier, order key, settings and bypass. Removal is
 //!   undoable, hence not flagged destructive (the contract reserves that flag for edits
 //!   without an inverse).
-//! - A device an automation lane targets cannot be removed (the lane would lose its
-//!   target): the automation commands come with AM.
+//! - Removing a device deletes the automation lanes that target it (AM-1); `device.restore`
+//!   brings them back with it, under their identifiers and with their points. The master's
+//!   devices have no lanes.
 //! - A command that changes nothing returns no inverse and no event.
 //!
 //! Also here: the parameters of the built-in synth ([`SynthParam`]) with their engine ids
@@ -36,8 +37,8 @@ use engine::{Param, Synth};
 use project::limits::MAX_DEVICES_PER_TRACK;
 use project::order::by_order;
 use project::{
-    AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource, OrderKey, Track,
-    TrackId,
+    AutomationLane, AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource,
+    LaneId, OrderKey, Track, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -77,10 +78,11 @@ domain! {
         device: DeviceId,
     };
 
-    /// Remove an effect from its track or from the master, with its settings. Refused for
-    /// an instrument (the oscillator, the clip player: replace it with
-    /// `track.set_instrument`) and for a device an automation lane targets. Undo:
-    /// `device.restore` brings it back with its identifier, position, settings and bypass.
+    /// Remove an effect from its track or from the master, with its settings. The
+    /// automation lanes that target the effect are deleted with it. Refused for an
+    /// instrument (the oscillator, the clip player: replace it with `track.set_instrument`).
+    /// Undo: `device.restore` brings it back with its identifier, position, settings, bypass
+    /// and automation lanes.
     "device.remove" (kind = "edit", undo = "inverse", destructive = false)
     Remove { device: DeviceId } => {
         /// The track the device was in; `null` when it was in the master's chain.
@@ -94,7 +96,9 @@ domain! {
     /// when the identifier is already in use, at the safety limit of devices, or when the
     /// snapshot is not an effect (a built-in device must be one of the registry, with only
     /// parameters it declares; a module device is taken as it is) or does not fit the
-    /// chain. Undo: `device.remove`.
+    /// chain. `lanes` are the automation lanes that targeted the device, as `device.remove`
+    /// took them out (absent: none); each must target this device and a parameter it has,
+    /// under an identifier not in use. Undo: `device.remove`.
     "device.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore {
         /// The track whose chain gets the effect back; absent for the master.
@@ -105,6 +109,9 @@ domain! {
         master: bool,
         device: DeviceId,
         snapshot: Device,
+        /// The automation lanes of the device, by identifier.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        lanes: BTreeMap<LaneId, AutomationLane>,
     } => {};
 
     /// Move an effect to `index` among the effects of its chain (a track's or the master's),
@@ -209,12 +216,14 @@ pub(crate) fn apply_in(
             master,
             device,
             snapshot,
+            lanes,
         } => restore(
             registry,
             state,
             &chain_target(track, *master)?,
             device,
             snapshot,
+            lanes,
         ),
         Command::Move { device, index } => move_device(state, device, *index),
         Command::RestoreOrder { device, order } => restore_order(state, device, order),
@@ -339,7 +348,10 @@ fn is_clip_player(device: &Device) -> bool {
 
 /// The descriptor of a built-in device of `registry`; `None` for the clip player and for
 /// a module.
-fn descriptor_of<'r>(registry: &'r [Builtin], device: &Device) -> Option<&'r DeviceDescriptor> {
+pub(crate) fn descriptor_of<'r>(
+    registry: &'r [Builtin],
+    device: &Device,
+) -> Option<&'r DeviceDescriptor> {
     let DeviceSource::Builtin { id, .. } = &device.source else {
         return None;
     };
@@ -509,18 +521,32 @@ fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> 
             "an instrument is not removed: track.set_instrument replaces it",
         ));
     }
-    if let Place::Track(track_id) = &place
-        && has_lane(track_mut(state, track_id)?, device_id)
-    {
-        return Err(invalid(
-            "device",
-            "an automation lane targets this device: remove the lane first",
-        ));
-    }
     let snapshot = chain_mut(state, &place)?
         .remove(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
+    // The lanes that target the device go with it (AM-1), and come back with it.
+    let mut lanes = BTreeMap::new();
+    let mut events = Vec::new();
+    if let Place::Track(track_id) = &place {
+        let track = track_mut(state, track_id)?;
+        let ids: Vec<LaneId> = track
+            .automation
+            .iter()
+            .filter(|(_, lane)| matches!(&lane.target, AutomationTarget::Device { device: d, .. } if d == device_id))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(lane) = track.automation.remove(&id) {
+                events.push(ProjectEvent::AutomationLaneDeleted {
+                    track: track_id.clone(),
+                    lane: id.clone(),
+                });
+                lanes.insert(id, lane);
+            }
+        }
+    }
     let (track, master) = place.fields();
+    events.extend(chain_changed(&place));
     Ok(Outcome {
         output: Output::Remove {
             track: track.clone(),
@@ -530,8 +556,9 @@ fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> 
             master,
             device: device_id.clone(),
             snapshot,
+            lanes,
         })),
-        events: chain_changed(&place),
+        events,
         control: vec![],
     })
 }
@@ -542,6 +569,7 @@ fn restore(
     place: &Place,
     device_id: &DeviceId,
     snapshot: &Device,
+    lanes: &BTreeMap<LaneId, AutomationLane>,
 ) -> Result<Out, CommandError> {
     if snapshot.role != DeviceRole::Effect || is_clip_player(snapshot) {
         return Err(invalid("snapshot", "only an effect is restored"));
@@ -553,31 +581,115 @@ fn restore(
         ));
     }
     check_device(registry, device_id, snapshot)?;
+    check_lanes(state, place, device_id, snapshot, lanes)?;
     let devices = chain_mut(state, place)?;
     if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
     devices.insert(device_id.clone(), snapshot.clone());
+    if let Place::Track(track_id) = place {
+        track_mut(state, track_id)?
+            .automation
+            .extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
+    }
     // The snapshot is data from outside: the whole project must stay valid with it (the
     // chain keeps its instrument first, parameters are finite, limits hold). A refusal
-    // takes the device back out, so the state is untouched.
+    // takes the device and its lanes back out, so the state is untouched.
     if let Err(violations) = state.project.validate() {
         if let Ok(devices) = chain_mut(state, place) {
             devices.remove(device_id);
+        }
+        if let Place::Track(track_id) = place
+            && let Ok(track) = track_mut(state, track_id)
+        {
+            for id in lanes.keys() {
+                track.automation.remove(id);
+            }
         }
         let first = violations
             .first()
             .map_or_else(String::new, ToString::to_string);
         return Err(invalid("snapshot", first));
     }
+    // The lanes first: the engine uploads them with the chain, which follows.
+    let mut events: Vec<ProjectEvent> = Vec::new();
+    if let Place::Track(track_id) = place {
+        events.extend(
+            lanes
+                .keys()
+                .map(|lane| ProjectEvent::AutomationLaneCreated {
+                    track: track_id.clone(),
+                    lane: lane.clone(),
+                }),
+        );
+    }
+    events.extend(chain_changed(place));
     Ok(Outcome {
         output: Output::Restore {},
         undo: Undo::Inverse(Box::new(Command::Remove {
             device: device_id.clone(),
         })),
-        events: chain_changed(place),
+        events,
         control: vec![],
     })
+}
+
+/// The lanes a restored device brings back: only in a track (the master has none), each
+/// targeting this device and a parameter it has, under a new identifier, within the safety limits of lanes.
+fn check_lanes(
+    state: &State,
+    place: &Place,
+    device_id: &DeviceId,
+    snapshot: &Device,
+    lanes: &BTreeMap<LaneId, AutomationLane>,
+) -> Result<(), CommandError> {
+    if lanes.is_empty() {
+        return Ok(());
+    }
+    let Place::Track(track_id) = place else {
+        return Err(invalid(
+            "lanes",
+            "the master's devices have no automation lanes",
+        ));
+    };
+    let track = state
+        .project
+        .tracks
+        .get(track_id)
+        .ok_or_else(|| not_found("track", track_id))?;
+    for (id, lane) in lanes {
+        if state.project.contains_id(&id.0) {
+            return Err(invalid(
+                "lanes",
+                format!("the identifier {id} is already in use"),
+            ));
+        }
+        let AutomationTarget::Device { device, param } = &lane.target else {
+            return Err(invalid(
+                "lanes",
+                format!("lane {id} does not target a device"),
+            ));
+        };
+        if device != device_id || !snapshot.params.contains_key(param) {
+            return Err(invalid(
+                "lanes",
+                format!("lane {id} does not target a parameter of device {device_id}"),
+            ));
+        }
+    }
+    if track.automation.len().saturating_add(lanes.len()) > project::limits::MAX_LANES_PER_TRACK {
+        return Err(CommandError::Limit {
+            entity: "lanes".into(),
+            max: project::limits::MAX_LANES_PER_TRACK as u64,
+        });
+    }
+    if state.project.counts().lanes.saturating_add(lanes.len()) > project::limits::MAX_LANES {
+        return Err(CommandError::Limit {
+            entity: "lanes".into(),
+            max: project::limits::MAX_LANES as u64,
+        });
+    }
+    Ok(())
 }
 
 fn move_device(state: &mut State, device_id: &DeviceId, index: u32) -> Result<Out, CommandError> {
