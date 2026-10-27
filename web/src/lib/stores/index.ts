@@ -13,11 +13,13 @@ import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { Dispatcher } from './dispatcher'
 import { EngineStore } from './engine.svelte'
+import { KeyboardPlayer } from './keyboard-player.svelte'
 import { ProjectStore } from './project.svelte'
 import { UiStore } from './ui.svelte'
 
 export { Dispatcher } from './dispatcher'
 export { EngineStore, type HelperState } from './engine.svelte'
+export { KeyboardPlayer } from './keyboard-player.svelte'
 export { ProjectStore } from './project.svelte'
 export { ProjectStorage } from '../storage/storage.svelte'
 export { UiStore } from './ui.svelte'
@@ -31,6 +33,8 @@ export interface Stores {
   storage: ProjectStorage
   /** Exporting the song as a WAV file (#297): the dialog and the render. */
   audioExport: AudioExport
+  /** The computer keyboard as a piano, in every view (#361). */
+  keys: KeyboardPlayer
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
@@ -66,7 +70,8 @@ export function createStores(
         ),
     })
   }
-  return { project, engine, ui: new UiStore(view, panel), dispatcher, storage, audioExport }
+  const ui = new UiStore(view, panel)
+  return { project, engine, ui, dispatcher, storage, audioExport, keys: new KeyboardPlayer(project, engine, ui, dispatcher) }
 }
 
 const KEY = Symbol('faulk.stores')
