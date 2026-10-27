@@ -61,7 +61,10 @@ function changedFiles(base) {
 /** Points cargo at the shared build cache. Returns a warning for the summary when the cache is over its limit. */
 function setupBuildCache(env) {
   env.CARGO_INCREMENTAL ??= '0'
-  if (env.CARGO_TARGET_DIR || process.env.FAULK_SHARED_TARGET === '0') return ''
+  if (env.CARGO_TARGET_DIR || process.env.FAULK_SHARED_TARGET === '0') {
+    if (flag('--prune-cache')) console.log('--prune-cache ignored: CARGO_TARGET_DIR is yours, or FAULK_SHARED_TARGET=0 (the shared build cache is not in use)')
+    return ''
+  }
   const dir = sharedTargetDir(process.env, process.platform, homedir())
   if (!dir) return ''
   env.CARGO_TARGET_DIR = dir

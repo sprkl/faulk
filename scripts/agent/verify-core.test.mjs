@@ -24,12 +24,12 @@ test('a changed spec runs itself and nothing else', () => {
 
 test('a view maps to its specs', () => {
   const r = pick(['web/src/views/mixer/MixerFader.svelte'])
-  assert.deepEqual(r.specs, ['master-chain', 'mixer', 'mixer-sound'])
+  assert.deepEqual(r.specs, ['continuous', 'master-chain', 'mixer', 'mixer-sound'])
   assert.equal(r.all, false)
 })
 
 test('several files add up, a shared file widens to the whole suite', () => {
-  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['grid', 'grid-clips', 'grid-to-arrangement', 'track-order', 'tracks'])
+  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement', 'track-order', 'tracks'])
   for (const shared of ['web/src/lib/stores/dispatcher.ts', 'web/src/lib/i18n/app.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/lib.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts']) {
     const r = pick(['web/src/views/mixer/MixerFader.svelte', shared])
     assert.equal(r.all, true, shared)
@@ -72,8 +72,10 @@ test('every spec on disk is reachable: it runs when its own file changes', () =>
   for (const name of EXISTING) assert.deepEqual(pick([`web/tests/e2e/${name}.spec.ts`]).specs, [name])
 })
 
-test('the web checks follow web/, crates/ and the build inputs', () => {
-  for (const f of ['web/src/a.ts', 'crates/commands/src/lib.rs', 'Cargo.toml', 'modules/x/a.dsp', '.cargo/config.toml']) assert.equal(needsWeb([f]), true, f)
+test('the web checks run unless every file is one no browser test sees; an unknown path runs them', () => {
+  for (const f of ['web/src/a.ts', 'crates/commands/src/lib.rs', 'Cargo.toml', 'modules/x/a.dsp', '.cargo/config.toml', 'some-new-top-folder/f', 'helper/x.rs']) assert.equal(needsWeb([f]), true, f)
+  assert.equal(needsWeb(['docs/a.md', 'web/src/a.test.ts', '.github/workflows/ci.yml']), false)
+  assert.equal(needsWeb([]), false)
 })
 
 test('three distinct free ports, usable afterwards', async () => {

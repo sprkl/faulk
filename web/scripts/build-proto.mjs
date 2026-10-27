@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { withTargetLock } from './target-lock.mjs'
 import { fileURLToPath } from 'node:url'
 
 const crate = fileURLToPath(new URL('../src/lib/engine/proto/crate/', import.meta.url))
@@ -25,11 +26,13 @@ const builds = [
 
 mkdirSync(dest, { recursive: true })
 for (const { target, out, rustflags } of builds) {
-  execFileSync(cargo, ['build', '-q', '--release', '--target', target], {
-    cwd: crate,
-    stdio: 'inherit',
-    env: { ...process.env, RUSTFLAGS: rustflags },
+  withTargetLock(targetDir, () => {
+    execFileSync(cargo, ['build', '-q', '--release', '--target', target], {
+      cwd: crate,
+      stdio: 'inherit',
+      env: { ...process.env, RUSTFLAGS: rustflags },
+    })
+    copyFileSync(join(targetDir, target, 'release', 'engine_proto.wasm'), dest + out)
   })
-  copyFileSync(join(targetDir, target, 'release', 'engine_proto.wasm'), dest + out)
   console.log(`built src/lib/engine/proto/build/${out}`)
 }

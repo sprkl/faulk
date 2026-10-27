@@ -25,12 +25,12 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'back-to-arrangement', 'grid-to-arrangement', 'playhead', 'timegrid']],
-  [/^web\/src\/views\/grid\//, ['grid', 'grid-clips', 'grid-to-arrangement']],
-  [/^web\/src\/views\/piano-roll\//, ['piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead']],
-  [/^web\/src\/views\/mixer\//, ['mixer', 'mixer-sound', 'master-chain']],
-  [/^web\/src\/views\/devices\//, ['devices', 'master-chain']],
-  [/^web\/src\/views\/transport\//, ['transport', 'playhead', 'space-bar']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'playhead', 'timegrid']],
+  [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
+  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead']],
+  [/^web\/src\/views\/mixer\//, ['continuous', 'mixer', 'mixer-sound', 'master-chain']],
+  [/^web\/src\/views\/devices\//, ['continuous', 'devices', 'master-chain']],
+  [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar']],
   [/^web\/src\/views\/tracks\//, ['tracks', 'track-order']],
   [/^web\/src\/views\/play\//, ['keyboard', 'keyboard-all-views', 'live-input']],
   [/^web\/src\/views\/shell\/ExportDialog\./, ['export-audio']],
@@ -97,11 +97,11 @@ export const specFile = (name) => `tests/e2e/${name}.spec.ts`
 /** The spec names of a directory listing (`x.spec.ts` gives `x`). */
 export const specNames = (entries) => entries.filter((e) => e.endsWith('.spec.ts')).map((e) => e.slice(0, -'.spec.ts'.length)).sort()
 
-/** True when a changed file can change what the web app checks (typecheck, lint, unit tests) see. */
+/** True unless every changed file is one no browser test can see: a file the table does not know counts (fail safe). */
 export function needsWeb(files) {
   return files.some((raw) => {
-    const f = raw.replaceAll('\\', '/')
-    return /^(web|crates|modules|\.cargo)\//.test(f) || /^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/.test(f)
+    const rule = RULES.find(([re]) => re.test(raw.replaceAll('\\', '/')))
+    return !rule || rule[1] !== NONE
   })
 }
 
