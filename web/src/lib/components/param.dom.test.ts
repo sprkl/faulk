@@ -41,8 +41,8 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.append(host)
 })
-afterEach(() => {
-  if (app) unmount(app)
+afterEach(async () => {
+  if (app) await unmount(app)
   app = null
   host.remove()
 })
@@ -67,7 +67,7 @@ describe('a device knob', () => {
     const slider = setup(0.9)
     slider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(changes).toEqual([0.3])
-    unmount(app!)
+    void unmount(app!)
     changes = []
     const atDefault = setup(0.3)
     atDefault.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))

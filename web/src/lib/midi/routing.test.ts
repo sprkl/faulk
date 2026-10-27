@@ -24,7 +24,7 @@ function session() {
   }
   const midi = (...bytes: number[]) => {
     const command = decodeMidi(bytes)
-    if (!command) throw new Error(`not decoded: ${bytes}`)
+    if (!command) throw new Error(`not decoded: ${bytes.join(' ')}`)
     return run(command)
   }
   run(commands.createTrack('midi', 'faulk.osc_synth', '#58c27d'))

@@ -132,7 +132,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           const initAt = performance.now()
           const started = await ask({ type: 'init', bytes, memory, setup: ready.setup, clock: clockBuffer, ticksPerUs, warm: warmup })
           const initMs = performance.now() - initAt
-          if (warmup && started.warm !== 0) throw new Error(`the warm-up failed: ${started.warm}`)
+          if (warmup && started.warm !== 0) throw new Error(`the warm-up failed: ${String(started.warm)}`)
           node.connect(context.destination)
           await sleep(500)
           await reset()
@@ -184,7 +184,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           `QA-7 engine swaps in the browser: ${result.pushes} pushes of the heavy project, ${(readFileSync(STREAM).length / 1048576).toFixed(1)} MiB, at ${result.sampleRate} Hz, clock ${result.ticksPerUs.toFixed(1)} ticks/µs (window ${s.rate.toFixed(1)}, check ${result.check.toFixed(1)}), cross-origin isolated ${result.isolated}, worklet init (instantiate${WARMUP ? ' and warm-up' : ''}) ${result.initMs.toFixed(1)} ms`,
           `  prepare and apply complete in ${result.done.toFixed(0)} ms wall from the first push to an empty queue (the worklet applies at most 128 messages per block)`,
           `  worklet: ${s.applied} messages applied over ${s.blocks} blocks (at most ${s.maxApplied} per block), pump ${us(s.pumpUsPerMsg)} µs per message, longest pump ${us(s.pumpMaxUs)} µs after the first one, which cost ${us(s.firstUs)} µs for ${s.firstApplied} messages (V8 compiles a wasm function on its first call), ${us(s.pumpUsPerCall)} µs per pump incl. empty ones; skipped ${s.skipped}; render-side allocations ${s.renderAllocs}, frees ${s.renderFrees}; silent blocks ${s.silent}`,
-          `  prepare side: rejected ${result.counters.rejected}, codes ${JSON.stringify(result.counters.codes)}; tracks ${s.tracksHeld} in ${s.tracksCapacity} slots`,
+          `  prepare side: rejected ${String(result.counters.rejected)}, codes ${JSON.stringify(result.counters.codes)}; tracks ${s.tracksHeld} in ${s.tracksCapacity} slots`,
           `  shared linear memory: ${(result.memBefore / 1048576).toFixed(0)} MiB before, ${(result.memAfter / 1048576).toFixed(0)} MiB after the whole project`,
         ].join('\n'),
       )

@@ -28,6 +28,8 @@ export const RULES = [
   [/^[^/]+\.md$/, NONE],
   [/^web\/(?!tests\/e2e\/).*\.test\.ts$/, NONE],
   [/^web\/.*\.md$/, NONE],
+  // The formatter and lint settings: they change no byte of what the browser runs (the `checks` job runs them).
+  [/^web\/(\.prettierrc\.json|\.prettierignore|eslint\.config\.js)$/, NONE],
   // The e2e tests themselves: a spec is its own selection, the shared helpers run everything.
   [/^web\/tests\/e2e\/support\.ts$/, ALL],
   [/^web\/tests\/e2e\/fixtures\//, ALL],

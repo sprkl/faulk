@@ -1,0 +1,2 @@
+2026-10-28
+* **Update** (#379): the web app has a formatter (Prettier with `prettier-plugin-svelte`, `pnpm format` and `pnpm format:check`, checked first in the CI `checks` job and by `verify.mjs`, which gains `--fix`), typed ESLint rules that catch lost promises and detached methods, and a project `PostToolUse` hook that formats the file an agent just edited (Prettier and `eslint --fix` under `web/`, `rustfmt` for `.rs`) without ever blocking. The one-time reformat is its own commit, listed in `.git-blame-ignore-revs`. `agents/verification.md` describes all of it.

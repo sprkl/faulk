@@ -54,14 +54,14 @@ function openDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB, 1)
     request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' })
     request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
   })
 }
 
 function done<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
   })
 }
 

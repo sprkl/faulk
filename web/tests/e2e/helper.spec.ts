@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { WebSocketServer, type WebSocket } from 'ws'
+import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from '../../src/lib/generated/protocol'
 import { HELPER_HOST, HELPER_PORT, watch } from './support'
 
@@ -14,6 +14,9 @@ interface Connection {
   path: string
   origin: string | undefined
 }
+
+/** The text of a frame: `ws` hands over a Buffer, a list of fragments or an ArrayBuffer. */
+const text = (data: RawData) => (Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data).toString('utf8')
 
 let server: WebSocketServer
 const connections: Connection[] = []
@@ -34,14 +37,14 @@ test.beforeAll(async () => {
     if (url.pathname === '/probe') send({ type: 'probe', protocol: PROTOCOL_VERSION })
     else if (url.pathname === '/pair') {
       ws.on('message', (data) => {
-        const message = JSON.parse(String(data))
+        const message = JSON.parse(text(data))
         if (message.type === 'pair' && message.code === CODE) send({ type: 'paired', token: TOKEN })
         else send({ type: 'pairing_refused', attempts_left: 2 })
       })
     } else if (url.pathname === '/session' && url.searchParams.get('token') === TOKEN) {
       send({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 5 })
       send({ type: 'midi.inputs', inputs: [], selected: null })
-      ws.on('message', (data) => commands.push(JSON.parse(String(data))))
+      ws.on('message', (data) => commands.push(JSON.parse(text(data))))
     } else ws.close()
   })
 })

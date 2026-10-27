@@ -1,9 +1,10 @@
 // One command to check a change before the pull request (issue #372; docs/agents/verification.md):
 //   node scripts/agent/verify.mjs [--base origin/develop] [--all] [--no-e2e] [--dry-run]
-//                                 [--ports dev,preview,helper] [--keep-going] [--verbose] [--clean] [--prune-cache]
-// It runs, from the web app: typecheck, lint, vitest, then the end-to-end specs the diff against the
+//                                 [--ports dev,preview,helper] [--keep-going] [--verbose] [--clean] [--prune-cache] [--fix]
+// It runs, from the web app: formatting (Prettier, as the CI does), typecheck, lint, vitest, then the end-to-end specs the diff against the
 // base touches plus the smoke tests (one table with the CI, scripts/ci/e2e-plan.mjs; the whole suite when a shared file changed). It picks free
-// ports for the servers, so two checkouts never collide, and ends with a short summary. Works in Git
+// ports for the servers, so two checkouts never collide, and ends with a short summary. --fix rewrites the formatting (pnpm format) and
+// applies the auto-fixable lint (eslint --fix) instead of only checking them, then goes on. Works in Git
 // Bash, PowerShell and on Linux. Exit code 0 when everything passed.
 //
 // Build cache: cargo builds into one directory shared by every checkout (CARGO_TARGET_DIR, default
@@ -168,8 +169,11 @@ async function main() {
     steps.push({ name: 'web checks', ok: true, skipped: true, ms: 0, note: 'no change under web/, crates/ or the build inputs' })
   } else {
     if (!existsSync(join(web, 'node_modules'))) proceed = await go('install', 'pnpm', ['install', '--frozen-lockfile'])
+    // --fix: the auto-fixable lint first, then the formatter, which has the last word on layout (as in the PostToolUse hook).
+    if (proceed && flag('--fix')) proceed = await go('lint (fix)', 'pnpm', ['lint', '--fix'])
+    if (proceed) proceed = flag('--fix') ? await go('format (fix)', 'pnpm', ['format']) : await go('format', 'pnpm', ['format:check'])
     if (proceed) proceed = await go('typecheck', 'pnpm', ['typecheck'])
-    if (proceed) proceed = await go('lint', 'pnpm', ['lint'])
+    if (proceed && !flag('--fix')) proceed = await go('lint', 'pnpm', ['lint'])
     // `pnpm test` also builds the two WASM modules the dev server serves.
     if (proceed) proceed = await go('vitest', 'pnpm', ['test'])
     if (proceed && (specs.length || smoke.length)) {

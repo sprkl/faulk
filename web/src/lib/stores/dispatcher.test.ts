@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
 import { SINGLE_SYNTH, type Command } from '../generated/protocol'
@@ -21,8 +21,8 @@ interface FakeWeb {
   send: ReturnType<typeof vi.fn>
   push: ReturnType<typeof vi.fn>
   status: () => object
-  suspend: ReturnType<typeof vi.fn>
-  resume: ReturnType<typeof vi.fn>
+  suspend: Mock<() => Promise<void>>
+  resume: Mock<() => Promise<void>>
   close: ReturnType<typeof vi.fn>
 }
 let webEvents: EngineEvents | null = null
@@ -170,7 +170,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockResolvedValueOnce({ status: 'absent' })
     await session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('absent')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     await vi.waitFor(() => expect(session.engine.helper).toBe('available'))
     expect(probeHelper).toHaveBeenCalledTimes(2)
   })
@@ -181,7 +181,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (giveUp = r)))
     const first = session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('checking')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     await vi.waitFor(() => expect(session.engine.helper).toBe('available'))
     giveUp({ status: 'absent' })
     await first
@@ -194,7 +194,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (answer = r)))
     probeHelper.mockReturnValueOnce(new Promise<Probe>(() => {}))
     const older = session.dispatcher.checkHelper()
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     answer({ status: 'available' })
     expect(await older).toBe('available')
     expect(session.engine.helper).toBe('checking')
@@ -204,7 +204,7 @@ describe('probing again once the browser allows local access', () => {
     const session = newSession()
     await session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('available')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     expect(probeHelper).toHaveBeenCalledTimes(1)
   })
 })

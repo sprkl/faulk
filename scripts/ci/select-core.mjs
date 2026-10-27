@@ -41,7 +41,7 @@ const IGNORED = [
   /^docs\//,
   /^\.scratch\//,
   /^[^/]+\.md$/,
-  /^(LICENSE|\.gitignore)[^/]*$/,
+  /^(LICENSE|\.gitignore|\.git-blame-ignore-revs)[^/]*$/,
   /^\.github\/(ISSUE_TEMPLATE\/|PULL_REQUEST_TEMPLATE|CODEOWNERS$|dependabot\.yml$|[^/]+\.md$)/, // not .github/actions/
   /^\.github\/workflows\/release-helper\.yml$/, // its own triggers
 ]

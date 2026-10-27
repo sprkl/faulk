@@ -1,0 +1,10 @@
+dist
+.svelte-kit
+node_modules
+pnpm-lock.yaml
+src/lib/generated
+src/lib/engine/wasm
+src/lib/project/wasm
+src/lib/engine/proto/build
+test-results
+playwright-report

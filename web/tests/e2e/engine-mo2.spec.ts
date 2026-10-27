@@ -211,7 +211,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
           `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
           `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(Math.max(p.pumpMaxUs, p.firstUs))} µs (first ${us(p.firstUs)}), ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
           `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(Math.max(t.pumpMaxUs, t.firstUs))} µs (first ${us(t.firstUs)}; incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
-          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
+          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${String(run.counters.rejected)}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${String(run.role)}`,
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)

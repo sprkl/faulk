@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { LANG_STORAGE_KEY } from '../i18n/lang'
 import { animBootScript, detectScript, inlineScript, rememberScript } from './scripts'
 
-/** Runs the generated detection script, as a browser would, against fake globals. */
-function runDetect(stored: string | null | 'throws', language: string | undefined) {
+/** Runs the generated detection script, as a browser would, against fake globals. `stored` 'throws': reading the storage throws. */
+function runDetect(stored: string | null, language: string | undefined) {
   const replaced: string[] = []
   const localStorage = {
     getItem(key: string) {
