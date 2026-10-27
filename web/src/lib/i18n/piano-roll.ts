@@ -56,6 +56,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.grid': 'Notes of {name}',
     'pianoRoll.keyboard': 'Keyboard of the piano roll',
     'pianoRoll.velocity': 'Velocity of the notes',
+    'pianoRoll.velocityHint': 'Drag up or down to set the velocity. With two notes on one step, the selected notes change; with none selected, the highest note of the step does. Double-click to reset.',
   },
   {
     'pianoRoll.noTrack': 'Sélectionne une piste MIDI pour modifier ses notes.',
@@ -110,5 +111,6 @@ export const pianoRoll = defineFeature(
     'pianoRoll.grid': 'Notes de {name}',
     'pianoRoll.keyboard': 'Clavier du piano roll',
     'pianoRoll.velocity': 'Vélocité des notes',
+    'pianoRoll.velocityHint': 'Glisse vers le haut ou le bas pour régler la vélocité. Avec deux notes sur un pas, les notes sélectionnées changent ; sans sélection, c’est la note la plus aiguë du pas. Double-clique pour réinitialiser.',
   },
 )
