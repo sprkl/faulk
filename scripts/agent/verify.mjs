@@ -80,7 +80,11 @@ function run(name, command, commandArgs, env) {
     const started = Date.now()
     const verbose = flag('--verbose')
     console.log(`> ${name}`)
-    const child = spawn(command, commandArgs, { cwd: web, env, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+    // Windows resolves `pnpm` (a .cmd shim) only through a shell; the arguments are ours, never user text.
+    const child =
+      process.platform === 'win32'
+        ? spawn([command, ...commandArgs].join(' '), { cwd: web, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+        : spawn(command, commandArgs, { cwd: web, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let log = ''
     const onData = (d) => {
       if (verbose) process.stdout.write(d)
