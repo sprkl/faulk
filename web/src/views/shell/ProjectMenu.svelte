@@ -307,3 +307,5 @@
     color: var(--fk-text-muted);
   }
 </style>
+
+<!-- measurement of #377, to be discarded -->
