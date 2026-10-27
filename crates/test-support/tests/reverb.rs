@@ -128,7 +128,8 @@ fn the_reverb_changes_its_pre_delay_as_the_setting_says_through_commands() {
         }));
     }
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: f.track.clone(),
+        track: Some(f.track.clone()),
+        master: false,
         kind: "faulk.reverb".into(),
         index: 0,
     }));
@@ -196,7 +197,8 @@ fn a_project_without_the_time_change_key_plays_glide() {
     let f = fixture();
     let mut s = Session::from_state(f.state.clone(), context());
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: f.track.clone(),
+        track: Some(f.track.clone()),
+        master: false,
         kind: "faulk.reverb".into(),
         index: 0,
     }));
