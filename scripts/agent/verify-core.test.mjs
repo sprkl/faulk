@@ -41,7 +41,7 @@ test('docs, scripts, unit tests and notes need no browser test', () => {
   const r = pick(['docs/agents/verification.md', 'scripts/agent/verify.mjs', 'web/src/lib/keyboard.test.ts', 'web/README.md', 'CLAUDE.md', '.claude/settings.json'])
   assert.deepEqual(r.specs, [])
   assert.equal(r.all, false)
-  assert.equal(needsWeb(['docs/x.md', 'scripts/a.mjs', '.github/workflows/ci.yml']), false)
+  assert.equal(needsWeb(['docs/x.md', 'scripts/a.mjs', '.github/workflows/rust.yml']), false)
 })
 
 test('a unit test inside tests/e2e is a spec change, not a note', () => {
@@ -74,7 +74,8 @@ test('every spec on disk is reachable: it runs when its own file changes', () =>
 
 test('the web checks run unless every file is one no browser test sees; an unknown path runs them', () => {
   for (const f of ['web/src/a.ts', 'crates/commands/src/lib.rs', 'Cargo.toml', 'modules/x/a.dsp', '.cargo/config.toml', 'some-new-top-folder/f', 'helper/x.rs']) assert.equal(needsWeb([f]), true, f)
-  assert.equal(needsWeb(['docs/a.md', 'web/src/a.test.ts', '.github/workflows/ci.yml']), false)
+  assert.equal(needsWeb(['docs/a.md', 'web/src/a.test.ts', '.github/workflows/rust.yml']), false)
+  assert.equal(needsWeb(['.github/workflows/ci.yml']), true) // the workflow that runs the browser tests
   assert.equal(needsWeb([]), false)
 })
 
