@@ -749,7 +749,7 @@
         <span>%</span>
         <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}>{t('pianoRoll.quantize')}</button>
       </div>
-      <span class="count" data-testid="roll-count">{t('pianoRoll.count', { n: notes.length })}{#if chosenNotes.length > 0} · {t('pianoRoll.selected', { n: chosenNotes.length })}{/if}</span>
+      <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}>{t('pianoRoll.count', { n: notes.length })}</span>
     </div>
 
     <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
@@ -905,9 +905,7 @@
   }
   .count {
     margin-left: auto;
-    /* Room for "1 notes · 1 selected", so that the first note does not change the height of the toolbar. More room would wrap the toolbar at the smallest panel (bottom-panel.spec). */
-    min-width: 20ch;
-    text-align: right;
+    /* Notes only: the selection is in the title, so that a selection never widens the last line and wraps the toolbar (the grid would move). */
     white-space: nowrap;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);

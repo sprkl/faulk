@@ -61,7 +61,8 @@ async function firstNote(page: Page, width: number) {
   const g = await spot(page)
   await page.mouse.click(g.x(960), g.y(60))
   await expect(roll(page)).toHaveAttribute('data-note-count', '1')
-  await expect(page.getByTestId('roll-count')).toContainText('1')
+  await expect(page.getByTestId('roll-count')).toHaveText('1 notes')
+  await expect(page.getByTestId('roll-count')).toHaveAttribute('title', '1 selected')
   const after = { grid: (await grid.boundingBox())!, toolbar: (await toolbar.boundingBox())! }
   expect(after.toolbar.height).toBe(before.toolbar.height)
   expect(after.grid.y).toBe(before.grid.y)
