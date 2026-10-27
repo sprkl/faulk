@@ -905,8 +905,8 @@
   }
   .count {
     margin-left: auto;
-    /* Room for the longest text (six digits, French), so that the toolbar never changes height when a note appears. */
-    min-width: 40ch;
+    /* Room for "1 notes · 1 selected", so that the first note does not change the height of the toolbar. More room would wrap the toolbar at the smallest panel (bottom-panel.spec). */
+    min-width: 20ch;
     text-align: right;
     white-space: nowrap;
     color: var(--fk-text-muted);
