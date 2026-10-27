@@ -14,7 +14,8 @@ concurrency:
 # The web check is four jobs (#372):
 #   select   which parts of the suite this pull request needs;
 #   checks   generated files, typecheck, lint, unit tests, build;
-#   e2e      the Playwright specs, split over three machines (--shard);
+#   e2e      the Playwright specs, split over up to three machines (--shard): none when the change touches no
+#            browser test, one for a short list (#377);
 #   web      a single job that reports the verdict of the others. Its name is the one the check always
 #            had: a branch protection that requires "web" keeps working whatever the number of shards.
 jobs:
@@ -24,6 +25,12 @@ jobs:
     outputs:
       web: ${{ steps.changes.outputs.web }}
       e2e: ${{ steps.changes.outputs.e2e }}
+      e2e_all: ${{ steps.changes.outputs.e2e_all }}
+      e2e_specs: ${{ steps.changes.outputs.e2e_specs }}
+      e2e_smoke: ${{ steps.changes.outputs.e2e_smoke }}
+      e2e_smoke_grep: ${{ steps.changes.outputs.e2e_smoke_grep }}
+      e2e_shards: ${{ steps.changes.outputs.e2e_shards }}
+      e2e_shard_total: ${{ steps.changes.outputs.e2e_shard_total }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,14 +76,18 @@ jobs:
   # the landing page. `dev` (the dev server) on a task pull request, `dev,preview` (also the built
   # site) on the pull request against main. Each shard is one machine with its own Chromium, dev
   # server and helper port; Playwright deals the spec files out between the shards.
+  # On a pull request against develop only the specs the changed files touch run (the table shared
+  # with scripts/agent/verify.mjs, scripts/ci/e2e-plan.mjs), then the smoke tests of the other specs;
+  # the number of shards follows the length of the list. The release pull request runs the whole suite.
   e2e:
     needs: select
     if: needs.select.outputs.e2e != ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # e2e_shards is empty when select is skipped (a push): the default keeps the matrix valid, the job's `if` skips it.
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJson(needs.select.outputs.e2e_shards || '[1]') }}
     defaults:
       run:
         working-directory: web
@@ -117,10 +128,32 @@ jobs:
       # The dev server serves the WASM it does not build itself.
       - run: pnpm build:wasm
 
-      - name: End-to-end tests (shard ${{ matrix.shard }} of 3)
+      - name: End-to-end tests (shard ${{ matrix.shard }} of ${{ needs.select.outputs.e2e_shard_total }})
+        shell: bash
         env:
           FAULK_E2E_PROJECTS: ${{ needs.select.outputs.e2e }}
-        run: pnpm exec playwright test --shard=${{ matrix.shard }}/3
+          E2E_ALL: ${{ needs.select.outputs.e2e_all }}
+          E2E_SPECS: ${{ needs.select.outputs.e2e_specs }}
+          E2E_SMOKE: ${{ needs.select.outputs.e2e_smoke }}
+          E2E_SMOKE_GREP: ${{ needs.select.outputs.e2e_smoke_grep }}
+          SHARD: ${{ matrix.shard }}/${{ needs.select.outputs.e2e_shard_total }}
+        run: |
+          # The values are spec paths (letters, digits, dashes) and a title pattern: see scripts/ci/select-core.mjs.
+          if [ "$E2E_ALL" = "true" ]; then
+            pnpm exec playwright test --shard="$SHARD"
+          else
+            status=0
+            if [ -n "$E2E_SPECS" ]; then
+              # Separate output folders: a run empties its own, and the traces of a failing specs run must survive the smoke run.
+              # shellcheck disable=SC2086
+              pnpm exec playwright test $E2E_SPECS --output=test-results/specs --shard="$SHARD" || status=1
+            fi
+            if [ -n "$E2E_SMOKE" ]; then
+              # shellcheck disable=SC2086
+              pnpm exec playwright test $E2E_SMOKE --grep "$E2E_SMOKE_GREP" --output=test-results/smoke --shard="$SHARD" || status=1
+            fi
+            exit $status
+          fi
 
       - name: Keep the traces of a failure
         if: failure()

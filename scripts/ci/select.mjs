@@ -4,7 +4,8 @@
 //   node scripts/ci/select.mjs --event pull_request --base main --files docs/x.md
 // Options: --json prints the full decision, --files-from <file|-> reads one path per line.
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
+import { specNames } from './e2e-plan.mjs'
 import { fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 const args = process.argv.slice(2)
@@ -45,7 +46,9 @@ const files = listFiles()
 if (files) console.log(files.join('\n'))
 let result
 try {
-  result = select({ event, base, files, packages: workspacePackages })
+  // The spec names on disk (an unreadable directory counts as no specs: the whole suite).
+  const specs = () => specNames(readdirSync(new URL('../../web/tests/e2e/', import.meta.url)))
+  result = select({ event, base, files, packages: workspacePackages, specs })
 } catch (e) {
   // An unreadable workspace must never skip a test.
   console.error(`cannot read the cargo workspace (${e.message}): running everything`)
