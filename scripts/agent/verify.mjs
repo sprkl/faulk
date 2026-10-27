@@ -58,21 +58,45 @@ function changedFiles(base) {
   return [...new Set([...tracked, ...untracked])]
 }
 
+/** Points cargo at the shared build cache. Returns a warning for the summary when the cache is over its limit. */
 function setupBuildCache(env) {
   env.CARGO_INCREMENTAL ??= '0'
-  if (env.CARGO_TARGET_DIR || process.env.FAULK_SHARED_TARGET === '0') return
+  if (env.CARGO_TARGET_DIR || process.env.FAULK_SHARED_TARGET === '0') return ''
   const dir = sharedTargetDir(process.env, process.platform, homedir())
-  if (!dir) return
+  if (!dir) return ''
+  env.CARGO_TARGET_DIR = dir
+  // Emptied only on request: another checkout's cargo may be writing into it right now.
+  if (flag('--prune-cache')) {
+    rmSync(dir, { recursive: true, force: true })
+    console.log(`build cache emptied: ${dir}`)
+    return ''
+  }
   const limit = (Number(process.env.FAULK_BUILD_CACHE_MAX_GB) || 8) * 1024 ** 3
   if (existsSync(dir) && dirSizeUpTo(dir, limit) > limit) {
-    // Never emptied on its own: another checkout's cargo may be writing into it right now.
-    if (flag('--prune-cache')) {
-      console.log(`build cache above ${limit / 1024 ** 3} GB, emptied: ${dir}`)
-      rmSync(dir, { recursive: true, force: true })
-    } else console.log(`build cache above ${limit / 1024 ** 3} GB: run with --prune-cache when no other build is running (${dir})`)
+    return `WARNING: the build cache is above ${limit / 1024 ** 3} GB (${dir}). When no other build is running: node scripts/agent/verify.mjs --prune-cache`
   }
-  env.CARGO_TARGET_DIR = dir
+  return ''
 }
+
+/** Child processes still running: stopped with the script (on Windows a shell does not pass the signal on). */
+const running = new Set()
+function stopRunning() {
+  for (const proc of running) {
+    try {
+      if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
+      else proc.kill('SIGTERM')
+    } catch {
+      /* already gone */
+    }
+  }
+}
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    stopRunning()
+    process.exit(130)
+  })
+}
+process.on('exit', stopRunning)
 
 /** Runs a command in the web app; the output is kept and shown (tail) only when it fails, or with --verbose. */
 function run(name, command, commandArgs, env) {
@@ -85,6 +109,7 @@ function run(name, command, commandArgs, env) {
       process.platform === 'win32'
         ? spawn([command, ...commandArgs].join(' '), { cwd: web, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
         : spawn(command, commandArgs, { cwd: web, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    running.add(child)
     let log = ''
     const onData = (d) => {
       if (verbose) process.stdout.write(d)
@@ -96,6 +121,7 @@ function run(name, command, commandArgs, env) {
       log += String(e)
     })
     child.on('close', (code) => {
+      running.delete(child)
       const ok = code === 0
       if (!ok && !verbose) console.log(log.split('\n').slice(-40).join('\n'))
       resolve({ name, ok, ms: Date.now() - started })
@@ -105,6 +131,7 @@ function run(name, command, commandArgs, env) {
 
 async function main() {
   const started = Date.now()
+  const forcedPorts = flag('--ports') ? parsePorts(opt('--ports')) : null // a typo fails before anything runs
   const base = resolveBase()
   const listed = changedFiles(base)
   if (!listed) console.log(`cannot compare with ${base} (run "git fetch origin develop"): running the whole suite`)
@@ -121,7 +148,7 @@ async function main() {
   }
 
   const env = { ...process.env }
-  setupBuildCache(env)
+  const cacheWarning = setupBuildCache(env)
   const steps = []
   const go = async (name, command, commandArgs, extraEnv = {}) => {
     const step = await run(name, command, commandArgs, { ...env, ...extraEnv })
@@ -139,7 +166,7 @@ async function main() {
     // `pnpm test` also builds the two WASM modules the dev server serves.
     if (proceed) proceed = await go('vitest', 'pnpm', ['test'])
     if (proceed && specs.length) {
-      const ports = flag('--ports') ? parsePorts(opt('--ports')) : await freePorts(3)
+      const ports = forcedPorts ?? (await freePorts(3))
       const e2e = await run(`e2e (${specs.length})`, 'pnpm', ['exec', 'playwright', 'test', ...specs.map(specFile)], {
         ...env,
         FAULK_E2E_PROJECTS: 'dev',
@@ -156,6 +183,7 @@ async function main() {
   }
 
   console.log(`\n${summary(steps, { base, files, specs, all: selection.all })}`)
+  if (cacheWarning) console.log(cacheWarning)
   console.log(`total ${((Date.now() - started) / 1000).toFixed(0)} s wall`)
   if (flag('--clean')) {
     for (const d of ['test-results', 'playwright-report', '.svelte-kit']) rmSync(join(web, d), { recursive: true, force: true })
@@ -164,4 +192,9 @@ async function main() {
   return steps.every((s) => s.ok || s.skipped) ? 0 : 1
 }
 
-process.exitCode = await main()
+try {
+  process.exitCode = await main()
+} catch (e) {
+  console.error(`verify: ${e.message}`)
+  process.exitCode = 2
+}

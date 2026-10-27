@@ -4,11 +4,15 @@
 // stack through the exported `__stack_pointer`). The e2e suite measures both.
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const crate = fileURLToPath(new URL('../src/lib/engine/proto/crate/', import.meta.url))
 const dest = fileURLToPath(new URL('../src/lib/engine/proto/build/', import.meta.url))
 const cargo = process.env.CARGO ?? 'cargo'
+
+// The crate is outside the workspace: cargo says where its output goes (its own target/, or CARGO_TARGET_DIR).
+const targetDir = JSON.parse(execFileSync(cargo, ['metadata', '--no-deps', '--format-version', '1'], { cwd: crate, encoding: 'utf8' })).target_directory
 
 const builds = [
   { target: 'wasm32-unknown-unknown', out: 'plain.wasm', rustflags: '' },
@@ -26,6 +30,6 @@ for (const { target, out, rustflags } of builds) {
     stdio: 'inherit',
     env: { ...process.env, RUSTFLAGS: rustflags },
   })
-  copyFileSync(`${crate}target/${target}/release/engine_proto.wasm`, dest + out)
+  copyFileSync(join(targetDir, target, 'release', 'engine_proto.wasm'), dest + out)
   console.log(`built src/lib/engine/proto/build/${out}`)
 }
