@@ -3,6 +3,7 @@ import type { Command, Quantize } from './generated/protocol'
 /** The commands of the transport bar: each control is one of them (or a short group of them). */
 export const play = (): Command => ({ type: 'transport.play' })
 export const stop = (): Command => ({ type: 'transport.stop' })
+export const pause = (tick: number): Command => ({ type: 'transport.pause', tick })
 export const seek = (tick: number): Command => ({ type: 'transport.seek', tick })
 export const setTempo = (bpm: number): Command => ({ type: 'transport.set_tempo', bpm })
 export const setTimeSignature = (numerator: number, denominator: number): Command => ({

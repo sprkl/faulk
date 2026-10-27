@@ -233,14 +233,17 @@
       tick,
     })
   })
-  // Stopped, the bar stays where it was last seen (it moves with a seek that lands in the clip); while the transport runs
-  // and this clip does not sound, there is none. A new clip starts without one.
+  // Stopped, a clip of the timeline (no grid cell) shows the transport position when it is inside the clip, none otherwise:
+  // Stop brings the head back to the cue (#360), which may lie outside the clip. A clip of the grid keeps the bar where it was
+  // last seen (it moves with a seek that lands in the clip); while the transport runs and this clip does not sound, there is
+  // none. A new clip starts without one.
   // The position is kept with the clip it was seen in, so that another clip never inherits it, whatever the order of the updates.
   let lastSeen = $state<{ clip: string; at: number } | null>(null)
   $effect(() => {
     if (live !== null && edited) lastSeen = { clip: edited.id, at: live }
   })
-  const playhead = $derived(running ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
+  const onTimeline = $derived(edited?.clip.slot == null)
+  const playhead = $derived(running || onTimeline ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
 
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()

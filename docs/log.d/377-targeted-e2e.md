@@ -1,0 +1,2 @@
+2026-10-27
+* **Update** (#377): `docs/agents/verification.md` > CI: a pull request against `develop` runs only the end-to-end specs its files touch plus five smoke tests (audio start, transport, save and reopen, audio export), from the one table `scripts/ci/e2e-plan.mjs` that `scripts/agent/verify.mjs` now shares; no e2e machine when no browser test is concerned, one machine for a short list, the whole suite on three for a shared or unknown file and for the release.

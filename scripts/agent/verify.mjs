@@ -2,7 +2,7 @@
 //   node scripts/agent/verify.mjs [--base origin/develop] [--all] [--no-e2e] [--dry-run]
 //                                 [--ports dev,preview,helper] [--keep-going] [--verbose] [--clean] [--prune-cache]
 // It runs, from the web app: typecheck, lint, vitest, then the end-to-end specs the diff against the
-// base touches (table in verify-core.mjs, the whole suite when a shared file changed). It picks free
+// base touches plus the smoke tests (one table with the CI, scripts/ci/e2e-plan.mjs; the whole suite when a shared file changed). It picks free
 // ports for the servers, so two checkouts never collide, and ends with a short summary. Works in Git
 // Bash, PowerShell and on Linux. Exit code 0 when everything passed.
 //
@@ -14,7 +14,7 @@ import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dirSizeUpTo, freePorts, needsWeb, parsePorts, portIsFree, selectSpecs, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
+import { dirSizeUpTo, freePorts, needsWeb, parsePorts, planE2e, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const web = join(root, 'web')
@@ -140,12 +140,16 @@ async function main() {
   if (!listed) console.log(`cannot compare with ${base} (run "git fetch origin develop"): running the whole suite`)
   const files = listed ?? []
   const existing = specNames(readdirSync(join(web, 'tests', 'e2e')))
-  const selection = flag('--all') || !listed ? { specs: existing, all: true, reasons: {} } : selectSpecs(files, existing)
+  // The same plan as the CI (scripts/ci/e2e-plan.mjs): whole specs, plus the smoke tests of the others.
+  const selection = planE2e(files, existing, { all: flag('--all') || !listed })
   const wantWeb = flag('--all') || !listed || needsWeb(files)
-  const specs = flag('--no-e2e') || !wantWeb ? [] : selection.specs
+  if (selection.run && selection.all && !selection.specs.length) throw new Error('no end-to-end spec found in web/tests/e2e')
+  const noE2e = flag('--no-e2e') || !wantWeb || !selection.run
+  const specs = noE2e ? [] : selection.specs
+  const smoke = noE2e ? [] : selection.smoke
 
   if (flag('--dry-run')) {
-    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\nspecs (${specs.length}${selection.all ? ', whole suite' : ''}): ${specs.join(', ')}`)
+    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\nspecs (${specs.length}${selection.all ? ', whole suite' : ''}): ${specs.join(', ')}\nsmoke only (${smoke.length}): ${smoke.join(', ')}`)
     for (const [why, list] of Object.entries(selection.reasons)) console.log(`  ${why}: ${list.join(', ')}`)
     return 0
   }
@@ -168,24 +172,32 @@ async function main() {
     if (proceed) proceed = await go('lint', 'pnpm', ['lint'])
     // `pnpm test` also builds the two WASM modules the dev server serves.
     if (proceed) proceed = await go('vitest', 'pnpm', ['test'])
-    if (proceed && specs.length) {
+    if (proceed && (specs.length || smoke.length)) {
       const ports = forcedPorts ?? (await freePorts(3))
-      const e2e = await run(`e2e (${specs.length})`, 'pnpm', ['exec', 'playwright', 'test', ...specs.map(specFile)], {
+      const e2eEnv = {
         ...env,
         FAULK_E2E_PROJECTS: 'dev',
         FAULK_E2E_DEV_PORT: String(ports[0]),
         FAULK_E2E_PREVIEW_PORT: String(ports[1]),
         FAULK_E2E_HELPER_PORT: String(ports[2]),
-      })
-      e2e.note = `ports ${ports.join('/')}`
+      }
+      const playwright = ['exec', 'playwright', 'test']
+      // CI runs these two commands too (.github/workflows/ci.yml): the whole specs, then the smoke tests of the others.
+      const runs = []
+      if (specs.length) runs.push(await run(`e2e (${specs.length})`, 'pnpm', [...playwright, ...specs.map(specFile)], e2eEnv))
+      if (smoke.length && (runs.every((r) => r.ok) || flag('--keep-going'))) {
+        // The pattern holds `|` and `.*`: quoted for the shell the Windows branch of run() goes through.
+        const grep = process.platform === 'win32' ? `"${selection.grep}"` : selection.grep
+        runs.push(await run(`smoke (${smoke.length})`, 'pnpm', [...playwright, ...smoke.map(specFile), '--grep', grep], e2eEnv))
+      }
       const busy = []
       for (const p of ports) if (!(await portIsFree(p))) busy.push(p)
-      if (busy.length) e2e.note += `, still busy after the run: ${busy.join(', ')}`
-      steps.push(e2e)
+      runs[0].note = `ports ${ports.join('/')}${busy.length ? `, still busy after the run: ${busy.join(', ')}` : ''}`
+      steps.push(...runs)
     }
   }
 
-  console.log(`\n${summary(steps, { base, files, specs, all: selection.all })}`)
+  console.log(`\n${summary(steps, { base, files, specs, smoke, all: selection.all })}`)
   if (cacheWarning) console.log(cacheWarning)
   console.log(`total ${((Date.now() - started) / 1000).toFixed(0)} s wall`)
   if (flag('--clean')) {

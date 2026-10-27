@@ -46,3 +46,36 @@ test('an unreadable file list runs everything', () => {
   const { outputs } = run(['--event', 'pull_request', '--base', 'develop', '--files-from', join(tmpdir(), 'does-not-exist-select')])
   assert.equal(outputs.mode, 'full')
 })
+
+test('a view change writes the targeted end-to-end plan: its specs, the smoke tests, one shard (#377)', () => {
+  const { r, outputs } = run(['--event', 'pull_request', '--base', 'develop', '--files', 'web/src/views/tracks/TrackList.svelte'])
+  assert.equal(r.status, 0)
+  assert.equal(outputs.e2e, 'dev')
+  assert.equal(outputs.e2e_all, 'false')
+  assert.equal(outputs.e2e_specs, 'tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
+  assert.ok(outputs.e2e_smoke.includes('tests/e2e/export-audio.spec.ts') && outputs.e2e_smoke_grep.includes('export-audio'))
+  assert.equal(outputs.e2e_shards, '[1]')
+  assert.equal(outputs.e2e_shard_total, '1')
+})
+
+test('a shared web file, the release and a failure to list the files run every spec on three machines (#377)', () => {
+  for (const args of [
+    ['--base', 'develop', '--files', 'web/src/lib/stores/dispatcher.ts'],
+    ['--base', 'main', '--files', 'docs/a.md'],
+    ['--base', 'develop', '--files-from', join(tmpdir(), 'does-not-exist-select')],
+  ]) {
+    const { outputs } = run(['--event', 'pull_request', ...args])
+    assert.equal(outputs.e2e_all, 'true', args.join(' '))
+    assert.equal(outputs.e2e_specs, '', args.join(' '))
+    assert.equal(outputs.e2e_shards, '[1,2,3]', args.join(' '))
+    assert.equal(outputs.e2e_shard_total, '3', args.join(' '))
+  }
+})
+
+test('no browser test to run: no end-to-end project, one placeholder shard behind the job condition (#377)', () => {
+  const { outputs } = run(['--event', 'pull_request', '--base', 'develop', '--files', 'web/src/lib/a.test.ts'])
+  assert.equal(outputs.web, 'true')
+  assert.equal(outputs.e2e, '')
+  assert.equal(outputs.e2e_all, 'false')
+  assert.equal(outputs.e2e_shards, '[1]')
+})

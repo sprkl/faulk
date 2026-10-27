@@ -14,7 +14,7 @@
 
 use project::file::{FileError, FileSystem, SaveState};
 use project::{
-    ClipId, DeviceId, EngineSlots, IdGenerator, PlacementId, Project, Quantize, SceneId,
+    ClipId, DeviceId, EngineSlots, IdGenerator, LaneId, PlacementId, Project, Quantize, SceneId,
     SessionState, TickLoop, TrackId,
 };
 use schemars::JsonSchema;
@@ -388,6 +388,14 @@ pub enum ProjectEvent {
     SceneDeleted { scene: SceneId },
     /// Part of a scene changed.
     SceneChanged { scene: SceneId, part: ScenePart },
+    /// An automation lane was created or brought back, with its points (AM-1). The page
+    /// reads the lane from its own copy of the project, to which the same command applies.
+    AutomationLaneCreated { track: TrackId, lane: LaneId },
+    /// An automation lane was deleted, with its points: by `automation.lane.delete`, or
+    /// because the device it targets was removed.
+    AutomationLaneDeleted { track: TrackId, lane: LaneId },
+    /// The points of a lane changed: some were added, removed, changed or cleared.
+    AutomationPointsChanged { track: TrackId, lane: LaneId },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },

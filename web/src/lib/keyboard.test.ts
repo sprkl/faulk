@@ -204,7 +204,8 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     }
     expect(handlers).toEqual({
       'lib/keyboard.ts': ['Space'], // trackFocusOrigin only notes that a key was pressed; it triggers nothing
-      'lib/components/Slider.svelte': [],
+      'lib/components/Slider.svelte': ['Enter'], // opens the value field (#365)
+      'lib/components/ValueField.svelte': ['Enter', 'Escape'],
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],

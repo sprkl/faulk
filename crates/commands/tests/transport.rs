@@ -64,6 +64,7 @@ fn play_stop_and_seek_are_live_and_touch_nothing() {
     for c in [
         tr(T::Play {}),
         tr(T::Stop {}),
+        tr(T::Pause { tick: Tick(960) }),
         tr(T::Seek { tick: Tick(0) }),
         tr(T::Seek {
             tick: Tick(::project::limits::MAX_TICK),
@@ -85,6 +86,8 @@ fn seek_refuses_a_position_outside_the_project() {
     let f = fixture();
     for tick in [-1, ::project::limits::MAX_TICK + 1, i64::MIN, i64::MAX] {
         let e = refused(&tr(T::Seek { tick: Tick(tick) }), &f.state);
+        assert_eq!(invalid_field(e), "tick");
+        let e = refused(&tr(T::Pause { tick: Tick(tick) }), &f.state);
         assert_eq!(invalid_field(e), "tick");
     }
 }

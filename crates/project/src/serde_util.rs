@@ -46,6 +46,78 @@ where
     deserializer.deserialize_map(UniqueMap(PhantomData))
 }
 
+/// A tick used as a JSON object key. JSON keys are strings: `serde_json` reads an integer key
+/// back from its text when it reads straight into a map, but not through the buffered form an
+/// internally tagged enum (a command) gives, which holds the key as a string. This reads both.
+struct TickKey(engine::time::Tick);
+
+impl<'de> Deserialize<'de> for TickKey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Key;
+
+        impl Visitor<'_> for Key {
+            type Value = TickKey;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a tick, an integer")
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<TickKey, E> {
+                Ok(TickKey(engine::time::Tick(v)))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<TickKey, E> {
+                i64::try_from(v)
+                    .map(|v| TickKey(engine::time::Tick(v)))
+                    .map_err(|_| E::custom(format_args!("tick {v} is too large")))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<TickKey, E> {
+                v.parse::<i64>()
+                    .map(|v| TickKey(engine::time::Tick(v)))
+                    .map_err(|_| E::custom(format_args!("{v:?} is not a tick")))
+            }
+        }
+
+        deserializer.deserialize_any(Key)
+    }
+}
+
+/// [`unique_map`] for a map keyed by ticks (the points of an automation lane), whose keys it
+/// reads from their text too.
+pub fn unique_tick_map<'de, D, V>(
+    deserializer: D,
+) -> Result<BTreeMap<engine::time::Tick, V>, D::Error>
+where
+    D: Deserializer<'de>,
+    V: Deserialize<'de>,
+{
+    struct Points<V>(PhantomData<V>);
+
+    impl<'de, V: Deserialize<'de>> Visitor<'de> for Points<V> {
+        type Value = BTreeMap<engine::time::Tick, V>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a map of ticks without duplicate keys")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut out = BTreeMap::new();
+            while let Some((TickKey(key), value)) = map.next_entry::<TickKey, V>()? {
+                if out.contains_key(&key) {
+                    return Err(serde::de::Error::custom(format_args!(
+                        "duplicate key {key:?}"
+                    )));
+                }
+                out.insert(key, value);
+            }
+            Ok(out)
+        }
+    }
+
+    deserializer.deserialize_map(Points(PhantomData))
+}
+
 /// Reads a set and refuses a value that appears twice: a duplicate note in the text (a
 /// line merge of two branches that added the same note) is refused like a duplicate id,
 /// instead of being merged silently and dropped on the next write.
