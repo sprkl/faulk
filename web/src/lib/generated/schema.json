@@ -1403,7 +1403,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+            "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
             "properties": {
               "device": {
                 "$ref": "#/$defs/DeviceId"
@@ -1512,7 +1512,7 @@
       },
       "DeviceId": {
         "$ref": "#/$defs/Id",
-        "description": "Identifier of a device in a track's chain."
+        "description": "Identifier of a device in a track's chain or in the master's."
       },
       "DeviceRole": {
         "description": "What a device does in the chain.",
@@ -5312,7 +5312,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -5421,7 +5421,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -8444,7 +8444,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -11434,7 +11434,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -11543,7 +11543,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -14566,7 +14566,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -17577,7 +17577,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -17686,7 +17686,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -20703,7 +20703,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -23693,7 +23693,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -23802,7 +23802,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -26819,7 +26819,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -29802,7 +29802,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -29911,7 +29911,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -32928,7 +32928,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -35911,7 +35911,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -36020,7 +36020,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -39037,7 +39037,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -42020,7 +42020,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -42129,7 +42129,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -45146,7 +45146,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -48129,7 +48129,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -48238,7 +48238,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -51255,7 +51255,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -54256,7 +54256,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -54365,7 +54365,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -57382,7 +57382,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -60365,7 +60365,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -60474,7 +60474,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -63491,7 +63491,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -66474,7 +66474,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -66583,7 +66583,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -69608,7 +69608,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -72591,7 +72591,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -72700,7 +72700,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -75725,7 +75725,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -78708,7 +78708,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -78817,7 +78817,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -81842,7 +81842,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -84825,7 +84825,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -84934,7 +84934,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -87951,7 +87951,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -90934,7 +90934,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -91043,7 +91043,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -94060,7 +94060,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -97043,7 +97043,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -97152,7 +97152,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -100169,7 +100169,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -103152,7 +103152,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -103261,7 +103261,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -106329,7 +106329,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -109347,7 +109347,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -109456,7 +109456,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -112501,7 +112501,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -115496,7 +115496,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -115605,7 +115605,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -118628,7 +118628,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -121627,7 +121627,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -121736,7 +121736,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -124763,7 +124763,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -127746,7 +127746,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -127855,7 +127855,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -130882,7 +130882,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -133872,7 +133872,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -133981,7 +133981,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -137010,7 +137010,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -140005,7 +140005,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -140114,7 +140114,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -143143,7 +143143,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -146135,7 +146135,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -146244,7 +146244,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -149271,7 +149271,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -152254,7 +152254,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -152363,7 +152363,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -155390,7 +155390,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -158385,7 +158385,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -158494,7 +158494,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -161529,7 +161529,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -164512,7 +164512,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -164621,7 +164621,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -167648,7 +167648,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -170638,7 +170638,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -170747,7 +170747,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -173774,7 +173774,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -176764,7 +176764,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -176873,7 +176873,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -179902,7 +179902,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -182892,7 +182892,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -183001,7 +183001,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -186045,7 +186045,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -189035,7 +189035,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -189144,7 +189144,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -192167,7 +192167,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -195162,7 +195162,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -195271,7 +195271,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -198313,7 +198313,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -199943,7 +199943,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+        "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -201296,7 +201296,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -201405,7 +201405,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -204434,7 +204434,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -207426,7 +207426,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -207535,7 +207535,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -210562,7 +210562,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -213545,7 +213545,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -213654,7 +213654,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -216681,7 +216681,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -219671,7 +219671,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -219780,7 +219780,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -222812,7 +222812,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -225809,7 +225809,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -225918,7 +225918,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -228961,7 +228961,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -231962,7 +231962,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -232071,7 +232071,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -235094,7 +235094,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -238086,7 +238086,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -238195,7 +238195,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -241233,7 +241233,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -244216,7 +244216,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -244325,7 +244325,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -247368,7 +247368,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -250358,7 +250358,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -250467,7 +250467,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -253510,7 +253510,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -256511,7 +256511,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -256620,7 +256620,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -259647,7 +259647,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -262637,7 +262637,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -262746,7 +262746,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -265777,7 +265777,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -268767,7 +268767,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -268876,7 +268876,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -271909,7 +271909,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -274904,7 +274904,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -275013,7 +275013,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -278057,7 +278057,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -281049,7 +281049,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -281158,7 +281158,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -284188,7 +284188,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -287180,7 +287180,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -287289,7 +287289,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -290319,7 +290319,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -293311,7 +293311,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -293420,7 +293420,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -296450,7 +296450,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -299442,7 +299442,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -299551,7 +299551,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -302594,7 +302594,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -305586,7 +305586,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -305695,7 +305695,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -308730,7 +308730,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -311722,7 +311722,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -311831,7 +311831,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -314871,7 +314871,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -317863,7 +317863,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -317972,7 +317972,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -320996,7 +320996,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -323986,7 +323986,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -324095,7 +324095,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -327118,7 +327118,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -330110,7 +330110,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -330219,7 +330219,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -333253,7 +333253,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -336236,7 +336236,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -336345,7 +336345,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -339372,7 +339372,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -342362,7 +342362,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -342471,7 +342471,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -345500,7 +345500,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -348492,7 +348492,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -348601,7 +348601,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -351628,7 +351628,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -354611,7 +354611,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -354720,7 +354720,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -357743,7 +357743,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -360726,7 +360726,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -360835,7 +360835,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -363858,7 +363858,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -366841,7 +366841,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -366950,7 +366950,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -369973,7 +369973,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -372956,7 +372956,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -373065,7 +373065,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -376082,7 +376082,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -379065,7 +379065,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -379174,7 +379174,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -382191,7 +382191,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -385174,7 +385174,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -385283,7 +385283,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -388306,7 +388306,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -391289,7 +391289,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -391398,7 +391398,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -394445,7 +394445,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -397449,7 +397449,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -397558,7 +397558,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -400588,7 +400588,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -403587,7 +403587,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -403696,7 +403696,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -406727,7 +406727,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -409726,7 +409726,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -409835,7 +409835,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -412862,7 +412862,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -415852,7 +415852,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -415961,7 +415961,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -418987,7 +418987,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -421986,7 +421986,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -422095,7 +422095,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -425135,7 +425135,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -428150,7 +428150,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -428259,7 +428259,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -431290,7 +431290,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -434305,7 +434305,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -434414,7 +434414,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -437445,7 +437445,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -440460,7 +440460,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -440569,7 +440569,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -443595,7 +443595,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -446578,7 +446578,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -446687,7 +446687,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -449704,7 +449704,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -452687,7 +452687,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -452796,7 +452796,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -455813,7 +455813,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -458796,7 +458796,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -458905,7 +458905,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -461928,7 +461928,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -464911,7 +464911,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -465020,7 +465020,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -468046,7 +468046,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -471037,7 +471037,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -471146,7 +471146,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -474179,7 +474179,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -477180,7 +477180,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -477289,7 +477289,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -480312,7 +480312,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -483302,7 +483302,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -483411,7 +483411,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -486439,7 +486439,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -489434,7 +489434,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -489543,7 +489543,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -492560,7 +492560,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -495550,7 +495550,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -495659,7 +495659,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -498704,7 +498704,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -501711,7 +501711,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -501820,7 +501820,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -504854,7 +504854,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -507848,7 +507848,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -507957,7 +507957,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -510987,7 +510987,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -513978,7 +513978,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -514087,7 +514087,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -517114,7 +517114,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -520104,7 +520104,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -520213,7 +520213,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -523243,7 +523243,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -526237,7 +526237,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -526346,7 +526346,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -529373,7 +529373,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -532363,7 +532363,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -532472,7 +532472,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -535489,7 +535489,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -538472,7 +538472,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -538581,7 +538581,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -541605,7 +541605,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -544596,7 +544596,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -544705,7 +544705,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -547742,7 +547742,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -550725,7 +550725,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -550834,7 +550834,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -553864,7 +553864,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -556847,7 +556847,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -556956,7 +556956,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -559989,7 +559989,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -562982,7 +562982,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -563091,7 +563091,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -566117,7 +566117,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -569110,7 +569110,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -569219,7 +569219,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -572252,7 +572252,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -575235,7 +575235,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -575344,7 +575344,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -578361,7 +578361,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -581344,7 +581344,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -581453,7 +581453,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -584470,7 +584470,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -587453,7 +587453,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -587562,7 +587562,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -590579,7 +590579,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -593581,7 +593581,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -593690,7 +593690,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -596707,7 +596707,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -599709,7 +599709,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -599818,7 +599818,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -602835,7 +602835,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -605825,7 +605825,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -605934,7 +605934,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -608951,7 +608951,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -611941,7 +611941,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+                  "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
                   "properties": {
                     "device": {
                       "$ref": "#/$defs/DeviceId"
@@ -612050,7 +612050,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -615074,7 +615074,7 @@
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
-              "description": "Identifier of a device in a track's chain."
+              "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -618067,7 +618067,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move an effect to `index` among its track's effects, 0 first (right after the\ninstrument); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+              "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -618176,7 +618176,7 @@
         },
         "DeviceId": {
           "$ref": "#/$defs/Id",
-          "description": "Identifier of a device in a track's chain."
+          "description": "Identifier of a device in a track's chain or in the master's."
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -621240,7 +621240,7 @@
         },
         "DeviceId": {
           "$ref": "#/$defs/Id",
-          "description": "Identifier of a device in a track's chain."
+          "description": "Identifier of a device in a track's chain or in the master's."
         },
         "DeviceOutput": {
           "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -624627,7 +624627,7 @@
         },
         "DeviceId": {
           "$ref": "#/$defs/Id",
-          "description": "Identifier of a device in a track's chain."
+          "description": "Identifier of a device in a track's chain or in the master's."
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -626244,7 +626244,7 @@
         },
         "DeviceId": {
           "$ref": "#/$defs/Id",
-          "description": "Identifier of a device in a track's chain."
+          "description": "Identifier of a device in a track's chain or in the master's."
         },
         "DeviceOutput": {
           "description": "The outputs of this domain's commands, tagged by the command's `type`.",

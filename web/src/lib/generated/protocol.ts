@@ -132,11 +132,11 @@ track: string
 type: "track.set_instrument"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 current: string
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 snapshot: Device
@@ -185,7 +185,7 @@ export type Shape = ("linear" | "step")
 export type AutomationTarget = ({
 device: {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 param: string
@@ -297,13 +297,13 @@ track?: (string | null)
 type: "device.insert"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 type: "device.remove"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 /**
@@ -318,14 +318,14 @@ track?: (string | null)
 type: "device.restore"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 index: number
 type: "device.move"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 order: OrderKey
@@ -333,13 +333,13 @@ type: "device.restore_order"
 } | {
 bypass: boolean
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 type: "device.set_bypass"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 param: string
@@ -891,7 +891,7 @@ type: "project.export_audio"
  */
 export type TrackOutput = ({
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 /**
@@ -933,11 +933,11 @@ type: "track.move"
 type: "track.restore_order"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 previous: string
 type: "track.set_instrument"
@@ -967,7 +967,7 @@ type: "track.duplicate"
  */
 export type DeviceOutput = ({
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 type: "device.insert"
@@ -1642,7 +1642,7 @@ track?: (string | null)
 type: "track_selected"
 } | {
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 param: string
@@ -1654,7 +1654,7 @@ type: "device_chain_changed"
 } | {
 bypass: boolean
 /**
- * Identifier of a device in a track's chain.
+ * Identifier of a device in a track's chain or in the master's.
  */
 device: string
 type: "device_bypass_changed"
