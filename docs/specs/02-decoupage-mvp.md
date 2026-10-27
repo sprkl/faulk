@@ -1020,6 +1020,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - But : adapter le clavier musical et le MIDI existants à la piste sélectionnée.
 - Critères : aucun raccourci ne se déclenche pendant le jeu au clavier (règle écrite) ; test Playwright.
 - Touche : `web/src/lib/keyboard.ts`, `web/src/lib/midi/`.
+- Réalisé (#361) : le clavier joue dans toutes les vues (`KeyboardPlayer`, branché sur la fenêtre par le shell), pas seulement dans la vue Instrument. Ordre de partage d'une touche (`playsNote`, `web/src/lib/keyboard.ts`) : un champ de texte, une liste déroulante ou un menu, un dialogue, un champ numérique gardent toutes leurs touches ; un contrôle que le clavier a focalisé (Tab, flèches) garde les siennes, comme l'Espace (#332), un contrôle cliqué à la souris non ; une touche qu'une vue a prise (`preventDefault`) n'est pas une note ; une touche avec Ctrl, Cmd ou Alt n'en est jamais une. Hors de la vue Instrument, la barre du haut montre l'octave et « Couper toutes les notes ».
 - Dépend de : UI-2, RE-1.
 - Phase : 2.
 - Étiquettes : hardware: non, founder: non.

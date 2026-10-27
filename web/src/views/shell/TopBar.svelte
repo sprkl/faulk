@@ -6,11 +6,12 @@
   import { resolve } from '$app/paths'
   import Monogram from '../../lib/components/Monogram.svelte'
   import { useStores } from '../../lib/stores'
+  import { allNotesOff } from '../../lib/synth-commands'
   import { viewsIn } from '../registry'
   import Transport from '../transport/Transport.svelte'
   import ProjectMenu from './ProjectMenu.svelte'
 
-  const { engine, ui, dispatcher } = useStores()
+  const { engine, ui, dispatcher, keys } = useStores()
   const t = ui.t
 
   const latency = $derived(
@@ -59,6 +60,11 @@
       </span>
       <span class="value muted" data-testid="voices">{t('engine.voices', { n: engine.voices })}</span>
       {#if load}<span class="value muted" data-testid="engine-load">{load}</span>{/if}
+      <!-- The computer keyboard plays in every view (#361): the instrument view shows its octave and its panic button itself. -->
+      {#if ui.view !== 'play'}
+        <span class="value muted" data-testid="keys-octave" title={keys.targetHint}>{t('keys.octave', { n: keys.octave })}</span>
+        <button class="ghost" data-testid="panic" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
+      {/if}
       <!-- The engine's report as data, for the browser checks: the mixer and the transport (MX-3, TR-4) will draw it. -->
       <span
         hidden

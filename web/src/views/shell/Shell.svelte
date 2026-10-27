@@ -22,7 +22,7 @@
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
-  const { engine, ui, dispatcher, storage } = provideStores(stores)
+  const { engine, ui, dispatcher, storage, keys } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
@@ -65,11 +65,27 @@
       return
     }
     const action = historyShortcut(event)
-    if (!action) return
+    if (!action) {
+      // The computer keyboard plays in every view; what is no shortcut of the shell goes to the notes.
+      keys.keyDown(event)
+      return
+    }
     event.preventDefault()
     // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
     dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
   }
+
+  onMount(() => {
+    const release = () => keys.releaseAll()
+    const onHidden = () => document.hidden && keys.releaseAll()
+    window.addEventListener('blur', release)
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      window.removeEventListener('blur', release)
+      document.removeEventListener('visibilitychange', onHidden)
+      keys.releaseAll()
+    }
+  })
 
   $effect(() => {
     document.documentElement.lang = ui.lang
@@ -89,7 +105,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeyDown} onbeforeunload={onBeforeUnload} onfocus={() => void storage.wake()} />
+<svelte:window onkeydown={onKeyDown} onkeyup={(event) => keys.keyUp(event)} onbeforeunload={onBeforeUnload} onfocus={() => void storage.wake()} />
 <svelte:document onvisibilitychange={onVisibility} />
 
 <div class="shell">
