@@ -87,7 +87,7 @@ function stopRunning() {
   for (const proc of running) {
     try {
       if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
-      else proc.kill('SIGTERM')
+      else process.kill(-proc.pid, 'SIGTERM') // the whole group: pnpm, playwright, the dev server, Chromium
     } catch {
       /* already gone */
     }
@@ -111,7 +111,7 @@ function run(name, command, commandArgs, env) {
     const child =
       process.platform === 'win32'
         ? spawn([command, ...commandArgs].join(' '), { cwd: web, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
-        : spawn(command, commandArgs, { cwd: web, env, stdio: ['ignore', 'pipe', 'pipe'] })
+        : spawn(command, commandArgs, { cwd: web, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }) // own process group
     running.add(child)
     let log = ''
     const onData = (d) => {

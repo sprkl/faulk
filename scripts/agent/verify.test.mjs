@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url'
 const script = fileURLToPath(new URL('./verify.mjs', import.meta.url))
 const verify = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' })
 
-test('a dry run against HEAD lists no change from a clean base and starts nothing', () => {
+test('a dry run against HEAD reads the changed files and starts nothing', () => {
   const r = verify('--dry-run', '--base', 'HEAD')
   assert.equal(r.status, 0, r.stderr)
   assert.match(r.stdout, /^base HEAD$/m)
+  assert.match(r.stdout, /^files:$/m)
   assert.match(r.stdout, /specs \(\d+/)
 })
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, utimesSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -28,6 +29,20 @@ test('the lock is released when the function throws', () => {
     assert.throws(() => withTargetLock(dir, () => { throw new Error('boom') }), /boom/)
     assert.equal(existsSync(join(dir, '.faulk-build.lock')), false)
     assert.equal(withTargetLock(dir, () => 'again'), 'again')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a lock whose owner is gone is taken over at once', () => {
+  const dir = temp()
+  try {
+    const lock = join(dir, '.faulk-build.lock')
+    mkdirSync(lock)
+    const dead = spawnSync(process.execPath, ['-e', '0'])
+    writeFileSync(join(lock, 'owner'), String(dead.pid)) // a pid that has just exited
+    assert.equal(withTargetLock(dir, () => 'taken'), 'taken')
+    assert.equal(existsSync(lock), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
