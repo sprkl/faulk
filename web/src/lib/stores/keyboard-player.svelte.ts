@@ -25,7 +25,7 @@ export class KeyboardPlayer {
   ) {}
 
   /** The selected track, when it is a MIDI track: the live input goes to it and to the armed tracks. */
-  target = $derived.by(() => this.project.selected && isMidi(this.project.selected.track) ? this.project.selected : null)
+  target = $derived.by(() => (this.project.selected && isMidi(this.project.selected.track) ? this.project.selected : null))
   /** An armed MIDI track other than the target: the command layer plays only MIDI tracks, whatever a command armed. */
   private armedMidi = $derived.by(() => this.project.armed.filter((id) => this.project.tracks.some((entry) => entry.id === id && isMidi(entry.track))))
   private armedElsewhere = $derived.by(() => this.armedMidi.some((id) => id !== this.target?.id))
@@ -37,7 +37,7 @@ export class KeyboardPlayer {
     return t(this.armedElsewhere ? 'keys.armedOnly' : 'keys.noTarget')
   })
   /** The kind of the target's instrument; the octave starts where its sounds are when it changes (drums or not). */
-  private targetKind = $derived.by(() => this.target ? instrumentKind(this.target.track) : null)
+  private targetKind = $derived.by(() => (this.target ? instrumentKind(this.target.track) : null))
   /** Changes with the kind only: switching between tracks of the same kind keeps the octave the user chose. */
   octave = $derived.by(() => defaultOctave(this.targetKind))
 

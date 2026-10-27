@@ -9,16 +9,7 @@
   import { tick } from 'svelte'
   import GainControl from './GainControl.svelte'
   import PanControl from './PanControl.svelte'
-  import {
-    copyName,
-    formatGain,
-    formatPan,
-    instrumentName,
-    NO_COLOR,
-    trackLabel,
-    type DragHooks,
-    type TrackEntry,
-  } from '../project/tracks'
+  import { copyName, formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type DragHooks, type TrackEntry } from '../project/tracks'
   import { useStores } from '../stores'
   import { armTrack, deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
 
@@ -181,7 +172,6 @@
     if ((event.target as Element).closest('.strip, .swatch, .icon, .grip, .pop')) return
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
-
 </script>
 
 <svelte:window onpointerdown={onWindowPointer} />
@@ -218,7 +208,9 @@
         ondragstart={onGripDragStart}
         ondragend={() => drag.end()}
       >
-        <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true"><path d="M2 2h.01M6 2h.01M2 6h.01M6 6h.01M2 10h.01M6 10h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+        <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true"
+          ><path d="M2 2h.01M6 2h.01M2 6h.01M6 6h.01M2 10h.01M6 10h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg
+        >
       </span>
     {/if}
     <label class="swatch" title={t('tracks.color', { name: label })}>
@@ -263,7 +255,14 @@
     >
     {#if menuOpen}
       <div class="pop" role="menu" data-testid="track-menu">
-        <button role="menuitem" type="button" onclick={() => { closeMenu(false); void startRename() }}>{t('tracks.menu.rename')}</button>
+        <button
+          role="menuitem"
+          type="button"
+          onclick={() => {
+            closeMenu(false)
+            void startRename()
+          }}>{t('tracks.menu.rename')}</button
+        >
         <button role="menuitem" type="button" disabled={entry.index === 0} onclick={() => move(entry.index - 1)}>{t('tracks.menu.moveUp')}</button>
         <button role="menuitem" type="button" disabled={entry.index >= count - 1} onclick={() => move(entry.index + 1)}>{t('tracks.menu.moveDown')}</button>
         <button role="menuitem" type="button" data-testid="track-duplicate" onclick={duplicate}>{t('tracks.menu.duplicate')}</button>
@@ -303,12 +302,28 @@
         >
       {/if}
       <GainControl bind:this={gainControl} gainDb={mixer.gain_db} label={t('tracks.volume', { name: label })} set={(gain) => setVolume(entry.id, gain)} />
-      <button class="value readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="track-gain-readout" onmousedown={(e) => e.preventDefault()} onclick={() => gainControl?.edit()}>{formatGain(mixer.gain_db)}</button>
+      <button
+        class="value readout"
+        type="button"
+        tabindex="-1"
+        title={t('controls.type')}
+        data-testid="track-gain-readout"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => gainControl?.edit()}>{formatGain(mixer.gain_db)}</button
+      >
     </div>
     <div class="strip pan">
       <span class="label">{t('tracks.panShort')}</span>
       <PanControl bind:this={panControl} track={entry.id} pan={mixer.pan} label={t('tracks.pan', { name: label })} />
-      <button class="value readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="track-pan-readout" onmousedown={(e) => e.preventDefault()} onclick={() => panControl?.edit()}>{formatPan(mixer.pan)}</button>
+      <button
+        class="value readout"
+        type="button"
+        tabindex="-1"
+        title={t('controls.type')}
+        data-testid="track-pan-readout"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => panControl?.edit()}>{formatPan(mixer.pan)}</button
+      >
     </div>
   {/if}
 </li>

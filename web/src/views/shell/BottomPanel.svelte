@@ -104,7 +104,9 @@
       data-testid="bottom-panel-fold"
       onclick={() => ui.setPanelCollapsed(!collapsed)}
     >
-      <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d={collapsed ? 'M2 8 6 4l4 4' : 'M2 4l4 4 4-4'} fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+      <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"
+        ><path d={collapsed ? 'M2 8 6 4l4 4' : 'M2 4l4 4 4-4'} fill="none" stroke="currentColor" stroke-width="1.5" /></svg
+      >
     </button>
   </div>
   {#if !collapsed}

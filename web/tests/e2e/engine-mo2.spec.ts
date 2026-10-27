@@ -22,7 +22,7 @@ test.describe.configure({ mode: 'serial' })
 function pushes(name: string): number[][] {
   const bytes = readFileSync(fixtures + name)
   const out: number[][] = []
-  for (let at = 0; at + 5 <= bytes.length; ) {
+  for (let at = 0; at + 5 <= bytes.length;) {
     const n = bytes.readUInt32LE(at + 1)
     if (bytes[at] === 0) {
       out.push([...bytes.subarray(at + 5, at + 5 + n)])
@@ -57,7 +57,10 @@ function clockDrift(run: Awaited<ReturnType<typeof measureOnce>>): string | unde
   // A rate off by more than 25 % would make every figure of the run wrong by as much.
   const off = (a: number, b: number) => Math.abs(a - b) > 0.25 * b
   if (off(run.ticksPerUs, run.check)) return `${run.ticksPerUs.toFixed(1)} ticks/µs settled, ${run.check.toFixed(1)} at the end`
-  for (const [name, r] of [['1000 parameters', run.params], ['4095 tracks', run.tracks]] as const)
+  for (const [name, r] of [
+    ['1000 parameters', run.params],
+    ['4095 tracks', run.tracks],
+  ] as const)
     if (off(r.rate, run.check)) return `${r.rate.toFixed(1)} ticks/µs over the ${name} window, ${run.check.toFixed(1)} at the end`
   return undefined
 }
@@ -94,7 +97,7 @@ async function measureOnce(page: Page) {
       clockWorker.postMessage(clockBuffer)
       const rpc = new Function(`return (${sources.rpc}
 )`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
-      const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+      const deadline = <T>(what: string, promise: Promise<T>, ms = 15_000) =>
         Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
       // The counter's rate over a window: ticks gained divided by the µs `performance.now()` counted.
       const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })

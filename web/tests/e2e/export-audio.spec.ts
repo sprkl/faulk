@@ -11,7 +11,11 @@ import { watch } from './support'
 const ROW = 16
 const RULER = 28
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const dialog = (page: Page) => page.getByTestId('export-dialog')
 
 /** `showSaveFilePicker` gives a file of the OPFS named as the page suggests; `__pickHold` can make the dialog wait. */
@@ -336,10 +340,22 @@ test.describe('with the dispatcher hook (dev server)', () => {
     const seen = watch(page)
     await simulateSavePicker(page)
     await makeSong(page)
-    test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
     // A loop region over the first beat only.
-    await page.evaluate(() => (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({ type: 'transport.set_loop', loop_region: { start: 0, end: 960 } }))
-    await page.evaluate(() => (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({ type: 'project.export_audio', region: 'loop', bit_depth: 'pcm16', sample_rate: 96000 }))
+    await page.evaluate(() =>
+      (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({ type: 'transport.set_loop', loop_region: { start: 0, end: 960 } }),
+    )
+    await page.evaluate(() =>
+      (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({
+        type: 'project.export_audio',
+        region: 'loop',
+        bit_depth: 'pcm16',
+        sample_rate: 96000,
+      }),
+    )
     await expect(dialog(page)).toBeVisible()
     await expect(page.getByTestId('export-loop')).toBeChecked()
     await expect(page.getByTestId('export-pcm16')).toBeChecked()
@@ -364,10 +380,16 @@ test.describe('with the dispatcher hook (dev server)', () => {
     await page.goto('/app')
     await startAudio(page)
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
     // 90 bars at 120 BPM: three minutes of a bass line and an arpeggio, 1 800 notes.
     await page.evaluate(() => {
-      const w = window as unknown as { __faulkRun: (c: unknown) => void; __faulkView: () => { project: { tracks: Record<string, { clips: Record<string, unknown> }> } } }
+      const w = window as unknown as {
+        __faulkRun: (c: unknown) => void
+        __faulkView: () => { project: { tracks: Record<string, { clips: Record<string, unknown> }> } }
+      }
       const track = Object.keys(w.__faulkView().project.tracks)[0]
       w.__faulkRun({ type: 'clip.create', track, at: { at: 'arrangement', start: 0 }, length: 90 * 3840 })
       const clip = Object.keys(w.__faulkView().project.tracks[track].clips)[0]
@@ -375,7 +397,8 @@ test.describe('with the dispatcher hook (dev server)', () => {
       for (let bar = 0; bar < 90; bar++) {
         for (let beat = 0; beat < 4; beat++) {
           notes.push({ start: bar * 3840 + beat * 960, pitch: 36 + (bar % 4) * 2, length: 720, velocity: 100, cents: 0, chance: 100, repeat: 1 })
-          for (let k = 0; k < 4; k++) notes.push({ start: bar * 3840 + beat * 960 + k * 240, pitch: 60 + k * 4, length: 200, velocity: 80, cents: 0, chance: 100, repeat: 1 })
+          for (let k = 0; k < 4; k++)
+            notes.push({ start: bar * 3840 + beat * 960 + k * 240, pitch: 60 + k * 4, length: 200, velocity: 80, cents: 0, chance: 100, repeat: 1 })
         }
       }
       w.__faulkRun({ type: 'clip.notes.add', clip, notes })
@@ -386,7 +409,9 @@ test.describe('with the dispatcher hook (dev server)', () => {
     const ms = Number(await dialog(page).getAttribute('data-render-ms'))
     const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
     const wav = (await readWav(page, name))!
-    console.log(`export: ${(wav.frames / wav.rate).toFixed(1)} s of audio, ${(wav.size / 1e6).toFixed(1)} MB, rendered and written in ${(ms / 1000).toFixed(2)} s`)
+    console.log(
+      `export: ${(wav.frames / wav.rate).toFixed(1)} s of audio, ${(wav.size / 1e6).toFixed(1)} MB, rendered and written in ${(ms / 1000).toFixed(2)} s`,
+    )
     expect(wav.frames).toBeGreaterThanOrEqual(180 * 48_000)
     expect(wav.peak).toBeGreaterThan(0.05)
     // Much faster than real time (180 s): a gross regression only, the figure is printed.

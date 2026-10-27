@@ -28,7 +28,7 @@ const WARMUP = process.env.FAULK_BENCH_WARMUP !== '0'
 function pushes(path: string): Buffer[] {
   const bytes = readFileSync(path)
   const out: Buffer[] = []
-  for (let at = 0; at + 5 <= bytes.length; ) {
+  for (let at = 0; at + 5 <= bytes.length;) {
     const n = bytes.readUInt32LE(at + 1)
     if (bytes[at] === 0) out.push(bytes.subarray(at + 5, at + 5 + n))
     at += 5 + (bytes[at] === 0 ? n : 0)
@@ -74,7 +74,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           clockWorker.postMessage(clockBuffer)
           const rpc = new Function(`return (${sources.rpc}
 )`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
-          const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+          const deadline = <T>(what: string, promise: Promise<T>, ms = 15_000) =>
             Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
           // The counter's rate over a window (the Worker that spins is slow for its first few hundred ms, #283).
           const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })
@@ -143,7 +143,7 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           // Cut the stream into its pushes again (the file format: 0, u32 length, bytes).
           const view = new DataView(stream.buffer)
           const pushes: ArrayBuffer[] = []
-          for (let at = 0; at + 5 <= stream.length; ) {
+          for (let at = 0; at + 5 <= stream.length;) {
             const n = view.getUint32(at + 1, true)
             if (stream[at] === 0) pushes.push(stream.slice(at + 5, at + 5 + n).buffer)
             at += 5 + (stream[at] === 0 ? n : 0)
@@ -173,7 +173,21 @@ test.describe('QA-7: the heavy project through the engine channel in the browser
           clockWorker.terminate()
           worker.terminate()
           await deadline(`closing the audio context (state ${context.state})`, context.close())
-          return { initMs, isolated, ticksPerUs, check, idle, swap, counters, done, memBefore, memAfter: memory!.buffer.byteLength, pushes: pushes.length, count, sampleRate: context.sampleRate }
+          return {
+            initMs,
+            isolated,
+            ticksPerUs,
+            check,
+            idle,
+            swap,
+            counters,
+            done,
+            memBefore,
+            memAfter: memory!.buffer.byteLength,
+            pushes: pushes.length,
+            count,
+            sampleRate: context.sampleRate,
+          }
         },
         { sources, count: all.length, warm: WARM, warmup: WARMUP },
       )

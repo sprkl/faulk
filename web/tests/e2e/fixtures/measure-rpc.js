@@ -12,7 +12,7 @@
 //    then dead (a late reply would otherwise answer the next request);
 //  - `ask.fail(error)` kills the link from outside: the specs call it on the worklet node's
 //    `processorerror` (a trap in `process`), which a port never reports.
-(target, name, ms) => {
+;(target, name, ms) => {
   const waiting = []
   let failure = null
   const fail = (error) => {

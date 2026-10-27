@@ -10,8 +10,29 @@ import ParamControl from './ParamControl.svelte'
 vi.mock('../stores/dispatcher', () => ({ Dispatcher: class {} }))
 
 // #365: typing a value into a control, through a device knob (the field is the one of every control: `Slider`).
-const device = { kind: 'faulk.fake_fx', kind_id: 99, version: 1, name: 'Fake FX', role: 'effect', memory_bytes: 0, midi_output: null, params: [] } as unknown as DeviceDescriptor
-const time = { id: 1, key: 'time', description: 'Time.', unit: 'seconds', min: 0.01, max: 2, default: 0.3, scale: 'log', step: 0, smoothing_seconds: 0, values: [] } as unknown as ParamDescriptor
+const device = {
+  kind: 'faulk.fake_fx',
+  kind_id: 99,
+  version: 1,
+  name: 'Fake FX',
+  role: 'effect',
+  memory_bytes: 0,
+  midi_output: null,
+  params: [],
+} as unknown as DeviceDescriptor
+const time = {
+  id: 1,
+  key: 'time',
+  description: 'Time.',
+  unit: 'seconds',
+  min: 0.01,
+  max: 2,
+  default: 0.3,
+  scale: 'log',
+  step: 0,
+  smoothing_seconds: 0,
+  values: [],
+} as unknown as ParamDescriptor
 
 let host: HTMLDivElement
 let app: ReturnType<typeof mount> | null

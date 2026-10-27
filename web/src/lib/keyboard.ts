@@ -16,8 +16,23 @@
 
 /** Semitone offset from C of each key, two rows like a piano. */
 const KEY_OFFSETS: Record<string, number> = {
-  KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7,
-  KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16,
+  KeyA: 0,
+  KeyW: 1,
+  KeyS: 2,
+  KeyE: 3,
+  KeyD: 4,
+  KeyF: 5,
+  KeyT: 6,
+  KeyG: 7,
+  KeyY: 8,
+  KeyH: 9,
+  KeyU: 10,
+  KeyJ: 11,
+  KeyK: 12,
+  KeyO: 13,
+  KeyL: 14,
+  KeyP: 15,
+  Semicolon: 16,
 }
 
 export const MIN_OCTAVE = 0
@@ -39,7 +54,27 @@ export function defaultOctave(instrumentKind: string | null): number {
  * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
  * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
  */
-export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace', 'PageUp', 'PageDown', 'End', 'Tab']
+export const BARE_SHORTCUT_CODES: readonly string[] = [
+  'F2',
+  'Escape',
+  'Enter',
+  'ArrowUp',
+  'ArrowDown',
+  'Space',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  '+',
+  '=',
+  '-',
+  '_',
+  'Delete',
+  'Backspace',
+  'PageUp',
+  'PageDown',
+  'End',
+  'Tab',
+]
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)

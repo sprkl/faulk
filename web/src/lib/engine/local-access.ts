@@ -56,9 +56,7 @@ export function watchLocalAccess(
  * (`denied`). Anything else, or a browser without the permission (`null`), is a plain
  * absent helper.
  */
-export function absentHelperMessages(
-  access: PermissionState | null,
-): ('helper.absent' | 'helper.localAccessPending' | 'helper.localAccessBlocked')[] {
+export function absentHelperMessages(access: PermissionState | null): ('helper.absent' | 'helper.localAccessPending' | 'helper.localAccessBlocked')[] {
   if (access === 'denied') return ['helper.localAccessBlocked']
   if (access === 'prompt') return ['helper.absent', 'helper.localAccessPending']
   return ['helper.absent']

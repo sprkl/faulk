@@ -15,15 +15,7 @@ import {
   type ProjectHost,
   type StorageDeps,
 } from './storage.svelte'
-import {
-  StoreError,
-  type BrowserProject,
-  type BrowserProjects,
-  type FolderHandle,
-  type ProjectStore,
-  type RecentProject,
-  type Signature,
-} from './types'
+import { StoreError, type BrowserProject, type BrowserProjects, type FolderHandle, type ProjectStore, type RecentProject, type Signature } from './types'
 
 const text = (s: string) => new TextEncoder().encode(s)
 
@@ -1382,44 +1374,47 @@ describe('save as from a draft', () => {
     expect(w.storage.status).toBe('saved')
   })
 
-  it.each(['remember', 'remove'] as const)('orders Save and the export folder after a move into a folder under way (held at %s): the new folder, never a second pick', async (hold) => {
-    const { w } = await drafted()
-    const folder = handleOf('song')
-    w.picks.push({ status: 'chosen', handle: folder })
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => (release = resolve))
-    let reached = false
-    const remove = w.browser.remove.bind(w.browser)
-    const remember = w.deps.recent.remember
-    // Held at `remember`, the draft is still the project's home; at `remove` it is detached and nobody is current.
-    if (hold === 'remember')
-      w.deps.recent.remember = async (h) => {
-        reached = true
-        await gate
-        await remember(h)
-      }
-    else
-      w.browser.remove = async (d) => {
-        reached = true
-        await gate
-        await remove(d)
-      }
-    const moving = w.storage.saveAs()
-    for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
-    expect(reached).toBe(true)
-    // A second pick must never be needed: Save finds the folder once the move is over.
-    w.picks.push({ status: 'chosen', handle: handleOf('other') })
-    const handle = w.storage.folderHandle()
-    const saving = w.storage.save()
-    for (let i = 0; i < 50; i++) await Promise.resolve()
-    release()
-    expect(await moving).toBe(true)
-    expect(await handle).toBe(folder)
-    expect(await saving).toBe(true)
-    expect(w.picks.length).toBe(1)
-    expect(w.host.saves.at(-1)).toBe('forced')
-    expect(w.storage.folder).toEqual({ name: 'song' })
-  })
+  it.each(['remember', 'remove'] as const)(
+    'orders Save and the export folder after a move into a folder under way (held at %s): the new folder, never a second pick',
+    async (hold) => {
+      const { w } = await drafted()
+      const folder = handleOf('song')
+      w.picks.push({ status: 'chosen', handle: folder })
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      let reached = false
+      const remove = w.browser.remove.bind(w.browser)
+      const remember = w.deps.recent.remember
+      // Held at `remember`, the draft is still the project's home; at `remove` it is detached and nobody is current.
+      if (hold === 'remember')
+        w.deps.recent.remember = async (h) => {
+          reached = true
+          await gate
+          await remember(h)
+        }
+      else
+        w.browser.remove = async (d) => {
+          reached = true
+          await gate
+          await remove(d)
+        }
+      const moving = w.storage.saveAs()
+      for (let i = 0; i < 200 && !reached; i++) await Promise.resolve()
+      expect(reached).toBe(true)
+      // A second pick must never be needed: Save finds the folder once the move is over.
+      w.picks.push({ status: 'chosen', handle: handleOf('other') })
+      const handle = w.storage.folderHandle()
+      const saving = w.storage.save()
+      for (let i = 0; i < 50; i++) await Promise.resolve()
+      release()
+      expect(await moving).toBe(true)
+      expect(await handle).toBe(folder)
+      expect(await saving).toBe(true)
+      expect(w.picks.length).toBe(1)
+      expect(w.host.saves.at(-1)).toBe('forced')
+      expect(w.storage.folder).toEqual({ name: 'song' })
+    },
+  )
 
   it('answers the export folder: nothing without a project, and without waiting for an ordinary write (the file dialog needs the click)', async () => {
     const w = world()

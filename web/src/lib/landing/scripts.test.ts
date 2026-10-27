@@ -103,9 +103,13 @@ describe('rememberScript', () => {
     click(inside({ href: '/app' }))
     const replaced: string[] = []
     const localStorage = { getItem: (k: string) => stored.get(k) ?? null }
-    new Function('localStorage', 'navigator', 'location', detectScript('/fr'))(localStorage, { language: 'fr-FR' }, {
-      replace: (href: string) => replaced.push(href),
-    })
+    new Function('localStorage', 'navigator', 'location', detectScript('/fr'))(
+      localStorage,
+      { language: 'fr-FR' },
+      {
+        replace: (href: string) => replaced.push(href),
+      },
+    )
     expect(replaced).toEqual([])
   })
 
@@ -140,7 +144,10 @@ describe('animBootScript', () => {
     let callback: ((entries: { isIntersecting: boolean }[]) => void) | undefined
     let disconnected = 0
     class IntersectionObserver {
-      constructor(cb: typeof callback, readonly options: unknown) {
+      constructor(
+        cb: typeof callback,
+        readonly options: unknown,
+      ) {
         callback = cb
       }
       observe(el: unknown) {

@@ -131,7 +131,12 @@ export function notesInRect(notes: readonly Note[], area: Rect, view: View, layo
 }
 
 /** The rectangle between two corners, whichever way it was dragged. */
-export const rectBetween = (ax: number, ay: number, bx: number, by: number): Rect => ({ x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) })
+export const rectBetween = (ax: number, ay: number, bx: number, by: number): Rect => ({
+  x: Math.min(ax, bx),
+  y: Math.min(ay, by),
+  w: Math.abs(bx - ax),
+  h: Math.abs(by - ay),
+})
 
 /** A note that becomes another, the shape of `clip.notes.update`. */
 export interface Change {
@@ -249,7 +254,15 @@ export function floorTick(tick: number, step: number | null): number {
  * snapped tick of the pointer, at least one step long (the last length used when the pointer did
  * not move), and always inside the clip. `null` when the press is past the clip's end.
  */
-export function drawnNote(pressTick: number, pointerTick: number | null, pitch: number, velocity: number, step: number | null, lastLength: number, clipLength: number): Note | null {
+export function drawnNote(
+  pressTick: number,
+  pointerTick: number | null,
+  pitch: number,
+  velocity: number,
+  step: number | null,
+  lastLength: number,
+  clipLength: number,
+): Note | null {
   const start = floorTick(pressTick, step)
   if (start >= clipLength) return null
   const least = step !== null && step > 0 ? step : 1

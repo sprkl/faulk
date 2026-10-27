@@ -181,7 +181,16 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
 }
 
 /** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit. */
-export function drawKeys(ctx: CanvasRenderingContext2D, width: number, height: number, layout: Layout, colors: Colors, font: string, active: ReadonlySet<number>, names: ReadonlyMap<number, string> | null = null): void {
+export function drawKeys(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  layout: Layout,
+  colors: Colors,
+  font: string,
+  active: ReadonlySet<number>,
+  names: ReadonlyMap<number, string> | null = null,
+): void {
   ctx.fillStyle = colors.ruler
   ctx.fillRect(0, 0, width, height)
   ctx.save()

@@ -10,8 +10,29 @@ import ParamControl from './ParamControl.svelte'
 vi.mock('../stores/dispatcher', () => ({ Dispatcher: class {} }))
 
 /** A device knob through its descriptor: the default value comes from it, and the magnet holds it exactly. */
-const device = { kind: 'faulk.fake_fx', kind_id: 99, version: 1, name: 'Fake FX', role: 'effect', memory_bytes: 0, midi_output: null, params: [] } as unknown as DeviceDescriptor
-const log = { id: 1, key: 'time', description: 'Time.', unit: 'seconds', min: 0.01, max: 2, default: 0.3, scale: 'log', step: 0, smoothing_seconds: 0, values: [] } as unknown as ParamDescriptor
+const device = {
+  kind: 'faulk.fake_fx',
+  kind_id: 99,
+  version: 1,
+  name: 'Fake FX',
+  role: 'effect',
+  memory_bytes: 0,
+  midi_output: null,
+  params: [],
+} as unknown as DeviceDescriptor
+const log = {
+  id: 1,
+  key: 'time',
+  description: 'Time.',
+  unit: 'seconds',
+  min: 0.01,
+  max: 2,
+  default: 0.3,
+  scale: 'log',
+  step: 0,
+  smoothing_seconds: 0,
+  values: [],
+} as unknown as ParamDescriptor
 
 let host: HTMLDivElement
 let app: ReturnType<typeof mount> | null

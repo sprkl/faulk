@@ -26,9 +26,7 @@ test.beforeAll(async () => {
   server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve)
-    server.once('error', (error) =>
-      reject(new Error(`port ${HELPER_PORT} is taken (a helper running?): ${String(error)}`)),
-    )
+    server.once('error', (error) => reject(new Error(`port ${HELPER_PORT} is taken (a helper running?): ${String(error)}`)))
   })
   server.on('connection', (ws: WebSocket, req) => {
     const url = new URL(req.url ?? '/', `http://${HELPER_HOST}`)

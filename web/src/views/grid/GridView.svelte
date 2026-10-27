@@ -70,10 +70,13 @@
   const signature = $derived(engine.started ? activeSignature(engine.feedback) : '')
   const active = $derived.by(() => {
     void signature
-    return activeCells(untrack(() => (engine.started ? engine.feedback : null)), project.view?.slots ?? NO_SLOTS)
+    return activeCells(
+      untrack(() => (engine.started ? engine.feedback : null)),
+      project.view?.slots ?? NO_SLOTS,
+    )
   })
 
-  const sceneLabel = (id: string, index: number) => (project.view?.project.scenes[id]?.name.trim() || t('grid.sceneDefault', { n: index + 1 }))
+  const sceneLabel = (id: string, index: number) => project.view?.project.scenes[id]?.name.trim() || t('grid.sceneDefault', { n: index + 1 })
   const stateText = (state: CellClipState) => t(`grid.state.${state}`)
 
   // --- the cell the keyboard is on --------------------------------------------------------------
@@ -83,8 +86,22 @@
   /** The one cell in the tab order: the one last focused when it still exists and is drawn, else the nearest drawn one. */
   const tabCell = $derived.by(() => {
     const at = (index: number, first: number, last: number) => Math.min(last - 1, Math.max(first, index))
-    const ti = at(Math.max(0, tracks.findIndex((entry) => entry.id === focusTrack)), colFirst, colLast)
-    const si = at(Math.max(0, scenes.findIndex((entry) => entry.id === focusScene)), rowFirst, rowLast)
+    const ti = at(
+      Math.max(
+        0,
+        tracks.findIndex((entry) => entry.id === focusTrack),
+      ),
+      colFirst,
+      colLast,
+    )
+    const si = at(
+      Math.max(
+        0,
+        scenes.findIndex((entry) => entry.id === focusScene),
+      ),
+      rowFirst,
+      rowLast,
+    )
     return tracks[ti] && scenes[si] ? cellKey(tracks[ti].id, scenes[si].id) : ''
   })
 
@@ -286,7 +303,10 @@
     const home = homes.get(id)
     cellMenu = null
     if (!home) return
-    const scene = freeBelow(home.track, scenes.findIndex((entry) => entry.id === home.scene))
+    const scene = freeBelow(
+      home.track,
+      scenes.findIndex((entry) => entry.id === home.scene),
+    )
     if (scene) run(duplicateClip(id, scene, null))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
@@ -538,14 +558,31 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointer} onpointermove={onWindowPointerMove} onpointerup={onWindowPointerUp} onpointercancel={endPress} onkeydown={onWindowKey} onkeyup={onWindowKey} onblur={endPress} />
+<svelte:window
+  onpointerdown={onWindowPointer}
+  onpointermove={onWindowPointerMove}
+  onpointerup={onWindowPointerUp}
+  onpointercancel={endPress}
+  onkeydown={onWindowKey}
+  onkeyup={onWindowKey}
+  onblur={endPress}
+/>
 
 {#if !project.view}
   <p class="note" data-testid="grid-waiting">{t('tracks.waiting')}</p>
 {:else if tracks.length === 0}
   <p class="note" data-testid="grid-no-tracks">{t('grid.noTracks')}</p>
 {:else}
-  <div class="scroll" style:--scene-w="{SCENE_W}px" style:--col-w="{COL_W}px" style:--row-h="{ROW_H}px" bind:this={scroller} bind:clientWidth={viewW} bind:clientHeight={viewH} onscroll={onScroll}>
+  <div
+    class="scroll"
+    style:--scene-w="{SCENE_W}px"
+    style:--col-w="{COL_W}px"
+    style:--row-h="{ROW_H}px"
+    bind:this={scroller}
+    bind:clientWidth={viewW}
+    bind:clientHeight={viewH}
+    onscroll={onScroll}
+  >
     <!-- The cells are the focusable parts of the grid (roving tabindex); the board only listens for their events. -->
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div
@@ -573,9 +610,24 @@
         {#if colFirst > 0}<div class="gap" style:grid-column="span {colFirst}"></div>{/if}
         {#each shownTracks as entry (entry.id)}
           {@const label = trackLabel(entry, t)}
-          <div class="colhead" role="columnheader" aria-colindex={entry.index + 2} style:--track-color={entry.track.color ?? undefined} aria-current={project.selected?.id === entry.id ? 'true' : undefined} data-testid="grid-track" data-track={entry.id}>
+          <div
+            class="colhead"
+            role="columnheader"
+            aria-colindex={entry.index + 2}
+            style:--track-color={entry.track.color ?? undefined}
+            aria-current={project.selected?.id === entry.id ? 'true' : undefined}
+            data-testid="grid-track"
+            data-track={entry.id}
+          >
             <button class="tname" type="button" title={label} onclick={() => select(entry.id)}>{label}</button>
-            <button class="stop" type="button" aria-label={t('grid.stopTrack', { name: label })} title={t('grid.stopTrack', { name: label })} data-testid="stop-track" onclick={() => run(stopTrack(entry.id))}>
+            <button
+              class="stop"
+              type="button"
+              aria-label={t('grid.stopTrack', { name: label })}
+              title={t('grid.stopTrack', { name: label })}
+              data-testid="stop-track"
+              onclick={() => run(stopTrack(entry.id))}
+            >
               <Glyph kind="stop" size={12} />
             </button>
           </div>
@@ -589,8 +641,26 @@
         {@const held = counts.get(sc.id) ?? 0}
         <div class="row" role="row" aria-rowindex={si + 2} data-testid="scene-row" data-scene={sc.id}>
           <!-- svelte-ignore a11y_interactive_supports_focus -->
-          <div class="rowhead" class:open={popupFor === sc.id} role="rowheader" data-scene-head={sc.id} data-testid="scene-head" onkeydown={onHeadKey} onfocusout={onHeadFocusOut}>
-            <button class="launch" type="button" aria-label={t('grid.launchScene', { name })} title={t('grid.launchScene', { name })} data-testid="launch-scene" onclick={(event) => { run(launchScene(sc.id)); release(event, event.currentTarget) }}>
+          <div
+            class="rowhead"
+            class:open={popupFor === sc.id}
+            role="rowheader"
+            data-scene-head={sc.id}
+            data-testid="scene-head"
+            onkeydown={onHeadKey}
+            onfocusout={onHeadFocusOut}
+          >
+            <button
+              class="launch"
+              type="button"
+              aria-label={t('grid.launchScene', { name })}
+              title={t('grid.launchScene', { name })}
+              data-testid="launch-scene"
+              onclick={(event) => {
+                run(launchScene(sc.id))
+                release(event, event.currentTarget)
+              }}
+            >
               <Glyph kind="launch" />
             </button>
             {#if renaming === sc.id}
@@ -605,16 +675,44 @@
                 onblur={() => finishRename(true, sc.id, si)}
               />
             {:else}
-              <button class="sname" type="button" title={t('grid.renameHint')} data-testid="scene-name" onkeydown={(event) => onNameKey(event, sc.id, si)} ondblclick={() => startRename(sc.id, si)}>{name}</button>
+              <button
+                class="sname"
+                type="button"
+                title={t('grid.renameHint')}
+                data-testid="scene-name"
+                onkeydown={(event) => onNameKey(event, sc.id, si)}
+                ondblclick={() => startRename(sc.id, si)}>{name}</button
+              >
             {/if}
-            <button class="more" type="button" aria-haspopup="menu" aria-expanded={menuFor === sc.id} aria-label={t('grid.sceneActions', { name })} title={t('grid.sceneActions', { name })} data-testid="scene-more" onclick={() => openMenu(sc.id)}>⋯</button>
+            <button
+              class="more"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuFor === sc.id}
+              aria-label={t('grid.sceneActions', { name })}
+              title={t('grid.sceneActions', { name })}
+              data-testid="scene-more"
+              onclick={() => openMenu(sc.id)}>⋯</button
+            >
             {#if menuFor === sc.id}
               <div class="pop" role="menu" data-testid="scene-menu">
                 <button role="menuitem" type="button" onclick={() => startRename(sc.id, si)}>{t('grid.rename')}</button>
                 <button role="menuitem" type="button" disabled={si === 0} onclick={() => move(sc.id, si - 1)}>{t('grid.moveUp')}</button>
                 <button role="menuitem" type="button" disabled={si === scenes.length - 1} onclick={() => move(sc.id, si + 1)}>{t('grid.moveDown')}</button>
-                <button role="menuitem" type="button" data-testid="scene-send" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, false)}>{t('grid.sendScene')}</button>
-                <button role="menuitem" type="button" data-testid="scene-send-linked" disabled={!sceneHasClip(sc.id)} onclick={() => sendSceneToArrangement(sc.id, true)}>{t('grid.sendSceneLinked')}</button>
+                <button
+                  role="menuitem"
+                  type="button"
+                  data-testid="scene-send"
+                  disabled={!sceneHasClip(sc.id)}
+                  onclick={() => sendSceneToArrangement(sc.id, false)}>{t('grid.sendScene')}</button
+                >
+                <button
+                  role="menuitem"
+                  type="button"
+                  data-testid="scene-send-linked"
+                  disabled={!sceneHasClip(sc.id)}
+                  onclick={() => sendSceneToArrangement(sc.id, true)}>{t('grid.sendSceneLinked')}</button
+                >
                 <button role="menuitem" type="button" data-testid="scene-delete" onclick={() => requestDelete(sc.id)}>{t('grid.delete')}</button>
               </div>
             {:else if confirmFor === sc.id}
@@ -638,7 +736,16 @@
               {@const clipName = nameOf(cell.clip)}
               {@const reported = active.get(key)}
               {@const state = reported?.restarting ? 'restarting' : (reported?.state ?? 'idle')}
-              <div class="slot" class:open={cellMenu === cell.id} role="gridcell" aria-colindex={entry.index + 2} style:--track-color={entry.track.color ?? undefined} data-slot-clip={cell.id} onkeydown={onSlotKey} onfocusout={onSlotFocusOut}>
+              <div
+                class="slot"
+                class:open={cellMenu === cell.id}
+                role="gridcell"
+                aria-colindex={entry.index + 2}
+                style:--track-color={entry.track.color ?? undefined}
+                data-slot-clip={cell.id}
+                onkeydown={onSlotKey}
+                onfocusout={onSlotFocusOut}
+              >
                 <button
                   class="cell"
                   type="button"
@@ -655,7 +762,9 @@
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
-                  aria-label={cell.launchable ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) }) : t('grid.cellAudio', { track: label, scene: name, clip: clipName })}
+                  aria-label={cell.launchable
+                    ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) })
+                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })}
                   title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
                 >
                   <Glyph kind={state} />
@@ -675,15 +784,47 @@
                   />
                 {/if}
                 {#if cell.launchable}
-                  <button class="edit" type="button" tabindex={here ? 0 : -1} data-edit data-track={entry.id} data-clip={cell.id} data-testid="edit-clip" aria-label={t('grid.editClip', { clip: clipName })} title={t('grid.editClip', { clip: clipName })}>✎</button>
-                  <button class="cmore" type="button" tabindex={here ? 0 : -1} aria-haspopup="menu" aria-expanded={cellMenu === cell.id} data-testid="clip-more" aria-label={t('grid.clipActions', { clip: clipName })} title={t('grid.clipActions', { clip: clipName })} onclick={() => openCellMenu(cell.id)}>⋯</button>
+                  <button
+                    class="edit"
+                    type="button"
+                    tabindex={here ? 0 : -1}
+                    data-edit
+                    data-track={entry.id}
+                    data-clip={cell.id}
+                    data-testid="edit-clip"
+                    aria-label={t('grid.editClip', { clip: clipName })}
+                    title={t('grid.editClip', { clip: clipName })}>✎</button
+                  >
+                  <button
+                    class="cmore"
+                    type="button"
+                    tabindex={here ? 0 : -1}
+                    aria-haspopup="menu"
+                    aria-expanded={cellMenu === cell.id}
+                    data-testid="clip-more"
+                    aria-label={t('grid.clipActions', { clip: clipName })}
+                    title={t('grid.clipActions', { clip: clipName })}
+                    onclick={() => openCellMenu(cell.id)}>⋯</button
+                  >
                   {#if cellMenu === cell.id}
                     <div class="pop cpop" role="menu" data-testid="clip-menu">
                       <button role="menuitem" type="button" data-testid="clip-menu-rename" onclick={() => startClipRename(cell.id)}>{t('grid.rename')}</button>
-                      <button role="menuitem" type="button" data-testid="clip-menu-duplicate" disabled={freeBelow(entry.id, si) === null} onclick={() => duplicateFromMenu(cell.id)}>{t('grid.duplicate')}</button>
-                      <button role="menuitem" type="button" data-testid="clip-menu-send" onclick={() => sendToArrangement(cell.id, false)}>{t('grid.send')}</button>
-                      <button role="menuitem" type="button" data-testid="clip-menu-send-linked" onclick={() => sendToArrangement(cell.id, true)}>{t('grid.sendLinked')}</button>
-                      <button role="menuitem" type="button" data-testid="clip-menu-delete" onclick={() => removeClip(cell.id, entry.index, si)}>{t('grid.delete')}</button>
+                      <button
+                        role="menuitem"
+                        type="button"
+                        data-testid="clip-menu-duplicate"
+                        disabled={freeBelow(entry.id, si) === null}
+                        onclick={() => duplicateFromMenu(cell.id)}>{t('grid.duplicate')}</button
+                      >
+                      <button role="menuitem" type="button" data-testid="clip-menu-send" onclick={() => sendToArrangement(cell.id, false)}
+                        >{t('grid.send')}</button
+                      >
+                      <button role="menuitem" type="button" data-testid="clip-menu-send-linked" onclick={() => sendToArrangement(cell.id, true)}
+                        >{t('grid.sendLinked')}</button
+                      >
+                      <button role="menuitem" type="button" data-testid="clip-menu-delete" onclick={() => removeClip(cell.id, entry.index, si)}
+                        >{t('grid.delete')}</button
+                      >
                     </div>
                   {/if}
                 {/if}

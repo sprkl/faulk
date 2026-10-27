@@ -23,7 +23,11 @@ const project = (core: ProjectCore): ProjectView['project'] => core.project().pr
 describe('the commands of the track headers', () => {
   it('creates a MIDI track for each instrument and an audio track, unnamed, with a colour', () => {
     const core = ProjectCore.create(module, 'empty', 1)
-    for (const [kind, instrument] of [['midi', 'faulk.osc_synth'], ['midi', 'faulk.drums'], ['audio', null]] as const) {
+    for (const [kind, instrument] of [
+      ['midi', 'faulk.osc_synth'],
+      ['midi', 'faulk.drums'],
+      ['audio', null],
+    ] as const) {
       run(core, commands.createTrack(kind, instrument, '#58c27d'))
     }
     const tracks = sortedTracks(project(core))

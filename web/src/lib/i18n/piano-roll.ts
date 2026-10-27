@@ -44,7 +44,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.quantize': 'Quantize',
     'pianoRoll.quantizeGrid': 'Quantize grid',
     'pianoRoll.quantizeStrength': 'Quantize strength in percent',
-    'pianoRoll.quantizeHint': 'Move the start of the selected notes (all notes if none is selected) toward the grid. 100% puts them on it, less moves them part of the way. Copy, cut and paste: Ctrl or Cmd + C, X, V.',
+    'pianoRoll.quantizeHint':
+      'Move the start of the selected notes (all notes if none is selected) toward the grid. 100% puts them on it, less moves them part of the way. Copy, cut and paste: Ctrl or Cmd + C, X, V.',
     'pianoRoll.qgrid.quarter': '1/4',
     'pianoRoll.qgrid.eighth': '1/8',
     'pianoRoll.qgrid.sixteenth': '1/16',
@@ -56,7 +57,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.grid': 'Notes of {name}',
     'pianoRoll.keyboard': 'Keyboard of the piano roll',
     'pianoRoll.velocity': 'Velocity of the notes',
-    'pianoRoll.velocityHint': 'Drag up or down to set the velocity. With two notes on one step, the selected notes change; with none selected, the highest note of the step does. Double-click to reset.',
+    'pianoRoll.velocityHint':
+      'Drag up or down to set the velocity. With two notes on one step, the selected notes change; with none selected, the highest note of the step does. Double-click to reset.',
   },
   {
     'pianoRoll.noTrack': 'Sélectionne une piste MIDI pour modifier ses notes.',
@@ -73,7 +75,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.renameHint': 'Double-clique ou appuie sur F2 pour renommer le clip',
     'pianoRoll.tools': 'Outil',
     'pianoRoll.draw': 'Dessiner',
-    'pianoRoll.drawHint': 'Clique pour dessiner une note, glisse pour régler sa longueur. Glisse une note pour la déplacer, son bord droit pour la redimensionner.',
+    'pianoRoll.drawHint':
+      'Clique pour dessiner une note, glisse pour régler sa longueur. Glisse une note pour la déplacer, son bord droit pour la redimensionner.',
     'pianoRoll.select': 'Sélectionner',
     'pianoRoll.selectHint': 'Clique une note, ou glisse un rectangle pour en sélectionner plusieurs. Suppr les supprime.',
     'pianoRoll.snap': 'Magnétisme',
@@ -91,7 +94,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.delete': 'Supprimer',
     'pianoRoll.edit': 'Modifier les notes sélectionnées',
     'pianoRoll.duplicate': 'Dupliquer',
-    'pianoRoll.duplicateHint': 'Copie les notes sélectionnées juste après la sélection (Ctrl ou Cmd + D). Le clip s’allonge d’autant de mesures entières si elles ne tiennent pas.',
+    'pianoRoll.duplicateHint':
+      'Copie les notes sélectionnées juste après la sélection (Ctrl ou Cmd + D). Le clip s’allonge d’autant de mesures entières si elles ne tiennent pas.',
     'pianoRoll.transposeDown': 'Transposer d’un demi-ton vers le bas',
     'pianoRoll.transposeDownHint': 'Un demi-ton plus bas (Flèche bas), une octave avec Maj',
     'pianoRoll.transposeUp': 'Transposer d’un demi-ton vers le haut',
@@ -99,7 +103,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.quantize': 'Quantifier',
     'pianoRoll.quantizeGrid': 'Grille de quantification',
     'pianoRoll.quantizeStrength': 'Force de la quantification en pourcent',
-    'pianoRoll.quantizeHint': 'Rapproche le début des notes sélectionnées (de toutes les notes si aucune ne l’est) de la grille. 100 % les pose dessus, moins les déplace en partie. Copier, couper, coller : Ctrl ou Cmd + C, X, V.',
+    'pianoRoll.quantizeHint':
+      'Rapproche le début des notes sélectionnées (de toutes les notes si aucune ne l’est) de la grille. 100 % les pose dessus, moins les déplace en partie. Copier, couper, coller : Ctrl ou Cmd + C, X, V.',
     'pianoRoll.qgrid.quarter': '1/4',
     'pianoRoll.qgrid.eighth': '1/8',
     'pianoRoll.qgrid.sixteenth': '1/16',
@@ -111,6 +116,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.grid': 'Notes de {name}',
     'pianoRoll.keyboard': 'Clavier du piano roll',
     'pianoRoll.velocity': 'Vélocité des notes',
-    'pianoRoll.velocityHint': 'Glisse vers le haut ou le bas pour régler la vélocité. Avec deux notes sur un pas, les notes sélectionnées changent ; sans sélection, c’est la note la plus aiguë du pas. Double-clique pour réinitialiser.',
+    'pianoRoll.velocityHint':
+      'Glisse vers le haut ou le bas pour régler la vélocité. Avec deux notes sur un pas, les notes sélectionnées changent ; sans sélection, c’est la note la plus aiguë du pas. Double-clique pour réinitialiser.',
   },
 )

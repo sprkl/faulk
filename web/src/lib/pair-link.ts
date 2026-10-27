@@ -24,10 +24,7 @@ export function pairCodeFromHash(hash: string): string | null {
  * `clear` goes through its router (`goto` with `shallow` and `replace`): a raw
  * `history.replaceState` conflicts with it.
  */
-export function takePairLink(
-  location: Pick<Location, 'hash' | 'pathname' | 'search'>,
-  clear: (url: string) => void,
-): string | null {
+export function takePairLink(location: Pick<Location, 'hash' | 'pathname' | 'search'>, clear: (url: string) => void): string | null {
   const hash = location.hash
   if (!isPairHash(hash)) return null
   clear(location.pathname + location.search)

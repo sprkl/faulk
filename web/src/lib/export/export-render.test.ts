@@ -127,7 +127,15 @@ describe('the export render', () => {
     let release: () => void = () => undefined
     let gates = 0
     const rendering = renderExport(
-      { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: job.plan.body_frames, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer },
+      {
+        type: 'start',
+        module: engine.slice(0),
+        sampleRate: 48_000,
+        bits: 24,
+        bodyFrames: job.plan.body_frames,
+        setup: job.setup.slice().buffer,
+        stop: job.stop.slice().buffer,
+      },
       (message) => messages.push(message),
       () => (++gates <= 2 ? Promise.resolve() : new Promise<void>((resolve) => (release = resolve))),
     )
@@ -169,14 +177,25 @@ describe('the export render', () => {
     const messages: FromExport[] = []
     // A truncated setup: the stream stops, nothing is rendered.
     await renderExport(
-      { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 192_000, setup: job.setup.slice(0, 30).buffer, stop: job.stop.slice().buffer },
+      {
+        type: 'start',
+        module: engine.slice(0),
+        sampleRate: 48_000,
+        bits: 24,
+        bodyFrames: 192_000,
+        setup: job.setup.slice(0, 30).buffer,
+        stop: job.stop.slice().buffer,
+      },
       (message) => messages.push(message),
     )
     expect(messages).toHaveLength(1)
     expect(messages[0]).toMatchObject({ type: 'error' })
     // A length the engine refuses.
     const refused: FromExport[] = []
-    await renderExport({ type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 0, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer }, (m) => refused.push(m))
+    await renderExport(
+      { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 0, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer },
+      (m) => refused.push(m),
+    )
     expect(refused[0]).toMatchObject({ type: 'error' })
   })
 })

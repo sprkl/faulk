@@ -152,7 +152,10 @@ export async function withStableClock<T>(what: string, run: () => Promise<T>, dr
     seen.push(problem)
     console.log(`${what}: attempt ${attempt}/${attempts} dropped, the clock drifted (${problem})`)
   }
-  if (STRICT_TIMING) throw new Error(`${what}: the clock drifted in all ${attempts} attempts, nothing measured (${seen.join('; ')}); the machine is not a reference machine, not a regression of the code`)
+  if (STRICT_TIMING)
+    throw new Error(
+      `${what}: the clock drifted in all ${attempts} attempts, nothing measured (${seen.join('; ')}); the machine is not a reference machine, not a regression of the code`,
+    )
   console.log(`${what}: the clock drifted in both attempts, the last run is kept and held to the ceilings only (10x the budgets), not to the budgets`)
   return result!
 }

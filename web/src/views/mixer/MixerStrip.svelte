@@ -33,9 +33,7 @@
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
-  const chainText = $derived(
-    chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '),
-  )
+  const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
 
   /** Shows the track's devices: selects it (the Devices panel follows the selection) and opens that panel. */
   function showDevices() {
@@ -69,13 +67,27 @@
     {#if entry}
       <button class="name" type="button" title={name} data-testid="mixer-name" onclick={select}>{name}</button>
       <p class="meta" title={chainText} data-testid="mixer-chain">{instrumentName(entry.track) ?? chainText}</p>
-      <button class="devices" type="button" title={t('mixer.devicesHint', { name })} aria-label={t('mixer.devicesHint', { name })} data-testid="mixer-devices" onclick={showDevices}>
+      <button
+        class="devices"
+        type="button"
+        title={t('mixer.devicesHint', { name })}
+        aria-label={t('mixer.devicesHint', { name })}
+        data-testid="mixer-devices"
+        onclick={showDevices}
+      >
         {t('mixer.devices')} ({chain.length})
       </button>
     {:else}
       <p class="name master-name">{name}</p>
       <p class="meta" title={chainText} data-testid="mixer-chain">{chainText}</p>
-      <button class="devices" type="button" title={t('mixer.devicesHint', { name })} aria-label={t('mixer.devicesHint', { name })} data-testid="mixer-master-devices" onclick={showDevices}>
+      <button
+        class="devices"
+        type="button"
+        title={t('mixer.devicesHint', { name })}
+        aria-label={t('mixer.devicesHint', { name })}
+        data-testid="mixer-master-devices"
+        onclick={showDevices}
+      >
         {t('mixer.devices')} ({chain.length})
       </button>
     {/if}
@@ -84,7 +96,15 @@
   {#if entry}
     <div class="pan">
       <PanControl bind:this={panControl} track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
-      <button class="readout" type="button" tabindex="-1" title={t('controls.type')} data-testid="mixer-pan-readout" onmousedown={(e) => e.preventDefault()} onclick={() => panControl?.edit()}>{formatPan(entry.track.mixer.pan)}</button>
+      <button
+        class="readout"
+        type="button"
+        tabindex="-1"
+        title={t('controls.type')}
+        data-testid="mixer-pan-readout"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => panControl?.edit()}>{formatPan(entry.track.mixer.pan)}</button
+      >
     </div>
     <div class="toggles">
       <button
@@ -129,7 +149,15 @@
     />
     <MixerMeter {snap} label={t('mixer.level', { name })} peakLabel={t('mixer.peak', { name })} clipLabel={t('mixer.clip')} {onreset} />
   </div>
-  <button class="readout gain" type="button" tabindex="-1" title={t('controls.type')} data-testid="mixer-gain" onmousedown={(e) => e.preventDefault()} onclick={() => faderControl?.edit()}>{formatGain(mixer?.gain_db)} dB</button>
+  <button
+    class="readout gain"
+    type="button"
+    tabindex="-1"
+    title={t('controls.type')}
+    data-testid="mixer-gain"
+    onmousedown={(e) => e.preventDefault()}
+    onclick={() => faderControl?.edit()}>{formatGain(mixer?.gain_db)} dB</button
+  >
 </li>
 
 <style>

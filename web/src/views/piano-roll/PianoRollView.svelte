@@ -8,7 +8,20 @@
    */
   import { onDestroy, tick, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
-  import { addNotes, auditionOff, auditionOn, createClipAtStart, duplicateNotes, quantizeNotes, removeNotes, renameClip, setClipLength, setClipLoop, transposeNotes, updateNotes } from '../../lib/clip-commands'
+  import {
+    addNotes,
+    auditionOff,
+    auditionOn,
+    createClipAtStart,
+    duplicateNotes,
+    quantizeNotes,
+    removeNotes,
+    renameClip,
+    setClipLength,
+    setClipLoop,
+    transposeNotes,
+    updateNotes,
+  } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
@@ -71,8 +84,6 @@
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
-
-
 
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
@@ -183,7 +194,13 @@
     return g && (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
   })
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
-  const loopShown = $derived(gesture?.kind === 'loop' ? (gesture.from === gesture.to ? edited?.looping ?? null : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }) : (edited?.looping ?? null))
+  const loopShown = $derived(
+    gesture?.kind === 'loop'
+      ? gesture.from === gesture.to
+        ? (edited?.looping ?? null)
+        : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }
+      : (edited?.looping ?? null),
+  )
 
   // The play position inside the edited clip (#293). The engine reports about 30 times a second; while the transport
   // runs, the tick is carried on from the last report at each animation frame, so that the bar moves at the screen's pace.
@@ -712,14 +729,34 @@
         </select>
       {/if}
       {#if renaming}
-        <input class="rename" data-testid="roll-clip-rename" aria-label={t('pianoRoll.clipName')} maxlength="200" bind:this={nameField} bind:value={draft} onkeydown={onRenameKey} onblur={() => finishRename(true)} />
+        <input
+          class="rename"
+          data-testid="roll-clip-rename"
+          aria-label={t('pianoRoll.clipName')}
+          maxlength="200"
+          bind:this={nameField}
+          bind:value={draft}
+          onkeydown={onRenameKey}
+          onblur={() => finishRename(true)}
+        />
       {:else}
-        <button class="name" type="button" title={t('pianoRoll.renameHint')} data-testid="roll-clip-name" ondblclick={startRename} onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button>
+        <button
+          class="name"
+          type="button"
+          title={t('pianoRoll.renameHint')}
+          data-testid="roll-clip-name"
+          ondblclick={startRename}
+          onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button
+        >
       {/if}
       <span class="origin" data-testid="roll-clip-origin">{origin}</span>
       <div class="group" role="radiogroup" aria-label={t('pianoRoll.tools')}>
-        <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}>{t('pianoRoll.draw')}</button>
-        <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}>{t('pianoRoll.select')}</button>
+        <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}
+          >{t('pianoRoll.draw')}</button
+        >
+        <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}
+          >{t('pianoRoll.select')}</button
+        >
       </div>
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
@@ -731,16 +768,47 @@
       </label>
       <div class="field" role="group" aria-label={t('pianoRoll.length')}>
         <span>{t('pianoRoll.length')}</span>
-        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}>−</button>
-        <input type="number" min="1" max={MAX_BARS} step="1" value={totalBars} aria-label={t('pianoRoll.length')} data-testid="roll-length" onchange={onLengthChange} />
-        <button class="step" aria-label={t('pianoRoll.longer')} data-testid="roll-longer" disabled={totalBars >= MAX_BARS} onclick={() => setBars(totalBars + 1)}>+</button>
+        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}
+          >−</button
+        >
+        <input
+          type="number"
+          min="1"
+          max={MAX_BARS}
+          step="1"
+          value={totalBars}
+          aria-label={t('pianoRoll.length')}
+          data-testid="roll-length"
+          onchange={onLengthChange}
+        />
+        <button
+          class="step"
+          aria-label={t('pianoRoll.longer')}
+          data-testid="roll-longer"
+          disabled={totalBars >= MAX_BARS}
+          onclick={() => setBars(totalBars + 1)}>+</button
+        >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
       <button disabled={chosenNotes.length === 0} data-testid="roll-delete" onclick={removeSelected}>{t('pianoRoll.delete')}</button>
       <div class="group" role="group" aria-label={t('pianoRoll.edit')}>
-        <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}>{t('pianoRoll.duplicate')}</button>
-        <button title={t('pianoRoll.transposeDownHint')} aria-label={t('pianoRoll.transposeDown')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-down" onclick={() => transposeChosen(-1)}>−1</button>
-        <button title={t('pianoRoll.transposeUpHint')} aria-label={t('pianoRoll.transposeUp')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-up" onclick={() => transposeChosen(1)}>+1</button>
+        <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}
+          >{t('pianoRoll.duplicate')}</button
+        >
+        <button
+          title={t('pianoRoll.transposeDownHint')}
+          aria-label={t('pianoRoll.transposeDown')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-transpose-down"
+          onclick={() => transposeChosen(-1)}>−1</button
+        >
+        <button
+          title={t('pianoRoll.transposeUpHint')}
+          aria-label={t('pianoRoll.transposeUp')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-transpose-up"
+          onclick={() => transposeChosen(1)}>+1</button
+        >
       </div>
       <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
         <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
@@ -748,11 +816,25 @@
             <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
           {/each}
         </select>
-        <input type="number" min="0" max="100" step="1" value={quantizeStrength} aria-label={t('pianoRoll.quantizeStrength')} title={t('pianoRoll.quantizeStrength')} data-testid="roll-quantize-strength" onchange={onStrengthChange} />
+        <input
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          value={quantizeStrength}
+          aria-label={t('pianoRoll.quantizeStrength')}
+          title={t('pianoRoll.quantizeStrength')}
+          data-testid="roll-quantize-strength"
+          onchange={onStrengthChange}
+        />
         <span>%</span>
-        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}>{t('pianoRoll.quantize')}</button>
+        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}
+          >{t('pianoRoll.quantize')}</button
+        >
       </div>
-      <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}>{t('pianoRoll.count', { n: notes.length })}</span>
+      <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
+        >{t('pianoRoll.count', { n: notes.length })}</span
+      >
     </div>
 
     <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
@@ -767,10 +849,7 @@
         onpointercancel={keysUp}
         onlostpointercapture={keysUp}
       >
-        <Surface
-          label={t('pianoRoll.keyboard')}
-          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)}
-        />
+        <Surface label={t('pianoRoll.keyboard')} draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)} />
       </div>
       <div
         class="stage"

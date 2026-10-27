@@ -10,7 +10,20 @@
   import type { Command } from '../../lib/generated/protocol'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
-  import { DEFAULT_PX_PER_TICK, DEFAULT_TOTAL_BARS, SNAP_SETTINGS, clampView, snapStep, snapTick, totalTicksOf, visibleRange, xToTick, zoomAt, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
+  import {
+    DEFAULT_PX_PER_TICK,
+    DEFAULT_TOTAL_BARS,
+    SNAP_SETTINGS,
+    clampView,
+    snapStep,
+    snapTick,
+    totalTicksOf,
+    visibleRange,
+    xToTick,
+    zoomAt,
+    type SnapSetting,
+    type View,
+  } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
@@ -47,7 +60,18 @@
   const SPARE_BARS = 16
 
   type Gesture =
-    | { kind: 'move' | 'copy'; grabbed: Block; ids: string[]; snapshot: Block[]; grabTick: number; delta: number; moved: boolean; linked: boolean; startX: number; startY: number }
+    | {
+        kind: 'move' | 'copy'
+        grabbed: Block
+        ids: string[]
+        snapshot: Block[]
+        grabTick: number
+        delta: number
+        moved: boolean
+        linked: boolean
+        startX: number
+        startY: number
+      }
     | { kind: 'resize'; grabbed: Block; edge: 'start' | 'end'; to: number | null; moved: boolean; startX: number }
     | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number }
 
@@ -277,7 +301,18 @@
     } else if (!picked.has(block.id)) picked = new Set([block.id])
     if (zone === 'body') {
       const ids = blocks.filter((b) => picked.has(b.id)).map((b) => b.id)
-      gesture = { kind: copy ? 'copy' : 'move', grabbed: block, ids, snapshot: blocks.filter((b) => picked.has(b.id)), grabTick: xToTick(x, shown), delta: 0, moved: false, linked: copy && event.shiftKey, startX: x, startY: y }
+      gesture = {
+        kind: copy ? 'copy' : 'move',
+        grabbed: block,
+        ids,
+        snapshot: blocks.filter((b) => picked.has(b.id)),
+        grabTick: xToTick(x, shown),
+        delta: 0,
+        moved: false,
+        linked: copy && event.shiftKey,
+        startX: x,
+        startY: y,
+      }
     } else {
       gesture = { kind: 'resize', grabbed: block, edge: zone, to: null, moved: false, startX: x }
     }
@@ -347,7 +382,12 @@
 
   function duplicate(linked: boolean) {
     const by = copyShift(selection)
-    if (by !== null) copyAndSelect(selection.map((b) => b.id), linked, by)
+    if (by !== null)
+      copyAndSelect(
+        selection.map((b) => b.id),
+        linked,
+        by,
+      )
   }
 
   function removeSelected() {
@@ -428,7 +468,9 @@
     data-testid="arrangement"
     data-block-count={blocks.length}
     data-selected-count={selection.length}
-    data-blocks={blocks.length <= 48 ? JSON.stringify(blocks.map(({ id, track, row, clip, start, length, offset }) => ({ id, track, row, clip, start, length, offset }))) : undefined}
+    data-blocks={blocks.length <= 48
+      ? JSON.stringify(blocks.map(({ id, track, row, clip, start, length, offset }) => ({ id, track, row, clip, start, length, offset })))
+      : undefined}
     data-selection={JSON.stringify(selection.map((b) => b.id))}
     data-loop={transport?.loop_region ? `${transport.loop_region.start}-${transport.loop_region.end}` : ''}
     data-loop-on={loopOn}
@@ -445,23 +487,50 @@
         </select>
       </label>
       <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
-      <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}>{t('arrangement.duplicate')}</button>
-      <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}>{t('arrangement.duplicateLinked')}</button>
+      <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
+        >{t('arrangement.duplicate')}</button
+      >
+      <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
+        >{t('arrangement.duplicateLinked')}</button
+      >
       <button disabled={selection.length === 0} data-testid="arr-delete" onclick={removeSelected}>{t('arrangement.delete')}</button>
       <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
-        <button title={t('arrangement.zoomOut')} aria-label={t('arrangement.zoomOut')} disabled={!canZoomOut} data-testid="arr-zoom-out" onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button>
-        <button title={t('arrangement.zoomIn')} aria-label={t('arrangement.zoomIn')} disabled={!canZoomIn} data-testid="arr-zoom-in" onclick={() => zoomBy(ZOOM_STEP)}>+</button>
+        <button
+          title={t('arrangement.zoomOut')}
+          aria-label={t('arrangement.zoomOut')}
+          disabled={!canZoomOut}
+          data-testid="arr-zoom-out"
+          onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button
+        >
+        <button
+          title={t('arrangement.zoomIn')}
+          aria-label={t('arrangement.zoomIn')}
+          disabled={!canZoomIn}
+          data-testid="arr-zoom-in"
+          onclick={() => zoomBy(ZOOM_STEP)}>+</button
+        >
       </span>
-      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}>{t('arrangement.follow')}</button>
+      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
+        >{t('arrangement.follow')}</button
+      >
       <span class="help" title={t('arrangement.help')}>?</span>
-      <span class="count" data-testid="arr-count">{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0} · {t('arrangement.selected', { n: selection.length })}{/if}</span>
+      <span class="count" data-testid="arr-count"
+        >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
+          · {t('arrangement.selected', { n: selection.length })}{/if}</span
+      >
     </div>
 
     <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
       <div class="heads" data-testid="arr-heads">
         <div class="slide" style:transform="translateY({-y0}px)">
           {#each entries as entry (entry.id)}
-            <div class="row" title={detached.has(entry.id) ? t('arrangement.offTimeline') : undefined} style:height="{LANE_HEIGHT}px" class:off={detached.has(entry.id)} data-detached={detached.has(entry.id) ? 'true' : undefined}>
+            <div
+              class="row"
+              title={detached.has(entry.id) ? t('arrangement.offTimeline') : undefined}
+              style:height="{LANE_HEIGHT}px"
+              class:off={detached.has(entry.id)}
+              data-detached={detached.has(entry.id) ? 'true' : undefined}
+            >
               <button
                 class="head"
                 class:on={project.selected?.id === entry.id}
@@ -512,7 +581,20 @@
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
       </div>
       <div class="corner"></div>
-      <div class="hbar" bind:this={scrollbar} onscroll={onBarScroll} data-testid="arr-scrollbar" role="scrollbar" aria-controls="arr-stage-grid" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax={totalTicks} aria-valuenow={Math.round(shown.scrollTick)} tabindex="0" aria-label={t('arrangement.scroll')}>
+      <div
+        class="hbar"
+        bind:this={scrollbar}
+        onscroll={onBarScroll}
+        data-testid="arr-scrollbar"
+        role="scrollbar"
+        aria-controls="arr-stage-grid"
+        aria-orientation="horizontal"
+        aria-valuemin="0"
+        aria-valuemax={totalTicks}
+        aria-valuenow={Math.round(shown.scrollTick)}
+        tabindex="0"
+        aria-label={t('arrangement.scroll')}
+      >
         <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
       </div>
     </div>

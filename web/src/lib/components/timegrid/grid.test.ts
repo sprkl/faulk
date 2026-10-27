@@ -88,7 +88,12 @@ describe('clampView', () => {
 describe('zoomAt', () => {
   it('keeps the tick under the pointer where it is', () => {
     const v = view(0.1, 20_000)
-    for (const [factor, anchor] of [[2, 300], [0.5, 700], [1.25, 0], [3, 1000]] as const) {
+    for (const [factor, anchor] of [
+      [2, 300],
+      [0.5, 700],
+      [1.25, 0],
+      [3, 1000],
+    ] as const) {
       const zoomed = zoomAt(v, factor, anchor, WIDTH, TOTAL)
       expect(xToTick(anchor, zoomed)).toBeCloseTo(xToTick(anchor, v), 6)
       expect(zoomed.pxPerTick).toBeCloseTo(v.pxPerTick * factor, 12)

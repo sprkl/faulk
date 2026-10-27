@@ -10,8 +10,7 @@ test.describe.configure({ mode: 'serial' })
 
 const feedback = (page: Page) => page.getByTestId('feedback')
 const number = async (page: Page, attribute: string) => Number(await feedback(page).getAttribute(attribute))
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 async function start(page: Page) {
   await fakeWebMidi(page)
@@ -46,7 +45,10 @@ test('the playhead advances while the transport plays and stops with it', async 
   expect(await number(page, 'data-tick')).toBe(0)
   await run({ type: 'transport.play' })
   await expect(feedback(page)).toHaveAttribute('data-transport', 'playing')
-  const first = await expect.poll(() => number(page, 'data-tick')).toBeGreaterThan(0).then(() => number(page, 'data-tick'))
+  const first = await expect
+    .poll(() => number(page, 'data-tick'))
+    .toBeGreaterThan(0)
+    .then(() => number(page, 'data-tick'))
   await expect.poll(() => number(page, 'data-tick'), { timeout: 5000 }).toBeGreaterThan(first + 100)
   await run({ type: 'transport.stop' })
   await expect(feedback(page)).toHaveAttribute('data-transport', 'stopped')

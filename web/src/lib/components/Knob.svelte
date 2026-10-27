@@ -60,7 +60,21 @@
 
 <div class="knob" title={hint}>
   <span class="label">{label}</span>
-  <Slider bind:this={slider} kind="knob" {entry} {label} {position} {home} valueText={display} defaultText={defaultDisplay} {hint} {onbegin} {onend} onposition={onchange} {onreset}>
+  <Slider
+    bind:this={slider}
+    kind="knob"
+    {entry}
+    {label}
+    {position}
+    {home}
+    valueText={display}
+    defaultText={defaultDisplay}
+    {hint}
+    {onbegin}
+    {onend}
+    onposition={onchange}
+    {onreset}
+  >
     <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
       <path d={arc(START, START + SWEEP)} class="track" />
       {#if position > 0.001}
@@ -70,7 +84,15 @@
     </svg>
   </Slider>
   {#if entry}
-    <button class="value" type="button" tabindex="-1" title={ui.t('controls.type')} data-testid="value-readout" onmousedown={(e) => e.preventDefault()} onclick={() => slider?.edit()}>{display}</button>
+    <button
+      class="value"
+      type="button"
+      tabindex="-1"
+      title={ui.t('controls.type')}
+      data-testid="value-readout"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => slider?.edit()}>{display}</button
+    >
   {:else}
     <span class="value">{display}</span>
   {/if}

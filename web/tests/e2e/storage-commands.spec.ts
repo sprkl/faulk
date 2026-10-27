@@ -53,7 +53,11 @@ async function start(page: Page) {
 async function simulate(page: Page, first: string, options: { browserStorage: boolean; lang?: 'fr' }) {
   await page.addInitScript(
     ([folder, browserStorage, lang]) => {
-      const w = window as unknown as Faulk & { __allow: boolean; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>; __faulkNoBrowserStorage?: boolean }
+      const w = window as unknown as Faulk & {
+        __allow: boolean
+        showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>
+        __faulkNoBrowserStorage?: boolean
+      }
       w.__pick = folder as string
       w.__perm = sessionStorage.getItem('perm') ?? 'granted'
       w.__allow = true
@@ -120,7 +124,9 @@ const saveAs = async (page: Page) => {
 }
 
 test.describe('the projects the page keeps, by command', () => {
-  test('list_stored, reopen_last, open_browser_project, delete_browser_project: a draft is found, reopened and deleted only after the question', async ({ page }) => {
+  test('list_stored, reopen_last, open_browser_project, delete_browser_project: a draft is found, reopened and deleted only after the question', async ({
+    page,
+  }) => {
     const { errors } = watch(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await simulate(page, 'cmd-draft', { browserStorage: true })

@@ -4,7 +4,21 @@ import { formatValue, type ParamDescriptor } from './devices'
 import { formatGain, formatPan } from './project/tracks'
 import { parseGain, parsePan, parseParam, parseQuantity } from './value-entry'
 
-const param = (over: Record<string, unknown>) => ({ id: 0, key: 'p', description: '', unit: 'none', min: 0, max: 1, default: 0, scale: 'linear', step: 0, smoothing_seconds: 0, values: [], ...over }) as unknown as ParamDescriptor
+const param = (over: Record<string, unknown>) =>
+  ({
+    id: 0,
+    key: 'p',
+    description: '',
+    unit: 'none',
+    min: 0,
+    max: 1,
+    default: 0,
+    scale: 'linear',
+    step: 0,
+    smoothing_seconds: 0,
+    values: [],
+    ...over,
+  }) as unknown as ParamDescriptor
 
 const seconds = param({ unit: 'seconds', min: 0.002, max: 30, scale: 'log' })
 const hertz = param({ unit: 'hertz', min: 30, max: 12000, scale: 'log' })

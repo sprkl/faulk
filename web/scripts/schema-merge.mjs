@@ -28,8 +28,7 @@ const omit = (schema, keys) => Object.fromEntries(Object.entries(schema).filter(
  * @param {Schema} a
  * @param {Schema} b
  */
-export const sameDefinition = (a, b) =>
-  JSON.stringify(canonical(omit(a, ['title']))) === JSON.stringify(canonical(omit(b, ['title'])))
+export const sameDefinition = (a, b) => JSON.stringify(canonical(omit(a, ['title']))) === JSON.stringify(canonical(omit(b, ['title'])))
 
 /**
  * A domain without commands yet is `{ "not": {} }`, a type with no values; the compiler

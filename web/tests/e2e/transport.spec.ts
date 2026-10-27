@@ -7,8 +7,32 @@ import { watch } from './support'
 // Screenshots go to the folder named by FAULK_E2E_SHOTS, when set.
 
 const TEXTS = {
-  en: { play: 'Play', stop: 'Stop', rewind: 'Back to start', record: 'Record', loop: 'Loop', metronome: 'Metronome', tempo: 'Tempo (BPM)', numerator: 'Beats per bar', denominator: 'Beat unit', quantize: 'Launch quantization', bar: '1 bar' },
-  fr: { play: 'Lecture', stop: 'Stop', rewind: 'Retour au début', record: 'Enregistrer', loop: 'Boucle', metronome: 'Métronome', tempo: 'Tempo (BPM)', numerator: 'Temps par mesure', denominator: 'Valeur du temps', quantize: 'Quantification de lancement', bar: '1 mesure' },
+  en: {
+    play: 'Play',
+    stop: 'Stop',
+    rewind: 'Back to start',
+    record: 'Record',
+    loop: 'Loop',
+    metronome: 'Metronome',
+    tempo: 'Tempo (BPM)',
+    numerator: 'Beats per bar',
+    denominator: 'Beat unit',
+    quantize: 'Launch quantization',
+    bar: '1 bar',
+  },
+  fr: {
+    play: 'Lecture',
+    stop: 'Stop',
+    rewind: 'Retour au début',
+    record: 'Enregistrer',
+    loop: 'Boucle',
+    metronome: 'Métronome',
+    tempo: 'Tempo (BPM)',
+    numerator: 'Temps par mesure',
+    denominator: 'Valeur du temps',
+    quantize: 'Quantification de lancement',
+    bar: '1 mesure',
+  },
 } as const
 
 const control = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })

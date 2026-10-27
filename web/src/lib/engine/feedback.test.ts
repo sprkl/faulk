@@ -137,7 +137,11 @@ describe('decodeFeedback, the launch grid', () => {
 
   it('refuses a state it does not know, more cells than two per track, and cells cut short', () => {
     for (const state of [0, 6, 255]) expect(decodeFeedback(report(1, undefined, [[0, 0, state]]))).toBeNull()
-    const three: Cell[] = [[0, 0, 2], [0, 1, 1], [0, 2, 1]]
+    const three: Cell[] = [
+      [0, 0, 2],
+      [0, 1, 1],
+      [0, 2, 1],
+    ]
     expect(decodeFeedback(report(1, undefined, three))).toBeNull()
     expect(decodeFeedback(report(1, undefined, [[0, 0, 2]]).slice(0, -1))).toBeNull()
     // A count that announces more cells than the bytes hold.

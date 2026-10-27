@@ -76,12 +76,25 @@
       {:else}
         <ul class="inputs" data-testid="midi-inputs">
           <li>
-            <label><input type="radio" name="midi" checked={engine.selectedInput === null} onchange={() => dispatcher.run({ type: 'midi.select_input', id: null })} /> {t('midi.none')}</label>
+            <label
+              ><input
+                type="radio"
+                name="midi"
+                checked={engine.selectedInput === null}
+                onchange={() => dispatcher.run({ type: 'midi.select_input', id: null })}
+              />
+              {t('midi.none')}</label
+            >
           </li>
           {#each engine.inputs as input (input.id)}
             <li>
               <label>
-                <input type="radio" name="midi" checked={engine.selectedInput === input.id} onchange={() => dispatcher.run({ type: 'midi.select_input', id: input.id })} />
+                <input
+                  type="radio"
+                  name="midi"
+                  checked={engine.selectedInput === input.id}
+                  onchange={() => dispatcher.run({ type: 'midi.select_input', id: input.id })}
+                />
                 {input.name}
                 {#if engine.selectedInput === input.id && engine.activeNotes.length > 0}<span class="led" aria-hidden="true"></span>{/if}
               </label>

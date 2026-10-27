@@ -28,8 +28,7 @@ function readFolder(dir: string, base = ''): File[] {
 const text = (s: string) => [...new TextEncoder().encode(s)]
 const feedback = (page: Page) => page.getByTestId('feedback')
 const master = async (page: Page) => Number(await feedback(page).getAttribute('data-master-peak'))
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 const open = (page: Page, name: string, files: File[]) =>
   page.evaluate(
     ([n, f]) => (window as unknown as { __faulkOpen: (n: string, f: unknown) => Promise<{ status: string; reason?: string }> }).__faulkOpen(n as string, f),
@@ -53,10 +52,15 @@ test('opening a project folder stops the old project, shows the new one and its 
 
   // A folder that is not a project: a notice, the old project and its note stay.
   const song = readFolder(SONG)
-  const newer = song.map((f) => (f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 1', '"format": 99')) } : f))
+  const newer = song.map((f) =>
+    f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 1', '"format": 99')) } : f,
+  )
   expect(await open(page, 'newer', newer)).toEqual({ status: 'refused', reason: 'newer_format' })
   await expect(page.getByRole('status').filter({ hasText: 'newer version' })).toBeVisible()
-  expect(await open(page, 'broken', [...song.filter((f) => f.path !== 'project.json'), { path: 'project.json', bytes: text('{"format": 1') }])).toEqual({ status: 'refused', reason: 'corrupt' })
+  expect(await open(page, 'broken', [...song.filter((f) => f.path !== 'project.json'), { path: 'project.json', bytes: text('{"format": 1') }])).toEqual({
+    status: 'refused',
+    reason: 'corrupt',
+  })
   await expect(page.getByRole('status').filter({ hasText: 'damaged or incomplete' })).toBeVisible()
   await expect(page.getByTestId('track-header')).toHaveCount(1)
   // Nothing was touched: the note still sounds (polled over the synth's release) and the keyboard stays selected.

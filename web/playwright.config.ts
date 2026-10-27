@@ -41,6 +41,15 @@ export default defineConfig({
   webServer: [
     ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),
     // The e2e build also carries the test surfaces under /dev (the time grid's, AR-3); a production build has them empty.
-    ...(wanted.includes('preview') ? [{ command: `pnpm build && pnpm exec vite preview --port ${previewPort}`, url: `http://localhost:${previewPort}/app`, timeout: 300_000, env: { VITE_FAULK_DEV_ROUTES: '1' } }] : []),
+    ...(wanted.includes('preview')
+      ? [
+          {
+            command: `pnpm build && pnpm exec vite preview --port ${previewPort}`,
+            url: `http://localhost:${previewPort}/app`,
+            timeout: 300_000,
+            env: { VITE_FAULK_DEV_ROUTES: '1' },
+          },
+        ]
+      : []),
   ],
 })

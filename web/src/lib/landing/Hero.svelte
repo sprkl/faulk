@@ -98,8 +98,7 @@
     inset: -10%;
     filter: blur(60px);
     background:
-      radial-gradient(40% 45% at 28% 60%, #00c1d5 0%, rgb(0 193 213 / 0) 70%),
-      radial-gradient(42% 48% at 55% 46%, #b060f0 0%, rgb(176 96 240 / 0) 72%),
+      radial-gradient(40% 45% at 28% 60%, #00c1d5 0%, rgb(0 193 213 / 0) 70%), radial-gradient(42% 48% at 55% 46%, #b060f0 0%, rgb(176 96 240 / 0) 72%),
       radial-gradient(28% 32% at 72% 30%, #ff7a3d 0%, rgb(255 122 61 / 0) 75%);
   }
   /* The colour foci drift slowly, like a sound that keeps sounding. */

@@ -57,7 +57,9 @@ function serve(files: Entry[]): Promise<{ server: Server; origin: string }> {
     }
     res.writeHead(404).end()
   })
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, origin: `http://localhost:${(server.address() as { port: number }).port}` })))
+  return new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve({ server, origin: `http://localhost:${(server.address() as { port: number }).port}` })),
+  )
 }
 
 /** Helpers the measurements share, defined once in the page. */
@@ -263,43 +265,46 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
         },
         { concurrency, runs },
       )
-      console.log(`OPFS write of the whole folder, async createWritable, ${concurrency} at a time: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`)
+      console.log(
+        `OPFS write of the whole folder, async createWritable, ${concurrency} at a time: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`,
+      )
     }
 
     // One worker, synchronous access handles.
     {
-      const times = await page.evaluate(
-        async (src) => {
-          const store = (window as unknown as { __files: Map<string, ArrayBuffer> }).__files
-          const out: number[] = []
-          for (let r = 0; r < 3; r++) {
-            const worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
-            await (async () => {
-              const root = await navigator.storage.getDirectory()
-              try {
-                await root.removeEntry('qa7-sync', { recursive: true })
-              } catch {
-                /* absent */
-              }
-            })()
-            const copy = [...store.entries()].map(([p, b]) => [p, b.slice(0)] as [string, ArrayBuffer])
-            const ms = await new Promise<number>((resolve) => {
-              worker.onmessage = (e) => resolve(e.data.ms)
-              worker.postMessage({ type: 'write', name: 'qa7-sync', files: copy })
-            })
-            out.push(ms)
-            worker.terminate()
-          }
-          return out
-        },
-        SYNC_WORKER,
+      const times = await page.evaluate(async (src) => {
+        const store = (window as unknown as { __files: Map<string, ArrayBuffer> }).__files
+        const out: number[] = []
+        for (let r = 0; r < 3; r++) {
+          const worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
+          await (async () => {
+            const root = await navigator.storage.getDirectory()
+            try {
+              await root.removeEntry('qa7-sync', { recursive: true })
+            } catch {
+              /* absent */
+            }
+          })()
+          const copy = [...store.entries()].map(([p, b]) => [p, b.slice(0)] as [string, ArrayBuffer])
+          const ms = await new Promise<number>((resolve) => {
+            worker.onmessage = (e) => resolve(e.data.ms)
+            worker.postMessage({ type: 'write', name: 'qa7-sync', files: copy })
+          })
+          out.push(ms)
+          worker.terminate()
+        }
+        return out
+      }, SYNC_WORKER)
+      console.log(
+        `OPFS write of the whole folder, one worker, synchronous access handles: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`,
       )
-      console.log(`OPFS write of the whole folder, one worker, synchronous access handles: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`)
     }
 
     // Listing, then reads: async 1/8/32, then a worker's sync handles.
     const listing = await page.evaluate(async () => {
-      const q = (window as unknown as { __qa7: { now(): number; root(): Promise<FileSystemDirectoryHandle>; listAll(h: FileSystemDirectoryHandle): Promise<string[]> } }).__qa7
+      const q = (
+        window as unknown as { __qa7: { now(): number; root(): Promise<FileSystemDirectoryHandle>; listAll(h: FileSystemDirectoryHandle): Promise<string[]> } }
+      ).__qa7
       const top = await (await q.root()).getDirectoryHandle('qa7-async')
       const out: number[] = []
       let n = 0
@@ -313,7 +318,16 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
     console.log(`OPFS listing of the whole tree (entries()): ${median(listing.out).toFixed(0)} ms median over 5, ${listing.n} files`)
     for (const concurrency of [1, 8, 32]) {
       const times = await page.evaluate(async (concurrency) => {
-        const q = (window as unknown as { __qa7: { now(): number; root(): Promise<FileSystemDirectoryHandle>; dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle>; pool<T>(n: number, items: T[], f: (i: T) => Promise<void>): Promise<void> } }).__qa7
+        const q = (
+          window as unknown as {
+            __qa7: {
+              now(): number
+              root(): Promise<FileSystemDirectoryHandle>
+              dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle>
+              pool<T>(n: number, items: T[], f: (i: T) => Promise<void>): Promise<void>
+            }
+          }
+        ).__qa7
         const top = await (await q.root()).getDirectoryHandle('qa7-async')
         const paths = [...(window as unknown as { __files: Map<string, ArrayBuffer> }).__files.keys()]
         const out: number[] = []
@@ -332,7 +346,9 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
         }
         return out
       }, concurrency)
-      console.log(`OPFS read of the whole folder, async getFile().arrayBuffer(), ${concurrency} at a time: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`)
+      console.log(
+        `OPFS read of the whole folder, async getFile().arrayBuffer(), ${concurrency} at a time: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`,
+      )
     }
     {
       const times = await page.evaluate(
@@ -351,7 +367,9 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
         },
         { src: SYNC_WORKER, paths: files.map((f) => f.path) },
       )
-      console.log(`OPFS read of the whole folder, one worker, synchronous access handles: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`)
+      console.log(
+        `OPFS read of the whole folder, one worker, synchronous access handles: ${median(times).toFixed(0)} ms median (runs ${times.map((t) => t.toFixed(0)).join(', ')})`,
+      )
     }
 
     // The save of one note: the one clip file rewritten.
@@ -359,7 +377,15 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
     {
       const res = await page.evaluate(
         async ({ src, path }) => {
-          const q = (window as unknown as { __qa7: { now(): number; root(): Promise<FileSystemDirectoryHandle>; dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle> } }).__qa7
+          const q = (
+            window as unknown as {
+              __qa7: {
+                now(): number
+                root(): Promise<FileSystemDirectoryHandle>
+                dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle>
+              }
+            }
+          ).__qa7
           const store = (window as unknown as { __files: Map<string, ArrayBuffer> }).__files
           const buf = store.get(path) as ArrayBuffer
           const top = await (await q.root()).getDirectoryHandle('qa7-async')
@@ -387,8 +413,12 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
       )
       const med = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)]
       const p95 = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length * 0.95)]
-      console.log(`save of one note (one ${res.size}-byte clip file rewritten), async createWritable: median ${med(res.asyncTimes).toFixed(2)} ms, p95 ${p95(res.asyncTimes).toFixed(2)} ms (n=50)`)
-      console.log(`save of one note, synchronous access handle in a worker: median ${med(res.syncTimes).toFixed(2)} ms, p95 ${p95(res.syncTimes).toFixed(2)} ms (n=50)`)
+      console.log(
+        `save of one note (one ${res.size}-byte clip file rewritten), async createWritable: median ${med(res.asyncTimes).toFixed(2)} ms, p95 ${p95(res.asyncTimes).toFixed(2)} ms (n=50)`,
+      )
+      console.log(
+        `save of one note, synchronous access handle in a worker: median ${med(res.syncTimes).toFixed(2)} ms, p95 ${p95(res.syncTimes).toFixed(2)} ms (n=50)`,
+      )
     }
 
     // The cache snapshot as one file: write, read.
@@ -414,12 +444,23 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
       }
       return { size: buf.byteLength, writes, reads }
     })
-    console.log(`cache snapshot (${(snap.size / 1048576).toFixed(1)} MiB, one file): write ${median(snap.writes).toFixed(0)} ms, read ${median(snap.reads).toFixed(0)} ms (median of 3)`)
+    console.log(
+      `cache snapshot (${(snap.size / 1048576).toFixed(1)} MiB, one file): write ${median(snap.writes).toFixed(0)} ms, read ${median(snap.reads).toFixed(0)} ms (median of 3)`,
+    )
 
     // The Rust reader, in the page: open from the OPFS files, then from the snapshot.
     const open = await page.evaluate(
       async ({ list }) => {
-        const q = (window as unknown as { __qa7: { now(): number; root(): Promise<FileSystemDirectoryHandle>; dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle>; pool<T>(n: number, items: T[], f: (i: T) => Promise<void>): Promise<void> } }).__qa7
+        const q = (
+          window as unknown as {
+            __qa7: {
+              now(): number
+              root(): Promise<FileSystemDirectoryHandle>
+              dir(b: FileSystemDirectoryHandle, k: string, p: string[]): Promise<FileSystemDirectoryHandle>
+              pool<T>(n: number, items: T[], f: (i: T) => Promise<void>): Promise<void>
+            }
+          }
+        ).__qa7
         type Ex = {
           memory: WebAssembly.Memory
           fk_bench_alloc(n: number): number
@@ -544,7 +585,9 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
       console.log(
         `  ${last.tracks} tracks, ${last.notes} notes, ${last.points} points; validate ${pick('validate').toFixed(0)} ms (${last.violations} violations); wasm memory ${(Number(last.memory) / 1048576).toFixed(0)} MiB after the open (${(Number(last.peakAfterCopy) / 1048576).toFixed(0)} MiB when the input was copied in); JS heap ${(Number(last.jsHeap) / 1048576).toFixed(0)} MiB`,
       )
-      console.log(`  serialise every file of the project (no write): ${pick('serialize').toFixed(0)} ms, ${(Number(last.serializeBytes) / 1048576).toFixed(1)} MiB; one clip's notes file: ${pick('serializeOneClip').toFixed(2)} ms (${last.clipBytes} bytes)`)
+      console.log(
+        `  serialise every file of the project (no write): ${pick('serialize').toFixed(0)} ms, ${(Number(last.serializeBytes) / 1048576).toFixed(1)} MiB; one clip's notes file: ${pick('serializeOneClip').toFixed(2)} ms (${last.clipBytes} bytes)`,
+      )
       expect(last.notes).toBe(200000)
       expect(last.points).toBe(6000000)
       expect(last.violations).toBe(0)
@@ -560,7 +603,11 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
       for (const fan of [false, true]) {
         const r = await page.evaluate(
           async ({ n, fan }) => {
-            const q = (window as unknown as { __qa7: { now(): number; fresh(n: string): Promise<FileSystemDirectoryHandle>; listAll(h: FileSystemDirectoryHandle): Promise<string[]> } }).__qa7
+            const q = (
+              window as unknown as {
+                __qa7: { now(): number; fresh(n: string): Promise<FileSystemDirectoryHandle>; listAll(h: FileSystemDirectoryHandle): Promise<string[]> }
+              }
+            ).__qa7
             const top = await q.fresh('qa7-blobs')
             const hex = (i: number) => {
               // A SHA-256 look-alike: 64 hex characters from the index, spread over the first byte.
@@ -607,7 +654,9 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
           },
           { n, fan },
         )
-        console.log(`OPFS blobs/ ${fan ? '256 sub-folders' : 'flat'}, ${n} files of 64 bytes: create ${r.create.toFixed(0)} ms (${((r.create / n) * 1000).toFixed(0)} µs per file), list ${r.list.toFixed(0)} ms, 200 lookups ${r.look.toFixed(0)} ms (listed ${r.listed})`)
+        console.log(
+          `OPFS blobs/ ${fan ? '256 sub-folders' : 'flat'}, ${n} files of 64 bytes: create ${r.create.toFixed(0)} ms (${((r.create / n) * 1000).toFixed(0)} µs per file), list ${r.list.toFixed(0)} ms, 200 lookups ${r.look.toFixed(0)} ms (listed ${r.listed})`,
+        )
         expect(r.listed).toBe(n)
       }
     }
@@ -679,7 +728,9 @@ test.describe('QA-7: the project folder in OPFS and the Rust reader in the page'
       return { out, usage: e.usage ?? 0, quota: e.quota ?? 0 }
     })
     for (const o of r.out) {
-      console.log(`audio blob ${o.mib} MiB in OPFS: write ${o.write.toFixed(0)} ms (${((o.mib / o.write) * 1000).toFixed(0)} MiB/s), read back ${o.read.toFixed(0)} ms, SubtleCrypto SHA-256 of the whole buffer ${o.sha.toFixed(0)} ms`)
+      console.log(
+        `audio blob ${o.mib} MiB in OPFS: write ${o.write.toFixed(0)} ms (${((o.mib / o.write) * 1000).toFixed(0)} MiB/s), read back ${o.read.toFixed(0)} ms, SubtleCrypto SHA-256 of the whole buffer ${o.sha.toFixed(0)} ms`,
+      )
     }
     console.log(`storage used ${(r.usage / 1048576).toFixed(0)} MiB of ${(r.quota / 1073741824).toFixed(1)} GiB`)
   })

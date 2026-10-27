@@ -25,13 +25,20 @@ describe('refusalOf', () => {
   })
 
   it('names what a limit counts, and falls back for an entity it does not know', () => {
-    expect(refusalOf({ code: 'limit', entity: 'clips per track', max: 7 })).toEqual({ key: 'refusal.limit', vars: { max: 7 }, whatKey: 'refusal.entity.clipsPerTrack' })
+    expect(refusalOf({ code: 'limit', entity: 'clips per track', max: 7 })).toEqual({
+      key: 'refusal.limit',
+      vars: { max: 7 },
+      whatKey: 'refusal.entity.clipsPerTrack',
+    })
     expect(refusalOf({ code: 'limit', entity: 'something new', max: 3 }).whatKey).toBe('refusal.entity.other')
   })
 
   it('knows every entity the commands crate can name in a limit, and only those', () => {
     const dir = `${process.cwd()}/../crates/commands/src`
-    const sources = readdirSync(dir).filter((f) => f.endsWith('.rs')).map((f) => readFileSync(`${dir}/${f}`, 'utf8')).join('\n')
+    const sources = readdirSync(dir)
+      .filter((f) => f.endsWith('.rs'))
+      .map((f) => readFileSync(`${dir}/${f}`, 'utf8'))
+      .join('\n')
     const named = new Set<string>()
     // `CommandError::Limit { entity: "x".into(), ..}`, `check_total("x", ..)` and the `("x", counts.x, ..)` rows of the per-track check.
     for (const m of sources.matchAll(/Limit\s*\{\s*entity:\s*"([^"]+)"/g)) named.add(m[1])

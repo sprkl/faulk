@@ -64,10 +64,11 @@ test.describe('time grid', () => {
 
   test('draws again after a resize and after a change of the pixel ratio', async ({ page }) => {
     const seen = await open(page)
-    const canvasSize = () => page.evaluate(() => {
-      const el = document.querySelector('[data-testid=timegrid] canvas') as HTMLCanvasElement
-      return { width: el.width, height: el.height, css: (el.parentElement as HTMLElement).getBoundingClientRect().width, dpr: window.devicePixelRatio }
-    })
+    const canvasSize = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid=timegrid] canvas') as HTMLCanvasElement
+        return { width: el.width, height: el.height, css: (el.parentElement as HTMLElement).getBoundingClientRect().width, dpr: window.devicePixelRatio }
+      })
     const lineVisible = async (dpr: number) => {
       const onLine = await pixel(page, Math.round(384 * dpr), Math.round(100 * dpr))
       const between = await pixel(page, Math.round(390 * dpr), Math.round(100 * dpr))
@@ -132,7 +133,7 @@ test.describe('time grid', () => {
     await grid(page).focus()
     await page.keyboard.press('ArrowRight')
     const width = (await grid(page).boundingBox())!.width
-    expect(await scrollTick(page)).toBeCloseTo(6000 + (width / 10) / 0.1, 3)
+    expect(await scrollTick(page)).toBeCloseTo(6000 + width / 10 / 0.1, 3)
     await page.keyboard.press('ArrowLeft')
     await expect.poll(() => scrollTick(page)).toBeCloseTo(6000, 3)
     await page.keyboard.press('Home')

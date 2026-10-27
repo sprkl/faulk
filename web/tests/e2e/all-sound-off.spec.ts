@@ -10,8 +10,7 @@ test.describe.configure({ mode: 'serial' })
 
 const feedback = (page: Page) => page.getByTestId('feedback')
 const master = async (page: Page) => Number(await feedback(page).getAttribute('data-master-peak'))
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 const TEXTS = {
   en: { add: 'Add Echo to the track', hint: 'Stop and go back to the marker. Stop again: back to the start. Double-click to also cut all sound.' },

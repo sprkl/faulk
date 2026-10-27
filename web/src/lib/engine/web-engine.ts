@@ -55,10 +55,7 @@ export class WebEngine implements Engine {
 
   private static async start(context: AudioContext, events: EngineEvents, track: (w: Worker) => void): Promise<WebEngine> {
     const memory = engineMemory()
-    const [engineWasm] = await Promise.all([
-      fetch(wasmUrl).then((r) => r.arrayBuffer()),
-      context.audioWorklet.addModule(workletUrl),
-    ])
+    const [engineWasm] = await Promise.all([fetch(wasmUrl).then((r) => r.arrayBuffer()), context.audioWorklet.addModule(workletUrl)])
     const worker = new Worker(new URL('./prepare-worker.ts', import.meta.url), { type: 'module' })
     track(worker)
     const ready = await new Promise<Extract<FromPrepare, { type: 'ready' }>>((resolve, reject) => {

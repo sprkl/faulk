@@ -3,14 +3,7 @@
 // both modes (spec § 2.1): every command runs here and comes back as a report (output,
 // events) with the engine bytes it produced; TypeScript never maps a command to the engine.
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
-import type {
-  Command,
-  ExportReport,
-  ProjectEvent,
-  ProjectView,
-  RunReport,
-  SnapshotReport,
-} from '../generated/protocol'
+import type { Command, ExportReport, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
 
 interface CoreExports {
@@ -45,9 +38,7 @@ export interface StoredProjects {
 }
 
 /** A `.faulkpack` made by `ProjectCore.packExport`. */
-export type PackExport =
-  | { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number }
-  | { status: 'failed'; message: string }
+export type PackExport = { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number } | { status: 'failed'; message: string }
 
 /** The files of a `.faulkpack` read by `ProjectCore.packImport`, in the order of a save frame. */
 export type PackImport = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string }

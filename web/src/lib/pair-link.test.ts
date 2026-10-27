@@ -8,7 +8,18 @@ describe('pairing links', () => {
   })
 
   it('refuses anything else', () => {
-    for (const hash of ['', '#', '#pair=', '#pair=1234567', '#pair=123456789', '#pair=1234 5678', '#pair=abcdefgh', '#pair=12345678&x', '#other=12345678', 'pair=12345678']) {
+    for (const hash of [
+      '',
+      '#',
+      '#pair=',
+      '#pair=1234567',
+      '#pair=123456789',
+      '#pair=1234 5678',
+      '#pair=abcdefgh',
+      '#pair=12345678&x',
+      '#other=12345678',
+      'pair=12345678',
+    ]) {
       expect(pairCodeFromHash(hash), hash).toBeNull()
     }
     expect(isPairHash('#pair=x')).toBe(true)

@@ -28,7 +28,20 @@ class Measure extends AudioWorkletProcessor {
   constructor() {
     super()
     this.e = null
-    this.stats = { blocks: 0, silent: 0, pumpTicks: 0, busyTicks: 0, pumpMax: 0, firstTicks: 0, firstApplied: 0, pumpCalls: 0, applied: 0, maxApplied: 0, views: 0, peak: 0 }
+    this.stats = {
+      blocks: 0,
+      silent: 0,
+      pumpTicks: 0,
+      busyTicks: 0,
+      pumpMax: 0,
+      firstTicks: 0,
+      firstApplied: 0,
+      pumpCalls: 0,
+      applied: 0,
+      maxApplied: 0,
+      views: 0,
+      peak: 0,
+    }
     this.port.onmessage = (event) => {
       const m = event.data
       try {

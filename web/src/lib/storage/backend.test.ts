@@ -14,11 +14,7 @@ function folder() {
 describe('FolderBackend.apply', () => {
   it('writes the files in order, makes the directories, and gives the stamps of what is not in .faulk', async () => {
     const { dir, store } = folder()
-    const stamps = await store.apply([
-      write('tracks/a/track.json', '{"a":1}'),
-      write('project.json', '{"p":1}'),
-      write('.faulk/session.json', '{}'),
-    ])
+    const stamps = await store.apply([write('tracks/a/track.json', '{"a":1}'), write('project.json', '{"p":1}'), write('.faulk/session.json', '{}')])
     expect(dir.paths().sort()).toEqual(['.faulk/session.json', 'project.json', 'tracks/a/track.json'])
     expect(dir.text('tracks/a/track.json')).toBe('{"a":1}')
     expect(Object.keys(stamps).sort()).toEqual(['project.json', 'tracks/a/track.json'])
@@ -27,7 +23,13 @@ describe('FolderBackend.apply', () => {
 
   it('stamps exactly what a scan lists: the support files and the session are not in it', async () => {
     const { store } = folder()
-    const stamps = await store.apply([write('tracks/a/track.json', '1'), write('.gitignore', '.faulk/'), write('.gitattributes', 'x'), write('.faulk/session.json', '{}'), write('project.json', '{}')])
+    const stamps = await store.apply([
+      write('tracks/a/track.json', '1'),
+      write('.gitignore', '.faulk/'),
+      write('.gitattributes', 'x'),
+      write('.faulk/session.json', '{}'),
+      write('project.json', '{}'),
+    ])
     expect(Object.keys(stamps).sort()).toEqual(['project.json', 'tracks/a/track.json'])
     expect(await store.scan()).toEqual(stamps)
   })
@@ -113,7 +115,8 @@ describe('FolderBackend.readFolder and scan', () => {
 
   function song() {
     const { dir, store } = folder()
-    dir.put('project.json', '{"id":"x"}')
+    dir
+      .put('project.json', '{"id":"x"}')
       .put('tracks/a/track.json', '{}')
       .put('blobs/lane', lane)
       .put('blobs/audio', audio)

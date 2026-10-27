@@ -49,7 +49,15 @@
 
 {#if exporter.open}
   <div class="overlay">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" data-testid="export-dialog" data-phase={exporter.phase} data-render-ms={exporter.result?.renderMs ?? ''}>
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="export-title"
+      data-testid="export-dialog"
+      data-phase={exporter.phase}
+      data-render-ms={exporter.result?.renderMs ?? ''}
+    >
       <h2 id="export-title">{t('export.title')}</h2>
 
       {#if exporter.phase === 'options'}
@@ -70,11 +78,27 @@
             </label>
             <label class="number">
               {t('export.range.from')}
-              <input type="number" min="1" step="1" bind:value={exporter.choices.fromBar} disabled={exporter.choices.region !== 'bars'} aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid} data-testid="export-from-bar" />
+              <input
+                type="number"
+                min="1"
+                step="1"
+                bind:value={exporter.choices.fromBar}
+                disabled={exporter.choices.region !== 'bars'}
+                aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid}
+                data-testid="export-from-bar"
+              />
             </label>
             <label class="number">
               {t('export.range.to')}
-              <input type="number" min="1" step="1" bind:value={exporter.choices.toBar} disabled={exporter.choices.region !== 'bars'} aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid} data-testid="export-to-bar" />
+              <input
+                type="number"
+                min="1"
+                step="1"
+                bind:value={exporter.choices.toBar}
+                disabled={exporter.choices.region !== 'bars'}
+                aria-invalid={exporter.choices.region === 'bars' && !exporter.barsValid}
+                data-testid="export-to-bar"
+              />
             </label>
           </div>
           {#if exporter.choices.region === 'bars' && !exporter.barsValid}
@@ -95,7 +119,14 @@
           <div class="row">
             {#each RATES as [value, label] (value)}
               <label>
-                <input type="radio" name="export-rate" {value} checked={exporter.choices.sampleRate === value} onchange={rate(value)} data-testid={`export-rate-${value}`} />
+                <input
+                  type="radio"
+                  name="export-rate"
+                  {value}
+                  checked={exporter.choices.sampleRate === value}
+                  onchange={rate(value)}
+                  data-testid={`export-rate-${value}`}
+                />
                 {label}
               </label>
             {/each}

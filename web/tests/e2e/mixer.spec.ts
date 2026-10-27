@@ -10,10 +10,8 @@ import { best, fakeWebMidi, mainThreadMeter, watch } from './support'
 
 test.describe.configure({ mode: 'serial' })
 
-const peaks = async (page: Page) =>
-  ((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').filter(Boolean).map(Number)
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const peaks = async (page: Page) => ((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').filter(Boolean).map(Number)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 async function start(page: Page) {
   await fakeWebMidi(page)
@@ -347,7 +345,9 @@ test('soak: no growth of the heap, the DOM or the listeners', async ({ page }) =
   while (Date.now() - started < SOAK_MIN * 60_000) {
     samples.push(await counters(cdp, true))
     const s = samples[samples.length - 1]
-    console.log(`soak t=${Math.round((Date.now() - started) / 1000)}s heap ${(s.JSHeapUsedSize / 1e6).toFixed(2)} MB, nodes ${s.Nodes}, listeners ${s.JSEventListeners}`)
+    console.log(
+      `soak t=${Math.round((Date.now() - started) / 1000)}s heap ${(s.JSHeapUsedSize / 1e6).toFixed(2)} MB, nodes ${s.Nodes}, listeners ${s.JSEventListeners}`,
+    )
     await page.waitForTimeout(30_000)
   }
   samples.push(await counters(cdp, true))

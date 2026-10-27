@@ -107,7 +107,11 @@ describe('a volume control', () => {
     expect(types()[0]).toBe('history.begin_group')
     expect(types().at(-1)).toBe('history.end_group')
     expect(types().filter((t) => t === 'history.begin_group')).toHaveLength(1)
-    expect(types().slice(1, -1).every((t) => t === 'mixer.set_volume')).toBe(true)
+    expect(
+      types()
+        .slice(1, -1)
+        .every((t) => t === 'mixer.set_volume'),
+    ).toBe(true)
     expect(types().length).toBeGreaterThan(2)
   })
 
