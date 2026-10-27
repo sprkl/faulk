@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -61,10 +61,16 @@ describe('formatSteps', () => {
       'web/src/lib/engine/wasm/engine.js',
       'web/.svelte-kit/a.ts',
       'web/dist/a.js',
+      'web/tests/e2e/fixtures/measure-rpc.js',
       'crates/engine/target/debug/build/x.rs',
     ]) {
       assert.deepEqual(plan(rel), [], rel)
     }
+  })
+
+  it('keeps the end-to-end fixtures out of `pnpm format` too', () => {
+    const ignored = readFileSync(new URL('../../web/.prettierignore', import.meta.url), 'utf8').split(/\r?\n/)
+    assert.ok(ignored.includes('tests/e2e/fixtures/'))
   })
 
   it('refuses a file outside the checkout, however it is spelled', () => {
@@ -110,6 +116,47 @@ describe('the hook', () => {
         assert.equal(result.stderr, '')
       }
       assert.equal(readFileSync(file, 'utf8'), 'export const a   =  1;;\n') // no checkout around it: untouched
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // The real tools, in a throw-away checkout that borrows the dependencies of this one. ESLint has no config there and fails: the hook
+  // must go on to Prettier all the same, and still exit 0.
+  const installed = existsSync(fileURLToPath(new URL('../../web/node_modules/prettier/bin/prettier.cjs', import.meta.url)))
+  it('formats a file with the real Prettier even when the ESLint step fails', { skip: !installed && 'web/node_modules is not installed' }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'faulk-hook-'))
+    try {
+      mkdirSync(join(dir, '.git'))
+      mkdirSync(join(dir, 'web', 'src'), { recursive: true })
+      symlinkSync(fileURLToPath(new URL('../../web/node_modules', import.meta.url)), join(dir, 'web', 'node_modules'), 'junction')
+      writeFileSync(join(dir, 'web', '.prettierrc.json'), '{"semi":false,"singleQuote":true}\n')
+      const file = join(dir, 'web', 'src', 'a.ts')
+      writeFileSync(file, 'export const a   =  { x:"1",y:2 };\n')
+      const result = run(JSON.stringify({ tool_input: { file_path: file } }))
+      assert.equal(result.status, 0)
+      assert.equal(result.stdout, '')
+      assert.equal(readFileSync(file, 'utf8'), "export const a = { x: '1', y: 2 }\n")
+      const json = join(dir, 'web', 'package.json')
+      writeFileSync(json, '{"a":   1}')
+      run('', [json]) // by hand, the path as an argument
+      assert.equal(readFileSync(json, 'utf8'), '{\n  "a": 1\n}\n') // package.json is formatted by Prettier's own, expanded, rule
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  const rustfmt = spawnSync('rustfmt', ['--version'], { encoding: 'utf8' })
+  it('formats a Rust file with rustfmt', { skip: rustfmt.status !== 0 && 'rustfmt is not installed' }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'faulk-hook-'))
+    try {
+      mkdirSync(join(dir, '.git'))
+      writeFileSync(join(dir, 'Cargo.toml'), '[workspace.package]\nedition = "2021"\n')
+      const file = join(dir, 'lib.rs')
+      writeFileSync(file, 'pub fn   f( a:u32 )->u32{a+1}\n')
+      const result = run(JSON.stringify({ tool_input: { file_path: file } }))
+      assert.equal(result.status, 0)
+      assert.equal(readFileSync(file, 'utf8'), 'pub fn f(a: u32) -> u32 {\n    a + 1\n}\n')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

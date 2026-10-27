@@ -10,8 +10,9 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 
 const PRETTIER_EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.cjs', '.svelte', '.css', '.json', '.html'])
 const ESLINT_EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.svelte'])
-// Never touched, whatever their extension: dependencies, build output, generated code.
-const SKIPPED_SEGMENTS = new Set(['node_modules', 'target', 'dist', '.svelte-kit', 'wasm', 'generated', 'test-results', 'playwright-report'])
+// Never touched, whatever their extension: dependencies, build output, generated code, and the test fixtures (raw source text that the
+// tests wrap and run in a page: a formatter's leading semicolon breaks them; web/.prettierignore says the same for `pnpm format`).
+const SKIPPED_SEGMENTS = new Set(['node_modules', 'target', 'dist', '.svelte-kit', 'wasm', 'generated', 'test-results', 'playwright-report', 'fixtures'])
 
 /** Last extension of a path, lowercased ('' when none). */
 export function extensionOf(file) {
