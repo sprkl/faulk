@@ -109,19 +109,27 @@ test('piano roll: the bar of an arrangement clip advances with the transport and
 
   await transport(page, 'Stop').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'stopped')
-  // The bar stays where it stopped: the same place, drawn, with no flicker (a pass that leaves it blank).
+  // Stop brings the bar back to the cue (#360); once it is there it stays: the same place, drawn, with no flicker (a pass that leaves it blank).
+  await page.waitForTimeout(300)
   const stopped = await barX(page)
   expect(stopped).not.toBe('')
   const after = await sample(page, 600)
   expect(new Set(after.xs).size).toBe(1)
   expect(after.xs.length).toBe(after.frames)
   expect(await barX(page)).toBe(stopped)
-  // The latched bar follows the view: a zoom moves it with the grid, and it is not blanked.
+  // The latched bar follows the view: a zoom moves it with the grid, and it is not blanked. Stop left it at the start,
+  // where a zoom moves nothing: a seek (the dev server's dispatcher hook) puts it inside the clip first.
+  const hooked = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun === 'function')
+  if (hooked) {
+    await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: 700 }))
+    await expect.poll(() => barX(page)).not.toBe(stopped)
+  }
+  const placed = hooked ? await barX(page) : stopped
   const ppt0 = Number(await timegrid(page).getAttribute('data-px-per-tick'))
   await timegrid(page).focus()
   await page.keyboard.press('+')
   await expect.poll(async () => Number(await timegrid(page).getAttribute('data-px-per-tick'))).toBeGreaterThan(ppt0)
-  await expect.poll(() => barX(page)).not.toBe(stopped)
+  await expect.poll(() => barX(page)).not.toBe(placed)
   expect(await barX(page)).not.toBe('')
   expect(seen.errors).toEqual([])
 })
@@ -161,6 +169,7 @@ test('piano roll: the bar of a clip launched from the grid advances, wraps on th
   await transport(page, 'Stop').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'stopped')
   await expect.poll(() => barX(page)).not.toBe('')
+  await page.waitForTimeout(300)
   const stopped = await barX(page)
   const after = await sample(page, 600)
   expect(new Set(after.xs).size).toBe(1)

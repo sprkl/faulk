@@ -162,7 +162,8 @@ pub struct EngineSlots {
     pub placements: SlotTable<PlacementId>,
     pub scenes: SlotTable<SceneId>,
     pub lanes: SlotTable<LaneId>,
-    /// Where `transport.play` starts: the last `transport.seek`, 0 at first.
+    /// Where `transport.play` starts and where `transport.stop` brings the playhead back: the
+    /// last `transport.seek` or the position the last playback started from, 0 at first.
     pub cue: Tick,
     /// Whether the last playback order was play.
     pub playing: bool,

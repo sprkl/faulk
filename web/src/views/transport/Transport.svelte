@@ -140,7 +140,7 @@
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
     if (playing) {
-      // Pause: `stop` leaves the cue where the last seek put it, so the cue goes to the playhead and the next Space resumes from here.
+      // Pause: `stop` brings the playhead back to the cue (#360), so the cue goes to the position read before it and the next Space resumes from here.
       run(stop())
       run(seek(tick))
     } else run(play())

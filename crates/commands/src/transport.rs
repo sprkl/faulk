@@ -6,7 +6,9 @@
 //! - **`play`, `stop` and `seek` are `live`**: they change neither the project nor the
 //!   session and never enter the history. `apply` only checks `seek`'s position; their
 //!   engine messages come from `engine_msgs::compile` (PR-3): `seek` moves the cue,
-//!   `play` starts from the cue (nothing while already playing), `stop` stops.
+//!   `play` starts from the cue (nothing while already playing), `stop` stops and puts the
+//!   playhead on the cue (#360); a `stop` when already stopped goes on to position 0 and
+//!   moves the cue there, so the position shown is always where `play` restarts.
 //! - **Tempo, time signature, loop and metronome are `edit`s** in the project: undoable
 //!   and saved. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
 //!   clamped. One tempo and one time signature per project in the MVP: the commands set
@@ -29,13 +31,17 @@ use project::{
 domain! {
     domain = "transport", schema = ("TransportCommand", "TransportOutput");
 
-    /// Start playback from the position of the last `transport.seek` (the start of the
-    /// project at first), also after a `transport.stop`. Does nothing while already
-    /// playing. Played live: not undoable, not saved.
+    /// Start playback from the playhead, which is the position of the last `transport.seek`
+    /// (the start of the project at first) or the one `transport.stop` brought it back to.
+    /// Does nothing while already playing. Played live: not undoable, not saved.
     "transport.play" (kind = "live", undo = "none", destructive = false)
     Play {} => {};
 
-    /// Stop playback. Played live: not undoable, not saved.
+    /// Stop playback and put the playhead back where playback started (the last
+    /// `transport.seek`, or the start of the project at first), so the position shown is the
+    /// one `transport.play` restarts from. Sent again with the playhead already there, it
+    /// goes back to the start of the project (tick 0). To pause, stop then `transport.seek`
+    /// to the current position. Played live: not undoable, not saved.
     "transport.stop" (kind = "live", undo = "none", destructive = false)
     Stop {} => {};
 

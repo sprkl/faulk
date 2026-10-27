@@ -124,10 +124,7 @@ pub fn compile(
             out.push(ControlMsg::AllSoundOff);
         }
         Command::Transport(transport::Command::Play {}) => start_playback(sync, &mut out),
-        Command::Transport(transport::Command::Stop {}) => {
-            sync.playing = false;
-            out.push(ControlMsg::Stop);
-        }
+        Command::Transport(transport::Command::Stop {}) => stop_playback(sync, &mut out),
         Command::Transport(transport::Command::Seek { tick }) => {
             sync.cue = *tick;
             out.push(ControlMsg::Seek { tick: *tick });
@@ -222,6 +219,20 @@ fn start_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
         sync.playing = true;
         out.push(ControlMsg::Play { from: sync.cue });
     }
+}
+
+/// Stops, and puts the playhead where `play` restarts (#360): after a stop while playing it
+/// goes back to the cue, the position the playback started from; a stop when already
+/// stopped, the head being on the cue, goes on to the start of the project and moves the cue
+/// there. The seek is always sent, so the display never depends on what the engine held
+/// before (a resync leaves its clock where it was while the slot table starts at 0).
+fn stop_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    if !sync.playing {
+        sync.cue = project::Tick(0);
+    }
+    sync.playing = false;
+    out.push(ControlMsg::Stop);
+    out.push(ControlMsg::Seek { tick: sync.cue });
 }
 
 /// What the clip events of one outcome leave to its `ArrangementChanged`.

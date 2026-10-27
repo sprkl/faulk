@@ -3667,7 +3667,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+            "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
             "properties": {
               "type": {
                 "const": "transport.play",
@@ -3684,7 +3684,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Stop playback. Played live: not undoable, not saved.",
+            "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
             "properties": {
               "type": {
                 "const": "transport.stop",
@@ -7576,7 +7576,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -7593,7 +7593,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -13698,7 +13698,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -13715,7 +13715,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -19841,7 +19841,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -19858,7 +19858,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -25957,7 +25957,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -25974,7 +25974,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -32066,7 +32066,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -32083,7 +32083,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -38175,7 +38175,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -38192,7 +38192,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -44284,7 +44284,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -44301,7 +44301,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -50393,7 +50393,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -50410,7 +50410,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -56520,7 +56520,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -56537,7 +56537,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -62629,7 +62629,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -62646,7 +62646,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -68738,7 +68738,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -68755,7 +68755,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -74855,7 +74855,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -74872,7 +74872,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -80972,7 +80972,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -80989,7 +80989,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -87089,7 +87089,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -87106,7 +87106,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -93198,7 +93198,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -93215,7 +93215,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -99307,7 +99307,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -99324,7 +99324,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -105416,7 +105416,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -105433,7 +105433,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -111611,7 +111611,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -111628,7 +111628,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -117760,7 +117760,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -117777,7 +117777,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -123891,7 +123891,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -123908,7 +123908,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -130010,7 +130010,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -130027,7 +130027,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -136136,7 +136136,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -136153,7 +136153,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -142269,7 +142269,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -142286,7 +142286,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -148399,7 +148399,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -148416,7 +148416,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -154518,7 +154518,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -154535,7 +154535,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -160649,7 +160649,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -160666,7 +160666,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -166776,7 +166776,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -166793,7 +166793,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -172902,7 +172902,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -172919,7 +172919,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -179028,7 +179028,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -179045,7 +179045,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -185156,7 +185156,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -185173,7 +185173,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -191299,7 +191299,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -191316,7 +191316,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -197426,7 +197426,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -197443,7 +197443,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -203560,7 +203560,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -203577,7 +203577,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -209690,7 +209690,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -209707,7 +209707,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -215809,7 +215809,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -215826,7 +215826,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -221935,7 +221935,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -221952,7 +221952,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -228073,7 +228073,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -228090,7 +228090,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -234226,7 +234226,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -234243,7 +234243,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -240350,7 +240350,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -240367,7 +240367,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -246480,7 +246480,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -246497,7 +246497,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -252622,7 +252622,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -252639,7 +252639,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -258775,7 +258775,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -258792,7 +258792,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -264901,7 +264901,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -264918,7 +264918,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -271031,7 +271031,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -271048,7 +271048,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -277168,7 +277168,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -277185,7 +277185,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -283313,7 +283313,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -283330,7 +283330,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -289444,7 +289444,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -289461,7 +289461,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -295575,7 +295575,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -295592,7 +295592,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -301706,7 +301706,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -301723,7 +301723,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -307850,7 +307850,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -307867,7 +307867,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -313986,7 +313986,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -314003,7 +314003,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -320127,7 +320127,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -320144,7 +320144,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -326250,7 +326250,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -326267,7 +326267,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -332374,7 +332374,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -332391,7 +332391,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -338500,7 +338500,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -338517,7 +338517,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -344626,7 +344626,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -344643,7 +344643,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -350756,7 +350756,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -350773,7 +350773,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -356875,7 +356875,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -356892,7 +356892,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -362990,7 +362990,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -363007,7 +363007,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -369105,7 +369105,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -369122,7 +369122,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -375220,7 +375220,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -375237,7 +375237,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -381329,7 +381329,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -381346,7 +381346,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -387438,7 +387438,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -387455,7 +387455,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -393553,7 +393553,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -393570,7 +393570,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -399713,7 +399713,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -399730,7 +399730,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -405851,7 +405851,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -405868,7 +405868,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -411990,7 +411990,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -412007,7 +412007,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -418116,7 +418116,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -418133,7 +418133,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -424250,7 +424250,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -424267,7 +424267,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -430414,7 +430414,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -430431,7 +430431,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -436569,7 +436569,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -436586,7 +436586,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -442724,7 +442724,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -442741,7 +442741,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -445225,7 +445225,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+        "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -448842,7 +448842,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -448859,7 +448859,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -451334,7 +451334,7 @@
         "undo": "none"
       },
       {
-        "description": "Stop playback. Played live: not undoable, not saved.",
+        "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -454951,7 +454951,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -454968,7 +454968,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -461060,7 +461060,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -461077,7 +461077,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -467175,7 +467175,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -467192,7 +467192,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -473301,7 +473301,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -473318,7 +473318,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -479444,7 +479444,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -479461,7 +479461,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -485566,7 +485566,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -485583,7 +485583,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -491698,7 +491698,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -491715,7 +491715,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -497814,7 +497814,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -497831,7 +497831,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -503975,7 +503975,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -503992,7 +503992,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -510112,7 +510112,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -510129,7 +510129,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -516242,7 +516242,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -516259,7 +516259,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -522368,7 +522368,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -522385,7 +522385,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -528501,7 +528501,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -528518,7 +528518,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -534627,7 +534627,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -534644,7 +534644,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -540736,7 +540736,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -540753,7 +540753,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -546860,7 +546860,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -546877,7 +546877,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -552989,7 +552989,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -553006,7 +553006,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -559111,7 +559111,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -559128,7 +559128,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -565246,7 +565246,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -565263,7 +565263,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -571374,7 +571374,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -571391,7 +571391,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -577499,7 +577499,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -577516,7 +577516,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -583608,7 +583608,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -583625,7 +583625,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -589717,7 +589717,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -589734,7 +589734,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -595845,7 +595845,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -595862,7 +595862,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -601973,7 +601973,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -601990,7 +601990,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -608089,7 +608089,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -608106,7 +608106,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -614205,7 +614205,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+                  "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.play",
@@ -614222,7 +614222,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Stop playback. Played live: not undoable, not saved.",
+                  "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
                   "properties": {
                     "type": {
                       "const": "transport.stop",
@@ -620331,7 +620331,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Start playback from the position of the last `transport.seek` (the start of the\nproject at first), also after a `transport.stop`. Does nothing while already\nplaying. Played live: not undoable, not saved.",
+              "description": "Start playback from the playhead, which is the position of the last `transport.seek`\n(the start of the project at first) or the one `transport.stop` brought it back to.\nDoes nothing while already playing. Played live: not undoable, not saved.",
               "properties": {
                 "type": {
                   "const": "transport.play",
@@ -620348,7 +620348,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Stop playback. Played live: not undoable, not saved.",
+              "description": "Stop playback and put the playhead back where playback started (the last\n`transport.seek`, or the start of the project at first), so the position shown is the\none `transport.play` restarts from. Sent again with the playhead already there, it\ngoes back to the start of the project (tick 0). To pause, stop then `transport.seek`\nto the current position. Played live: not undoable, not saved.",
               "properties": {
                 "type": {
                   "const": "transport.stop",

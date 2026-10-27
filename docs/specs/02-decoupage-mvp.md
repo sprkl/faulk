@@ -443,6 +443,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **TR-3 — Commandes de transport**
 - But : `transport.play`, `transport.stop`, `transport.seek`, `transport.set_tempo`, `transport.set_time_signature`, `transport.set_loop`, `transport.toggle_loop`, `transport.set_metronome` (le domaine `metronome` n'existe pas : CT-4).
 - Critères : tempo, signature, boucle et métronome sont des `edit` (annulables, enregistrés) ; lecture et arrêt sont `live` ; bornes de tempo refusées proprement.
+- Décision du fondateur (2026-10-26, #360) : `play` part de la tête de lecture, qui est toujours la position affichée. `stop` ramène la tête là où la lecture a commencé (la dernière position donnée par `seek`, 0 au début) ; un second `stop`, la tête déjà là, la ramène à 0. La pause (Espace, #332) reste un `stop` suivi d'un `seek` à la position courante : la lecture reprend là où elle s'est arrêtée. La description de `transport.stop` le dit aux agents.
 - Touche : `crates/commands/src/transport.rs`.
 - Dépend de : PR-2, TR-1.
 - Phase : 2.

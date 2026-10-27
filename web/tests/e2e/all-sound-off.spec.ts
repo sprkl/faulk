@@ -14,8 +14,8 @@ const send = (page: Page, bytes: number[]) =>
   page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 const TEXTS = {
-  en: { add: 'Add Echo to the track', hint: 'Stop. Double-click to also cut all sound at once.' },
-  fr: { add: 'Ajouter Echo à la piste', hint: 'Stop. Double-clique pour couper aussi tout le son d’un coup.' },
+  en: { add: 'Add Echo to the track', hint: 'Stop and go back to where playback started. Stop again: back to the start. Double-click to also cut all sound at once.' },
+  fr: { add: 'Ajouter Echo à la piste', hint: 'Stop et retour là où la lecture a commencé. Stop encore : retour au début. Double-clique pour couper aussi tout le son d’un coup.' },
 } as const
 
 for (const lang of ['en', 'fr'] as const) {
