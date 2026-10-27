@@ -74,6 +74,12 @@ export function positionOf(p: ParamDescriptor, value: number): number {
 export function valueAt(p: ParamDescriptor, position: number): number {
   const t = clamp(Number.isFinite(position) ? position : 0, 0, 1)
   const v = p.scale === 'log' ? p.min * Math.pow(p.max / p.min, t) : p.min + t * (p.max - p.min)
+  return snap(p, v)
+}
+
+/** A value kept to the parameter's bounds and rounded to its step (no rounding when the step is 0). */
+export function snap(p: ParamDescriptor, value: number): number {
+  const v = clamp(value, p.min, p.max)
   if (p.step > 0) return clamp(p.min + Math.round((v - p.min) / p.step) * p.step, p.min, p.max)
   return v
 }

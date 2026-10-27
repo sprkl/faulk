@@ -11,6 +11,7 @@
   import { gainAt, positionOf, UNITY_POSITION } from '../project/fader'
   import { formatGain } from '../project/tracks'
   import { useStores } from '../stores'
+  import { parseGain } from '../value-entry'
   import Slider from './Slider.svelte'
 
   let {
@@ -38,6 +39,24 @@
     if (!same(gainDb, gain)) dispatcher.run(set(gain))
   }
 
+  let slider: ReturnType<typeof Slider> | undefined = $state()
+
+  /** Opens the field to type the gain (the readout next to the fader calls it). */
+  export function edit() {
+    slider?.edit()
+  }
+
+  // Typing a gain: one command, or none when the text is unreadable or the gain is the one it has.
+  const entry = {
+    text: () => `${formatGain(gainDb)} dB`,
+    commit(text: string): boolean {
+      const gain = parseGain(text)
+      if (gain === undefined) return false
+      if (!same(gainDb, gain)) dispatcher.run(set(gain))
+      return true
+    },
+  }
+
   function onreset() {
     // Already at 0 dB: no command, no empty history entry.
     if (gainDb !== 0) dispatcher.run(set(0))
@@ -45,7 +64,9 @@
 </script>
 
 <Slider
+  bind:this={slider}
   kind="fader"
+  {entry}
   {orientation}
   {label}
   {testid}
