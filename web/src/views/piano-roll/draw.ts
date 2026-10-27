@@ -229,6 +229,7 @@ export function drawLane(
   hidden: ReadonlySet<string>,
   clipLength: number,
   colors: Colors,
+  hover: string | null = null,
 ): void {
   ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, height)
@@ -266,4 +267,14 @@ export function drawLane(
   }
   ctx.globalAlpha = 1
   for (const n of ghosts) bar(n, colors.text)
+  // The bar the next drag would change: wider and fully opaque.
+  if (hover !== null) {
+    const n = notes.find((c) => noteKey(c) === hover)
+    if (n && !hidden.has(hover)) {
+      const x = tickToX(n.start, view)
+      const h = Math.max(2, (n.velocity / MAX_VELOCITY) * (height - 4))
+      ctx.fillStyle = colors.text
+      ctx.fillRect(x - 1, height - h, 5, h)
+    }
+  }
 }

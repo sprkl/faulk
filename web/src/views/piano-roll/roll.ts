@@ -266,6 +266,28 @@ export function hitVelocity(notes: readonly Note[], x: number, view: View, reach
   return null
 }
 
+/**
+ * The note the lane acts on at `x`: among the notes that share the step of the bar under the pointer, the
+ * selected one (the highest when several are), else the highest note of the step. Null when no bar is there.
+ */
+export function velocityTarget(notes: readonly Note[], x: number, view: View, picked: ReadonlySet<string>, reach = 4): number | null {
+  const near = hitVelocity(notes, x, view, reach)
+  if (near === null) return null
+  const start = notes[near]!.start
+  let best: number | null = null
+  let bestChosen = false
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i]!
+    if (n.start !== start) continue
+    const chosen = picked.has(noteKey(n))
+    if (best === null || (chosen && !bestChosen) || (chosen === bestChosen && n.pitch > notes[best]!.pitch)) {
+      best = i
+      bestChosen = chosen
+    }
+  }
+  return best
+}
+
 /** The selection with `key` toggled, and whether it is in it now. */
 export function toggled(picked: ReadonlySet<string>, key: string): { picked: ReadonlySet<string>; on: boolean } {
   const on = !picked.has(key)

@@ -9,6 +9,7 @@ import {
   floorTick,
   hitNote,
   hitVelocity,
+  velocityTarget,
   initialScrollY,
   isBlackKey,
   maxScrollY,
@@ -384,5 +385,15 @@ describe('velocity lane', () => {
     expect(hitVelocity(notes, 97, view)).toBe(2)
     expect(hitVelocity(notes, 50, view)).toBeNull()
     expect(hitVelocity(notes, 1, view)).toBe(0)
+  })
+
+  it('picks, among the notes of one step, the selected one, else the highest', () => {
+    const notes = [note(960, 42), note(960, 46), note(0, 60)]
+    expect(velocityTarget(notes, 97, view, new Set())).toBe(1)
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[0]!)]))).toBe(0)
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[0]!), noteKey(notes[1]!)]))).toBe(1)
+    // A selected note on another step does not matter.
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[2]!)]))).toBe(1)
+    expect(velocityTarget(notes, 50, view, new Set())).toBeNull()
   })
 })

@@ -30,7 +30,7 @@
     clampScrollY,
     drawnNote,
     hitNote,
-    hitVelocity,
+    velocityTarget,
     initialScrollY,
     moveNotes,
     noteKey,
@@ -465,7 +465,7 @@
   function laneDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || gesture) return
     const { x, y } = local(event, lane)
-    const index = hitVelocity(notes, x, shown)
+    const index = velocityTarget(notes, x, shown, picked)
     if (index === null) return
     const grabbed = notes[index]!
     const key = noteKey(grabbed)
@@ -481,8 +481,17 @@
     sound(grabbed.pitch, grabbed.velocity)
   }
 
+  /** The pointer's x in the lane while it hovers it with no gesture: the bar the next drag would change is lit. */
+  let hoverX = $state<number | null>(null)
+  const hoverKey = $derived.by<string | null>(() => {
+    if (hoverX === null || gesture || !edited) return null
+    const index = velocityTarget(notes, hoverX, shown, chosenKeys)
+    return index === null ? null : noteKey(notes[index]!)
+  })
+
   function laneMove(event: PointerEvent) {
     const g = gesture
+    hoverX = g ? null : local(event, lane).x
     if (!g || g.kind !== 'velocity') return
     if (!edited || edited.id !== g.clip || !chosenKeys.has(g.key)) return cancel()
     const { x, y } = local(event, lane)
@@ -505,7 +514,7 @@
   /** The bar under a pointer of the lane becomes the chosen note when it is not one already; false when there is none. */
   function chooseBar(event: MouseEvent): boolean {
     if (!edited || gesture) return false
-    const index = hitVelocity(notes, local(event, lane).x, shown)
+    const index = velocityTarget(notes, local(event, lane).x, shown, picked)
     if (index === null) return false
     const key = noteKey(notes[index]!)
     if (!picked.has(key)) picked = new Set([key])
@@ -785,10 +794,13 @@
         bind:clientHeight={laneH}
         role="presentation"
         data-testid="roll-lane"
+        data-hover={hoverKey ?? undefined}
         onpointerdown={laneDown}
         onpointermove={laneMove}
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
+        onpointerleave={() => (hoverX = null)}
+        title={t('pianoRoll.velocityHint')}
         ondblclick={(event) => {
           if (chooseBar(event)) resetVelocity()
         }}
@@ -796,7 +808,7 @@
       >
         <Surface
           label={t('pianoRoll.velocity')}
-          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors)}
+          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors, hoverKey)}
         />
       </div>
     </div>
@@ -893,6 +905,10 @@
   }
   .count {
     margin-left: auto;
+    /* Room for the longest text (counts and selection in French), so that the toolbar never changes height when a note appears. */
+    min-width: 34ch;
+    text-align: right;
+    white-space: nowrap;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
   }
