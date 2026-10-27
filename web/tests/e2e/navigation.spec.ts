@@ -103,7 +103,7 @@ for (const lang of ['en', 'fr'] as const) {
   }
 }
 
-test('a note held on the computer keyboard ends when the instrument view is left', async ({ page }) => {
+test('a note held on the computer keyboard goes on when the view changes, and ends with its key (#361)', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
@@ -111,11 +111,12 @@ test('a note held on the computer keyboard ends when the instrument view is left
   await page.getByTestId('nav-play').click()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toHaveText('Voices: 1')
-  // Leave the view with the key still down: the view's teardown must release the note.
+  // The keyboard plays in every view: changing view with the key still down keeps the note, the key ends it.
   const other = main.find((id) => id !== 'play')!
   await page.getByTestId(`nav-${other}`).click()
   await expect(page.getByTestId('view')).toHaveAttribute('data-view', other)
-  await expect(page.getByTestId('voices')).toHaveText('Voices: 0', { timeout: 5000 })
+  await expect(page.getByTestId('voices')).toHaveText('Voices: 1')
   await page.keyboard.up('KeyA')
+  await expect(page.getByTestId('voices')).toHaveText('Voices: 0', { timeout: 5000 })
   expect(errors).toEqual([])
 })

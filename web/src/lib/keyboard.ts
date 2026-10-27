@@ -2,6 +2,8 @@
  * Computer keyboard as a piano. Keys are matched by physical position
  * (`KeyboardEvent.code`), so the layout is the same on QWERTY and AZERTY.
  *
+ * The computer keyboard plays in every view (#361); the order in which a key is shared is `playsNote`.
+ *
  * The rule between playing and shortcuts (UI-3): no shortcut fires while the keyboard plays, meaning no
  * key does both: a played key never fires a shortcut, and a shortcut never plays a note. A shortcut
  * pressed while a note is held still works (undo stays reachable); the held note goes on.
@@ -142,6 +144,34 @@ export function spaceTogglesTransport(target: EventTarget | null, focusVisible: 
   const element = target as Element | null
   if (!element || typeof element.closest !== 'function') return true
   if (isTextTarget(element)) return false
+  const control = element.closest(SPACE_CONTROLS)
+  return control === null || !focusVisible(control)
+}
+
+/** Where a key means something of its own whoever focused it: a menu (or the button that opened it), a dialog, a spin box (#361). */
+const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [aria-haspopup][aria-expanded="true"]'
+
+/**
+ * Whether a key event plays a note (or steps the octave) in whatever view is shown (#361). The keys are shared in this
+ * order, the first owner wins:
+ * 1. a text field, a select or a contenteditable keeps every key (`ignoreKeyEvent`), and so does a menu, a dialog or a
+ *    spin box, however the focus got there;
+ * 2. a control the keyboard focused (Tab, arrows: a button, link, checkbox, knob or slider) keeps its own keys, the rule of
+ *    Space (`spaceTogglesTransport`); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
+ *    notes are played;
+ * 3. a view's editing shortcut: a key a handler took (`preventDefault`) before it reached the window is not a note, and a
+ *    key with Ctrl, Cmd or Alt is a shortcut, never a note (`ignoreKeyEvent`). No view reads a letter today, so this guards a future one;
+ * 4. otherwise the key plays.
+ * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
+ */
+export function playsNote(
+  event: Pick<KeyboardEvent, 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target' | 'defaultPrevented'>,
+  focusVisible: (element: Element) => boolean = keyboardFocused,
+): boolean {
+  if (ignoreKeyEvent(event) || event.defaultPrevented) return false
+  const element = event.target as Element | null
+  if (!element || typeof element.closest !== 'function') return true
+  if (element.closest(OWN_KEYS_AREAS)) return false
   const control = element.closest(SPACE_CONTROLS)
   return control === null || !focusVisible(control)
 }
