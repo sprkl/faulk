@@ -449,6 +449,28 @@ fn compile_event(
                 out.push(mix(slot, t));
             }
         }
+        // The lane goes up whole: a device that was not in the engine yet (a restored
+        // device, whose chain event follows) is uploaded with the chain, since a lane
+        // names the device's slot. Playing the lane is AM-2.
+        ProjectEvent::AutomationLaneCreated { track, lane }
+        | ProjectEvent::AutomationPointsChanged { track, lane } => {
+            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
+                return;
+            };
+            if let Some(l) = t.automation.get(lane) {
+                lane_msgs(track, slot, t, lane, l, sync, out);
+            }
+        }
+        ProjectEvent::AutomationLaneDeleted { track, lane } => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.remove(lane);
+            }
+            if let Some(slot) = sync.lanes.release(lane) {
+                out.push(ControlMsg::AutomationLaneRemove {
+                    lane: LaneSlot(slot),
+                });
+            }
+        }
         ProjectEvent::SoloChanged { track, solo } => {
             if let Some(track) = track_slot(sync, track) {
                 out.push(ControlMsg::TrackSetSolo { track, solo: *solo });

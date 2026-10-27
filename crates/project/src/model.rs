@@ -9,7 +9,7 @@
 use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, Id, LaneId, PlacementId, ProjectId, SceneId, TrackId};
 use crate::order::{OrderKey, by_order};
-use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set};
+use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set, unique_tick_map};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -455,7 +455,7 @@ pub enum Span {
 pub struct AutomationLane {
     pub target: AutomationTarget,
     /// Points by tick: at most one point per tick.
-    #[serde(deserialize_with = "unique_map")]
+    #[serde(deserialize_with = "unique_tick_map")]
     pub points: BTreeMap<Tick, AutomationPoint>,
 }
 
