@@ -12,6 +12,7 @@ pub mod drums;
 pub mod echo;
 pub mod osc_synth;
 pub mod reverb;
+pub mod time_change;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
