@@ -162,8 +162,13 @@ pub struct EngineSlots {
     pub placements: SlotTable<PlacementId>,
     pub scenes: SlotTable<SceneId>,
     pub lanes: SlotTable<LaneId>,
-    /// Where `transport.play` starts: the last `transport.seek`, 0 at first.
+    /// Where `transport.play` starts: the marker, or the position a `transport.pause` left
+    /// the playhead on, 0 at first.
     pub cue: Tick,
+    /// The marker (#360): the last position set by `transport.seek` (a ruler click), 0 at
+    /// first. `transport.stop` brings the playhead back to it, a pause and a resume never
+    /// move it.
+    pub marker: Tick,
     /// Whether the last playback order was play.
     pub playing: bool,
     /// The live input notes the engine holds, as `(note, track)`: where each

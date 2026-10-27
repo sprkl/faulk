@@ -13,7 +13,7 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
-  import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
+  import { pause, play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
   import { allSoundOff } from '../../lib/synth-commands'
   import {
     barTicks,
@@ -140,9 +140,8 @@
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
     if (playing) {
-      // Pause: `stop` leaves the cue where the last seek put it, so the cue goes to the playhead and the next Space resumes from here.
-      run(stop())
-      run(seek(tick))
+      // Pause: stops where the playhead is and keeps the marker, so the next Space resumes from here and Stop still goes back to the marker (#360).
+      run(pause(tick))
     } else run(play())
   }
 </script>
