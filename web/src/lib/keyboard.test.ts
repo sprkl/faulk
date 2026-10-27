@@ -246,6 +246,14 @@ describe('the keys are shared in every view (#361)', () => {
     }
   })
 
+  it('1c. a modal dialog keeps every key of the page, even when the focus fell back to the body', () => {
+    fixture('<div role="dialog" aria-modal="true"></div><button></button>')
+    expect(playsNote(event({ target: document.body }))).toBe(false)
+    expect(playsNote(event({ target: document.querySelector('button') }), () => false)).toBe(false)
+    document.body.innerHTML = ''
+    expect(playsNote(event({ target: document.body }))).toBe(true)
+  })
+
   it('2. a control the keyboard focused keeps its keys, one the mouse clicked does not', () => {
     for (const html of ['<button></button>', '<a href="#"></a>', '<input type="checkbox">', '<input type="radio">', '<input type="range">', '<div role="slider" tabindex="0"></div>']) {
       const target = fixture(html)
