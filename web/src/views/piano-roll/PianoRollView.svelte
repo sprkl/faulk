@@ -905,8 +905,8 @@
   }
   .count {
     margin-left: auto;
-    /* Room for the longest text (counts and selection in French), so that the toolbar never changes height when a note appears. */
-    min-width: 34ch;
+    /* Room for the longest text (six digits, French), so that the toolbar never changes height when a note appears. */
+    min-width: 40ch;
     text-align: right;
     white-space: nowrap;
     color: var(--fk-text-muted);

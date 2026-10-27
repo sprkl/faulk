@@ -47,7 +47,7 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 }
 
 // 1280 px is the width of the issue; 1500 px is one where the count used to wrap to a new line on the first note.
-for (const width of [1280, 1500]) {
+for (const width of [1280, 1440, 1500]) {
   test(`piano roll: the first note does not move the toolbar or the grid at ${width} px`, async ({ page }) => {
     await firstNote(page, width)
   })
@@ -56,7 +56,7 @@ for (const width of [1280, 1500]) {
 async function firstNote(page: Page, width: number) {
   const seen = await open(page, width)
   const grid = page.getByTestId('roll-stage')
-  const toolbar = page.locator('.toolbar')
+  const toolbar = roll(page).locator('.toolbar')
   const before = { grid: (await grid.boundingBox())!, toolbar: (await toolbar.boundingBox())! }
   const g = await spot(page)
   await page.mouse.click(g.x(960), g.y(60))
@@ -106,5 +106,15 @@ test('piano roll: two notes on one step, the lane changes the selected note, els
   await page.keyboard.press('Control+z')
   await expect.poll(() => velocityOf(page, 60)).toBe(100)
   expect(await velocityOf(page, 64)).toBe(lowered)
+
+  // Nothing selected: a double click on the bar resets the highest note of the step, as one undo step.
+  await page.getByTestId('timegrid').focus()
+  await page.keyboard.press('Escape')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await lane(page).dblclick({ position: { x: barX - laneBox.x, y: 20 } })
+  await expect.poll(() => velocityOf(page, 64)).toBe(100)
+  expect(await velocityOf(page, 60)).toBe(100)
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => velocityOf(page, 64)).toBe(lowered)
   expect(seen.errors).toEqual([])
 })
