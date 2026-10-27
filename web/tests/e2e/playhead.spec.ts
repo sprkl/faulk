@@ -123,14 +123,17 @@ test('piano roll: the bar of an arrangement clip advances with the transport and
   if (hooked) {
     await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: 700 }))
     await expect.poll(() => barX(page)).not.toBe(stopped)
+    const placed = await barX(page)
+    const ppt0 = Number(await timegrid(page).getAttribute('data-px-per-tick'))
+    await timegrid(page).focus()
+    await page.keyboard.press('+')
+    await expect.poll(async () => Number(await timegrid(page).getAttribute('data-px-per-tick'))).toBeGreaterThan(ppt0)
+    await expect.poll(() => barX(page)).not.toBe(placed)
+    expect(await barX(page)).not.toBe('')
+    // The head outside the clip (here the second bar, a clip of one bar): the bar of a clip of the timeline is gone, as in the transport (#360).
+    await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: 7680 }))
+    await expect.poll(() => barX(page)).toBe('')
   }
-  const placed = hooked ? await barX(page) : stopped
-  const ppt0 = Number(await timegrid(page).getAttribute('data-px-per-tick'))
-  await timegrid(page).focus()
-  await page.keyboard.press('+')
-  await expect.poll(async () => Number(await timegrid(page).getAttribute('data-px-per-tick'))).toBeGreaterThan(ppt0)
-  await expect.poll(() => barX(page)).not.toBe(placed)
-  expect(await barX(page)).not.toBe('')
   expect(seen.errors).toEqual([])
 })
 

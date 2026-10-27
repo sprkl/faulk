@@ -154,3 +154,18 @@ test('grid: a scene launched while stopped plays from the marker and Stop return
   await expect.poll(() => tick(page)).toBe(0)
   expect(errors).toEqual([])
 })
+
+test('a new project resets the engine: the head shown is where Play starts', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await run(page, { type: 'transport.seek', tick: 2 * BAR })
+  await expect.poll(() => tick(page)).toBe(2 * BAR)
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-new').click()
+  const discard = page.getByTestId('confirm-discard')
+  if (await discard.isVisible().catch(() => false)) await discard.click()
+  await expect.poll(() => tick(page)).toBe(0)
+  await expect(page.getByTestId('transport-position')).toHaveText('1.1.000')
+  expect(errors).toEqual([])
+})

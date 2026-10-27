@@ -1181,7 +1181,12 @@ impl Synced {
     /// `Reset` and the snapshot of the project, encoded in the current epoch: what a new
     /// engine receives first.
     pub fn setup(&mut self) -> Result<Vec<u8>, MsgError> {
-        let msgs = resync(&self.state, &mut self.ctx, self.stream.epoch());
+        let mut msgs = resync(&self.state, &mut self.ctx, self.stream.epoch());
+        // The reset engine is stopped but keeps its clock where it was: the head goes to the
+        // cue the table starts at, so the position shown is where `play` starts (#360).
+        msgs.push(ControlMsg::Seek {
+            tick: self.ctx.engine.cue,
+        });
         self.stream.encode(&msgs)
     }
 
