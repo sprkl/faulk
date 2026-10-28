@@ -104,8 +104,7 @@ test.describe('the DAW (/app)', () => {
         new Promise((resolve) => {
           const worker = new Worker('/e2e-worker.js')
           const memory = new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true })
-          worker.onmessage = (event) =>
-            resolve({ isolated: event.data, value: Atomics.load(new Int32Array(memory.buffer), 0) })
+          worker.onmessage = (event) => resolve({ isolated: event.data, value: Atomics.load(new Int32Array(memory.buffer), 0) })
           worker.onerror = () => resolve('worker refused')
           worker.postMessage(memory.buffer)
         }),
@@ -155,8 +154,7 @@ test.describe('the DAW (/app)', () => {
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toContainText('Web')
     await page.getByRole('radio', { name: 'E2E Keys' }).check()
-    const send = (bytes: number[]) =>
-      page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+    const send = (bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
     await send([0x90, 60, 100])
     // The voice count comes back from the engine in the AudioWorklet.
     await expect(page.getByText('Voices: 1')).toBeVisible()
@@ -182,9 +180,7 @@ test.describe('the landing page', () => {
       for (let i = 0; i < count; i++) await stages.nth(i).scrollIntoViewIfNeeded()
       await expect(page.locator('.is-live')).toHaveCount(count)
       await page.evaluate(() => document.fonts.ready)
-      const fonts = await page.evaluate(() =>
-        [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')),
-      )
+      const fonts = await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')))
       expect(fonts.some((f) => f.startsWith('Archivo'))).toBe(true)
       expect(fonts.some((f) => f.startsWith('Geist'))).toBe(true)
 

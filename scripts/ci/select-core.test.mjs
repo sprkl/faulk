@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import { readdirSync } from 'node:fs'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { SMOKE, specNames } from './e2e-plan.mjs'
 import { affectedPackages, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 // The workspace graph of the repository (dev-dependencies included), as `cargo metadata` reports it.
@@ -14,7 +17,9 @@ const WORKSPACE = [
   { name: 'test-support', dir: 'crates/test-support', deps: ['engine', 'commands', 'project'], devDeps: [] },
 ]
 const ws = () => WORKSPACE
-const pr = (files, base = 'develop') => select({ event: 'pull_request', base, files, packages: ws })
+const SPECS = specNames(readdirSync(fileURLToPath(new URL('../../web/tests/e2e/', import.meta.url))))
+const specs = () => SPECS
+const pr = (files, base = 'develop') => select({ event: 'pull_request', base, files, packages: ws, specs })
 
 test('a push runs nothing heavy, on develop and on main', () => {
   const r = select({ event: 'push', base: '', files: ['crates/engine/src/lib.rs'], packages: ws })
@@ -22,6 +27,22 @@ test('a push runs nothing heavy, on develop and on main', () => {
   assert.equal(r.web || r.rustChecks || r.helperWindows || r.agentScripts, false)
   assert.equal(r.rustTest, '')
   assert.equal(r.e2e, '')
+})
+
+test('the blame-ignore list runs nothing', () => {
+  const r = pr(['.git-blame-ignore-revs'])
+  assert.equal(r.mode, 'targeted')
+  assert.equal(r.web || r.rustChecks || r.helperWindows || r.agentScripts || r.rustProto, false)
+  assert.equal(r.e2e, '')
+})
+
+test('the formatter and lint settings run the web checks and no browser test', () => {
+  for (const f of ['web/.prettierrc.json', 'web/.prettierignore', 'web/eslint.config.js']) {
+    const r = pr([f])
+    assert.equal(r.web, true, f)
+    assert.equal(r.e2e, '', f)
+    assert.equal(r.rustChecks, false, f)
+  }
 })
 
 test('docs-only, notes and .scratch run nothing', () => {
@@ -209,4 +230,79 @@ test('packagesFromMetadata keeps members and path dependencies only', () => {
     { name: 'one', dir: 'crates/one', deps: ['two'], devDeps: ['three'] },
     { name: 'two', dir: 'crates/two', deps: [], devDeps: [] },
   ])
+})
+
+// Targeted end-to-end selection (#377).
+const names = (r) => [...r.e2eSpecs].sort()
+
+test('a view change runs its specs whole and the smoke tests of the others, on one machine', () => {
+  const r = pr(['web/src/views/tracks/TrackList.svelte'])
+  assert.equal(r.e2e, 'dev')
+  assert.equal(r.e2eAll, false)
+  assert.deepEqual(names(r), ['track-order', 'tracks'])
+  assert.deepEqual(r.e2eSmoke, ['export-audio', 'isolation', 'open-project', 'project-store', 'transport'])
+  assert.equal(r.e2eShards, 1)
+  const out = toOutputs(r)
+  assert.equal(out.e2e_all, 'false')
+  assert.equal(out.e2e_specs, 'tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
+  assert.equal(out.e2e_smoke.split(' ').length, 5)
+  assert.equal(out.e2e_shards, '[1]')
+})
+
+test('a spec that is also a smoke spec runs whole, not twice', () => {
+  const r = pr(['web/src/views/shell/ExportDialog.svelte'])
+  assert.deepEqual(r.e2eSpecs, ['export-audio'])
+  assert.ok(!r.e2eSmoke.includes('export-audio'))
+})
+
+test('a longer list gets more machines, never more than three', () => {
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 2) // 7 specs + the smoke tests
+  const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
+  assert.equal(many.e2eShards, 3)
+  assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')
+})
+
+test('no browser test to run: no end-to-end job, no shard', () => {
+  for (const files of [['docs/a.md'], ['web/src/lib/a.test.ts'], ['web/README.md'], ['crates/helper/src/a.rs'], ['scripts/agent/verify.mjs']]) {
+    const r = pr(files)
+    assert.equal(r.e2e, '', files.join())
+    assert.equal(r.e2eShards, 0, files.join())
+    assert.deepEqual([r.e2eSpecs, r.e2eSmoke], [[], []], files.join())
+  }
+})
+
+test('shared files, unknown paths, a stale table and an unreadable spec list run the whole suite', () => {
+  for (const f of ['web/src/lib/stores/dispatcher.ts', 'web/src/views/shell/AppShell.svelte', 'web/src/lib/engine/worklet.ts', 'web/src/lib/generated/commands.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'web/playwright.config.ts', '.github/workflows/ci.yml', 'Cargo.lock', 'crates/engine/src/lib.rs', 'crates/protocol/src/lib.rs', 'modules/x/a.dsp']) {
+    const r = pr(['web/src/views/tracks/TrackList.svelte', f])
+    assert.equal(r.e2eAll, true, f)
+    assert.equal(r.e2eShards, 3, f)
+    assert.equal(toOutputs(r).e2e_specs, '', f)
+  }
+  assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws }).e2eAll, true) // no way to list the specs
+  assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws, specs: () => [] }).e2eAll, true)
+  assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws, specs: () => { throw new Error('nope') } }).e2eAll, true)
+  assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws, specs: () => ['mixer'] }).e2eAll, true) // the table names specs that are gone
+  assert.equal(pr(['web/src/views/tracks/T.svelte', 'web/brand-new-folder/x.ts']).e2eAll, true)
+})
+
+test('the release pull request and the fallbacks keep the full suite on three machines', () => {
+  for (const r of [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision()]) {
+    assert.equal(r.e2e, 'dev,preview')
+    assert.equal(r.e2eAll, true)
+    assert.equal(r.e2eShards, 3)
+    const out = toOutputs(r)
+    assert.deepEqual([out.e2e_specs, out.e2e_smoke, out.e2e_smoke_grep, out.e2e_shards], ['', '', '', '[1,2,3]'])
+  }
+  assert.equal(pr(['web/src/views/tracks/T.svelte'], 'develop').e2e, 'dev') // only the release runs the production build
+})
+
+test('adding or deleting a spec runs the agent scripts, where the table is tested', () => {
+  assert.equal(pr(['web/tests/e2e/brand-new.spec.ts']).agentScripts, true)
+  assert.equal(pr(['web/tests/e2e/mixer.spec.ts']).agentScripts, true)
+  assert.equal(pr(['web/src/views/mixer/M.svelte']).agentScripts, false)
+})
+
+test('the smoke grep names every smoke test of the others and nothing else', () => {
+  const r = pr(['web/src/views/tracks/T.svelte'])
+  assert.equal(r.e2eGrep.split('|').length, SMOKE.filter((s) => r.e2eSmoke.includes(s.spec)).length)
 })

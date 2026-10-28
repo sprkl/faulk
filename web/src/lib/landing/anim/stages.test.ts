@@ -31,7 +31,12 @@ describe('stage lifecycle', () => {
   })
 
   it('takes over the element once built, and gives it back on destroy', () => {
-    const stage = createStage(fakeRenderer(() => ({})), el, 'kick', 0)
+    const stage = createStage(
+      fakeRenderer(() => ({})),
+      el,
+      'kick',
+      0,
+    )
     expect(el.classList.contains('is-live')).toBe(true)
     expect(el.firstElementChild?.tagName).toBe('CANVAS')
     expect(el.firstElementChild?.getAttribute('aria-hidden')).toBe('true')

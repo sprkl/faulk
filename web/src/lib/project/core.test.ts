@@ -337,7 +337,12 @@ describe('ProjectCore', () => {
         expect(() => core.stage('x', [{ path, bytes: new Uint8Array() }])).toThrow(CoreError)
       }
       expect(() => core.stage('x', [{ path: 'a', size: 3 }])).toThrow(CoreError) // only blobs are listed
-      expect(() => core.stage('x', [{ path: 'a', bytes: new Uint8Array() }, { path: 'a', bytes: new Uint8Array() }])).toThrow(CoreError)
+      expect(() =>
+        core.stage('x', [
+          { path: 'a', bytes: new Uint8Array() },
+          { path: 'a', bytes: new Uint8Array() },
+        ]),
+      ).toThrow(CoreError)
       expect(folderFrame('x', []).length).toBe(5)
       expect(MAX_FOLDER_FRAME).toBe(512 * 1024 * 1024)
       core.free()
@@ -355,8 +360,16 @@ describe('ProjectCore', () => {
     expect('refused' in refused && refused.refused.status).toBe('refused')
     const applied = { status: 'applied', output: { type: 'history.undo' }, events: [] } as unknown as RunReport
     expect(engineStep(() => ({ report: { ...applied, stream_error: -4 }, engine: new Uint8Array() }))).toEqual({ streamError: -4, events: [] })
-    expect(engineStep(() => { throw new CoreError('run', -3) })).toEqual({ streamError: -3, events: [] })
-    expect(() => engineStep(() => { throw new TypeError('other') })).toThrow(TypeError)
+    expect(
+      engineStep(() => {
+        throw new CoreError('run', -3)
+      }),
+    ).toEqual({ streamError: -3, events: [] })
+    expect(() =>
+      engineStep(() => {
+        throw new TypeError('other')
+      }),
+    ).toThrow(TypeError)
     core.free()
     // A freed core is a CoreError too: reported, not thrown.
     expect(engineStep(() => core.run(note))).toEqual({ streamError: 0, events: [] })

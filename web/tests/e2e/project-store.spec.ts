@@ -270,7 +270,7 @@ test.describe('the project in a folder', () => {
     await simulatePicker(probe, 'song-crash')
     const seen = watch(probe)
     await probe.goto('/app')
-    await expect(tracks(probe), `${await probe.getByTestId('storage-notice').allInnerTexts()} ${seen.errors}`).toHaveCount(1)
+    await expect(tracks(probe), `${(await probe.getByTestId('storage-notice').allInnerTexts()).join(' ')} ${seen.errors.join(' ')}`).toHaveCount(1)
     expect(await readText(probe, 'song-crash', 'project.json')).toBe(before)
     expect((await listFolder(probe, 'song-crash')).filter((p) => p.endsWith('.crswap'))).toEqual([])
     expect(errors.filter((e) => !/closed/i.test(e))).toEqual([])

@@ -47,7 +47,10 @@ describe('i18n', () => {
     for (const { name } of DEVICES) {
       for (const lang of ['en', 'fr'] as const) {
         const keys = Object.entries(messages[lang]).filter(([, text]) => text === name)
-        expect(keys.map(([key]) => key).filter((key) => !DEVICE_NAME_KEYS.includes(key as never)), `${lang} ${name}`).toEqual([])
+        expect(
+          keys.map(([key]) => key).filter((key) => !DEVICE_NAME_KEYS.includes(key as never)),
+          `${lang} ${name}`,
+        ).toEqual([])
       }
     }
   })

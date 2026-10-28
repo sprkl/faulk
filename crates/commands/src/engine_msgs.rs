@@ -124,12 +124,18 @@ pub fn compile(
             out.push(ControlMsg::AllSoundOff);
         }
         Command::Transport(transport::Command::Play {}) => start_playback(sync, &mut out),
-        Command::Transport(transport::Command::Stop {}) => {
+        Command::Transport(transport::Command::Stop {}) => stop_playback(sync, &mut out),
+        Command::Transport(transport::Command::Pause { tick }) => {
+            // Stops where the playhead is: the marker stays, only the cue moves, so a resume
+            // plays from here and a stop brings the playhead back to the marker.
             sync.playing = false;
+            sync.cue = *tick;
             out.push(ControlMsg::Stop);
+            out.push(ControlMsg::Seek { tick: *tick });
         }
         Command::Transport(transport::Command::Seek { tick }) => {
             sync.cue = *tick;
+            sync.marker = *tick;
             out.push(ControlMsg::Seek { tick: *tick });
         }
         Command::Launch(launch::Command::Clip { clip }) => {
@@ -222,6 +228,21 @@ fn start_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
         sync.playing = true;
         out.push(ControlMsg::Play { from: sync.cue });
     }
+}
+
+/// Stops, and puts the playhead where `play` restarts (#360): on the marker. A stop while
+/// playing, or from a pause (the head off the marker), goes back to the marker; a stop with
+/// the head already on it goes on to the start of the project and moves the marker there.
+/// The seek is always sent, so the display never depends on what the engine held before (a
+/// resync leaves its clock where it was while the slot table starts at 0).
+fn stop_playback(sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    if !sync.playing && sync.cue == sync.marker {
+        sync.marker = project::Tick(0);
+    }
+    sync.cue = sync.marker;
+    sync.playing = false;
+    out.push(ControlMsg::Stop);
+    out.push(ControlMsg::Seek { tick: sync.cue });
 }
 
 /// What the clip events of one outcome leave to its `ArrangementChanged`.
@@ -348,6 +369,23 @@ fn compile_event(
             param,
             value,
         } => {
+            if let Some(d) = project.master_devices.get(device) {
+                let (Some(dev), Some(param)) = (
+                    sync.master_devices
+                        .get(device)
+                        .map(|s| DeviceSlot(s as u16)),
+                    param_id(d, param),
+                ) else {
+                    return;
+                };
+                out.push(ControlMsg::ParamSet {
+                    track: TrackSlot::MASTER,
+                    device: dev,
+                    param,
+                    value: finite_f32(*value),
+                });
+                return;
+            }
             let Some((track, d)) = project
                 .tracks
                 .iter()
@@ -369,10 +407,23 @@ fn compile_event(
                 value: finite_f32(*value),
             });
         }
-        ProjectEvent::DeviceChainChanged { track } => {
+        ProjectEvent::DeviceChainChanged { track: Some(track) } => {
             sync_chain(track, project, sync, out, &device_insert);
         }
+        ProjectEvent::DeviceChainChanged { track: None } => {
+            sync_master_chain(project, sync, out, &device_insert);
+        }
         ProjectEvent::DeviceBypassChanged { device, bypass } => {
+            if project.master_devices.contains_key(device) {
+                if let Some(dev) = sync.master_devices.get(device) {
+                    out.push(ControlMsg::DeviceSetEnabled {
+                        track: TrackSlot::MASTER,
+                        device: DeviceSlot(dev as u16),
+                        enabled: !bypass,
+                    });
+                }
+                return;
+            }
             let Some(track) = project
                 .tracks
                 .iter()
@@ -396,6 +447,28 @@ fn compile_event(
         } => {
             if let (Some(slot), Some(t)) = (track_slot(sync, track), project.tracks.get(track)) {
                 out.push(mix(slot, t));
+            }
+        }
+        // The lane goes up whole: a device that was not in the engine yet (a restored
+        // device, whose chain event follows) is uploaded with the chain, since a lane
+        // names the device's slot. The engine plays it (AM-2, `engine::automation`).
+        ProjectEvent::AutomationLaneCreated { track, lane }
+        | ProjectEvent::AutomationPointsChanged { track, lane } => {
+            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
+                return;
+            };
+            if let Some(l) = t.automation.get(lane) {
+                lane_msgs(track, slot, t, lane, l, sync, out);
+            }
+        }
+        ProjectEvent::AutomationLaneDeleted { track, lane } => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.remove(lane);
+            }
+            if let Some(slot) = sync.lanes.release(lane) {
+                out.push(ControlMsg::AutomationLaneRemove {
+                    lane: LaneSlot(slot),
+                });
             }
         }
         ProjectEvent::SoloChanged { track, solo } => {
@@ -455,6 +528,7 @@ pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, 
     }
     out.push(set_metronome(project));
     out.push(master(project));
+    master_chain_msgs(project, &mut sync, &mut out);
     for (scene, _) in project.scenes_in_order() {
         if sync.scenes.assign(scene, limits::MAX_SCENES).is_none() {
             sync.overflow += 1;
@@ -521,26 +595,80 @@ fn sync_chain(
     let Some(mut entry) = sync.track.remove(track_id) else {
         return;
     };
+    let chain = track.devices_in_order();
+    let built = sync_devices(
+        slot,
+        &chain,
+        &mut entry.devices,
+        &mut sync.overflow,
+        out,
+        insert_of,
+    );
+    sync.track.insert(track_id.clone(), entry);
+    for (lane_id, lane) in &track.automation {
+        if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
+        {
+            lane_msgs(track_id, slot, track, lane_id, lane, sync, out);
+        }
+    }
+}
+
+/// [`sync_chain`] for the master's chain (#364): the same rule, on the master's slot table.
+/// The master has no lanes to upload again. Note that inserting or moving an effect early in
+/// the chain builds again the ones that follow it (their tails restart), on the whole mix.
+fn sync_master_chain(
+    project: &Project,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+    insert_of: &dyn Fn(&Device) -> Option<DeviceBuild>,
+) {
+    let chain = project.master_devices_in_order();
+    let mut table = std::mem::take(&mut sync.master_devices);
+    sync_devices(
+        TrackSlot::MASTER,
+        &chain,
+        &mut table,
+        &mut sync.overflow,
+        out,
+        insert_of,
+    );
+    sync.master_devices = table;
+}
+
+/// The messages that bring the master's chain of an empty engine to the project's.
+fn master_chain_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    sync_master_chain(project, sync, out, &device_insert);
+}
+
+/// What the engine needs after a chain changed, for the chain `chain` in the engine's row
+/// `slot` (a track's, or [`TrackSlot::MASTER`]) whose slots `table` holds: see
+/// [`sync_chain`]. Returns the devices built (again).
+fn sync_devices(
+    slot: TrackSlot,
+    chain: &[(&DeviceId, &Device)],
+    table: &mut project::SlotTable<DeviceId>,
+    overflow: &mut u32,
+    out: &mut Vec<ControlMsg>,
+    insert_of: &dyn Fn(&Device) -> Option<DeviceBuild>,
+) -> BTreeSet<DeviceId> {
     // The devices the engine builds, with the slot each belongs in.
-    let wanted: Vec<(u32, &DeviceId, &Device, DeviceKind, Vec<u8>)> = track
-        .devices_in_order()
-        .into_iter()
+    let wanted: Vec<(u32, &DeviceId, &Device, DeviceKind, Vec<u8>)> = chain
+        .iter()
         .enumerate()
         .filter_map(|(index, (id, device))| {
             let (kind, state) = insert_of(device)?;
-            Some((u32::try_from(index).ok()?, id, device, kind, state))
+            Some((u32::try_from(index).ok()?, *id, *device, kind, state))
         })
         .collect();
     let belongs = |id: &DeviceId| wanted.iter().find(|w| w.1 == id).map(|w| w.0);
     // Devices out of place: gone from the chain, or at another index than their slot.
-    let stale: Vec<(u32, DeviceId)> = entry
-        .devices
+    let stale: Vec<(u32, DeviceId)> = table
         .iter()
         .filter(|(at, id)| belongs(id) != Some(*at))
         .map(|(at, id)| (at, id.clone()))
         .collect();
     for (at, id) in &stale {
-        entry.devices.release(id);
+        table.release(id);
         if !wanted.iter().any(|w| w.0 == *at) {
             out.push(ControlMsg::DeviceRemove {
                 track: slot,
@@ -550,14 +678,11 @@ fn sync_chain(
     }
     let mut built = BTreeSet::new();
     for (index, id, device, kind, state) in wanted {
-        if entry.devices.get(id) == Some(index) {
+        if table.get(id) == Some(index) {
             continue;
         }
-        let Some(at) = entry
-            .devices
-            .insert_at(id, index, limits::MAX_DEVICES_PER_TRACK)
-        else {
-            sync.overflow += 1;
+        let Some(at) = table.insert_at(id, index, limits::MAX_DEVICES_PER_TRACK) else {
+            *overflow += 1;
             continue;
         };
         out.push(ControlMsg::DeviceInsert {
@@ -575,13 +700,7 @@ fn sync_chain(
         }
         built.insert(id.clone());
     }
-    sync.track.insert(track_id.clone(), entry);
-    for (lane_id, lane) in &track.automation {
-        if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
-        {
-            lane_msgs(track_id, slot, track, lane_id, lane, sync, out);
-        }
-    }
+    built
 }
 
 /// A whole track, given a slot: its mix, solo, chain, clips, arrangement and lanes.
@@ -1094,7 +1213,12 @@ impl Synced {
     /// `Reset` and the snapshot of the project, encoded in the current epoch: what a new
     /// engine receives first.
     pub fn setup(&mut self) -> Result<Vec<u8>, MsgError> {
-        let msgs = resync(&self.state, &mut self.ctx, self.stream.epoch());
+        let mut msgs = resync(&self.state, &mut self.ctx, self.stream.epoch());
+        // The reset engine is stopped but keeps its clock where it was: the head goes to the
+        // cue the table starts at, so the position shown is where `play` starts (#360).
+        msgs.push(ControlMsg::Seek {
+            tick: self.ctx.engine.cue,
+        });
         self.stream.encode(&msgs)
     }
 

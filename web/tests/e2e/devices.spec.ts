@@ -6,8 +6,20 @@ import { watch } from './support'
 // browser lists it with no change to the panel, and it is inserted, bypassed, removed and undone here.
 
 const TEXTS = {
-  en: { bypass: (n: string) => `Bypass ${n}`, use: (n: string) => `Use ${n} as the instrument`, add: (n: string) => `Add ${n} to the track`, remove: (n: string) => `Remove ${n}`, hint: 'Output level of the synth, from 0 to 1 (linear gain).' },
-  fr: { bypass: (n: string) => `Contourner ${n}`, use: (n: string) => `Utiliser ${n} comme instrument`, add: (n: string) => `Ajouter ${n} à la piste`, remove: (n: string) => `Retirer ${n}`, hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).' },
+  en: {
+    bypass: (n: string) => `Bypass ${n}`,
+    use: (n: string) => `Use ${n} as the instrument`,
+    add: (n: string) => `Add ${n} to the track`,
+    remove: (n: string) => `Remove ${n}`,
+    hint: 'Output level of the synth, from 0 to 1 (linear gain).',
+  },
+  fr: {
+    bypass: (n: string) => `Contourner ${n}`,
+    use: (n: string) => `Utiliser ${n} comme instrument`,
+    add: (n: string) => `Ajouter ${n} à la piste`,
+    remove: (n: string) => `Retirer ${n}`,
+    hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).',
+  },
 } as const
 
 const card = (page: Page, name: string) => page.getByTestId('device-card').filter({ has: page.getByRole('heading', { name, exact: true }) })
@@ -104,17 +116,28 @@ for (const lang of ['en', 'fr'] as const) {
     // then undone back to the insertion and its removal.
     await panel.getByRole('button', { name: x.add('Reverb'), exact: true }).click()
     const reverb = card(page, 'Reverb')
-    await expect(reverb.locator('[data-testid^=param-]')).toHaveCount(4)
+    await expect(reverb.locator('[data-testid^=param-]')).toHaveCount(5)
     const size = reverb.getByTestId('param-size').getByRole('slider')
     const sizeBefore = await size.getAttribute('aria-valuetext')
     await size.focus()
     await page.keyboard.press('ArrowRight')
     await expect.poll(() => size.getAttribute('aria-valuetext')).not.toBe(sizeBefore)
     await expect(reverb.getByTestId('param-mix').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
+    // The pre-delay follows the same time-change setting as the Echo: Glide by default.
+    const reverbGlide = reverb.getByRole('radio', { name: lang === 'en' ? 'Glide' : 'Glissé', exact: true })
+    await expect(reverbGlide).toHaveAttribute('aria-checked', 'true')
+    await expect(reverb.getByTestId('param-time_change').getByRole('radio')).toHaveCount(3)
+    // Choosing Fade is a control change like any other: it is checked, then undone below.
+    const reverbFade = reverb.getByRole('radio', { name: lang === 'en' ? 'Fade' : 'Fondu', exact: true })
+    await reverbFade.click()
+    await expect(reverbFade).toHaveAttribute('aria-checked', 'true')
+    await expect(reverbGlide).toHaveAttribute('aria-checked', 'false')
     await reverb.getByRole('button', { name: x.remove('Reverb'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await page.keyboard.press('Control+z')
     await expect(reverb).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(reverbGlide).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Control+z')
     await expect(size).toHaveAttribute('aria-valuetext', sizeBefore!)
     await page.keyboard.press('Control+z')

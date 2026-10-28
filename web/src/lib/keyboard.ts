@@ -2,6 +2,8 @@
  * Computer keyboard as a piano. Keys are matched by physical position
  * (`KeyboardEvent.code`), so the layout is the same on QWERTY and AZERTY.
  *
+ * The computer keyboard plays in every view (#361); the order in which a key is shared is `playsNote`.
+ *
  * The rule between playing and shortcuts (UI-3): no shortcut fires while the keyboard plays, meaning no
  * key does both: a played key never fires a shortcut, and a shortcut never plays a note. A shortcut
  * pressed while a note is held still works (undo stays reachable); the held note goes on.
@@ -14,8 +16,23 @@
 
 /** Semitone offset from C of each key, two rows like a piano. */
 const KEY_OFFSETS: Record<string, number> = {
-  KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7,
-  KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16,
+  KeyA: 0,
+  KeyW: 1,
+  KeyS: 2,
+  KeyE: 3,
+  KeyD: 4,
+  KeyF: 5,
+  KeyT: 6,
+  KeyG: 7,
+  KeyY: 8,
+  KeyH: 9,
+  KeyU: 10,
+  KeyJ: 11,
+  KeyK: 12,
+  KeyO: 13,
+  KeyL: 14,
+  KeyP: 15,
+  Semicolon: 16,
 }
 
 export const MIN_OCTAVE = 0
@@ -35,9 +52,29 @@ export function defaultOctave(instrumentKind: string | null): number {
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
  * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
+ * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
  */
-export const BARE_SHORTCUT_CODES: readonly string[] = ['F2', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown', 'Space', 'ArrowLeft', 'ArrowRight', 'Home', '+', '=', '-', '_', 'Delete', 'Backspace', 'PageUp', 'PageDown', 'End', 'Tab']
+export const BARE_SHORTCUT_CODES: readonly string[] = [
+  'F2',
+  'Escape',
+  'Enter',
+  'ArrowUp',
+  'ArrowDown',
+  'Space',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  '+',
+  '=',
+  '-',
+  '_',
+  'Delete',
+  'Backspace',
+  'PageUp',
+  'PageDown',
+  'End',
+  'Tab',
+]
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)
@@ -142,6 +179,34 @@ export function spaceTogglesTransport(target: EventTarget | null, focusVisible: 
   const element = target as Element | null
   if (!element || typeof element.closest !== 'function') return true
   if (isTextTarget(element)) return false
+  const control = element.closest(SPACE_CONTROLS)
+  return control === null || !focusVisible(control)
+}
+
+/** Where a key means something of its own whoever focused it: a menu (or the button that opened it), a dialog, a spin box (#361). */
+const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [aria-haspopup][aria-expanded="true"]'
+
+/**
+ * Whether a key event plays a note (or steps the octave) in whatever view is shown (#361). A key is checked against these
+ * owners, in this order; the first that claims it wins, and a key nobody claims plays:
+ * 1. a key with Ctrl, Cmd or Alt is a shortcut, a repeat is no new note (`ignoreKeyEvent`), and a key a view's handler took
+ *    (`preventDefault`) before it reached the window is that view's editing shortcut (no view reads a letter today: this guards a future one);
+ * 2. a text field, a select or a contenteditable keeps every key (`ignoreKeyEvent`);
+ * 3. a menu (or the button that opened it), a dialog, a spin box keeps every key, however the focus got there, and so does
+ *    the whole page while a modal dialog is open;
+ * 4. a control the keyboard focused (Tab, arrows: a button, link, checkbox, knob or slider) keeps its own keys, the rule of
+ *    Space (`spaceTogglesTransport`); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
+ *    notes are played. A control focused by a script after a key (a menu giving the focus back) counts as keyboard-focused.
+ * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
+ */
+export function playsNote(
+  event: Pick<KeyboardEvent, 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey' | 'target' | 'defaultPrevented'>,
+  focusVisible: (element: Element) => boolean = keyboardFocused,
+): boolean {
+  if (ignoreKeyEvent(event) || event.defaultPrevented) return false
+  const element = event.target as Element | null
+  if (!element || typeof element.closest !== 'function') return true
+  if (element.closest(OWN_KEYS_AREAS) || element.ownerDocument?.querySelector('[aria-modal="true"]')) return false
   const control = element.closest(SPACE_CONTROLS)
   return control === null || !focusVisible(control)
 }

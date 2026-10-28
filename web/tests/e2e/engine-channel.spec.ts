@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { ceiling } from './support'
+import { ceiling, withStableClock } from './support'
 
 // CT-3 (#39): the two ways of § 2.3 for the project → engine channel in the browser, measured
 // on the render thread of a real AudioWorklet in Chromium, with the real synth rendering a note
@@ -43,9 +43,7 @@ test.beforeAll(() => {
   const outputs = [`${build}plain.wasm`, `${build}shared.wasm`]
   const crates = fileURLToPath(new URL('../../../crates/', import.meta.url))
   const sources = [`${proto}crate`, `${crates}engine`, `${crates}engine-wasm`]
-  const stale =
-    outputs.some((o) => !existsSync(o)) ||
-    Math.min(...outputs.map((o) => statSync(o).mtimeMs)) < Math.max(...sources.map(newest))
+  const stale = outputs.some((o) => !existsSync(o)) || Math.min(...outputs.map((o) => statSync(o).mtimeMs)) < Math.max(...sources.map(newest))
   if (stale) {
     execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/build-proto.mjs', import.meta.url))], {
       stdio: 'inherit',
@@ -101,6 +99,7 @@ type Run = {
   mode: 'a' | 'b'
   ticksPerUs: number
   ticksPerUsCheck: number
+  drift: string | undefined
   idle: Report
   load: Report
   worker?: {
@@ -118,8 +117,17 @@ type Run = {
   workletRole: number
 }
 
+/** One measurement, taken again when the runner made the counter change pace (#359). */
+function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
+  return withStableClock(
+    `way (${mode})`,
+    () => measureOnce(page, mode),
+    (run) => run.drift,
+  )
+}
+
 /** The whole measurement of one way, run inside the page. */
-async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
+async function measureOnce(page: Page, mode: 'a' | 'b'): Promise<Run> {
   // Worklet and worker scripts are loaded from blob URLs: a request made from a worklet
   // scope does not go through page.route, and a blob of an isolated page is isolated too.
   const sources = {
@@ -128,142 +136,151 @@ async function measure(page: Page, mode: 'a' | 'b'): Promise<Run> {
     worklet: readFileSync(`${proto}proto-worklet.js`, 'utf8'),
     rpc: readFileSync(fileURLToPath(new URL('fixtures/measure-rpc.js', import.meta.url)), 'utf8'),
   }
-  return page.evaluate(async ({ mode, sources }) => {
-    const blob = (source: string) => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-    const clockBuffer = new SharedArrayBuffer(4)
-    const clock = new Int32Array(clockBuffer)
-    const clockWorker = new Worker(blob(sources.clock))
-    clockWorker.postMessage(clockBuffer)
-    const rpc = new Function(`return (${sources.rpc}
-)`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>, transfer?: Transferable[]) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
-    const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
-      Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
-    const calibrate = async (ms = 300) => {
-      const c0 = Atomics.load(clock, 0)
-      const t0 = performance.now()
-      await sleep(ms)
-      const c1 = Atomics.load(clock, 0)
-      const t1 = performance.now()
-      return ((c1 - c0) >>> 0) / ((t1 - t0) * 1000)
-    }
-    // The spinning Worker is slow for its first few hundred ms (#283): wait until three windows agree.
-    const settle = async () => {
-      const rates = [await calibrate(200)]
-      for (let i = 0; i < 40; i++) {
-        rates.push(await calibrate(200))
-        const [a, b, c] = rates.slice(-3)
-        if (rates.length >= 5 && Math.max(a, b, c) < 1.1 * Math.min(a, b, c)) return c
+  return page.evaluate(
+    async ({ mode, sources }) => {
+      const blob = (source: string) => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const clockBuffer = new SharedArrayBuffer(4)
+      const clock = new Int32Array(clockBuffer)
+      const clockWorker = new Worker(blob(sources.clock))
+      clockWorker.postMessage(clockBuffer)
+      const rpc = new Function(`return (${sources.rpc}
+)`)() as (
+        target: unknown,
+        name: string,
+        ms: number,
+      ) => ((m: Record<string, unknown>, transfer?: Transferable[]) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
+      const deadline = <T>(what: string, promise: Promise<T>, ms = 15_000) =>
+        Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
+      const calibrate = async (ms = 300) => {
+        const c0 = Atomics.load(clock, 0)
+        const t0 = performance.now()
+        await sleep(ms)
+        const c1 = Atomics.load(clock, 0)
+        const t1 = performance.now()
+        return ((c1 - c0) >>> 0) / ((t1 - t0) * 1000)
       }
-      throw new Error('clock: the counter rate never settled')
-    }
-    await sleep(100)
-    const ticksPerUs = await settle()
-
-    const context = new AudioContext()
-    await deadline(`audio context (state ${context.state})`, context.resume())
-    await context.audioWorklet.addModule(blob(sources.worklet))
-    const node = new AudioWorkletNode(context, 'faulk-proto', { numberOfInputs: 0, outputChannelCount: [2] })
-    const ask = rpc(node.port, 'worklet', 15_000)
-    // A trap inside `process` is reported on the node, not on its port.
-    node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
-
-    let worker: Worker | undefined
-    let askWorker: ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) | undefined
-    let memory: WebAssembly.Memory | undefined
-    let maximumPages = 0
-    let ready: Record<string, unknown>
-    if (mode === 'a') {
-      const bytes = await (await fetch('/proto/plain.wasm')).arrayBuffer()
-      ready = await ask({ type: 'init', mode, bytes, clock: clockBuffer, ticksPerUs }, [bytes])
-    } else {
-      const bytes = await (await fetch('/proto/shared.wasm')).arrayBuffer()
-      // 16 MiB initial (WASM_INITIAL_PAGES), the wasm32 cap as maximum when the browser allows it.
-      for (const maximum of [65536, 32768, 16384]) {
-        try {
-          memory = new WebAssembly.Memory({ initial: 256, maximum, shared: true })
-          maximumPages = maximum
-          break
-        } catch {
-          /* try a smaller maximum */
+      // The spinning Worker is slow for its first few hundred ms (#283): wait until three windows agree.
+      const settle = async () => {
+        const rates = [await calibrate(200)]
+        for (let i = 0; i < 40; i++) {
+          rates.push(await calibrate(200))
+          const [a, b, c] = rates.slice(-3)
+          if (rates.length >= 5 && Math.max(a, b, c) < 1.1 * Math.min(a, b, c)) return c
         }
+        throw new Error('clock: the counter rate never settled')
       }
-      worker = new Worker(blob(sources.worker))
-      askWorker = rpc(worker, 'prepare Worker', 15_000)
-      const w = await askWorker({ type: 'init', bytes, memory, sampleRate: context.sampleRate })
-      ready = await ask({ type: 'init', mode, bytes, memory, proto: w.proto, inst: w.inst, stackTop: w.stackTop, clock: clockBuffer, ticksPerUs })
-    }
-    node.connect(context.destination)
+      await sleep(100)
+      const ticksPerUs = await settle()
 
-    // Idle: one second of rendering with no message, the baseline of the block gaps.
-    await sleep(300)
-    await ask({ type: 'reset' })
-    await sleep(1000)
-    const idle = (await ask({ type: 'report' })) as unknown as Report
+      const context = new AudioContext()
+      await deadline(`audio context (state ${context.state})`, context.resume())
+      await context.audioWorklet.addModule(blob(sources.worklet))
+      const node = new AudioWorkletNode(context, 'faulk-proto', { numberOfInputs: 0, outputChannelCount: [2] })
+      const ask = rpc(node.port, 'worklet', 15_000)
+      // A trap inside `process` is reported on the node, not on its port.
+      node.onprocessorerror = () => ask.fail(new Error('worklet: processorerror (an exception in process)'))
 
-    // Load: ten bursts of 100 messages; then the track table grown to its limit (4096) and
-    // filled with 4096 boxed tracks; then three growths, each a million-note snapshot plus
-    // the slot array doubled to 8192 (the 4096 slots moved in apply, then 8192 for the two
-    // re-swaps), all applied while the note keeps playing.
-    await ask({ type: 'reset' })
-    const workerBursts: Record<string, unknown>[] = []
-    const workerGrows: Record<string, unknown>[] = []
-    let workerFill: Record<string, unknown> = {}
-    for (let burst = 0; burst < 10; burst++) {
+      let worker: Worker | undefined
+      let askWorker: ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) | undefined
+      let memory: WebAssembly.Memory | undefined
+      let maximumPages = 0
+      let ready: Record<string, unknown>
       if (mode === 'a') {
-        for (let i = 0; i < 100; i++) {
-          const buf = new ArrayBuffer(16)
-          const view = new DataView(buf)
-          view.setUint32(0, 0, true) // param 0 (gain) ...
-          view.setFloat32(4, 0.5 + i / 1000, true) // ... barely moved
-          node.port.postMessage({ type: 'msg', burst, buf }, [buf])
-        }
+        const bytes = await (await fetch('/proto/plain.wasm')).arrayBuffer()
+        ready = await ask({ type: 'init', mode, bytes, clock: clockBuffer, ticksPerUs }, [bytes])
       } else {
-        workerBursts.push(await askWorker!({ type: 'burst', n: 100, param: 0 }))
+        const bytes = await (await fetch('/proto/shared.wasm')).arrayBuffer()
+        // 16 MiB initial (WASM_INITIAL_PAGES), the wasm32 cap as maximum when the browser allows it.
+        for (const maximum of [65536, 32768, 16384]) {
+          try {
+            memory = new WebAssembly.Memory({ initial: 256, maximum, shared: true })
+            maximumPages = maximum
+            break
+          } catch {
+            /* try a smaller maximum */
+          }
+        }
+        worker = new Worker(blob(sources.worker))
+        askWorker = rpc(worker, 'prepare Worker', 15_000)
+        const w = await askWorker({ type: 'init', bytes, memory, sampleRate: context.sampleRate })
+        ready = await ask({ type: 'init', mode, bytes, memory, proto: w.proto, inst: w.inst, stackTop: w.stackTop, clock: clockBuffer, ticksPerUs })
       }
-      await sleep(50)
-    }
-    if (mode === 'a') {
-      node.port.postMessage({ type: 'grow', notes: 0, tracks: 4096 })
-      node.port.postMessage({ type: 'fill', n: 4096 })
-    } else {
-      workerGrows.push(await askWorker!({ type: 'grow', notes: 0, tracks: 4096 }))
-      workerFill = await askWorker!({ type: 'fill', n: 4096 })
-      // 4096 swaps drain at 128 per block: about 32 blocks.
-      await sleep(300)
-    }
-    for (let i = 0; i < 3; i++) {
-      // The first doubling moves the 4096 entries; the next two re-swap the 8192-slot array
-      // (8192 slots moved, twice the limit: conservative for the budget).
-      const tracks = 8192
-      if (mode === 'a') node.port.postMessage({ type: 'grow', notes: 1_000_000, tracks })
-      else workerGrows.push(await askWorker!({ type: 'grow', notes: 1_000_000, tracks }))
-      await sleep(200)
-    }
-    if (mode === 'b') await askWorker!({ type: 'collect' })
-    await sleep(300)
-    const load = (await ask({ type: 'report' })) as unknown as Report
-    const counters = mode === 'b' ? await askWorker!({ type: 'counters' }) : undefined
-    const ticksPerUsCheck = await calibrate()
+      node.connect(context.destination)
 
-    clockWorker.terminate()
-    worker?.terminate()
-    // The counter kept its pace between the settled calibration and the end (#283), or every figure above is off.
-    if (Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck) throw new Error(`clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`)
-    await deadline(`closing the audio context (state ${context.state})`, context.close())
-    return {
-      mode,
-      ticksPerUs,
-      ticksPerUsCheck,
-      idle,
-      load,
-      worker:
-        mode === 'b'
-          ? ({ bursts: workerBursts, grows: workerGrows, fill: workerFill, counters, maximumPages } as unknown as Run['worker'])
-          : undefined,
-      workletRole: ready.role as number,
-    }
-  }, { mode, sources })
+      // Idle: one second of rendering with no message, the baseline of the block gaps.
+      await sleep(300)
+      await ask({ type: 'reset' })
+      await sleep(1000)
+      const idle = (await ask({ type: 'report' })) as unknown as Report
+
+      // Load: ten bursts of 100 messages; then the track table grown to its limit (4096) and
+      // filled with 4096 boxed tracks; then three growths, each a million-note snapshot plus
+      // the slot array doubled to 8192 (the 4096 slots moved in apply, then 8192 for the two
+      // re-swaps), all applied while the note keeps playing.
+      await ask({ type: 'reset' })
+      const workerBursts: Record<string, unknown>[] = []
+      const workerGrows: Record<string, unknown>[] = []
+      let workerFill: Record<string, unknown> = {}
+      for (let burst = 0; burst < 10; burst++) {
+        if (mode === 'a') {
+          for (let i = 0; i < 100; i++) {
+            const buf = new ArrayBuffer(16)
+            const view = new DataView(buf)
+            view.setUint32(0, 0, true) // param 0 (gain) ...
+            view.setFloat32(4, 0.5 + i / 1000, true) // ... barely moved
+            node.port.postMessage({ type: 'msg', burst, buf }, [buf])
+          }
+        } else {
+          workerBursts.push(await askWorker!({ type: 'burst', n: 100, param: 0 }))
+        }
+        await sleep(50)
+      }
+      if (mode === 'a') {
+        node.port.postMessage({ type: 'grow', notes: 0, tracks: 4096 })
+        node.port.postMessage({ type: 'fill', n: 4096 })
+      } else {
+        workerGrows.push(await askWorker!({ type: 'grow', notes: 0, tracks: 4096 }))
+        workerFill = await askWorker!({ type: 'fill', n: 4096 })
+        // 4096 swaps drain at 128 per block: about 32 blocks.
+        await sleep(300)
+      }
+      for (let i = 0; i < 3; i++) {
+        // The first doubling moves the 4096 entries; the next two re-swap the 8192-slot array
+        // (8192 slots moved, twice the limit: conservative for the budget).
+        const tracks = 8192
+        if (mode === 'a') node.port.postMessage({ type: 'grow', notes: 1_000_000, tracks })
+        else workerGrows.push(await askWorker!({ type: 'grow', notes: 1_000_000, tracks }))
+        await sleep(200)
+      }
+      if (mode === 'b') await askWorker!({ type: 'collect' })
+      await sleep(300)
+      const load = (await ask({ type: 'report' })) as unknown as Report
+      const counters = mode === 'b' ? await askWorker!({ type: 'counters' }) : undefined
+      const ticksPerUsCheck = await calibrate()
+
+      clockWorker.terminate()
+      worker?.terminate()
+      // The counter kept its pace between the settled calibration and the end (#283), or every figure above is off.
+      // Reported, not thrown: the context must still be closed, and the caller takes the run again (#359).
+      const drift =
+        Math.abs(ticksPerUsCheck - ticksPerUs) > 0.25 * ticksPerUsCheck
+          ? `clock: ${ticksPerUs.toFixed(1)} ticks/µs settled, ${ticksPerUsCheck.toFixed(1)} at the end`
+          : undefined
+      await deadline(`closing the audio context (state ${context.state})`, context.close())
+      return {
+        mode,
+        ticksPerUs,
+        ticksPerUsCheck,
+        drift,
+        idle,
+        load,
+        worker: mode === 'b' ? ({ bursts: workerBursts, grows: workerGrows, fill: workerFill, counters, maximumPages } as unknown as Run['worker']) : undefined,
+        workletRole: ready.role as number,
+      }
+    },
+    { mode, sources },
+  )
 }
 
 function table(run: Run) {
@@ -289,7 +306,9 @@ function table(run: Run) {
     lines.push(
       `  per message on the render thread: pump ${us(load.pumpUsPerMsg)} µs/msg (${load.pumped} messages in ${load.pumpCalls} pumps, ${us(load.pumpUsPerCall)} µs per pump incl. empty ones, longest pump ${us(load.pumpMaxUs)} µs incl. the swaps; idle pump ${us(idle.pumpUsPerCall)} µs)`,
     )
-    lines.push(`  fill of 4096 tracks: prepare in the worker ${run.worker!.fill.ms.toFixed(2)} ms (failed ${run.worker!.fill.failed}, queued behind a full ring ${run.worker!.fill.queued})`)
+    lines.push(
+      `  fill of 4096 tracks: prepare in the worker ${run.worker!.fill.ms.toFixed(2)} ms (failed ${run.worker!.fill.failed}, queued behind a full ring ${run.worker!.fill.queued})`,
+    )
     for (const [i, g] of run.worker!.grows.entries())
       lines.push(
         `  growth: prepare in the worker ${g.ms.toFixed(2)} ms (${i === 0 ? 'empty table to 4096 slots' : '1 M notes + the slot array re-swapped (4096 then 8192 slots moved in the pump)'}, codes ${g.notes}/${g.tracks}), memory ${g.before >> 20} → ${g.after >> 20} MiB; worker burst ${i < run.worker!.bursts.length ? run.worker!.bursts[i].ms.toFixed(3) : '-'} ms/100`,
@@ -307,11 +326,14 @@ function table(run: Run) {
 
 test.describe('CT-3: the project → engine channel in the browser', () => {
   test('way (a), plain memory: messages and growth on the render thread', async ({ page, baseURL }) => {
+    test.setTimeout(60_000) // room for the runs taken again when the clock drifts (#359)
     await serveProto(page, baseURL!)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'a')
-    console.log(`timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`)
+    console.log(
+      `timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`,
+    )
     console.log(table(run))
     const { load } = run
     expect(run.ticksPerUs).toBeGreaterThan(1)
@@ -340,11 +362,14 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
   })
 
   test('way (b), shared memory: a Worker prepares, the worklet pumps', async ({ page, baseURL }) => {
+    test.setTimeout(60_000) // room for the runs taken again when the clock drifts (#359)
     await serveProto(page, baseURL!)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     const run = await measure(page, 'b')
-    console.log(`timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`)
+    console.log(
+      `timing: ceiling only (10x: ${ceiling(2)} µs per message, ${ceiling(500)} µs longest pump, ${ceiling(50)} µs per message in a burst), in every mode`,
+    )
     console.log(table(run))
     const { load } = run
     const c = run.worker!.counters

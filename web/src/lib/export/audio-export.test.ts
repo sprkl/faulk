@@ -69,7 +69,15 @@ class FakeWorker implements ExportWorkerPort {
 }
 
 function setup(
-  overrides: { job?: ExportJob | null; pick?: SinkChoice; hasContent?: boolean; hasLoop?: boolean; module?: Promise<ArrayBuffer>; refuse?: boolean; canChoose?: boolean } = {},
+  overrides: {
+    job?: ExportJob | null
+    pick?: SinkChoice
+    hasContent?: boolean
+    hasLoop?: boolean
+    module?: Promise<ArrayBuffer>
+    refuse?: boolean
+    canChoose?: boolean
+  } = {},
 ) {
   const sink = new FakeSink()
   const worker = new FakeWorker()
@@ -174,7 +182,15 @@ describe('an export', () => {
     expect(sink.header).toEqual([9, 9])
     expect(exporter.phase).toBe('done')
     expect(worker.terminated).toBe(true)
-    expect(exporter.result).toMatchObject({ name: 'Song.wav', kind: 'file', bytes: 44 + 3, seconds: 5, peakDb: expect.closeTo(-6.02, 1), clipped: 0, tailCut: false })
+    expect(exporter.result).toMatchObject({
+      name: 'Song.wav',
+      kind: 'file',
+      bytes: 44 + 3,
+      seconds: 5,
+      peakDb: expect.closeTo(-6.02, 1),
+      clipped: 0,
+      tailCut: false,
+    })
     expect(exporter.result!.renderMs).toBeGreaterThan(0)
   })
 
@@ -239,7 +255,7 @@ describe('an export', () => {
       const { exporter, deps } = setup({ job })
       exporter.show()
       exporter.start()
-    await flush()
+      await flush()
       expect(exporter.phase).toBe('failed')
       expect(deps.pick).not.toHaveBeenCalled()
     }
@@ -408,7 +424,12 @@ describe('an export', () => {
     exporter.request({ region: 'bars', from_bar: 3, to_bar: 5 })
     expect(exporter.choices).toMatchObject({ region: 'bars', fromBar: 3, toBar: 5 })
     // Bars that make no range cannot be exported, and none is sent for the song.
-    for (const [from, to] of [[0, 2], [3, 2], [1.5, 2], [1, Number.NaN]]) {
+    for (const [from, to] of [
+      [0, 2],
+      [3, 2],
+      [1.5, 2],
+      [1, Number.NaN],
+    ]) {
       exporter.choices.fromBar = from
       exporter.choices.toBar = to
       expect(exporter.canStart, `${from} to ${to}`).toBe(false)

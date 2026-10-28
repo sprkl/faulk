@@ -20,7 +20,11 @@ const SILENCE_DB = -60
 const ROW = 16
 const RULER = 28
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 /** The output level of the engine's report, in dBFS (the top bar carries it as data). */
 const meterDb = async (page: Page) => {
   const peak = Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
@@ -183,7 +187,10 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) =
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
 
   const built = await page.evaluate(() => {
-    const w = window as unknown as { __faulkRun: (c: unknown) => void; __faulkView: () => { project: { tracks: Record<string, unknown>; scenes: Record<string, unknown> } } }
+    const w = window as unknown as {
+      __faulkRun: (c: unknown) => void
+      __faulkView: () => { project: { tracks: Record<string, unknown>; scenes: Record<string, unknown> } }
+    }
     const t0 = performance.now()
     for (let i = 0; i < 31; i++) w.__faulkRun({ type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
     for (let i = 0; i < 64; i++) w.__faulkRun({ type: 'scene.create' })
@@ -265,19 +272,19 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) =
   await expect(cells(page).first()).toHaveAttribute('data-state', 'playing', { timeout: 10_000 })
   const play = () =>
     page.evaluate(
-    () =>
-      new Promise<number[]>((done) => {
-        const intervals: number[] = []
-        let last = 0
-        const step = (now: number) => {
-          if (last) intervals.push(now - last)
-          last = now
-          if (intervals.length < 120) requestAnimationFrame(step)
-          else done(intervals)
-        }
-        requestAnimationFrame(step)
-      }),
-  )
+      () =>
+        new Promise<number[]>((done) => {
+          const intervals: number[] = []
+          let last = 0
+          const step = (now: number) => {
+            if (last) intervals.push(now - last)
+            last = now
+            if (intervals.length < 120) requestAnimationFrame(step)
+            else done(intervals)
+          }
+          requestAnimationFrame(step)
+        }),
+    )
   const plays = []
   for (let i = 0; i < WINDOWS; i++) plays.push(await meter.measure(play))
   const playing = plays[0]!.result

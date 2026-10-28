@@ -9,6 +9,7 @@ import {
   floorTick,
   hitNote,
   hitVelocity,
+  velocityTarget,
   initialScrollY,
   isBlackKey,
   maxScrollY,
@@ -296,11 +297,29 @@ describe('changes that outlive their clip', () => {
   const b = note(960, 62)
 
   it('still apply while every note they replace is in the clip and every note they bring fits it', () => {
-    expect(stillApplies([a, b], [{ from: a, to: note(480, 60) }, { from: b, to: note(1440, 62) }], 3840)).toBe(true)
+    expect(
+      stillApplies(
+        [a, b],
+        [
+          { from: a, to: note(480, 60) },
+          { from: b, to: note(1440, 62) },
+        ],
+        3840,
+      ),
+    ).toBe(true)
   })
 
   it('stop applying when a replaced note is gone, even one that was not the grabbed one', () => {
-    expect(stillApplies([a], [{ from: a, to: note(480, 60) }, { from: b, to: note(1440, 62) }], 3840)).toBe(false)
+    expect(
+      stillApplies(
+        [a],
+        [
+          { from: a, to: note(480, 60) },
+          { from: b, to: note(1440, 62) },
+        ],
+        3840,
+      ),
+    ).toBe(false)
   })
 
   it('stop applying when the clip became shorter than the note they bring', () => {
@@ -384,5 +403,15 @@ describe('velocity lane', () => {
     expect(hitVelocity(notes, 97, view)).toBe(2)
     expect(hitVelocity(notes, 50, view)).toBeNull()
     expect(hitVelocity(notes, 1, view)).toBe(0)
+  })
+
+  it('picks, among the notes of one step, the selected one, else the highest', () => {
+    const notes = [note(960, 42), note(960, 46), note(0, 60)]
+    expect(velocityTarget(notes, 97, view, new Set())).toBe(1)
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[0]!)]))).toBe(0)
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[0]!), noteKey(notes[1]!)]))).toBe(1)
+    // A selected note on another step does not matter.
+    expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[2]!)]))).toBe(1)
+    expect(velocityTarget(notes, 50, view, new Set())).toBeNull()
   })
 })

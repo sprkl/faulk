@@ -1,6 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck: plain JavaScript loaded from a blob by engine-mo2.spec.ts and tests/bench/engine-swap.bench.ts (MO-2, #55; QA-7, #130).
-/* global AudioWorkletProcessor, registerProcessor */
+/* global AudioWorkletProcessor, registerProcessor, sampleRate */
 // What src/lib/engine/worklet.ts does, with the pump timed apart: `fk_render` is exactly
 // `fk_pump` then `fk_render_block`, and the clock (a Worker spinning on a shared counter, as
 // in CT-3: an AudioWorkletGlobalScope has no `performance`) is read around `fk_pump`.
@@ -37,6 +37,9 @@ class Measure extends AudioWorkletProcessor {
           e.__stack_pointer.value = m.setup.stackTop
           e.__wasm_init_tls(m.setup.tls)
           e.fk_set_role(2)
+          // The warm-up of the apply path (#355), as src/lib/engine/worklet.ts runs it; `warm: false`
+          // measures the cold start it removes.
+          this.warmCode = m.warm === false ? null : e.fk_warm(sampleRate)
           this.memory = m.memory
           this.ch = m.setup.channel
           this.clock = new Int32Array(m.clock)
@@ -45,7 +48,7 @@ class Measure extends AudioWorkletProcessor {
           this.e = e
           this.allocs0 = e.fk_allocs(2)
           this.frees0 = e.fk_frees(2)
-          this.port.postMessage({ type: 'ready', role: e.fk_role() })
+          this.port.postMessage({ type: 'ready', role: e.fk_role(), warm: this.warmCode })
         } else if (m.type === 'rate') {
           this.ticksPerUs = m.ticksPerUs
           this.port.postMessage({ type: 'rate' })

@@ -376,6 +376,38 @@ fn silence_meters_zero_and_the_period_restarts() {
 }
 
 #[test]
+fn a_stop_followed_by_a_seek_leaves_the_playhead_on_the_cue() {
+    // What `transport.stop` sends (#360): the head is on the cue, whichever blocks the two land in.
+    let mut session = Session::new();
+    session.send(&[M::Play { from: Tick(3840) }]);
+    for _ in 0..40 {
+        session.host.render(128);
+    }
+    assert!(report_of(&mut session).playhead_tick > Tick(3840));
+    session.send(&[M::Stop, M::Seek { tick: Tick(3840) }]);
+    session.host.render(128);
+    let stopped = report_of(&mut session);
+    assert_eq!(stopped.transport, TransportState::Stopped);
+    assert_eq!(stopped.playhead_tick, Tick(3840));
+    session.host.render(128);
+    assert_eq!(
+        report_of(&mut session).playhead_tick,
+        Tick(3840),
+        "it stays"
+    );
+    // A second stop goes to the start.
+    session.send(&[M::Stop, M::Seek { tick: Tick(0) }]);
+    session.host.render(128);
+    assert_eq!(report_of(&mut session).playhead_tick, Tick(0));
+    // Play restarts from where the head is shown.
+    session.send(&[M::Play { from: Tick(0) }]);
+    session.host.render(128);
+    let playing = report_of(&mut session);
+    assert_eq!(playing.transport, TransportState::Playing);
+    assert!(playing.playhead_tick >= Tick(0) && playing.playhead_tick < Tick(960));
+}
+
+#[test]
 fn the_report_carries_the_transport_and_the_playhead() {
     let mut session = Session::new();
     let fb = report_of(&mut session);

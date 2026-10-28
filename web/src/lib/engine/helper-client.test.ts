@@ -20,11 +20,7 @@ describe('incompatibleMessage', () => {
     expect(translate('fr', 'helper.helperOlder', { v: 1 })).toBe(
       'Ce helper est plus ancien que la page (protocole 1). Relance-le pour installer sa mise à jour, ou retélécharge-le sur get.faulk.app/helper/windows.',
     )
-    expect(translate('en', 'helper.helperNewer', { v: 9 })).toBe(
-      'This page is older than your helper (protocol 9). Reload the page.',
-    )
-    expect(translate('fr', 'helper.helperNewer', { v: 9 })).toBe(
-      'Cette page est plus ancienne que ton helper (protocole 9). Recharge la page.',
-    )
+    expect(translate('en', 'helper.helperNewer', { v: 9 })).toBe('This page is older than your helper (protocol 9). Reload the page.')
+    expect(translate('fr', 'helper.helperNewer', { v: 9 })).toBe('Cette page est plus ancienne que ton helper (protocole 9). Recharge la page.')
   })
 })

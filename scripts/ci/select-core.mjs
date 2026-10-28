@@ -4,8 +4,12 @@
 //  - push (develop, main): nothing heavy, the code was tested in its pull request;
 //  - pull request against `main` (release, hotfix): the full suite, once;
 //  - pull request against another branch: only what the changed files can affect;
+//  - the browser tests of a pull request against another branch are the specs its web files touch
+//    plus a smoke set, from the one table shared with scripts/agent/verify.mjs (e2e-plan.mjs, #377);
 //  - fail safe: a file this module cannot classify, an unknown event or a failure to list the
 //    changed files runs everything.
+
+import { MAX_SHARDS, planE2e } from './e2e-plan.mjs'
 
 const NONE = Object.freeze({
   mode: 'none',
@@ -17,6 +21,11 @@ const NONE = Object.freeze({
   helperWindows: false,
   web: false,
   e2e: '', // '', 'dev' or 'dev,preview' (the Playwright projects)
+  e2eAll: false, // the whole suite (every spec of the projects), not a list
+  e2eSpecs: [], // spec names run whole (targeted only)
+  e2eSmoke: [], // specs of which only the smoke tests run (targeted only)
+  e2eGrep: '', // the --grep that selects those smoke tests
+  e2eShards: 0, // machines to run them on; 0: no end-to-end job
   agentScripts: false,
   packages: [],
 })
@@ -32,7 +41,7 @@ const IGNORED = [
   /^docs\//,
   /^\.scratch\//,
   /^[^/]+\.md$/,
-  /^(LICENSE|\.gitignore)[^/]*$/,
+  /^(LICENSE|\.gitignore|\.git-blame-ignore-revs)[^/]*$/,
   /^\.github\/(ISSUE_TEMPLATE\/|PULL_REQUEST_TEMPLATE|CODEOWNERS$|dependabot\.yml$|[^/]+\.md$)/, // not .github/actions/
   /^\.github\/workflows\/release-helper\.yml$/, // its own triggers
 ]
@@ -53,6 +62,11 @@ function full(workspace) {
     helperWindows: true,
     web: true,
     e2e: 'dev,preview',
+    e2eAll: true,
+    e2eSpecs: [],
+    e2eSmoke: [],
+    e2eGrep: '',
+    e2eShards: MAX_SHARDS,
     agentScripts: true,
     packages: workspace.map((p) => p.name),
   }
@@ -82,9 +96,6 @@ export function affectedPackages(packages, changed) {
   return { built, tested }
 }
 
-// A unit test or a note under web/ cannot change what the end-to-end tests see.
-const isUnitTestOrNote = (f) => /^web\/(?!tests\/e2e\/).*\.test\.ts$/.test(f) || /^web\/.*\.md$/.test(f)
-
 /**
  * @param {object} input
  * @param {string} input.event GitHub event name
@@ -92,15 +103,18 @@ const isUnitTestOrNote = (f) => /^web\/(?!tests\/e2e\/).*\.test\.ts$/.test(f) ||
  * @param {string[]|null} input.files changed files (repo-relative), null when unknown
  * @param {() => {name: string, dir: string, deps: string[]}[]} input.packages the workspace crates,
  *   read lazily: a change without Rust never asks for them
+ * @param {() => string[]} [input.specs] the end-to-end spec names on disk, read lazily; absent, empty
+ *   or throwing: the whole suite
  */
-export function select({ event, base, files, packages }) {
+export function select({ event, base, files, packages, specs }) {
   if (event === 'push') return { ...NONE }
   if (event !== 'pull_request' || base === 'main' || !Array.isArray(files)) return full(packages())
 
   const out = { ...NONE, mode: 'targeted' }
   const changedDirs = new Set()
   let web = false
-  let webE2e = false
+  let webE2eAll = false // something forces the whole suite (the workflow, the build inputs, a crate the page is built from)
+  const webFiles = []
   let rustAll = false
   let helperInputs = false
   let workspace = null
@@ -116,13 +130,13 @@ export function select({ event, base, files, packages }) {
 
     // The selection rules themselves: a mistake there would skip tests anywhere.
     if (f.startsWith('scripts/ci/')) return full(members())
-    if (f === '.github/workflows/ci.yml') { web = webE2e = true; continue }
+    if (f === '.github/workflows/ci.yml') { web = webE2eAll = true; continue }
     if (f === '.github/workflows/rust.yml') { rustAll = out.rustProto = true; continue }
     if (f === '.github/workflows/agent-scripts.yml') { out.agentScripts = true; continue }
 
     // Workspace-wide Rust inputs, and the future Faust / Rust modules.
     if (/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/.test(f) || f.startsWith('.cargo/') || f.startsWith('modules/')) {
-      rustAll = out.rustProto = web = webE2e = true
+      rustAll = out.rustProto = web = webE2eAll = true
       continue
     }
     const crate = /^crates\/([^/]+)\/./.exec(f)
@@ -135,11 +149,13 @@ export function select({ event, base, files, packages }) {
 
     if (f.startsWith('web/')) {
       web = true
-      if (!isUnitTestOrNote(f)) webE2e = true
+      webFiles.push(f)
       if (f.startsWith('web/src/lib/engine/proto/crate/')) out.rustProto = true
       // Read by the helper's updater tests (and, for vercel.json, by the release script tests).
       if (f === 'web/vercel.json' || f === 'web/src/lib/i18n/helper.ts') helperInputs = true
       if (f === 'web/vercel.json') out.agentScripts = true
+      // Adding, renaming or deleting a spec: the table's own tests must run (every spec placed in the table).
+      if (f.startsWith('web/tests/e2e/')) out.agentScripts = true
       continue
     }
     if (f.startsWith('scripts/') || f.startsWith('.claude/')) { out.agentScripts = true; continue }
@@ -160,10 +176,27 @@ export function select({ event, base, files, packages }) {
     out.rustWasmProject = built.has('project-wasm')
     out.helperWindows = tested.has(HELPER)
     if (PROTO_DEPS.some((n) => built.has(n))) out.rustProto = true
-    if (WEB_CRATES.some((n) => built.has(n))) web = webE2e = true
+    if (WEB_CRATES.some((n) => built.has(n))) web = webE2eAll = true
   }
   out.web = web
-  out.e2e = webE2e ? 'dev' : ''
+  if (webE2eAll || webFiles.length) {
+    // The table decides per web file; anything it cannot place, or specs it cannot read, is the whole suite.
+    let existing = []
+    try {
+      existing = specs?.() ?? []
+    } catch {
+      /* unreadable: the whole suite */
+    }
+    const plan = planE2e(webFiles, existing, { all: webE2eAll })
+    if (plan.run) {
+      out.e2e = 'dev'
+      out.e2eAll = plan.all
+      out.e2eSpecs = plan.all ? [] : plan.specs
+      out.e2eSmoke = plan.smoke
+      out.e2eGrep = plan.grep
+      out.e2eShards = plan.shards
+    }
+  }
   return out
 }
 
@@ -194,6 +227,12 @@ export function toOutputs(r) {
     helper_windows: String(r.helperWindows),
     web: String(r.web),
     e2e: r.e2e,
+    e2e_all: String(r.e2eAll),
+    e2e_specs: r.e2eSpecs.map((n) => `tests/e2e/${n}.spec.ts`).join(' '), // names are [a-z0-9-]: safe to split
+    e2e_smoke: r.e2eSmoke.map((n) => `tests/e2e/${n}.spec.ts`).join(' '),
+    e2e_smoke_grep: r.e2eGrep,
+    e2e_shards: JSON.stringify(Array.from({ length: Math.max(r.e2eShards, 1) }, (_, i) => i + 1)), // the matrix; the job's `if` guards the empty case
+    e2e_shard_total: String(Math.max(r.e2eShards, 1)),
     agent_scripts: String(r.agentScripts),
     rust: String(r.rustChecks || r.rustTest !== '' || r.rustProto),
   }

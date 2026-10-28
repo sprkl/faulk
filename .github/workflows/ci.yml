@@ -9,10 +9,48 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing runs on a push to develop or main: the code was tested in its pull request.
+#
+# The web check is four jobs (#372):
+#   select   which parts of the suite this pull request needs;
+#   checks   generated files, formatting, typecheck, lint, unit tests, build;
+#   e2e      the Playwright specs, split over up to three machines (--shard): none when the change touches no
+#            browser test, one for a short list (#377);
+#   web      a single job that reports the verdict of the others. Its name is the one the check always
+#            had: a branch protection that requires "web" keeps working whatever the number of shards.
 jobs:
-  web:
-    # Nothing runs on a push to develop or main: the code was tested in its pull request.
+  select:
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.changes.outputs.web }}
+      e2e: ${{ steps.changes.outputs.e2e }}
+      e2e_all: ${{ steps.changes.outputs.e2e_all }}
+      e2e_specs: ${{ steps.changes.outputs.e2e_specs }}
+      e2e_smoke: ${{ steps.changes.outputs.e2e_smoke }}
+      e2e_smoke_grep: ${{ steps.changes.outputs.e2e_smoke_grep }}
+      e2e_shards: ${{ steps.changes.outputs.e2e_shards }}
+      e2e_shard_total: ${{ steps.changes.outputs.e2e_shard_total }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # Which parts of the suite this pull request needs (scripts/ci/select.mjs, rules tested in
+      # scripts/ci/select-core.test.mjs): a pull request against main (release, hotfix) runs
+      # everything, any other only what its files can affect. The `web` job below always starts on a
+      # pull request, so its check name always reports (a required check never stays pending); only
+      # the heavy jobs are skipped.
+      - name: Select the tests
+        id: changes
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: stable # read the workspace with the preinstalled toolchain
+        run: node scripts/ci/select.mjs
+
+  checks:
+    needs: select
+    if: needs.select.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,68 +60,124 @@ jobs:
         with:
           fetch-depth: 2
 
-      # Which parts of the suite this pull request needs (scripts/ci/select.mjs, rules tested in
-      # scripts/ci/select-core.test.mjs): a pull request against main (release, hotfix) runs
-      # everything, any other only what its files can affect. The job always starts on a pull
-      # request, so its check name always reports (a required check never stays pending); only
-      # its heavy steps are skipped.
-      - name: Select the tests
-        id: changes
-        shell: bash
-        working-directory: .
-        env:
-          RUSTUP_TOOLCHAIN: stable # read the workspace with the preinstalled toolchain
-        run: node scripts/ci/select.mjs
-
-      # The web app builds the engine to WebAssembly and generates its types from Rust.
-      - name: Setup Rust
-        if: steps.changes.outputs.web == 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown, wasm32-wasip1-threads
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.changes.outputs.web == 'true'
-
-      - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.web == 'true'
-        with:
-          package_json_file: web/package.json
-
-      - uses: actions/setup-node@v4
-        if: steps.changes.outputs.web == 'true'
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - run: pnpm install --frozen-lockfile
-        if: steps.changes.outputs.web == 'true'
+      - uses: ./.github/actions/web-setup
 
       # `pnpm dev`, `build` and `test` regenerate src/lib/generated/ themselves; this fails when the
       # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`), never merge by hand.
       - name: Generated files are up to date
-        if: steps.changes.outputs.web == 'true'
         run: pnpm gen:check
 
+      # Formatting is a tool's job (Prettier, `pnpm format`), never a review remark: a file the formatter would change fails here.
+      - run: pnpm format:check
       - run: pnpm typecheck
-        if: steps.changes.outputs.web == 'true'
       - run: pnpm lint
-        if: steps.changes.outputs.web == 'true'
       - run: pnpm test
-        if: steps.changes.outputs.web == 'true'
       - run: pnpm build
-        if: steps.changes.outputs.web == 'true'
 
-      # Real browser checks (tests/e2e/): cross-origin isolation, helper sockets, simulated Web
-      # MIDI, the landing page. `dev` (the dev server) on a task pull request, `dev,preview` (also
-      # the built site) on the pull request against main.
+  # Real browser checks (tests/e2e/): cross-origin isolation, helper sockets, simulated Web MIDI,
+  # the landing page. `dev` (the dev server) on a task pull request, `dev,preview` (also the built
+  # site) on the pull request against main. Each shard is one machine with its own Chromium, dev
+  # server and helper port; Playwright deals the spec files out between the shards.
+  # On a pull request against develop only the specs the changed files touch run (the table shared
+  # with scripts/agent/verify.mjs, scripts/ci/e2e-plan.mjs), then the smoke tests of the other specs;
+  # the number of shards follows the length of the list. The release pull request runs the whole suite.
+  e2e:
+    needs: select
+    if: needs.select.outputs.e2e != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # e2e_shards is empty when select is skipped (a push): the default keeps the matrix valid, the job's `if` skips it.
+      matrix:
+        shard: ${{ fromJson(needs.select.outputs.e2e_shards || '[1]') }}
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: ./.github/actions/web-setup
+        with:
+          rust-cache-key: e2e # the three shards share one cache
+
+      # Chromium is downloaded once per Playwright version (the one of the lockfile) and kept; on a
+      # hit only the system libraries are installed.
+      - name: Playwright version
+        id: playwright
+        shell: bash
+        run: |
+          version=$(grep -m1 -oE 'playwright-core@[0-9.]+' pnpm-lock.yaml | cut -d@ -f2)
+          test -n "$version" || { echo "no playwright-core version in pnpm-lock.yaml"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
       - name: Install the Playwright browser
-        if: steps.changes.outputs.e2e != ''
+        if: steps.browsers.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: End-to-end tests
-        if: steps.changes.outputs.e2e != ''
+      - name: Install the system libraries of the cached browser
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      # The dev server serves the WASM it does not build itself.
+      - run: pnpm build:wasm
+
+      - name: End-to-end tests (shard ${{ matrix.shard }} of ${{ needs.select.outputs.e2e_shard_total }})
+        shell: bash
         env:
-          FAULK_E2E_PROJECTS: ${{ steps.changes.outputs.e2e }}
-        run: pnpm test:e2e
+          FAULK_E2E_PROJECTS: ${{ needs.select.outputs.e2e }}
+          E2E_ALL: ${{ needs.select.outputs.e2e_all }}
+          E2E_SPECS: ${{ needs.select.outputs.e2e_specs }}
+          E2E_SMOKE: ${{ needs.select.outputs.e2e_smoke }}
+          E2E_SMOKE_GREP: ${{ needs.select.outputs.e2e_smoke_grep }}
+          SHARD: ${{ matrix.shard }}/${{ needs.select.outputs.e2e_shard_total }}
+        run: |
+          # The values are spec paths (letters, digits, dashes) and a title pattern: see scripts/ci/select-core.mjs.
+          if [ "$E2E_ALL" = "true" ]; then
+            pnpm exec playwright test --shard="$SHARD"
+          else
+            status=0
+            if [ -n "$E2E_SPECS" ]; then
+              # Separate output folders: a run empties its own, and the traces of a failing specs run must survive the smoke run.
+              # shellcheck disable=SC2086
+              pnpm exec playwright test $E2E_SPECS --output=test-results/specs --shard="$SHARD" || status=1
+            fi
+            if [ -n "$E2E_SMOKE" ]; then
+              # shellcheck disable=SC2086
+              pnpm exec playwright test $E2E_SMOKE --grep "$E2E_SMOKE_GREP" --output=test-results/smoke --shard="$SHARD" || status=1
+            fi
+            exit $status
+          fi
+
+      - name: Keep the traces of a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces-${{ matrix.shard }}
+          path: web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The one check named `web`: success when the jobs that had to run succeeded, failure otherwise.
+  web:
+    needs: [select, checks, e2e]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verdict
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "select, checks, e2e: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

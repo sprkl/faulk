@@ -22,6 +22,14 @@ pub struct ProjectDoc {
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
     pub master: Mixer,
+    /// The master's chain (#364): effects only; left out when empty, so that a project
+    /// without one writes the same file as before.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "unique_map"
+    )]
+    pub master_devices: BTreeMap<crate::ids::DeviceId, Device>,
 }
 
 impl ProjectDoc {
@@ -35,6 +43,7 @@ impl ProjectDoc {
             transport: p.transport,
             scenes: p.scenes.clone(),
             master: p.master,
+            master_devices: p.master_devices.clone(),
         }
     }
 
@@ -48,6 +57,7 @@ impl ProjectDoc {
             transport: self.transport,
             scenes: self.scenes,
             master: self.master,
+            master_devices: self.master_devices,
             tracks: BTreeMap::new(),
         }
     }

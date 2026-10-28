@@ -1,6 +1,8 @@
 // The project store's view of the tracks, fed as the dispatcher feeds it, from the real core.
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { createLane, deleteLane } from '../automation-commands'
+import { setInstrument } from '../device-commands'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
 import * as commands from '../track-commands'
@@ -67,5 +69,33 @@ describe('the tracks in the project store', () => {
   it('has no tracks before a project is shown', () => {
     const store = new ProjectStore()
     expect([store.tracks, store.selected, store.soloed, store.armed, store.monitored]).toEqual([[], null, [], [], []])
+  })
+})
+
+describe('the lanes an instrument swap takes (AM-4)', () => {
+  it('are noticed whoever swapped, not when a lane goes alone, and forgotten when undo brings them back', () => {
+    const { store, run } = session('single_synth')
+    const { id, track } = store.tracks[0]
+    const synth = Object.keys(track.devices)[0]!
+    run(createLane(id, { device: { device: synth, param: 'gain' } }))
+    run(createLane(id, { mixer: { param: 'gain' } }))
+    const lanes = () => Object.keys(store.tracks[0].track.automation)
+    expect(lanes()).toHaveLength(2)
+    // A lane deleted by itself, then given back: no swap.
+    run(deleteLane(lanes()[0]!))
+    expect(store.swapLanes).toBeNull()
+    run(commands.undo())
+    expect(lanes()).toHaveLength(2)
+    expect(store.swapLanes).toBeNull()
+    // The swap takes the instrument's lane (one of the two) and the store says so.
+    run(setInstrument(id, 'faulk.drums'))
+    expect(lanes()).toHaveLength(1)
+    expect(store.swapLanes).toEqual({ track: id, n: 1 })
+    // Undo gives it back and the note goes; redo takes it again and the note is back.
+    run(commands.undo())
+    expect(lanes()).toHaveLength(2)
+    expect(store.swapLanes).toBeNull()
+    run(commands.redo())
+    expect(store.swapLanes).toEqual({ track: id, n: 1 })
   })
 })

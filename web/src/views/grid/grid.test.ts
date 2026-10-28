@@ -19,7 +19,15 @@ function view(): ProjectView {
       meter: [{ tick: 0, signature: { numerator: 4, denominator: 4 } }],
       scenes: { s2: { name: '', order: 'b' }, s1: { name: 'Intro', order: 'a' }, s3: { name: '', order: 'c' } },
       tracks: {
-        t1: { kind: 'midi', order: 'a', name: 'Bass', color: '#58c27d', clips: { c1: inSlot('s1', 'Riff'), c2: inSlot('s2', 'Clip 2'), c0: midi('Arrangement only') }, placements: {}, devices: {} },
+        t1: {
+          kind: 'midi',
+          order: 'a',
+          name: 'Bass',
+          color: '#58c27d',
+          clips: { c1: inSlot('s1', 'Riff'), c2: inSlot('s2', 'Clip 2'), c0: midi('Arrangement only') },
+          placements: {},
+          devices: {},
+        },
         t2: { kind: 'audio', order: 'b', name: 'Vox', clips: { c3: audio('s1') }, placements: {}, devices: {} },
       },
     },
@@ -33,7 +41,11 @@ const report = (clips: FeedbackReport['clips'], epoch = 3): Pick<FeedbackReport,
 describe('the cells of the grid', () => {
   it('orders the scenes by order key, then by id', () => {
     const scenes = { b: { name: '', order: 'a' }, a: { name: '', order: 'a' }, c: { name: '', order: '0' } } as never
-    expect(sortedScenes({ scenes }).map((entry) => [entry.id, entry.index])).toEqual([['c', 0], ['a', 1], ['b', 2]])
+    expect(sortedScenes({ scenes }).map((entry) => [entry.id, entry.index])).toEqual([
+      ['c', 0],
+      ['a', 1],
+      ['b', 2],
+    ])
   })
 
   it('finds the clip of each cell, leaves out the clips that are only in the arrangement, and counts a scene', () => {
@@ -53,7 +65,13 @@ describe('the cells of the grid', () => {
   })
 
   it('reads the report by slots, back into ids', () => {
-    const states = activeCells(report([{ track: 0, scene: 1, state: 'playing', anchor: 0 }, { track: 1, scene: 0, state: 'queued', anchor: 0 }]), slots)
+    const states = activeCells(
+      report([
+        { track: 0, scene: 1, state: 'playing', anchor: 0 },
+        { track: 1, scene: 0, state: 'queued', anchor: 0 },
+      ]),
+      slots,
+    )
     expect(Object.fromEntries(states)).toEqual({
       't1|s2': { state: 'playing', restarting: false },
       't2|s1': { state: 'queued', restarting: false },
@@ -61,16 +79,33 @@ describe('the cells of the grid', () => {
   })
 
   it('ignores a cell the page has no slot for, and a report of another epoch', () => {
-    expect(activeCells(report([{ track: 5, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 9, state: 'playing', anchor: 0 }]), slots).size).toBe(0)
+    expect(
+      activeCells(
+        report([
+          { track: 5, scene: 0, state: 'playing', anchor: 0 },
+          { track: 0, scene: 9, state: 'playing', anchor: 0 },
+        ]),
+        slots,
+      ).size,
+    ).toBe(0)
     expect(activeCells(report([{ track: 0, scene: 0, state: 'playing', anchor: 0 }], 2), slots).size).toBe(0)
     expect(activeCells(null, slots).size).toBe(0)
   })
 
   it('marks a playing clip that was launched again, in either order, instead of losing one of its two entries', () => {
     for (const clips of [
-      [{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'queued', anchor: 0 }],
-      [{ track: 0, scene: 0, state: 'queued', anchor: 0 }, { track: 0, scene: 0, state: 'playing', anchor: 0 }],
-      [{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'armed', anchor: 0 }],
+      [
+        { track: 0, scene: 0, state: 'playing', anchor: 0 },
+        { track: 0, scene: 0, state: 'queued', anchor: 0 },
+      ],
+      [
+        { track: 0, scene: 0, state: 'queued', anchor: 0 },
+        { track: 0, scene: 0, state: 'playing', anchor: 0 },
+      ],
+      [
+        { track: 0, scene: 0, state: 'playing', anchor: 0 },
+        { track: 0, scene: 0, state: 'armed', anchor: 0 },
+      ],
     ] as FeedbackReport['clips'][]) {
       expect(activeCells(report(clips), slots).get('t1|s1')).toEqual({ state: 'playing', restarting: true })
     }
@@ -150,7 +185,14 @@ describe('what the grid shows', () => {
       [[{ track: 0, scene: 0, state: 'playing', anchor: 0 }], 'playing', 'playing'],
       [[{ track: 0, scene: 0, state: 'stopping', anchor: 0 }], 'stopping', 'stopping'],
       [[{ track: 0, scene: 0, state: 'armed', anchor: 0 }], 'armed', 'ready, starts with the transport'],
-      [[{ track: 0, scene: 0, state: 'playing', anchor: 0 }, { track: 0, scene: 0, state: 'queued', anchor: 0 }], 'restarting', 'playing, restarts at the next boundary'],
+      [
+        [
+          { track: 0, scene: 0, state: 'playing', anchor: 0 },
+          { track: 0, scene: 0, state: 'queued', anchor: 0 },
+        ],
+        'restarting',
+        'playing, restarts at the next boundary',
+      ],
     ] as [FeedbackReport['clips'], string, string][]) {
       const body = html({ clips })
       expect(states(body)['t1|s1']).toBe(state)
@@ -221,7 +263,9 @@ describe('the window of drawn cells', () => {
   it('draws a window of a 32 by 64 grid, not its 2 048 cells, and keeps the room of the rest', () => {
     const stores = createStores('grid', 'piano-roll')
     const big = view()
-    big.project.scenes = Object.fromEntries(Array.from({ length: 64 }, (_, i) => [`s${i}`, { name: '', order: String.fromCharCode(48 + (i >> 3)) + String(i & 7) }])) as never
+    big.project.scenes = Object.fromEntries(
+      Array.from({ length: 64 }, (_, i) => [`s${i}`, { name: '', order: String.fromCharCode(48 + (i >> 3)) + String(i & 7) }]),
+    ) as never
     big.project.tracks = Object.fromEntries(
       Array.from({ length: 32 }, (_, i) => [`t${i}`, { kind: 'midi', order: String(i).padStart(2, '0'), name: '', clips: {}, placements: {}, devices: {} }]),
     ) as never

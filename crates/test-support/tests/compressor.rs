@@ -82,7 +82,8 @@ fn the_compressor_tames_a_drum_loop_dry_gentle_then_heavy() {
     let mut s = Session::from_state(fixture().state, context());
     let track = drums_track(&mut s);
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: track.clone(),
+        track: Some(track.clone()),
+        master: false,
         kind: "faulk.compressor".into(),
         index: 0,
     }));

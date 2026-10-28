@@ -38,7 +38,11 @@ function cellsOf(report: Pick<FeedbackReport, 'epoch' | 'clips'>, slots: ViewSlo
 const sounding = (cell: ActiveClip) => cell.state === 'playing' || cell.state === 'stopping'
 
 /** What plays the track, or `null` when the report cannot be read against the project's slots. */
-export function sourceOf(report: Pick<FeedbackReport, 'epoch' | 'clips'>, slots: ViewSlots, trackId: string): { scene: number; anchor: number } | 'arrangement' | null {
+export function sourceOf(
+  report: Pick<FeedbackReport, 'epoch' | 'clips'>,
+  slots: ViewSlots,
+  trackId: string,
+): { scene: number; anchor: number } | 'arrangement' | null {
   const cells = cellsOf(report, slots, trackId)
   if (!cells) return null
   const playing = cells.find(sounding)
@@ -127,6 +131,7 @@ export function liveTick(reportTick: number, running: boolean, sinceReportMs: nu
   if (!running || bpm === null || !(bpm > 0)) return reportTick
   const elapsed = Math.min(Math.max(sinceReportMs, 0), MAX_EXTRAPOLATION_MS)
   const tick = reportTick + (elapsed / 1000) * (bpm / 60) * PPQ
-  if (loop && loop.end > loop.start && reportTick >= loop.start && reportTick < loop.end && tick >= loop.end) return loop.start + ((tick - loop.end) % (loop.end - loop.start))
+  if (loop && loop.end > loop.start && reportTick >= loop.start && reportTick < loop.end && tick >= loop.end)
+    return loop.start + ((tick - loop.end) % (loop.end - loop.start))
   return tick
 }

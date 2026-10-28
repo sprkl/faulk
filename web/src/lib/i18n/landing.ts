@@ -10,9 +10,8 @@ import type { Lang } from './lang'
 
 const en = {
   'meta.title': 'Faulk · Make your own sounds',
-  'meta.description':
-    'Faulk is an open DAW that opens in your browser, where you’ll build your own instruments and effects. Under construction.',
-  'skip': 'Skip to content',
+  'meta.description': 'Faulk is an open DAW that opens in your browser, where you’ll build your own instruments and effects. Under construction.',
+  skip: 'Skip to content',
   'nav.label': 'Main',
   'nav.home': 'Faulk, home',
   'nav.modes': 'Modes',
@@ -28,8 +27,7 @@ const en = {
   'hero.title': 'MAKE YOUR OWN SOUNDS.',
   'hero.lead':
     'Faulk is a DAW that opens in a browser tab, where you’ll build your own instruments and effects. Soon you’ll describe a sound, an AI will write the module and you’ll hear it straight away. When you need studio latency, Boost will take over.',
-  'hero.status':
-    'Faulk is under construction: the first version plays an oscillator from a MIDI keyboard or the computer keyboard.',
+  'hero.status': 'Faulk is under construction: the first version plays an oscillator from a MIDI keyboard or the computer keyboard.',
   'hero.cta': 'Open Faulk, no install',
   'hero.secondary': 'About Boost',
   'hero.preview': 'FLK-0.1 · PREVIEW COMING SOON',
@@ -77,8 +75,7 @@ const en = {
   'atelier.driveValue': '0.40',
 
   'library.title': 'THE LIBRARY',
-  'library.lead':
-    'Every module will have its sound object, a grainy texture generated from its parameters. The library will open with Faulk’s first modules.',
+  'library.lead': 'Every module will have its sound object, a grainy texture generated from its parameters. The library will open with Faulk’s first modules.',
   'library.browse': 'Browse modules · coming soon',
   'library.sketch': 'Sketch, not available yet',
   'library.instrument': 'Instrument',
@@ -106,9 +103,8 @@ export type LandingKey = keyof typeof en
 
 const fr: Record<LandingKey, string> = {
   'meta.title': 'Faulk · Fabrique tes propres sons',
-  'meta.description':
-    'Faulk est un DAW ouvert qui s’ouvre dans ton navigateur, et où tu fabriqueras tes propres instruments et effets. En construction.',
-  'skip': 'Aller au contenu',
+  'meta.description': 'Faulk est un DAW ouvert qui s’ouvre dans ton navigateur, et où tu fabriqueras tes propres instruments et effets. En construction.',
+  skip: 'Aller au contenu',
   'nav.label': 'Principale',
   'nav.home': 'Faulk, accueil',
   'nav.modes': 'Modes',
@@ -124,8 +120,7 @@ const fr: Record<LandingKey, string> = {
   'hero.title': 'FABRIQUE TES PROPRES SONS.',
   'hero.lead':
     'Faulk est un DAW qui s’ouvre dans un onglet, et où tu fabriqueras tes propres instruments et effets. Bientôt, tu décriras un son, une IA écrira le module et tu l’entendras aussitôt. Quand il te faudra la latence d’un studio, Boost prendra le relais.',
-  'hero.status':
-    'Faulk est en construction : la première version joue un oscillateur depuis un clavier MIDI ou le clavier de l’ordinateur.',
+  'hero.status': 'Faulk est en construction : la première version joue un oscillateur depuis un clavier MIDI ou le clavier de l’ordinateur.',
   'hero.cta': 'Ouvrir Faulk, sans installer',
   'hero.secondary': 'Découvrir Boost',
   'hero.preview': 'FLK-0.1 · APERÇU À VENIR',
@@ -210,12 +205,7 @@ export function landingText(lang: Lang): (key: LandingKey) => string {
  * name is one English name, never translated (founder's decision of 2026-10-14): the same text in
  * every language. Parameter labels and descriptions are translated.
  */
-export const LANDING_DEVICE_NAME_KEYS: readonly LandingKey[] = [
-  'atelier.module',
-  'library.haze',
-  'library.crush',
-  'library.echo',
-]
+export const LANDING_DEVICE_NAME_KEYS: readonly LandingKey[] = ['atelier.module', 'library.haze', 'library.crush', 'library.echo']
 
 /** Keys allowed to contain a duration in milliseconds: module parameter values, not latencies. */
 export const NON_LATENCY_MS_KEYS: readonly LandingKey[] = ['atelier.decayValue']

@@ -19,10 +19,12 @@ export function descriptorOf(kind: string): DeviceDescriptor {
 }
 
 /** The descriptors of the devices that can be the instrument of a track, in registry order. */
-export const instrumentDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] => devices.filter((d) => d.role === 'instrument')
+export const instrumentDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
+  devices.filter((d) => d.role === 'instrument')
 
 /** The descriptors of the devices that can be inserted in a track's chain as effects, in registry order. */
-export const effectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] => devices.filter((d) => (d.role as string) === 'effect')
+export const effectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
+  devices.filter((d) => (d.role as string) === 'effect')
 
 /**
  * A text of the catalogue, or `undefined` when it has none: a device registered without its
@@ -44,16 +46,13 @@ export const SYNTH: SynthDescriptor = ((d: DeviceDescriptor): SynthDescriptor =>
 export const isChoice = (p: ParamDescriptor): boolean => p.values.length > 0
 
 /** The parameters shown as knobs: the continuous and stepped ones, in the descriptor's order. */
-export const knobParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] =>
-  (d.params as readonly D['params'][number][]).filter((p) => !isChoice(p))
+export const knobParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] => (d.params as readonly D['params'][number][]).filter((p) => !isChoice(p))
 
 /** The parameters shown as a choice of values. */
-export const choiceParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] =>
-  (d.params as readonly D['params'][number][]).filter(isChoice)
+export const choiceParams = <D extends DeviceDescriptor>(d: D): D['params'][number][] => (d.params as readonly D['params'][number][]).filter(isChoice)
 
 /** The values of a choice parameter: its number and the key of its name. */
-export const choices = (p: ParamDescriptor): { value: number; key: string }[] =>
-  p.values.map((key, i) => ({ value: p.min + i * (p.step || 1), key }))
+export const choices = (p: ParamDescriptor): { value: number; key: string }[] => p.values.map((key, i) => ({ value: p.min + i * (p.step || 1), key }))
 
 /**
  * The message key of a parameter's label, or of one of its values: `<kind without "faulk.">.<key>`
@@ -74,6 +73,12 @@ export function positionOf(p: ParamDescriptor, value: number): number {
 export function valueAt(p: ParamDescriptor, position: number): number {
   const t = clamp(Number.isFinite(position) ? position : 0, 0, 1)
   const v = p.scale === 'log' ? p.min * Math.pow(p.max / p.min, t) : p.min + t * (p.max - p.min)
+  return snap(p, v)
+}
+
+/** A value kept to the parameter's bounds and rounded to its step (no rounding when the step is 0). */
+export function snap(p: ParamDescriptor, value: number): number {
+  const v = clamp(value, p.min, p.max)
   if (p.step > 0) return clamp(p.min + Math.round((v - p.min) / p.step) * p.step, p.min, p.max)
   return v
 }

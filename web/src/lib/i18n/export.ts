@@ -79,7 +79,8 @@ export const audioExport = defineFeature(
     'export.downloaded': '« {name} » est téléchargé ({size} Mo, {duration}).',
     'export.peak': 'Niveau le plus haut : {db} dBFS.',
     'export.silent': 'Le fichier est muet.',
-    'export.clipped': 'Le niveau a dépassé 0 dBFS et {n} échantillons ont été écrêtés. Baisse le volume général et exporte à nouveau, ou choisis le format 32 bits flottants.',
+    'export.clipped':
+      'Le niveau a dépassé 0 dBFS et {n} échantillons ont été écrêtés. Baisse le volume général et exporte à nouveau, ou choisis le format 32 bits flottants.',
     'export.tailCut': 'Un effet résonnait encore après 30 secondes, le fichier s’arrête donc là.',
 
     'export.failed': 'L’export a échoué. Rien n’a été enregistré.',

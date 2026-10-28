@@ -1,0 +1,2 @@
+2026-10-27
+* **Update** (#365): a continuous control (device knob, mixer and track list fader and pan) opens a field to type its value, on Enter when it has the focus or on a click on its readout (`ValueField.svelte`, parsing in `web/src/lib/value-entry.ts`). Units are read (`250 ms`, `1.2k`, `-6 dB`, `40 %`, `L30`), out of range values clamp to the descriptor, an unreadable text changes nothing and is flagged. The typed value goes through the existing command, as one history entry. Described in `docs/specs/02-decoupage-mvp.md`, mixer slice.

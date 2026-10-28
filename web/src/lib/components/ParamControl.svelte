@@ -7,6 +7,7 @@
    */
   import { choices, deviceText, formatValue, isChoice, labelKey, positionOf, valueAt, type DeviceDescriptor, type ParamDescriptor } from '../devices'
   import { useStores } from '../stores'
+  import { parseParam as parseValue } from '../value-entry'
   import Knob from './Knob.svelte'
 
   let {
@@ -40,6 +41,10 @@
     triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
   }
 
+  // The value the entry field opened on.
+  // svelte-ignore state_referenced_locally
+  let openedAt = value
+
   const key = $derived(labelKey(device, param.key))
   const label = $derived(deviceText(ui.lang, key) ?? param.key)
   const hint = $derived(deviceText(ui.lang, `${key}.hint`) ?? param.description)
@@ -50,9 +55,17 @@
   <div class="choice" data-testid="param-{param.key}" title={hint}>
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
-        <button role="radio" aria-checked={value === choice.value} aria-label={valueLabel(choice.key)} title={valueLabel(choice.key)} onclick={() => onchange(choice.value)}>
+        <button
+          role="radio"
+          aria-checked={value === choice.value}
+          aria-label={valueLabel(choice.key)}
+          title={valueLabel(choice.key)}
+          onclick={() => onchange(choice.value)}
+        >
           {#if ICONS[choice.key]}
-            <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
+            <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"
+              ><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg
+            >
           {:else}
             {valueLabel(choice.key)}
           {/if}
@@ -71,6 +84,20 @@
       display={formatValue(param, value)}
       home={positionOf(param, param.default)}
       defaultDisplay={formatValue(param, param.default)}
+      entry={{
+        text: () => {
+          // A bare number is in the unit the field opened with, even if the value moves while it is open.
+          openedAt = value
+          return formatValue(param, value)
+        },
+        commit: (text) => {
+          const next = parseValue(param, text, openedAt)
+          if (next === null) return false
+          // The same value: no command, no empty history entry.
+          if (next !== value) onchange(next)
+          return true
+        },
+      }}
       onchange={(p) => {
         const next = p === positionOf(param, param.default) ? param.default : valueAt(param, p)
         if (next !== value) onchange(next)

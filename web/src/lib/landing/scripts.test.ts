@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { LANG_STORAGE_KEY } from '../i18n/lang'
 import { animBootScript, detectScript, inlineScript, rememberScript } from './scripts'
 
-/** Runs the generated detection script, as a browser would, against fake globals. */
-function runDetect(stored: string | null | 'throws', language: string | undefined) {
+/** Runs the generated detection script, as a browser would, against fake globals. `stored` 'throws': reading the storage throws. */
+function runDetect(stored: string | null, language: string | undefined) {
   const replaced: string[] = []
   const localStorage = {
     getItem(key: string) {
@@ -103,9 +103,13 @@ describe('rememberScript', () => {
     click(inside({ href: '/app' }))
     const replaced: string[] = []
     const localStorage = { getItem: (k: string) => stored.get(k) ?? null }
-    new Function('localStorage', 'navigator', 'location', detectScript('/fr'))(localStorage, { language: 'fr-FR' }, {
-      replace: (href: string) => replaced.push(href),
-    })
+    new Function('localStorage', 'navigator', 'location', detectScript('/fr'))(
+      localStorage,
+      { language: 'fr-FR' },
+      {
+        replace: (href: string) => replaced.push(href),
+      },
+    )
     expect(replaced).toEqual([])
   })
 
@@ -140,7 +144,10 @@ describe('animBootScript', () => {
     let callback: ((entries: { isIntersecting: boolean }[]) => void) | undefined
     let disconnected = 0
     class IntersectionObserver {
-      constructor(cb: typeof callback, readonly options: unknown) {
+      constructor(
+        cb: typeof callback,
+        readonly options: unknown,
+      ) {
         callback = cb
       }
       observe(el: unknown) {

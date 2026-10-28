@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMode, watch } from './support'
+import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMode, watch, withStableClock } from './support'
 
 // MO-2 (#55): the shipped engine channel in a real AudioWorklet in Chromium. The shipped module
 // (src/lib/engine/wasm/engine.wasm, wasm32-wasip1-threads) runs as two instances on one shared
@@ -22,7 +22,7 @@ test.describe.configure({ mode: 'serial' })
 function pushes(name: string): number[][] {
   const bytes = readFileSync(fixtures + name)
   const out: number[][] = []
-  for (let at = 0; at + 5 <= bytes.length; ) {
+  for (let at = 0; at + 5 <= bytes.length;) {
     const n = bytes.readUInt32LE(at + 1)
     if (bytes[at] === 0) {
       out.push([...bytes.subarray(at + 5, at + 5 + n)])
@@ -52,7 +52,25 @@ type Report = {
   tracksHeld: number
 }
 
-async function measure(page: Page) {
+/** The first thing that tells the counter changed pace during a run (#283), or nothing. */
+function clockDrift(run: Awaited<ReturnType<typeof measureOnce>>): string | undefined {
+  // A rate off by more than 25 % would make every figure of the run wrong by as much.
+  const off = (a: number, b: number) => Math.abs(a - b) > 0.25 * b
+  if (off(run.ticksPerUs, run.check)) return `${run.ticksPerUs.toFixed(1)} ticks/µs settled, ${run.check.toFixed(1)} at the end`
+  for (const [name, r] of [
+    ['1000 parameters', run.params],
+    ['4095 tracks', run.tracks],
+  ] as const)
+    if (off(r.rate, run.check)) return `${r.rate.toFixed(1)} ticks/µs over the ${name} window, ${run.check.toFixed(1)} at the end`
+  return undefined
+}
+
+/** One run, taken again when the runner made the counter change pace (#359). */
+function measure(page: Page) {
+  return withStableClock('MO-2', () => measureOnce(page), clockDrift)
+}
+
+async function measureOnce(page: Page) {
   const session = pushes('session.stream')
   const sources = {
     clock: readFileSync(here('../../src/lib/engine/proto/clock-worker.js'), 'utf8'),
@@ -79,7 +97,7 @@ async function measure(page: Page) {
       clockWorker.postMessage(clockBuffer)
       const rpc = new Function(`return (${sources.rpc}
 )`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
-      const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+      const deadline = <T>(what: string, promise: Promise<T>, ms = 15_000) =>
         Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
       // The counter's rate over a window: ticks gained divided by the µs `performance.now()` counted.
       const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })
@@ -180,7 +198,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
 
   test('a Worker prepares, the worklet pumps: cost per message within the budget', async ({ page }) => {
     await page.goto('/app')
-    test.setTimeout(STRICT_TIMING ? 180_000 : 30_000)
+    test.setTimeout(STRICT_TIMING ? 420_000 : 60_000) // room for the runs taken again when the clock drifts
     // On a reference machine the timing is the median of several runs, each its own full
     // measurement; every run is printed and checked for correctness, not only the first.
     const runs = [await measure(page)]
@@ -196,14 +214,12 @@ test.describe('MO-2: the engine channel in the browser', () => {
           `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
           `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(Math.max(p.pumpMaxUs, p.firstUs))} µs (first ${us(p.firstUs)}), ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
           `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(Math.max(t.pumpMaxUs, t.firstUs))} µs (first ${us(t.firstUs)}; incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
-          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
+          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${String(run.counters.rejected)}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${String(run.role)}`,
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)
-      // The clock must not have changed pace between its calibration and the end (#283): a
-      // rate off by more than 25 % would make every figure above wrong by as much.
-      expect(Math.abs(run.check - run.ticksPerUs)).toBeLessThan(0.25 * run.check)
-      for (const r of [p, t]) expect(Math.abs(r.rate - run.check)).toBeLessThan(0.25 * run.check)
+      // The clock held (#283), held to in strict mode: measure() took the run again until it did, and outside strict mode keeps the last run (#359).
+      if (STRICT_TIMING) expect(clockDrift(run)).toBeUndefined()
       expect(run.role).toBe(2)
       // Every message was applied: none rejected, none skipped, the table at its limit.
       expect(run.counters.rejected).toBe(0)
@@ -238,9 +254,13 @@ test.describe('MO-2: the engine channel in the browser', () => {
   test('the DAW plays a note and takes a parameter through the channel', async ({ page }) => {
     await fakeWebMidi(page)
     const { errors } = watch(page)
+    // The warm-up of the apply path (#355) must go through in the real worklet (it warns when it fails).
+    const warnings: string[] = []
+    page.on('console', (m) => m.type() === 'warning' && warnings.push(m.text()))
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toContainText('Web')
+    expect(warnings.filter((w) => w.includes('warm-up'))).toEqual([])
     await page.getByRole('radio', { name: 'E2E Keys' }).check()
     const meter = page.getByRole('meter').first()
     const level = async () => Number(await meter.getAttribute('aria-valuenow'))

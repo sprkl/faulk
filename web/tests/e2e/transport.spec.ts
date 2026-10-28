@@ -7,8 +7,32 @@ import { watch } from './support'
 // Screenshots go to the folder named by FAULK_E2E_SHOTS, when set.
 
 const TEXTS = {
-  en: { play: 'Play', stop: 'Stop', rewind: 'Back to start', record: 'Record', loop: 'Loop', metronome: 'Metronome', tempo: 'Tempo (BPM)', numerator: 'Beats per bar', denominator: 'Beat unit', quantize: 'Launch quantization', bar: '1 bar' },
-  fr: { play: 'Lecture', stop: 'Stop', rewind: 'Retour au début', record: 'Enregistrer', loop: 'Boucle', metronome: 'Métronome', tempo: 'Tempo (BPM)', numerator: 'Temps par mesure', denominator: 'Valeur du temps', quantize: 'Quantification de lancement', bar: '1 mesure' },
+  en: {
+    play: 'Play',
+    stop: 'Stop',
+    rewind: 'Back to start',
+    record: 'Record',
+    loop: 'Loop',
+    metronome: 'Metronome',
+    tempo: 'Tempo (BPM)',
+    numerator: 'Beats per bar',
+    denominator: 'Beat unit',
+    quantize: 'Launch quantization',
+    bar: '1 bar',
+  },
+  fr: {
+    play: 'Lecture',
+    stop: 'Stop',
+    rewind: 'Retour au début',
+    record: 'Enregistrer',
+    loop: 'Boucle',
+    metronome: 'Métronome',
+    tempo: 'Tempo (BPM)',
+    numerator: 'Temps par mesure',
+    denominator: 'Valeur du temps',
+    quantize: 'Quantification de lancement',
+    bar: '1 mesure',
+  },
 } as const
 
 const control = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
@@ -87,7 +111,7 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('transport-quantize')).toHaveValue('bar')
       await expect(page.getByTestId('transport-quantize').locator('option:checked')).toHaveText(x.bar)
 
-      // Play: the engine reports playing, the position moves; Stop keeps the position; play again restarts from the last seek.
+      // Play: the engine reports playing, the position moves; Stop brings the head back to the cue (#360, `stop-to-marker.spec.ts`).
       await expect(position).toHaveText('1.1.000')
       await expect(page.getByTestId('transport-time')).toHaveText('00:00.000')
       await control(page, x.play).click()
@@ -98,10 +122,11 @@ for (const lang of ['en', 'fr'] as const) {
       await control(page, x.stop).click()
       await expect(feedback(page)).toHaveAttribute('data-transport', 'stopped')
       await expect(control(page, x.play)).toHaveAttribute('aria-pressed', 'false')
-      const stopped = await tick(page)
-      expect(stopped).toBeGreaterThan(960)
+      // Stop brings the head back to where playback started (#360): the start of the project here, and it stays there.
+      await expect.poll(() => tick(page)).toBe(0)
       await page.waitForTimeout(300)
-      expect(await tick(page)).toBe(stopped)
+      expect(await tick(page)).toBe(0)
+      await expect(position).toHaveText('1.1.000')
 
       // Back to start: a seek to tick 0.
       await control(page, x.rewind).click()

@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { insertEffect, moveDevice, removeDevice, setBypass, setInstrument } from '../device-commands'
+import { insertEffect, insertMasterEffect, moveDevice, removeDevice, setBypass, setInstrument } from '../device-commands'
 import type { DeviceDescriptor } from '../devices'
 import type { Device, Track } from '../generated/protocol'
-import { addEffectCommand, cardActions, chainOf, effectCount, moveTarget } from './chain'
+import { addEffectCommand, addMasterEffectCommand, cardActions, chainOf, effectCount, masterChainOf, moveTarget } from './chain'
 
 const builtin = (id: string) => ({ builtin: { id, version: 1 } })
-const device = (kind: string, role: 'instrument' | 'effect', order: string, enabled = true): Device => ({ order, role, enabled, params: {}, source: builtin(kind) })
+const device = (kind: string, role: 'instrument' | 'effect', order: string, enabled = true): Device => ({
+  order,
+  role,
+  enabled,
+  params: {},
+  source: builtin(kind),
+})
 const track = (devices: Record<string, Device>): Track => ({ devices }) as unknown as Track
 
 const fake = (kind: string, role: string): DeviceDescriptor => ({ kind, name: kind, role, params: [] }) as unknown as DeviceDescriptor
@@ -99,5 +105,29 @@ describe('the buttons of a card', () => {
   it('add an effect after the last one', () => {
     expect(addEffectCommand('t', 'faulk.test_gain', chain)).toEqual({ type: 'device.insert', track: 't', kind: 'faulk.test_gain', index: 3 })
     expect(addEffectCommand('t', 'faulk.test_gain', [instrument])).toEqual({ type: 'device.insert', track: 't', kind: 'faulk.test_gain', index: 0 })
+  })
+})
+
+describe('the chain of the master', () => {
+  const master = { y: device('faulk.test_gain', 'effect', 'z'), x: device('faulk.test_gain', 'effect', 'a', false) }
+
+  it('lists the effects in order, none being the instrument, and is empty when the project has none', () => {
+    const chain = masterChainOf(master, descriptors)
+    expect(chain.map((e) => [e.id, e.effectIndex])).toEqual([
+      ['x', 0],
+      ['y', 1],
+    ])
+    expect(masterChainOf(undefined, descriptors)).toEqual([])
+  })
+
+  it('adds an effect at the end with master: true, and the buttons of a card send the same commands as a track', () => {
+    const chain = masterChainOf(master, descriptors)
+    expect(addMasterEffectCommand('faulk.test_gain', chain)).toEqual({ type: 'device.insert', master: true, kind: 'faulk.test_gain', index: 2 })
+    expect(insertMasterEffect('k', 0)).toEqual({ type: 'device.insert', master: true, kind: 'k', index: 0 })
+    const actions = cardActions(chain, chain[0])
+    expect(actions.moveLeft).toBeNull()
+    expect(actions.moveRight).toEqual(moveDevice('x', 1))
+    expect(actions.remove).toEqual(removeDevice('x'))
+    expect(actions.bypass).toEqual(setBypass('x', false))
   })
 })

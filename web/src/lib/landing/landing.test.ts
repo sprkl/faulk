@@ -12,7 +12,7 @@ function literalText(source: string): string[] {
     .replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
   // Drop `{...}` expressions, innermost first (template literals nest braces).
-  for (let prev = ''; prev !== s; ) [prev, s] = [s, s.replace(/\{[^{}]*\}/g, '')]
+  for (let prev = ''; prev !== s;) [prev, s] = [s, s.replace(/\{[^{}]*\}/g, '')]
   return s
     .replace(/<[^>]*>/g, '\n')
     .split('\n')

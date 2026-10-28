@@ -9,7 +9,11 @@ import { watch } from './support'
 
 const SILENCE_DB = -60
 const BEAT = 960
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
 const meterDb = async (page: Page) => {
   const peak = Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
@@ -25,12 +29,23 @@ test('a track launched from the grid stays out of its timeline after Stop until 
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
 
   // One MIDI track: four bars of the arrangement with a note on every beat, and a looping clip in the first scene of the grid.
   await run(page, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
   await run(page, { type: 'scene.create' })
-  const view = () => page.evaluate(() => (window as unknown as { __faulkView(): { project: { tracks: Record<string, { clips: Record<string, { slot: string | null }> }>; scenes: Record<string, unknown> } } }).__faulkView().project)
+  const view = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __faulkView(): { project: { tracks: Record<string, { clips: Record<string, { slot: string | null }> }>; scenes: Record<string, unknown> } }
+          }
+        ).__faulkView().project,
+    )
   const project = await view()
   const track = Object.keys(project.tracks)[0]!
   const scene = Object.keys(project.scenes)[0]!

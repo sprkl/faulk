@@ -5,6 +5,7 @@
    * `role="slider"`). `position` is 0–1; `display` is the value as text; `home` is the default
    * value's position.
    */
+  import { useStores } from '../stores'
   import Slider from './Slider.svelte'
 
   let {
@@ -15,6 +16,7 @@
     defaultDisplay,
     onchange,
     onreset,
+    entry,
     hint,
     onbegin,
     onend,
@@ -29,12 +31,17 @@
     onchange: (position: number) => void
     /** Puts the default value back, as one command. */
     onreset: () => void
+    /** Typing a value (`Slider`): Enter on the knob and a click on the value readout open the field. */
+    entry?: { text: () => string; commit: (text: string) => boolean }
     /** Tooltip: what the knob does. */
     hint?: string
     /** A drag starts and ends: the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
   } = $props()
+
+  const { ui } = useStores()
+  let slider: ReturnType<typeof Slider> | undefined = $state()
 
   const START = -135
   const SWEEP = 270
@@ -53,7 +60,21 @@
 
 <div class="knob" title={hint}>
   <span class="label">{label}</span>
-  <Slider kind="knob" {label} {position} {home} valueText={display} defaultText={defaultDisplay} {hint} {onbegin} {onend} onposition={onchange} {onreset}>
+  <Slider
+    bind:this={slider}
+    kind="knob"
+    {entry}
+    {label}
+    {position}
+    {home}
+    valueText={display}
+    defaultText={defaultDisplay}
+    {hint}
+    {onbegin}
+    {onend}
+    onposition={onchange}
+    {onreset}
+  >
     <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
       <path d={arc(START, START + SWEEP)} class="track" />
       {#if position > 0.001}
@@ -62,7 +83,19 @@
       <line x1="24" y1="24" x2="24" y2="10" class="needle" transform={`rotate(${angle} 24 24)`} />
     </svg>
   </Slider>
-  <span class="value">{display}</span>
+  {#if entry}
+    <button
+      class="value"
+      type="button"
+      tabindex="-1"
+      title={ui.t('controls.type')}
+      data-testid="value-readout"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => slider?.edit()}>{display}</button
+    >
+  {:else}
+    <span class="value">{display}</span>
+  {/if}
 </div>
 
 <style>
@@ -72,6 +105,17 @@
     align-items: center;
     gap: var(--fk-space-1);
     min-width: 64px;
+  }
+  button.value {
+    border: 0;
+    padding: 0 var(--fk-space-1);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: text;
+  }
+  button.value:hover {
+    background: var(--fk-surface-2);
   }
   .track {
     fill: none;

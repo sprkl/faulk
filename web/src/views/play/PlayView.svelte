@@ -1,80 +1,19 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import Meter from '../../lib/components/Meter.svelte'
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
-  import { clampOctave, defaultOctave, ignoreKeyEvent, noteForKey, octaveStep } from '../../lib/keyboard'
-  import { instrumentKind, isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { allNotesOff, inputNoteOff, inputNoteOn } from '../../lib/synth-commands'
+  import { allNotesOff } from '../../lib/synth-commands'
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const stores = useStores()
+  const { engine, ui, dispatcher } = stores
   const t = ui.t
 
   let code = $state('')
-  /** Notes held on the computer keyboard, by physical key, so a change of octave releases the right note. */
-  // Not reactive on purpose: nothing renders from it.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const held = new Map<string, number>()
-
-  /** The selected track, when it is a MIDI track: the live input goes to it and to the armed tracks. */
-  const target = $derived(project.selected && isMidi(project.selected.track) ? project.selected : null)
-  /** An armed MIDI track other than the target: the command layer plays only MIDI tracks, whatever a command armed. */
-  const armedMidi = $derived(project.armed.filter((id) => project.tracks.some((entry) => entry.id === id && isMidi(entry.track))))
-  const armedElsewhere = $derived(armedMidi.some((id) => id !== target?.id))
-  const targetHint = $derived(
-    target ? t(armedElsewhere ? 'keys.targetArmed' : 'keys.target', { name: trackLabel(target, t) }) : t(armedElsewhere ? 'keys.armedOnly' : 'keys.noTarget'),
-  )
-  /** The kind of the target's instrument; the octave starts where its sounds are when it changes (drums or not). */
-  const targetKind = $derived(target ? instrumentKind(target.track) : null)
-  /** Changes with the kind only: switching between tracks of the same kind keeps the octave the user chose. */
-  let octave = $derived(defaultOctave(targetKind))
-
-  function releaseAllKeys() {
-    for (const note of held.values()) dispatcher.run(inputNoteOff(note))
-    held.clear()
-  }
-
-  function onKeyDown(event: KeyboardEvent) {
-    if (!engine.started || ignoreKeyEvent(event)) return
-    const step = octaveStep(event.code)
-    if (step !== 0) {
-      releaseAllKeys()
-      octave = clampOctave(octave + step)
-      return
-    }
-    const note = noteForKey(event.code, octave)
-    if (note === null || held.has(event.code)) return
-    // The command layer routes the note: the selected MIDI track and the armed ones (none: nothing plays).
-    // It sends the note off where the note on went, so a track change while the key is held ends it.
-    if (!target && armedMidi.length === 0) return
-    held.set(event.code, note)
-    dispatcher.run(inputNoteOn(note, 100))
-  }
-
-  function onKeyUp(event: KeyboardEvent) {
-    const note = held.get(event.code)
-    if (note === undefined) return
-    held.delete(event.code)
-    dispatcher.run(inputNoteOff(note))
-  }
-
-  onMount(() => {
-    const release = () => releaseAllKeys()
-    const onVisibility = () => document.hidden && releaseAllKeys()
-    window.addEventListener('blur', release)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.removeEventListener('blur', release)
-      document.removeEventListener('visibilitychange', onVisibility)
-      // Leaving the view while keys are held: their notes would never end.
-      releaseAllKeys()
-    }
-  })
+  // The computer keyboard plays in every view: `keys` (the shell's) holds the octave and the target this view shows.
+  const keys = stores.keys
 </script>
-
-<svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} />
 
 {#if !engine.started}
   <div class="start">
@@ -137,12 +76,25 @@
       {:else}
         <ul class="inputs" data-testid="midi-inputs">
           <li>
-            <label><input type="radio" name="midi" checked={engine.selectedInput === null} onchange={() => dispatcher.run({ type: 'midi.select_input', id: null })} /> {t('midi.none')}</label>
+            <label
+              ><input
+                type="radio"
+                name="midi"
+                checked={engine.selectedInput === null}
+                onchange={() => dispatcher.run({ type: 'midi.select_input', id: null })}
+              />
+              {t('midi.none')}</label
+            >
           </li>
           {#each engine.inputs as input (input.id)}
             <li>
               <label>
-                <input type="radio" name="midi" checked={engine.selectedInput === input.id} onchange={() => dispatcher.run({ type: 'midi.select_input', id: input.id })} />
+                <input
+                  type="radio"
+                  name="midi"
+                  checked={engine.selectedInput === input.id}
+                  onchange={() => dispatcher.run({ type: 'midi.select_input', id: input.id })}
+                />
                 {input.name}
                 {#if engine.selectedInput === input.id && engine.activeNotes.length > 0}<span class="led" aria-hidden="true"></span>{/if}
               </label>
@@ -162,11 +114,11 @@
     <section class="panel keys">
       <div class="keys-head">
         <h2 class="label">{t('keys.title')}</h2>
-        <span class="value">{t('keys.octave', { n: octave })}</span>
-        <span class="muted target" data-testid="keys-target">{targetHint}</span>
+        <span class="value">{t('keys.octave', { n: keys.octave })}</span>
+        <span class="muted target" data-testid="keys-target">{keys.targetHint}</span>
         <button class="ghost" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
       </div>
-      <PianoStrip low={(octave + 1) * 12} active={engine.activeNotes} />
+      <PianoStrip low={(keys.octave + 1) * 12} active={engine.activeNotes} />
       <p class="muted">{t('keys.help')}</p>
     </section>
   </div>

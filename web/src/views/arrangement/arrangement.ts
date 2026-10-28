@@ -9,9 +9,10 @@ import type { Note, Placement, TickLoop } from '../../lib/generated/protocol'
 import { snapTick, tickToX, type View } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT } from '../../lib/components/timegrid/render'
 import { NO_COLOR, type TrackEntry } from '../../lib/project/tracks'
+import { CLIP_ROW, rowAtY, type Layout, type Row } from './automation/layout'
 
-/** The height of a track's lane, in CSS pixels. */
-export const LANE_HEIGHT = 64
+/** The height of a track's row of clips, in CSS pixels. */
+export const LANE_HEIGHT = CLIP_ROW
 /** The inset of a block inside its lane. */
 export const BLOCK_INSET = 4
 /** The width of the grab zone at each end of a block, in CSS pixels. */
@@ -75,21 +76,20 @@ export function blocksOf(entries: readonly TrackEntry[]): Block[] {
 /** The tick the last block ends at, 0 when there is none. */
 export const lastEnd = (blocks: readonly Block[]): number => blocks.reduce((end, block) => Math.max(end, block.end), 0)
 
-// --- lanes ----------------------------------------------------------------------------------------
+// --- rows -----------------------------------------------------------------------------------------
 
-/** The top of a lane in the stage, whose first lane starts under the ruler. */
-export const laneTop = (row: number, scrollY: number): number => RULER_HEIGHT + row * LANE_HEIGHT - scrollY
+/** The top of a track's row of clips in the stage, whose first row starts under the ruler. */
+export const laneTop = (layout: Layout, track: number, scrollY: number): number => RULER_HEIGHT + (layout.trackTop[track] ?? 0) - scrollY
 
-/** How far the lanes scroll: the height of the lanes past what the stage shows of them. */
-export const maxScrollY = (rows: number, stageHeight: number): number => Math.max(0, rows * LANE_HEIGHT - Math.max(0, stageHeight - RULER_HEIGHT))
-export const clampScrollY = (scrollY: number, rows: number, stageHeight: number): number =>
-  Math.min(maxScrollY(rows, stageHeight), Math.max(0, Number.isFinite(scrollY) ? scrollY : 0))
+/** How far the rows scroll: the height of the rows past what the stage shows of them. */
+export const maxScrollY = (totalHeight: number, stageHeight: number): number => Math.max(0, totalHeight - Math.max(0, stageHeight - RULER_HEIGHT))
+export const clampScrollY = (scrollY: number, totalHeight: number, stageHeight: number): number =>
+  Math.min(maxScrollY(totalHeight, stageHeight), Math.max(0, Number.isFinite(scrollY) ? scrollY : 0))
 
-/** The lane under a stage y, or `null` on the ruler or under the last lane. */
-export function rowAt(y: number, scrollY: number, rows: number): number | null {
+/** The row under a stage y (a track's clips, a lane, or the row that adds a lane), or `null` on the ruler or under the last row. */
+export function rowAt(layout: Layout, y: number, scrollY: number): Row | null {
   if (y < RULER_HEIGHT) return null
-  const row = Math.floor((y - RULER_HEIGHT + scrollY) / LANE_HEIGHT)
-  return row >= 0 && row < rows ? row : null
+  return rowAtY(layout, y - RULER_HEIGHT + scrollY)
 }
 
 // --- hit test -------------------------------------------------------------------------------------
@@ -102,9 +102,11 @@ export interface Hit {
 }
 
 /** The block under a stage point and the part of it: its ends resize, its middle moves. */
-export function hitBlock(blocks: readonly Block[], x: number, y: number, view: View, scrollY: number): Hit | null {
-  const row = Math.floor((y - RULER_HEIGHT + scrollY) / LANE_HEIGHT)
-  const top = laneTop(row, scrollY) + BLOCK_INSET
+export function hitBlock(blocks: readonly Block[], layout: Layout, x: number, y: number, view: View, scrollY: number): Hit | null {
+  const found = rowAt(layout, y, scrollY)
+  if (!found || found.kind !== 'track') return null
+  const row = found.track
+  const top = laneTop(layout, row, scrollY) + BLOCK_INSET
   if (y < RULER_HEIGHT || y < top || y > top + LANE_HEIGHT - 2 * BLOCK_INSET) return null
   // The last one drawn wins, as the eye sees it.
   for (let i = blocks.length - 1; i >= 0; i--) {

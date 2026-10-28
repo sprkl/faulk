@@ -9,8 +9,7 @@ test.describe.configure({ mode: 'serial' })
 
 const feedback = (page: Page) => page.getByTestId('feedback')
 const master = async (page: Page) => Number(await feedback(page).getAttribute('data-master-peak'))
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 test('volume, mute and solo of a track change what the engine sounds', async ({ page }) => {
   const { errors } = watch(page)

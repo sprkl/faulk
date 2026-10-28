@@ -271,8 +271,24 @@ pub mod limits {
 // ---------------------------------------------------------------- slots and payload types
 
 /// Index of a track in the engine, assigned by the project.
+///
+/// [`TrackSlot::MASTER`] is not a track: it addresses the master's chain of effects (#364) in
+/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`)
+/// and nowhere else. The project never assigns it (tracks stay below
+/// [`limits::MAX_TRACKS`]), so a message of a track that names it finds no track and is
+/// refused or skipped, as a slot nobody holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TrackSlot(pub u32);
+
+impl TrackSlot {
+    /// The master's chain, in the device messages (see the type).
+    pub const MASTER: TrackSlot = TrackSlot(u32::MAX);
+
+    /// Whether this is [`TrackSlot::MASTER`].
+    pub const fn is_master(self) -> bool {
+        self.0 == u32::MAX
+    }
+}
 
 /// Position of a device in a track's chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -372,6 +388,8 @@ pub enum Curve {
 #[repr(C)]
 pub struct AutomationPoint {
     pub tick: Tick,
+    /// In the target's unit: the parameter's value, the pan (-1 to 1), or the gain in dB
+    /// (the Preparer turns it into a linear gain, `crate::automation`).
     pub value: f32,
     pub curve: Curve,
 }
@@ -379,8 +397,13 @@ pub struct AutomationPoint {
 /// What an automation lane drives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationTarget {
-    DeviceParam { device: DeviceSlot, param: ParamId },
+    DeviceParam {
+        device: DeviceSlot,
+        param: ParamId,
+    },
+    /// The track's gain; points in dB.
     MixerGain,
+    /// The track's pan, -1 (left) to 1 (right).
     MixerPan,
 }
 
@@ -838,7 +861,12 @@ impl ControlMsg {
                 device: d,
                 ..
             } => {
-                track(t)?;
+                // The master's chain is addressed by `TrackSlot::MASTER`, in these four
+                // messages only: any other message of a track refuses it as a slot past
+                // the limit.
+                if !t.is_master() {
+                    track(t)?;
+                }
                 device(d)
             }
             ControlMsg::ClipNotesUpload {

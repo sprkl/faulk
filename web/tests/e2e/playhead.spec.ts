@@ -9,7 +9,11 @@ import { watch } from './support'
 const ROW = 16
 const RULER = 28
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const transport = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
 const timegrid = (page: Page) => page.getByTestId('timegrid')
 const cell = (page: Page, scene: number) => page.getByTestId('scene-row').nth(scene).getByTestId('cell').first()
@@ -109,20 +113,31 @@ test('piano roll: the bar of an arrangement clip advances with the transport and
 
   await transport(page, 'Stop').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'stopped')
-  // The bar stays where it stopped: the same place, drawn, with no flicker (a pass that leaves it blank).
+  // Stop brings the bar back to the cue (#360); once it is there it stays: the same place, drawn, with no flicker (a pass that leaves it blank).
+  await page.waitForTimeout(300)
   const stopped = await barX(page)
   expect(stopped).not.toBe('')
   const after = await sample(page, 600)
   expect(new Set(after.xs).size).toBe(1)
   expect(after.xs.length).toBe(after.frames)
   expect(await barX(page)).toBe(stopped)
-  // The latched bar follows the view: a zoom moves it with the grid, and it is not blanked.
-  const ppt0 = Number(await timegrid(page).getAttribute('data-px-per-tick'))
-  await timegrid(page).focus()
-  await page.keyboard.press('+')
-  await expect.poll(async () => Number(await timegrid(page).getAttribute('data-px-per-tick'))).toBeGreaterThan(ppt0)
-  await expect.poll(() => barX(page)).not.toBe(stopped)
-  expect(await barX(page)).not.toBe('')
+  // The latched bar follows the view: a zoom moves it with the grid, and it is not blanked. Stop left it at the start,
+  // where a zoom moves nothing: a seek (the dev server's dispatcher hook) puts it inside the clip first.
+  const hooked = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun === 'function')
+  if (hooked) {
+    await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: 700 }))
+    await expect.poll(() => barX(page)).not.toBe(stopped)
+    const placed = await barX(page)
+    const ppt0 = Number(await timegrid(page).getAttribute('data-px-per-tick'))
+    await timegrid(page).focus()
+    await page.keyboard.press('+')
+    await expect.poll(async () => Number(await timegrid(page).getAttribute('data-px-per-tick'))).toBeGreaterThan(ppt0)
+    await expect.poll(() => barX(page)).not.toBe(placed)
+    expect(await barX(page)).not.toBe('')
+    // The head outside the clip (here the second bar, a clip of one bar): the bar of a clip of the timeline is gone, as in the transport (#360).
+    await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: 7680 }))
+    await expect.poll(() => barX(page)).toBe('')
+  }
   expect(seen.errors).toEqual([])
 })
 
@@ -161,6 +176,7 @@ test('piano roll: the bar of a clip launched from the grid advances, wraps on th
   await transport(page, 'Stop').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'stopped')
   await expect.poll(() => barX(page)).not.toBe('')
+  await page.waitForTimeout(300)
   const stopped = await barX(page)
   const after = await sample(page, 600)
   expect(new Set(after.xs).size).toBe(1)

@@ -8,7 +8,20 @@
    */
   import { onDestroy, tick, untrack } from 'svelte'
   import type { Command, Note } from '../../lib/generated/protocol'
-  import { addNotes, auditionOff, auditionOn, createClipAtStart, duplicateNotes, quantizeNotes, removeNotes, renameClip, setClipLength, setClipLoop, transposeNotes, updateNotes } from '../../lib/clip-commands'
+  import {
+    addNotes,
+    auditionOff,
+    auditionOn,
+    createClipAtStart,
+    duplicateNotes,
+    quantizeNotes,
+    removeNotes,
+    renameClip,
+    setClipLength,
+    setClipLoop,
+    transposeNotes,
+    updateNotes,
+  } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
@@ -30,7 +43,7 @@
     clampScrollY,
     drawnNote,
     hitNote,
-    hitVelocity,
+    velocityTarget,
     initialScrollY,
     moveNotes,
     noteKey,
@@ -71,8 +84,6 @@
   const { project, engine, ui, dispatcher } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
-
-
 
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
@@ -183,7 +194,13 @@
     return g && (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
   })
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
-  const loopShown = $derived(gesture?.kind === 'loop' ? (gesture.from === gesture.to ? edited?.looping ?? null : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }) : (edited?.looping ?? null))
+  const loopShown = $derived(
+    gesture?.kind === 'loop'
+      ? gesture.from === gesture.to
+        ? (edited?.looping ?? null)
+        : { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) }
+      : (edited?.looping ?? null),
+  )
 
   // The play position inside the edited clip (#293). The engine reports about 30 times a second; while the transport
   // runs, the tick is carried on from the last report at each animation frame, so that the bar moves at the screen's pace.
@@ -233,14 +250,17 @@
       tick,
     })
   })
-  // Stopped, the bar stays where it was last seen (it moves with a seek that lands in the clip); while the transport runs
-  // and this clip does not sound, there is none. A new clip starts without one.
+  // Stopped, a clip of the timeline (no grid cell) shows the transport position when it is inside the clip, none otherwise:
+  // Stop brings the head back to the cue (#360), which may lie outside the clip. A clip of the grid keeps the bar where it was
+  // last seen (it moves with a seek that lands in the clip); while the transport runs and this clip does not sound, there is
+  // none. A new clip starts without one.
   // The position is kept with the clip it was seen in, so that another clip never inherits it, whatever the order of the updates.
   let lastSeen = $state<{ clip: string; at: number } | null>(null)
   $effect(() => {
     if (live !== null && edited) lastSeen = { clip: edited.id, at: live }
   })
-  const playhead = $derived(running ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
+  const onTimeline = $derived(edited?.clip.slot == null)
+  const playhead = $derived(running || onTimeline ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
 
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
@@ -465,7 +485,7 @@
   function laneDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || gesture) return
     const { x, y } = local(event, lane)
-    const index = hitVelocity(notes, x, shown)
+    const index = velocityTarget(notes, x, shown, picked)
     if (index === null) return
     const grabbed = notes[index]!
     const key = noteKey(grabbed)
@@ -481,8 +501,17 @@
     sound(grabbed.pitch, grabbed.velocity)
   }
 
+  /** The pointer's x in the lane while it hovers it with no gesture: the bar the next drag would change is lit. */
+  let hoverX = $state<number | null>(null)
+  const hoverKey = $derived.by<string | null>(() => {
+    if (hoverX === null || gesture || !edited) return null
+    const index = velocityTarget(notes, hoverX, shown, chosenKeys)
+    return index === null ? null : noteKey(notes[index]!)
+  })
+
   function laneMove(event: PointerEvent) {
     const g = gesture
+    hoverX = g ? null : local(event, lane).x
     if (!g || g.kind !== 'velocity') return
     if (!edited || edited.id !== g.clip || !chosenKeys.has(g.key)) return cancel()
     const { x, y } = local(event, lane)
@@ -505,7 +534,7 @@
   /** The bar under a pointer of the lane becomes the chosen note when it is not one already; false when there is none. */
   function chooseBar(event: MouseEvent): boolean {
     if (!edited || gesture) return false
-    const index = hitVelocity(notes, local(event, lane).x, shown)
+    const index = velocityTarget(notes, local(event, lane).x, shown, picked)
     if (index === null) return false
     const key = noteKey(notes[index]!)
     if (!picked.has(key)) picked = new Set([key])
@@ -700,14 +729,34 @@
         </select>
       {/if}
       {#if renaming}
-        <input class="rename" data-testid="roll-clip-rename" aria-label={t('pianoRoll.clipName')} maxlength="200" bind:this={nameField} bind:value={draft} onkeydown={onRenameKey} onblur={() => finishRename(true)} />
+        <input
+          class="rename"
+          data-testid="roll-clip-rename"
+          aria-label={t('pianoRoll.clipName')}
+          maxlength="200"
+          bind:this={nameField}
+          bind:value={draft}
+          onkeydown={onRenameKey}
+          onblur={() => finishRename(true)}
+        />
       {:else}
-        <button class="name" type="button" title={t('pianoRoll.renameHint')} data-testid="roll-clip-name" ondblclick={startRename} onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button>
+        <button
+          class="name"
+          type="button"
+          title={t('pianoRoll.renameHint')}
+          data-testid="roll-clip-name"
+          ondblclick={startRename}
+          onkeydown={(e) => e.key === 'F2' && startRename()}>{clipName}</button
+        >
       {/if}
       <span class="origin" data-testid="roll-clip-origin">{origin}</span>
       <div class="group" role="radiogroup" aria-label={t('pianoRoll.tools')}>
-        <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}>{t('pianoRoll.draw')}</button>
-        <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}>{t('pianoRoll.select')}</button>
+        <button role="radio" aria-checked={tool === 'draw'} title={t('pianoRoll.drawHint')} data-testid="roll-tool-draw" onclick={() => (tool = 'draw')}
+          >{t('pianoRoll.draw')}</button
+        >
+        <button role="radio" aria-checked={tool === 'select'} title={t('pianoRoll.selectHint')} data-testid="roll-tool-select" onclick={() => (tool = 'select')}
+          >{t('pianoRoll.select')}</button
+        >
       </div>
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
@@ -719,16 +768,47 @@
       </label>
       <div class="field" role="group" aria-label={t('pianoRoll.length')}>
         <span>{t('pianoRoll.length')}</span>
-        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}>−</button>
-        <input type="number" min="1" max={MAX_BARS} step="1" value={totalBars} aria-label={t('pianoRoll.length')} data-testid="roll-length" onchange={onLengthChange} />
-        <button class="step" aria-label={t('pianoRoll.longer')} data-testid="roll-longer" disabled={totalBars >= MAX_BARS} onclick={() => setBars(totalBars + 1)}>+</button>
+        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}
+          >−</button
+        >
+        <input
+          type="number"
+          min="1"
+          max={MAX_BARS}
+          step="1"
+          value={totalBars}
+          aria-label={t('pianoRoll.length')}
+          data-testid="roll-length"
+          onchange={onLengthChange}
+        />
+        <button
+          class="step"
+          aria-label={t('pianoRoll.longer')}
+          data-testid="roll-longer"
+          disabled={totalBars >= MAX_BARS}
+          onclick={() => setBars(totalBars + 1)}>+</button
+        >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
       <button disabled={chosenNotes.length === 0} data-testid="roll-delete" onclick={removeSelected}>{t('pianoRoll.delete')}</button>
       <div class="group" role="group" aria-label={t('pianoRoll.edit')}>
-        <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}>{t('pianoRoll.duplicate')}</button>
-        <button title={t('pianoRoll.transposeDownHint')} aria-label={t('pianoRoll.transposeDown')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-down" onclick={() => transposeChosen(-1)}>−1</button>
-        <button title={t('pianoRoll.transposeUpHint')} aria-label={t('pianoRoll.transposeUp')} disabled={chosenNotes.length === 0} data-testid="roll-transpose-up" onclick={() => transposeChosen(1)}>+1</button>
+        <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}
+          >{t('pianoRoll.duplicate')}</button
+        >
+        <button
+          title={t('pianoRoll.transposeDownHint')}
+          aria-label={t('pianoRoll.transposeDown')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-transpose-down"
+          onclick={() => transposeChosen(-1)}>−1</button
+        >
+        <button
+          title={t('pianoRoll.transposeUpHint')}
+          aria-label={t('pianoRoll.transposeUp')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-transpose-up"
+          onclick={() => transposeChosen(1)}>+1</button
+        >
       </div>
       <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
         <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
@@ -736,11 +816,25 @@
             <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
           {/each}
         </select>
-        <input type="number" min="0" max="100" step="1" value={quantizeStrength} aria-label={t('pianoRoll.quantizeStrength')} title={t('pianoRoll.quantizeStrength')} data-testid="roll-quantize-strength" onchange={onStrengthChange} />
+        <input
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          value={quantizeStrength}
+          aria-label={t('pianoRoll.quantizeStrength')}
+          title={t('pianoRoll.quantizeStrength')}
+          data-testid="roll-quantize-strength"
+          onchange={onStrengthChange}
+        />
         <span>%</span>
-        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}>{t('pianoRoll.quantize')}</button>
+        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}
+          >{t('pianoRoll.quantize')}</button
+        >
       </div>
-      <span class="count" data-testid="roll-count">{t('pianoRoll.count', { n: notes.length })}{#if chosenNotes.length > 0} · {t('pianoRoll.selected', { n: chosenNotes.length })}{/if}</span>
+      <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
+        >{t('pianoRoll.count', { n: notes.length })}</span
+      >
     </div>
 
     <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
@@ -755,10 +849,7 @@
         onpointercancel={keysUp}
         onlostpointercapture={keysUp}
       >
-        <Surface
-          label={t('pianoRoll.keyboard')}
-          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)}
-        />
+        <Surface label={t('pianoRoll.keyboard')} draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)} />
       </div>
       <div
         class="stage"
@@ -785,10 +876,13 @@
         bind:clientHeight={laneH}
         role="presentation"
         data-testid="roll-lane"
+        data-hover={hoverKey ?? undefined}
         onpointerdown={laneDown}
         onpointermove={laneMove}
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
+        onpointerleave={() => (hoverX = null)}
+        title={t('pianoRoll.velocityHint')}
         ondblclick={(event) => {
           if (chooseBar(event)) resetVelocity()
         }}
@@ -796,7 +890,7 @@
       >
         <Surface
           label={t('pianoRoll.velocity')}
-          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors)}
+          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors, hoverKey)}
         />
       </div>
     </div>
@@ -893,6 +987,8 @@
   }
   .count {
     margin-left: auto;
+    /* Notes only: the selection is in the title, so that a selection never widens the last line and wraps the toolbar (the grid would move). */
+    white-space: nowrap;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
   }

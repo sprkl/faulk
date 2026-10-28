@@ -11,13 +11,17 @@ import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
 import { browserExportDeps } from '../export/browser'
 import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
+import { AutomatedValues } from './automated.svelte'
 import { Dispatcher } from './dispatcher'
 import { EngineStore } from './engine.svelte'
+import { KeyboardPlayer } from './keyboard-player.svelte'
 import { ProjectStore } from './project.svelte'
 import { UiStore } from './ui.svelte'
 
 export { Dispatcher } from './dispatcher'
 export { EngineStore, type HelperState } from './engine.svelte'
+export { AutomatedValues } from './automated.svelte'
+export { KeyboardPlayer } from './keyboard-player.svelte'
 export { ProjectStore } from './project.svelte'
 export { ProjectStorage } from '../storage/storage.svelte'
 export { UiStore } from './ui.svelte'
@@ -31,15 +35,14 @@ export interface Stores {
   storage: ProjectStorage
   /** Exporting the song as a WAV file (#297): the dialog and the render. */
   audioExport: AudioExport
+  /** The computer keyboard as a piano, in every view (#361). */
+  keys: KeyboardPlayer
+  /** What the lanes drive at the play position (AM-4): the controls show it while the transport runs. */
+  automated: AutomatedValues
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
-export function createStores(
-  view: MainViewId,
-  panel: PanelViewId,
-  deps: StorageDeps = browserDeps,
-  exportDeps: ExportDeps = browserExportDeps,
-): Stores {
+export function createStores(view: MainViewId, panel: PanelViewId, deps: StorageDeps = browserDeps, exportDeps: ExportDeps = browserExportDeps): Stores {
   const project = new ProjectStore()
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)
@@ -66,7 +69,17 @@ export function createStores(
         ),
     })
   }
-  return { project, engine, ui: new UiStore(view, panel), dispatcher, storage, audioExport }
+  const ui = new UiStore(view, panel)
+  return {
+    project,
+    engine,
+    ui,
+    dispatcher,
+    storage,
+    audioExport,
+    keys: new KeyboardPlayer(project, engine, ui, dispatcher),
+    automated: new AutomatedValues(project, engine),
+  }
 }
 
 const KEY = Symbol('faulk.stores')

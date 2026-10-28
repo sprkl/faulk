@@ -37,9 +37,7 @@ export function rememberScript(app?: { href: string; lang: Lang }): string {
   return (
     `(function(){function f(e){var t=e.target;if(!t||!t.closest)return;` +
     `var a=t.closest('a[data-lang]');if(a){${store("a.getAttribute('data-lang')")}return}` +
-    (app
-      ? `a=t.closest('a[href]');if(a&&a.getAttribute('href')===${literal(app.href)}){${store(literal(app.lang))}}`
-      : '') +
+    (app ? `a=t.closest('a[href]');if(a&&a.getAttribute('href')===${literal(app.href)}){${store(literal(app.lang))}}` : '') +
     // A middle click opens the link in a new tab without a `click` event.
     `}document.addEventListener('click',f);document.addEventListener('auxclick',f)})()`
   )

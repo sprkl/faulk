@@ -46,15 +46,21 @@
 //!
 //! # Parameters and smoothing
 //!
-//! All four parameters are continuous and follow the linear ramp their descriptor declares
-//! (`mix` 20 ms, `size` and `damping` 50 ms), except `predelay`: like the Echo's delay, the pre-delay in
-//! use glides toward its target by at most [`PREDELAY_SLEW`] frame per frame, so the pitch of the
-//! reverb bends by 25% at most while it moves, like a tape, and never jumps (a ramp over a fixed
-//! time would read the line several times faster than real time on a large move). The poles of the
-//! DC blocker and of the damping are scaled to the sample rate, so their cutoffs do not depend on it. Every value goes through
+//! `size`, `damping` and `mix` are continuous and follow the linear ramp their descriptor declares
+//! (`mix` 20 ms, `size` and `damping` 50 ms). `predelay` takes effect as `time_change` says (its
+//! descriptor declares no ramp: the response is the device's own, the Echo's, shared in
+//! [`time_change`]): **Glide** (default) moves the pre-delay in use toward its target by at most
+//! [`PREDELAY_SLEW`] frame per frame, so the pitch of the reverb bends by 25% at most while it
+//! moves, like a tape, and never jumps (a ramp over a fixed time would read the line several times
+//! faster than real time on a large move); **Fade** reads the line at the old and at the new
+//! pre-delay and crossfades them over [`FADE_SECONDS`]: the pitch is kept; **Jump** reads at the
+//! new pre-delay from the frame the change arrives (a click on sustained sound). `time_change` is
+//! stepped (never smoothed). The poles of the DC blocker and of the damping are scaled to the sample
+//! rate, so their cutoffs do not depend on it. Every value goes through
 //! [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
+use super::time_change::{self, DelayMotion, GlideLaw, Read, TimeChange};
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MAX_SAMPLE_RATE,
     ParamDescriptor, Scale, Unit, event_frame,
@@ -67,6 +73,11 @@ pub const SIZE: u32 = 0;
 pub const DAMPING: u32 = 1;
 pub const PREDELAY: u32 = 2;
 pub const MIX: u32 = 3;
+/// What happens when the pre-delay changes (appended: the ids above never move).
+pub const TIME_CHANGE: u32 = 4;
+/// The values of `time_change` and the length of the Fade (shared with the Echo, see
+/// [`time_change`]).
+pub use super::time_change::{FADE, FADE_SECONDS, GLIDE, JUMP};
 
 /// Parallel comb filters per channel, and series all-pass filters per channel.
 pub const COMBS: usize = 8;
@@ -92,7 +103,7 @@ const WET_GAIN: f32 = 0.353_553_4;
 const DAMPING_POLE_MAX: f32 = 0.9;
 /// The sample rate the per-sample constants above are tuned for.
 const RATE_REFERENCE: f32 = 48_000.0;
-/// Fastest the pre-delay moves, in frames per frame.
+/// Fastest the pre-delay moves under Glide, in frames per frame.
 const PREDELAY_SLEW: f32 = 0.25;
 /// Cutoff of the DC blocker of the input, in hertz.
 const DC_HZ: f32 = 8.0;
@@ -176,7 +187,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(PREDELAY),
             key: "predelay",
-            description: "Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail.",
+            description: "Time between the dry sound and the start of the reverb, from 0 to 0.2 seconds: more room to hear the sound before its tail. A new value takes effect as time_change says.",
             unit: Unit::Seconds,
             min: 0.0,
             max: MAX_PREDELAY_SECONDS as f64,
@@ -198,6 +209,19 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             step: 0.0,
             smoothing_seconds: 0.02,
             values: &[],
+        },
+        ParamDescriptor {
+            id: ParamId(TIME_CHANGE),
+            key: "time_change",
+            description: "What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.",
+            unit: Unit::None,
+            min: 0.0,
+            max: 2.0,
+            default: 0.0,
+            scale: Scale::Linear,
+            step: 1.0,
+            smoothing_seconds: 0.0,
+            values: time_change::VALUES,
         },
     ],
 };
@@ -366,9 +390,11 @@ pub struct Reverb {
     predelay: Line,
     size: Smoother,
     damping: Smoother,
-    /// The pre-delay in use and the one it glides toward, in frames.
-    predelay_delay: f32,
-    predelay_target: f32,
+    /// The pre-delay in use, the one it moves toward and what a change does
+    /// (`time_change`), in frames.
+    motion: DelayMotion,
+    /// The longest pre-delay the line holds, in frames.
+    max_delay: f32,
     /// The DC blocker's pole, scaled to the sample rate.
     dc_pole: f32,
     /// The damping filter's pole and the `damping` it was computed for. The pole is raised to
@@ -413,8 +439,14 @@ impl Reverb {
             predelay: Line::new(predelay_frames)?,
             size: Smoother::new(default(SIZE)),
             damping: Smoother::new(default(DAMPING)),
-            predelay_delay: default(PREDELAY) * sample_rate,
-            predelay_target: default(PREDELAY) * sample_rate,
+            motion: DelayMotion::new(
+                sample_rate,
+                GlideLaw::Constant {
+                    step: f64::from(PREDELAY_SLEW),
+                },
+                f64::from(default(PREDELAY) * sample_rate),
+            ),
+            max_delay: (predelay_frames - GUARD_FRAMES) as f32,
             dc_pole: 1.0 - core::f32::consts::TAU * DC_HZ / sample_rate,
             pole: 0.0,
             pole_for: -1.0,
@@ -470,16 +502,39 @@ impl Reverb {
         match id.0 {
             SIZE => self.size.set(value, self.ramp_frames[0]),
             DAMPING => self.damping.set(value, self.ramp_frames[1]),
-            PREDELAY => self.predelay_target = value * self.sample_rate,
+            PREDELAY => self.motion.set_target(f64::from(
+                (value * self.sample_rate).clamp(0.0, self.max_delay),
+            )),
+            TIME_CHANGE => self.motion.set_mode(TimeChange::from_value(value)),
             MIX => self.mix.set(value, self.ramp_frames[2]),
             _ => {}
         }
     }
 
+    /// The pre-delay line read `delay` frames back (linear interpolation); the present sample
+    /// has been pushed, so it is one before `pos`.
+    fn tap(&self, delay: f64) -> f32 {
+        let len = self.predelay.buf.len();
+        let delay = (delay as f32).clamp(0.0, self.max_delay);
+        let whole = delay as usize;
+        let frac = delay - whole as f32;
+        let at = |back: usize| {
+            let pos = self.predelay.pos;
+            let index = if pos > back {
+                pos - back - 1
+            } else {
+                pos + len - back - 1
+            };
+            self.predelay.buf[index]
+        };
+        let age = self.age as usize;
+        let newer = if whole < age { at(whole) } else { 0.0 };
+        let older = if whole + 1 < age { at(whole + 1) } else { 0.0 };
+        newer + (older - newer) * frac
+    }
+
     /// Renders the frames of `left` and `right` (same length).
     fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let len = self.predelay.buf.len();
-        let max_delay = (len - GUARD_FRAMES) as f32;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             let size = self.size.next_value();
             if self.clock.is_multiple_of(CONTROL_PERIOD) && size != self.decay_size {
@@ -492,32 +547,22 @@ impl Reverb {
             }
             let pole = self.pole;
             let mix = self.mix.next_value().clamp(0.0, 1.0);
-            let target = self.predelay_target.clamp(0.0, max_delay);
-            let distance = target - self.predelay_delay;
-            self.predelay_delay += distance.clamp(-PREDELAY_SLEW, PREDELAY_SLEW);
-            let delay = self.predelay_delay.clamp(0.0, max_delay);
+            let read = self.motion.advance();
 
             let (dry_l, dry_r) = (sanitize(*l), sanitize(*r));
             self.age = self.age.saturating_add(1);
-            // Pre-delay: write the present, read `delay` frames back (linear interpolation).
+            // Pre-delay: write the present, read it back as `time_change` says.
             let mono = self.block_dc((dry_l + dry_r) * 0.5);
             self.predelay.push(mono);
-            let whole = delay as usize;
-            let frac = delay - whole as f32;
-            // `push` moved on: the present is one before `pos`.
-            let at = |back: usize| {
-                let pos = self.predelay.pos;
-                let index = if pos > back {
-                    pos - back - 1
-                } else {
-                    pos + len - back - 1
-                };
-                self.predelay.buf[index]
+            let x = match read {
+                Read::At(delay) => self.tap(delay),
+                Read::Crossfade {
+                    from,
+                    to,
+                    from_gain,
+                    to_gain,
+                } => self.tap(from) * from_gain + self.tap(to) * to_gain,
             };
-            let age = self.age as usize;
-            let newer = if whole < age { at(whole) } else { 0.0 };
-            let older = if whole + 1 < age { at(whole + 1) } else { 0.0 };
-            let x = newer + (older - newer) * frac;
 
             let wet_l = self.left.tick(x, pole, self.age - 1);
             let wet_r = self.right.tick(x, pole, self.age - 1);
@@ -569,9 +614,7 @@ impl Device for Reverb {
         self.damping.snap();
         let damping = self.damping.next_value();
         self.set_pole(damping);
-        self.predelay_delay = self
-            .predelay_target
-            .clamp(0.0, (self.predelay.buf.len() - GUARD_FRAMES) as f32);
+        self.motion.snap();
         self.mix.snap();
         let size = self.size.next_value();
         self.apply_decay(size);

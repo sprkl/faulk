@@ -7,8 +7,7 @@ export const helper = defineFeature(
     'helper.title': 'Native helper',
     'helper.checking': 'Looking for the helper…',
     'helper.absent': 'No helper found. Start faulk-helper for low latency and native MIDI.',
-    'helper.localAccessPending':
-      'Your browser may ask to let Faulk reach apps on this device. Allow it so the page can find the helper.',
+    'helper.localAccessPending': 'Your browser may ask to let Faulk reach apps on this device. Allow it so the page can find the helper.',
     'helper.localAccessBlocked':
       'Your browser blocks access to apps on this device, so the page cannot reach the helper. Allow it in the site settings (icon left of the address), then check again.',
     'helper.helperOlder':

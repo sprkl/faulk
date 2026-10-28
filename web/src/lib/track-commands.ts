@@ -6,9 +6,7 @@ import type { Command, TrackKind } from './generated/protocol'
  * language (`TrackHeader`), never one stored.
  */
 export const createTrack = (kind: TrackKind, instrument: string | null, color: string): Command =>
-  kind === 'midi'
-    ? { type: 'track.create', kind, instrument, color }
-    : { type: 'track.create', kind, color }
+  kind === 'midi' ? { type: 'track.create', kind, instrument, color } : { type: 'track.create', kind, color }
 
 export const deleteTrack = (track: string): Command => ({ type: 'track.delete', track })
 /** Puts a track at `index` in the list, 0 first: one command, one history entry, whatever the distance. */

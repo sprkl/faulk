@@ -8,8 +8,29 @@ import DeviceBrowser from './DeviceBrowser.svelte'
 import DeviceCard from './DeviceCard.svelte'
 
 // A device the page has no text for: it still gets a generated panel, whatever its name or parameters.
-const param = (key: string, values: string[] = []) => ({ id: 0, key, description: `What ${key} does.`, unit: 'none', min: 0, max: values.length ? values.length - 1 : 1, default: 0, scale: 'linear', step: values.length ? 1 : 0, smoothing_seconds: 0, values })
-const fakeEffect = { kind: 'faulk.fake_fx', kind_id: 99, version: 1, name: 'Fake FX', role: 'effect', memory_bytes: 0, midi_output: null, params: [param('depth'), param('shape', ['round', 'sharp'])] } as unknown as DeviceDescriptor
+const param = (key: string, values: string[] = []) => ({
+  id: 0,
+  key,
+  description: `What ${key} does.`,
+  unit: 'none',
+  min: 0,
+  max: values.length ? values.length - 1 : 1,
+  default: 0,
+  scale: 'linear',
+  step: values.length ? 1 : 0,
+  smoothing_seconds: 0,
+  values,
+})
+const fakeEffect = {
+  kind: 'faulk.fake_fx',
+  kind_id: 99,
+  version: 1,
+  name: 'Fake FX',
+  role: 'effect',
+  memory_bytes: 0,
+  midi_output: null,
+  params: [param('depth'), param('shape', ['round', 'sharp'])],
+} as unknown as DeviceDescriptor
 const fakeInstrument = { ...fakeEffect, kind: 'faulk.fake_synth', name: 'Fake Synth', role: 'instrument' } as unknown as DeviceDescriptor
 
 const builtin = (id: string) => ({ builtin: { id, version: 1 } })
@@ -20,7 +41,10 @@ const stores = () => createStores('play', 'devices')
 
 describe('the device browser', () => {
   it('lists the effects of the registry it is given, and an empty state when there is none', () => {
-    const withFx = render(DeviceBrowser, { props: { track: 't', midi: true, chain: [], descriptors: [fakeInstrument, fakeEffect] }, context: storesContext(stores()) }).body
+    const withFx = render(DeviceBrowser, {
+      props: { track: 't', midi: true, chain: [], descriptors: [fakeInstrument, fakeEffect] },
+      context: storesContext(stores()),
+    }).body
     expect(withFx).toContain('data-testid="browse-effect" data-kind="faulk.fake_fx"')
     expect(withFx).toContain('data-testid="browse-instrument" data-kind="faulk.fake_synth"')
     expect(withFx).not.toContain('browse-no-effects')
@@ -29,8 +53,32 @@ describe('the device browser', () => {
     expect(none).not.toContain('browse-effect"')
   })
 
+  it('on the master offers effects only, adds them with master: true and says so in both languages', () => {
+    const en = stores()
+    en.ui.setLang('en')
+    const body = render(DeviceBrowser, {
+      props: { track: '', midi: false, master: true, chain: [], descriptors: [fakeInstrument, fakeEffect] },
+      context: storesContext(en),
+    }).body
+    expect(body).toContain('data-testid="browse-effect" data-kind="faulk.fake_fx"')
+    expect(body).toContain('data-testid="browse-master-hint"')
+    expect(body).toContain('Add Fake FX to the master')
+    expect(body).not.toContain('browse-instrument')
+    expect(body).not.toContain('browse-audio')
+    const fr = stores()
+    fr.ui.setLang('fr')
+    const frBody = render(DeviceBrowser, {
+      props: { track: '', midi: false, master: true, chain: [], descriptors: [fakeEffect] },
+      context: storesContext(fr),
+    }).body
+    expect(frBody).toContain('Ajouter Fake FX au master')
+  })
+
   it('offers no instrument on an audio track', () => {
-    const body = render(DeviceBrowser, { props: { track: 't', midi: false, chain: [], descriptors: [fakeInstrument, fakeEffect] }, context: storesContext(stores()) }).body
+    const body = render(DeviceBrowser, {
+      props: { track: 't', midi: false, chain: [], descriptors: [fakeInstrument, fakeEffect] },
+      context: storesContext(stores()),
+    }).body
     expect(body).toContain('data-testid="browse-audio"')
     expect(body).not.toContain('browse-instrument')
   })

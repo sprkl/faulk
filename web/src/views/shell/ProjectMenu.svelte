@@ -4,7 +4,17 @@
    * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
    * (no folder yet). A musician reads it to know whether the tab can be closed.
    */
-  import { deleteBrowserProject, exportPack, importPack, newProject, openBrowserProject, openFolder, openRecent, save, saveAs } from '../../lib/project-commands'
+  import {
+    deleteBrowserProject,
+    exportPack,
+    importPack,
+    newProject,
+    openBrowserProject,
+    openFolder,
+    openRecent,
+    save,
+    saveAs,
+  } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, project, dispatcher, audioExport } = useStores()
@@ -15,9 +25,7 @@
 
   const ready = $derived(project.view !== null)
   const name = $derived(project.view?.project.name ?? t('project.untitled'))
-  const time = $derived(
-    storage.savedAt === null ? null : new Intl.DateTimeFormat(ui.lang, { timeStyle: 'short' }).format(storage.savedAt),
-  )
+  const time = $derived(storage.savedAt === null ? null : new Intl.DateTimeFormat(ui.lang, { timeStyle: 'short' }).format(storage.savedAt))
   const LABELS = {
     saving: 'save.saving',
     pending: 'save.pending',
@@ -28,9 +36,7 @@
   } as const
   // A project kept in the browser's storage is a draft where a folder can be chosen, and the project itself where not.
   const savedKey = $derived(storage.place === 'browser' ? (storage.supported ? 'save.savedDraft' : 'save.savedBrowser') : 'save.saved')
-  const status = $derived(
-    storage.status === 'saved' ? (time ? t(savedKey, { time }) : t('save.savedPlain')) : t(LABELS[storage.status]),
-  )
+  const status = $derived(storage.status === 'saved' ? (time ? t(savedKey, { time }) : t('save.savedPlain')) : t(LABELS[storage.status]))
   const where = $derived(
     storage.folder
       ? t('save.folder', { name: storage.folder.name })
@@ -73,9 +79,13 @@
     data-testid="project-menu"
     onclick={toggle}
   >
-    <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg>
+    <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"
+      ><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg
+    >
     <span class="name" data-testid="project-name">{name}</span>
-    <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5 L5 6.5 L8 3.5" /></svg>
+    <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
+      ><path d="M2 3.5 L5 6.5 L8 3.5" /></svg
+    >
     {#if ready}<span class="dot" data-state={storage.status} aria-hidden="true"></span>{/if}
   </button>
   {#if ready}
@@ -85,8 +95,12 @@
   {#if open}
     <div class="menu" role="menu" aria-label={t('project.menu')}>
       <p class="summary" data-testid="menu-summary">{name}{ready ? ` · ${status}` : ''}</p>
-      <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => dispatcher.run(newProject()))}>{t('project.menu.new')}</button>
-      <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => dispatcher.run(openFolder()))}>{t('project.menu.open')}</button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-new" onclick={() => choose(() => dispatcher.run(newProject()))}
+        >{t('project.menu.new')}</button
+      >
+      <button role="menuitem" disabled={!storage.supported} data-testid="menu-open" onclick={() => choose(() => dispatcher.run(openFolder()))}
+        >{t('project.menu.open')}</button
+      >
       <hr />
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
         {t('project.menu.save')}<kbd>Ctrl+S</kbd>
@@ -94,8 +108,12 @@
       <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
         {t('project.menu.saveAs')}<kbd>Ctrl+Shift+S</kbd>
       </button>
-      <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}>{t('project.menu.exportPack')}</button>
-      <button role="menuitem" disabled={!ready} data-testid="menu-import-pack" onclick={() => choose(() => dispatcher.run(importPack()))}>{t('project.menu.importPack')}</button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}
+        >{t('project.menu.exportPack')}</button
+      >
+      <button role="menuitem" disabled={!ready} data-testid="menu-import-pack" onclick={() => choose(() => dispatcher.run(importPack()))}
+        >{t('project.menu.importPack')}</button
+      >
       <hr />
       <button role="menuitem" disabled={!ready} data-testid="menu-export" onclick={() => choose(() => audioExport.show())}>
         {t('project.menu.export')}
@@ -117,7 +135,9 @@
         <p class="heading">{t(storage.supported ? 'project.menu.drafts' : 'project.menu.browserProjects')}</p>
         {#each storage.browserProjects as entry (entry.dir)}
           <div class="entry">
-            <button role="menuitem" data-testid="menu-browser-project" onclick={() => choose(() => dispatcher.run(openBrowserProject(entry.dir)))}>{entry.name}</button>
+            <button role="menuitem" data-testid="menu-browser-project" onclick={() => choose(() => dispatcher.run(openBrowserProject(entry.dir)))}
+              >{entry.name}</button
+            >
             <button
               role="menuitem"
               class="delete"

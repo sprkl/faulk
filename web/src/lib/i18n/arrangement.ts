@@ -18,9 +18,11 @@ export const arrangement = defineFeature(
     'arrangement.duplicate': 'Duplicate',
     'arrangement.duplicateHint': 'Copy the selected clips right after them, as independent clips (Ctrl+D). Alt+drag copies where you drop.',
     'arrangement.duplicateLinked': 'Duplicate linked',
-    'arrangement.duplicateLinkedHint': 'Copy the selected clips right after them, as linked copies: editing one changes the others (Ctrl+Shift+D). Alt+Shift+drag copies where you drop.',
+    'arrangement.duplicateLinkedHint':
+      'Copy the selected clips right after them, as linked copies: editing one changes the others (Ctrl+Shift+D). Alt+Shift+drag copies where you drop.',
     'arrangement.delete': 'Delete',
-    'arrangement.help': 'Drag a clip to move it, its edges to resize it. Hold Ctrl or Cmd to skip snapping. Drag on the ruler to loop a part, click on it to move the play position. Double-click an empty lane to create a clip, a clip to edit its notes. To move around: the scrollbar, Shift + wheel (or the arrow keys and Home once the timeline is focused), and Ctrl or Cmd + wheel (or + and −, or the zoom buttons) to zoom.',
+    'arrangement.help':
+      'Drag a clip to move it, its edges to resize it. Hold Ctrl or Cmd to skip snapping. Drag on the ruler to loop a part, click on it to move the play position. Double-click an empty lane to create a clip, a clip to edit its notes. To move around: the scrollbar, Shift + wheel (or the arrow keys and Home once the timeline is focused), and Ctrl or Cmd + wheel (or + and −, or the zoom buttons) to zoom.',
     'arrangement.count': '{n} clips',
     'arrangement.selected': '{n} selected',
     'arrangement.lane': 'Track {name}',
@@ -44,9 +46,11 @@ export const arrangement = defineFeature(
     'arrangement.duplicate': 'Dupliquer',
     'arrangement.duplicateHint': 'Copie les clips sélectionnés juste après eux, en clips indépendants (Ctrl+D). Alt+glisser copie là où tu déposes.',
     'arrangement.duplicateLinked': 'Dupliquer en lié',
-    'arrangement.duplicateLinkedHint': 'Copie les clips sélectionnés juste après eux, en copies liées : modifier l’une change les autres (Ctrl+Maj+D). Alt+Maj+glisser copie là où tu déposes.',
+    'arrangement.duplicateLinkedHint':
+      'Copie les clips sélectionnés juste après eux, en copies liées : modifier l’une change les autres (Ctrl+Maj+D). Alt+Maj+glisser copie là où tu déposes.',
     'arrangement.delete': 'Supprimer',
-    'arrangement.help': 'Glisse un clip pour le déplacer, ses bords pour le redimensionner. Maintiens Ctrl ou Cmd pour ignorer le magnétisme. Glisse sur la règle pour boucler une partie, clique dessus pour déplacer la position de lecture. Double-clique une piste vide pour créer un clip, un clip pour modifier ses notes. Pour te déplacer : la barre de défilement, Maj + molette (ou les flèches et Début quand la timeline a le focus), et Ctrl ou Cmd + molette (ou + et −, ou les boutons de zoom) pour zoomer.',
+    'arrangement.help':
+      'Glisse un clip pour le déplacer, ses bords pour le redimensionner. Maintiens Ctrl ou Cmd pour ignorer le magnétisme. Glisse sur la règle pour boucler une partie, clique dessus pour déplacer la position de lecture. Double-clique une piste vide pour créer un clip, un clip pour modifier ses notes. Pour te déplacer : la barre de défilement, Maj + molette (ou les flèches et Début quand la timeline a le focus), et Ctrl ou Cmd + molette (ou + et −, ou les boutons de zoom) pour zoomer.',
     'arrangement.count': '{n} clips',
     'arrangement.selected': '{n} sélectionnés',
     'arrangement.lane': 'Piste {name}',

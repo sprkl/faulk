@@ -9,7 +9,11 @@ const SILENCE_DB = -60
 const ROW = 16
 const RULER = 28
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const meterDb = async (page: Page) => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))
 const transport = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)

@@ -36,7 +36,8 @@ fn the_echo_follows_the_tempo_the_free_time_the_bypass_and_the_undo() {
         }));
     }
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: f.track.clone(),
+        track: Some(f.track.clone()),
+        master: false,
         kind: "faulk.echo".into(),
         index: 0,
     }));
@@ -124,7 +125,8 @@ fn the_echo_changes_its_time_as_the_setting_says_through_commands() {
         }));
     }
     let out = s.exec(Command::Device(device::Command::Insert {
-        track: f.track.clone(),
+        track: Some(f.track.clone()),
+        master: false,
         kind: "faulk.echo".into(),
         index: 0,
     }));

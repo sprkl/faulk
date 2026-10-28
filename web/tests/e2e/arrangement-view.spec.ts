@@ -20,7 +20,11 @@ interface Block {
   offset: number
 }
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const arr = (page: Page) => page.getByTestId('arrangement')
 const stage = (page: Page) => page.getByTestId('arr-stage')
 const blocks = async (page: Page): Promise<Block[]> =>

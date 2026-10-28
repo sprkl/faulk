@@ -13,7 +13,7 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
-  import { play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
+  import { pause, play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
   import { allSoundOff } from '../../lib/synth-commands'
   import {
     barTicks,
@@ -140,9 +140,8 @@
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
     if (playing) {
-      // Pause: `stop` leaves the cue where the last seek put it, so the cue goes to the playhead and the next Space resumes from here.
-      run(stop())
-      run(seek(tick))
+      // Pause: stops where the playhead is and keeps the marker, so the next Space resumes from here and Stop still goes back to the marker (#360).
+      run(pause(tick))
     } else run(play())
   }
 </script>
@@ -150,8 +149,17 @@
 <svelte:window onkeydown={onSpace} />
 
 <div class="transport" role="group" aria-label={t('transport.label')} data-testid="transport" title={ready ? undefined : t('transport.needsAudio')}>
-  <button class="tool" disabled={!ready} aria-label={t('transport.rewind')} title={t('transport.rewind')} data-testid="transport-rewind" onclick={press(() => run(seek(0)))}>
-    <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 1.5 V12.5 M12 1.5 L5 7 L12 12.5 Z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
+  <button
+    class="tool"
+    disabled={!ready}
+    aria-label={t('transport.rewind')}
+    title={t('transport.rewind')}
+    data-testid="transport-rewind"
+    onclick={press(() => run(seek(0)))}
+  >
+    <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"
+      ><path d="M2 1.5 V12.5 M12 1.5 L5 7 L12 12.5 Z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg
+    >
   </button>
   <button
     class="tool"
@@ -165,7 +173,15 @@
   >
     <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5 L12 7 L3 12.5 Z" fill="var(--fk-play)" /></svg>
   </button>
-  <button class="tool" disabled={!ready} aria-label={t('transport.stop')} title={t('transport.stopHint')} data-testid="transport-stop" onclick={press(() => run(stop()))} ondblclick={() => run(allSoundOff())}>
+  <button
+    class="tool"
+    disabled={!ready}
+    aria-label={t('transport.stop')}
+    title={t('transport.stopHint')}
+    data-testid="transport-stop"
+    onclick={press(() => run(stop()))}
+    ondblclick={() => run(allSoundOff())}
+  >
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1" fill="currentColor" /></svg>
   </button>
   <button
@@ -178,7 +194,17 @@
     data-testid="transport-back-to-arrangement"
     onclick={press(() => run(backToArrangement()))}
   >
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4 H14 M2 8 H14 M2 12 H8 M12 14 L9 11 L12 8" /></svg>
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"><path d="M2 4 H14 M2 8 H14 M2 12 H8 M12 14 L9 11 L12 8" /></svg
+    >
   </button>
   <button class="tool" disabled aria-label={t('transport.record')} title={t('transport.recordSoon')} data-testid="transport-record">
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--fk-rec)" /></svg>
@@ -193,7 +219,9 @@
     data-testid="transport-loop"
     onclick={press(onLoop)}
   >
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 6 V5 a2 2 0 0 1 2-2 h7 M10 1 l2 2 -2 2 M13 10 v1 a2 2 0 0 1-2 2 H4 M6 15 l-2-2 2-2" /></svg>
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"
+      ><path d="M3 6 V5 a2 2 0 0 1 2-2 h7 M10 1 l2 2 -2 2 M13 10 v1 a2 2 0 0 1-2 2 H4 M6 15 l-2-2 2-2" /></svg
+    >
   </button>
   <button
     class="tool"
@@ -205,7 +233,9 @@
     data-testid="transport-metronome"
     onclick={press(() => run(setMetronome(!settings?.metronome.enabled)))}
   >
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 14.5 L7 2 H9 L10.5 14.5 Z M8 11 L11.5 4.5" /></svg>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"
+      ><path d="M5.5 14.5 L7 2 H9 L10.5 14.5 Z M8 11 L11.5 4.5" /></svg
+    >
   </button>
 
   <dl class="readouts">

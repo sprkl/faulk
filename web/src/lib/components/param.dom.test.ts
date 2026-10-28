@@ -10,8 +10,29 @@ import ParamControl from './ParamControl.svelte'
 vi.mock('../stores/dispatcher', () => ({ Dispatcher: class {} }))
 
 /** A device knob through its descriptor: the default value comes from it, and the magnet holds it exactly. */
-const device = { kind: 'faulk.fake_fx', kind_id: 99, version: 1, name: 'Fake FX', role: 'effect', memory_bytes: 0, midi_output: null, params: [] } as unknown as DeviceDescriptor
-const log = { id: 1, key: 'time', description: 'Time.', unit: 'seconds', min: 0.01, max: 2, default: 0.3, scale: 'log', step: 0, smoothing_seconds: 0, values: [] } as unknown as ParamDescriptor
+const device = {
+  kind: 'faulk.fake_fx',
+  kind_id: 99,
+  version: 1,
+  name: 'Fake FX',
+  role: 'effect',
+  memory_bytes: 0,
+  midi_output: null,
+  params: [],
+} as unknown as DeviceDescriptor
+const log = {
+  id: 1,
+  key: 'time',
+  description: 'Time.',
+  unit: 'seconds',
+  min: 0.01,
+  max: 2,
+  default: 0.3,
+  scale: 'log',
+  step: 0,
+  smoothing_seconds: 0,
+  values: [],
+} as unknown as ParamDescriptor
 
 let host: HTMLDivElement
 let app: ReturnType<typeof mount> | null
@@ -41,8 +62,8 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.append(host)
 })
-afterEach(() => {
-  if (app) unmount(app)
+afterEach(async () => {
+  if (app) await unmount(app)
   app = null
   host.remove()
 })
@@ -67,7 +88,7 @@ describe('a device knob', () => {
     const slider = setup(0.9)
     slider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(changes).toEqual([0.3])
-    unmount(app!)
+    void unmount(app!)
     changes = []
     const atDefault = setup(0.3)
     atDefault.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))

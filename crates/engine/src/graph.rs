@@ -30,7 +30,9 @@
 //!    replaces the stream (two streams are never merged), and the live input and a
 //!    schedule use separate ranges ([`crate::events::SCHEDULE_FIRST_VOICE`]);
 //! 2. every **retiring** track (below), with a target of silence;
-//! 3. the master's strip over the sum.
+//! 3. the master's chain of effects over the sum (#364): `run_chain` over the whole block, as
+//!    a track's chain but with no note stream; then the master's strip. The master's meter
+//!    and the export read after the strip, so after the chain.
 //!
 //! One stereo scratch serves every track, since they render one after another: the
 //! buffers of the graph are allocated once, by [`crate::engine::channel`], off the audio
@@ -70,16 +72,17 @@
 
 use rtrb::{Producer, PushError};
 
+use crate::automation::{LANE_ROOM, NO_LANE, TrackLanes};
 use crate::clip_player::Env;
 use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
 };
-use crate::engine::{Clip, DeviceEntry, Paged, State, Track};
+use crate::engine::{Clip, DeviceEntry, Lane, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
 pub use crate::mixer::mix_levels;
 use crate::mixer::{Mixer, timed};
 use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackMeter, TrackSlot};
-use crate::time::{Quantize, TimeSignature};
+use crate::time::{Quantize, Tick, TimeSignature};
 use crate::transport::Segment;
 
 /// Duration of a track's fade in or out, and of every change of a level, in seconds.
@@ -162,13 +165,20 @@ pub struct TrackGraph {
     /// first.
     release: bool,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
-    /// message fills it yet: the automation (AM-2) will; tests set it off the audio path
-    /// ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
+    /// message fills it (the automation is read from its lanes, [`crate::automation`]);
+    /// tests set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
     /// plays the track's arrangement, a launched clip or has a launch to take
     /// ([`crate::clip_player`], CL-2, [`crate::arrangement`], AR-2).
     schedule: Option<Box<Schedule>>,
     /// The track's meter since the last report, after its fader (MO-5).
     meter: MeterAcc,
+    /// The first of the track's automation lanes, linked at every block
+    /// ([`crate::automation::link`]), and how many are linked.
+    pub(crate) lanes: u32,
+    pub(crate) lane_count: u32,
+    /// The tick the next clock segment starts at when the playhead moves on without a jump
+    /// (`None` after a stopped block): a jump gives the parameters back to the lanes.
+    lane_expect: Option<Tick>,
     next: Option<Box<Track>>,
 }
 
@@ -183,8 +193,21 @@ impl TrackGraph {
                 peak: [0.0; 2],
                 squares: [0.0; 2],
             },
+            lanes: NO_LANE,
+            lane_count: 0,
+            lane_expect: None,
             next: None,
         }
+    }
+
+    /// A gain lane is gone: the strip takes the fader's gain back.
+    pub(crate) fn forget_gain(&mut self) {
+        self.mixer.forget_gain();
+    }
+
+    /// A pan lane is gone: the strip takes the fader's pan back.
+    pub(crate) fn forget_pan(&mut self) {
+        self.mixer.forget_pan();
     }
 
     /// Puts `schedule` on the track and returns the one it replaces (to be freed off the
@@ -258,6 +281,9 @@ pub struct BlockClock<'a> {
     pub segments: &'a [Segment],
     /// The playhead at the block's first frame, in fractional ticks.
     pub position: f64,
+    /// The block's first frame since the engine started (the automation's control frames,
+    /// [`crate::automation`]).
+    pub frame: u64,
 }
 
 /// The render of the graph (module doc), owned by the audio side.
@@ -324,7 +350,7 @@ impl Graph {
             scratch: Scratch {
                 left: buffer(max_frames)?,
                 right: buffer(max_frames)?,
-                sink: Sink::try_new()?,
+                sink: Sink::try_with_lane_room(NOTE_ROOM, PARAM_CHUNK, LANE_ROOM)?,
                 merged: EventBuffer::try_with_capacity(NOTE_ROOM + PARAM_CHUNK + 1)?,
                 unused: EventBuffer::try_with_capacity(1)?,
             },
@@ -410,7 +436,9 @@ impl Graph {
         let mut voices = 0u32;
         let any_solo = state.tracks.as_slice().iter().flatten().any(|t| t.solo);
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
+        crate::automation::link(&mut state.tracks, &mut state.lanes);
         let clips = &mut state.clips;
+        let lanes = &mut state.lanes;
         for (slot, entry) in state.tracks.as_mut_slice().iter_mut().enumerate() {
             let Some(track) = entry.as_deref_mut() else {
                 continue;
@@ -429,6 +457,7 @@ impl Graph {
                     quantize,
                     signature,
                 }),
+                lanes: Some(&mut *lanes),
             };
             render_track(
                 track,
@@ -476,7 +505,7 @@ impl Graph {
         }
         self.retiring = kept;
 
-        self.master_pass(state, clock, left, right);
+        self.master_pass(state, clock, &ctx, left, right);
     }
 
     /// The master's strip over the sum (module doc), with the timed parameters of the
@@ -485,6 +514,7 @@ impl Graph {
         &mut self,
         state: &mut State,
         clock: &BlockClock<'_>,
+        ctx: &BlockCtx,
         left: &mut [f32],
         right: &mut [f32],
     ) {
@@ -505,8 +535,19 @@ impl Graph {
             true,
             fade,
         );
+        // The master's chain (#364) runs over the whole sum, before the fader: effects only,
+        // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
+        scratch.sink.clear();
+        run_chain(
+            state.master_devices.as_mut_slice(),
+            &scratch.sink,
+            &mut scratch.merged,
+            &mut scratch.unused,
+            ctx,
+            left,
+            right,
+        );
         let sink = &mut scratch.sink;
-        sink.clear();
         let Some(schedule) = state.master_schedule.as_deref_mut() else {
             master.apply_in_place(left, right, core::iter::empty(), fade);
             return;
@@ -619,6 +660,8 @@ struct Input<'a> {
     live: &'a [LiveEvent],
     release: bool,
     clips: Option<ClipsIn<'a>>,
+    /// The engine's automation lanes (AM-2): the track plays those of its list.
+    lanes: Option<&'a mut Paged<Box<Lane>>>,
 }
 
 /// What a track's clip player reads besides the track (CL-2).
@@ -673,11 +716,13 @@ fn render_track(
     }
     let reads = input.is_some();
     let mut clips = None;
+    let mut lane_table = None;
     let mut slot = TrackSlot(0);
     if let Some(input) = input {
         route_live(&input, sink);
         slot = input.slot;
         clips = input.clips;
+        lane_table = input.lanes;
     }
     let Track {
         devices,
@@ -693,8 +738,17 @@ fn render_track(
         mixer,
         meter,
         schedule: track_schedule,
+        lanes: lane_head,
+        lane_expect,
         ..
     } = graph;
+    // The track's automation lanes (AM-2, [`crate::automation`]).
+    let mut lanes = lane_table
+        .map(|table| TrackLanes {
+            table,
+            head: *lane_head,
+        })
+        .filter(|l| !l.is_empty());
     // The player plays the track's arrangement, or its launched clip once the grid holds
     // it ([`crate::arrangement`], [`crate::clip_player`]): the schedule is silent
     // meanwhile.
@@ -758,6 +812,8 @@ fn render_track(
         );
     };
     if !clock.running || clock.segments.is_empty() {
+        // Stopped, the lanes send nothing: the last value stays (AM-2).
+        *lane_expect = None;
         if let Some(s) = schedule.as_deref_mut() {
             s.stop(sink);
         }
@@ -769,18 +825,72 @@ fn render_track(
         let mut start = 0;
         let mut i = 0;
         let mut position = clock.position;
+        // The segment whose pieces are being read, the piece being read (its end and the
+        // tick it starts at), and whether the lanes' values of the sub-block that starts at
+        // `start` are in the sink ([`crate::automation`]).
+        let mut entered = usize::MAX;
+        let mut piece: Option<Segment> = None;
+        let mut piece_from = Tick::ZERO;
+        let mut pushed = false;
         while i < clock.segments.len() && start < frames {
             let segment = clock.segments[i];
+            let seg_end = segment.offset + segment.frames;
+            if entered != i {
+                entered = i;
+                piece = None;
+                piece_from = segment.from;
+                // Values pushed under the last segment's ticks (an empty sub-block kept the
+                // sink) are pushed again under this one's: the later ones win.
+                pushed = false;
+                if let Some(l) = lanes.as_mut()
+                    && *lane_expect != Some(segment.from)
+                {
+                    l.jump();
+                }
+                *lane_expect = Some(segment.to);
+            }
             position = segment.position_at(start);
+            // A piece ends at the next point of a lane, or a control period on while a lane
+            // moves (AM-2); without lanes it is the whole segment.
+            let current = match piece {
+                Some(p) => p,
+                None => {
+                    let cut = match lanes.as_mut() {
+                        Some(l) if seg_end > start => {
+                            l.piece_end(&segment, clock.frame, start, seg_end)
+                        }
+                        _ => seg_end,
+                    };
+                    let p = if cut >= seg_end && piece_from == segment.from {
+                        segment
+                    } else {
+                        segment.piece(start, cut, piece_from)
+                    };
+                    piece = Some(p);
+                    p
+                }
+            };
+            if !pushed
+                && seg_end > start
+                && let Some(l) = lanes.as_mut()
+            {
+                l.push_start(&segment, clock.frame, start, sink);
+                pushed = true;
+            }
             let read = match (schedule.as_deref_mut(), player.as_mut()) {
-                (_, Some((p, env))) => p.read(env, &segment, start, sink),
-                (Some(s), None) => s.read(&segment, start, sink),
+                (_, Some((p, env))) => p.read(env, &current, start, sink),
+                (Some(s), None) => s.read(&current, start, sink),
                 (None, None) => Read::Done,
             };
+            let piece_end = current.offset + current.frames;
             let end = match read {
                 Read::Done => {
-                    i += 1;
-                    segment.offset + segment.frames
+                    piece = None;
+                    piece_from = current.to;
+                    if piece_end >= seg_end {
+                        i += 1;
+                    }
+                    piece_end
                 }
                 Read::Full(at) => start + at.max(1),
             }
@@ -788,8 +898,12 @@ fn render_track(
             // A segment of no frame (an `f64` edge of the clock) leaves its events to the
             // next sub-block.
             if end > start {
+                if let Some(l) = lanes.as_mut() {
+                    l.push_end(&segment, start, end, sink);
+                }
                 chain(sink, start, end, position);
                 sink.clear();
+                pushed = false;
                 start = end;
             }
         }

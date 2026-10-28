@@ -513,6 +513,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
         WrongInstrument => "WrongInstrument",
+        NotAnEffect => "NotAnEffect",
         BadChannels => "BadChannels",
         CountIn => "CountIn",
         MissingInstrument => "MissingInstrument",
@@ -521,7 +522,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 31] = [
+const ALL_KINDS: [&str; 32] = [
     "MissingInstrument",
     "BadSampleRate",
     "Format",
@@ -550,6 +551,7 @@ const ALL_KINDS: [&str; 31] = [
     "TooManyInstruments",
     "InstrumentNotFirst",
     "WrongInstrument",
+    "NotAnEffect",
     "BadChannels",
     "CountIn",
     "TooMany",
@@ -1145,6 +1147,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "WrongInstrument",
         ),
         (
+            "an instrument in the master's chain",
+            Box::new(|fx| {
+                let synth = fx.synth.clone();
+                let device = midi_track(fx).devices[&synth].clone();
+                let id = DeviceId::generate(&mut IdGenerator::new(1_800_000_000_000, 7));
+                fx.project.master_devices.insert(id, device);
+            }),
+            "NotAnEffect",
+        ),
+        (
             "audio file with 0 channels",
             Box::new(|fx| {
                 if let ClipContent::Audio { media, .. } = audio_content(fx) {
@@ -1566,4 +1578,42 @@ fn contains_id_finds_every_kind_of_entity_and_nothing_else() {
     }
     let mut ids = IdGenerator::new(1_800_000_000_000, 7);
     assert!(!p.contains_id(&ClipId::generate(&mut ids).0));
+}
+
+#[test]
+fn a_lane_reads_back_from_any_json_form_of_its_tick_keys() {
+    // JSON keys are strings. Read directly they become ticks; through the buffered form of an
+    // internally tagged enum (a command carrying a lane) they stay text, and become ticks
+    // too. Two keys for one tick are refused either way.
+    let json = r#"{"target":{"mixer":{"param":"pan"}},"points":{"0":{"value":0.5,"shape":"linear"},"960":{"value":-0.5,"shape":"step"}}}"#;
+    let direct: AutomationLane = serde_json::from_str(json).unwrap();
+    let value: serde_json::Value = serde_json::from_str(json).unwrap();
+    let buffered: AutomationLane = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(direct, buffered);
+    assert_eq!(direct.points.len(), 2);
+    assert_eq!(direct.points[&Tick(960)].shape, Shape::Step);
+
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type")]
+    enum Tagged {
+        #[serde(rename = "lane")]
+        Lane { lane: AutomationLane },
+    }
+    let tagged: Tagged =
+        serde_json::from_value(serde_json::json!({ "type": "lane", "lane": value })).unwrap();
+    let Tagged::Lane { lane } = tagged;
+    assert_eq!(lane, direct);
+    // It writes the same text it reads.
+    assert_eq!(serde_json::to_value(&lane).unwrap(), value);
+
+    for bad in [
+        r#"{"target":{"mixer":{"param":"pan"}},"points":{"0":{"value":1,"shape":"step"},"0":{"value":2,"shape":"step"}}}"#,
+        r#"{"target":{"mixer":{"param":"pan"}},"points":{"soon":{"value":1,"shape":"step"}}}"#,
+        r#"{"target":{"mixer":{"param":"pan"}},"points":{"1.5":{"value":1,"shape":"step"}}}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<AutomationLane>(bad).is_err(),
+            "{bad}"
+        );
+    }
 }

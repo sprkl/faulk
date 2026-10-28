@@ -9,7 +9,7 @@
 use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, Id, LaneId, PlacementId, ProjectId, SceneId, TrackId};
 use crate::order::{OrderKey, by_order};
-use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set};
+use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set, unique_tick_map};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,12 @@ pub struct Project {
     // The master bus. Not a doc comment: a description beside its `$ref` would make the
     // generated TypeScript declare a copy of `Mixer`.
     pub master: Mixer,
+    // The master's chain: effects only (#364), ordered by `Device::order`, run on the sum of
+    // the tracks before the master's fader. Not a doc comment, like `master` above: a
+    // description beside the map would make the schema inline a copy of `Device`.
+    #[serde(default, deserialize_with = "unique_map")]
+    #[schemars(required)]
+    pub master_devices: BTreeMap<DeviceId, Device>,
     /// The tracks.
     #[serde(deserialize_with = "unique_map")]
     pub tracks: BTreeMap<TrackId, Track>,
@@ -449,7 +455,7 @@ pub enum Span {
 pub struct AutomationLane {
     pub target: AutomationTarget,
     /// Points by tick: at most one point per tick.
-    #[serde(deserialize_with = "unique_map")]
+    #[serde(deserialize_with = "unique_tick_map")]
     pub points: BTreeMap<Tick, AutomationPoint>,
 }
 
@@ -507,6 +513,7 @@ impl Project {
             transport: TransportSettings::default(),
             scenes: BTreeMap::new(),
             master: Mixer::default(),
+            master_devices: BTreeMap::new(),
             tracks: BTreeMap::new(),
         }
     }
@@ -532,6 +539,7 @@ impl Project {
     pub fn contains_id(&self, id: &Id) -> bool {
         self.id.0 == *id
             || self.scenes.keys().any(|k| k.0 == *id)
+            || self.master_devices.keys().any(|k| k.0 == *id)
             || self.tracks.iter().any(|(k, t)| {
                 k.0 == *id
                     || t.devices.keys().any(|k| k.0 == *id)
@@ -539,6 +547,27 @@ impl Project {
                     || t.placements.keys().any(|k| k.0 == *id)
                     || t.automation.keys().any(|k| k.0 == *id)
             })
+    }
+
+    /// The master's chain in order (order key, then id).
+    pub fn master_devices_in_order(&self) -> Vec<(&DeviceId, &Device)> {
+        by_order(&self.master_devices, |d| &d.order)
+    }
+
+    /// The device with this id, in a track's chain or in the master's. Device ids are
+    /// unique across the project ([`Project::contains_id`]).
+    pub fn device(&self, id: &DeviceId) -> Option<&Device> {
+        self.master_devices
+            .get(id)
+            .or_else(|| self.tracks.values().find_map(|t| t.devices.get(id)))
+    }
+
+    /// [`Project::device`], to change it.
+    pub fn device_mut(&mut self, id: &DeviceId) -> Option<&mut Device> {
+        if self.master_devices.contains_key(id) {
+            return self.master_devices.get_mut(id);
+        }
+        self.tracks.values_mut().find_map(|t| t.devices.get_mut(id))
     }
 
     /// The tracks in display order (order key, then id).

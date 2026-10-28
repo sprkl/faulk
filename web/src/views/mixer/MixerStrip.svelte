@@ -1,12 +1,12 @@
 <script lang="ts">
   /**
    * One strip of the mixer: a track's (colour, name, devices, arm, mute, solo, pan, fader, meter)
-   * or the master's (fader and meter only: no command changes the master's pan or mute). It holds
+   * or the master's (its devices, fader and meter: no command changes the master's pan or mute). It holds
    * no project state: it reads the stores and every control is a command through the dispatcher.
    * The name is read-only here; renaming stays in the track list.
    */
-  import { chainOf } from '../../lib/project/chain'
-  import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { chainOf, masterChainOf } from '../../lib/project/chain'
+  import { formatGain, formatPan, instrumentName, MIN_GAIN_DB, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
@@ -23,25 +23,36 @@
     onreset,
   }: { entry?: TrackEntry | null; snap: MeterSnap; selected?: boolean; soloed?: boolean; armed?: boolean; onreset: () => void } = $props()
 
-  const { project, ui, dispatcher } = useStores()
+  const { project, ui, dispatcher, automated } = useStores()
   const t = ui.t
+
+  // The controls whose readouts open the field to type a value.
+  let panControl: ReturnType<typeof PanControl> | undefined = $state()
+  let faderControl: ReturnType<typeof MixerFader> | undefined = $state()
 
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
-  const chain = $derived(entry ? chainOf(entry.track) : [])
-  const chainText = $derived(
-    chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '),
-  )
+  // While the transport runs, a lane that drives the volume or the pan moves the control with it (AM-4).
+  const automatedGain = $derived(entry ? automated.mixer(entry.id, 'gain') : undefined)
+  const shownGain = $derived(automatedGain === undefined ? mixer?.gain_db : automatedGain <= MIN_GAIN_DB ? null : automatedGain)
+  const shownPan = $derived((entry ? automated.mixer(entry.id, 'pan') : undefined) ?? entry?.track.mixer.pan ?? 0)
+  const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
+  const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
 
   /** Shows the track's devices: selects it (the Devices panel follows the selection) and opens that panel. */
   function showDevices() {
-    if (!entry) return
+    if (!entry) {
+      // The master is not a track: the panel shows its chain without touching the selection.
+      ui.showDevices(true, project.selected?.id)
+      return
+    }
     if (project.selected?.id !== entry.id) dispatcher.run(selectTrack(entry.id))
-    ui.showPanel('devices')
+    ui.showDevices(false)
   }
 
   const select = () => {
     if (entry && !selected) dispatcher.run(selectTrack(entry.id))
+    if (entry) ui.masterSelection = null
   }
 </script>
 
@@ -60,18 +71,44 @@
     {#if entry}
       <button class="name" type="button" title={name} data-testid="mixer-name" onclick={select}>{name}</button>
       <p class="meta" title={chainText} data-testid="mixer-chain">{instrumentName(entry.track) ?? chainText}</p>
-      <button class="devices" type="button" title={t('mixer.devicesHint', { name })} aria-label={t('mixer.devicesHint', { name })} data-testid="mixer-devices" onclick={showDevices}>
+      <button
+        class="devices"
+        type="button"
+        title={t('mixer.devicesHint', { name })}
+        aria-label={t('mixer.devicesHint', { name })}
+        data-testid="mixer-devices"
+        onclick={showDevices}
+      >
         {t('mixer.devices')} ({chain.length})
       </button>
     {:else}
       <p class="name master-name">{name}</p>
+      <p class="meta" title={chainText} data-testid="mixer-chain">{chainText}</p>
+      <button
+        class="devices"
+        type="button"
+        title={t('mixer.devicesHint', { name })}
+        aria-label={t('mixer.devicesHint', { name })}
+        data-testid="mixer-master-devices"
+        onclick={showDevices}
+      >
+        {t('mixer.devices')} ({chain.length})
+      </button>
     {/if}
   </div>
 
   {#if entry}
     <div class="pan">
-      <PanControl track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
-      <span class="readout">{formatPan(entry.track.mixer.pan)}</span>
+      <PanControl bind:this={panControl} track={entry.id} pan={shownPan} label={t('tracks.pan', { name })} testid="mixer-pan" />
+      <button
+        class="readout"
+        type="button"
+        tabindex="-1"
+        title={t('controls.type')}
+        data-testid="mixer-pan-readout"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
+      >
     </div>
     <div class="toggles">
       <button
@@ -108,14 +145,23 @@
 
   <div class="levels">
     <MixerFader
-      gainDb={mixer?.gain_db}
+      bind:this={faderControl}
+      gainDb={shownGain}
       label={entry ? t('tracks.volume', { name }) : t('mixer.masterVolume')}
       set={entry ? (gain) => setVolume(entry.id, gain) : setMasterVolume}
       testid={entry ? 'mixer-fader' : 'mixer-master-fader'}
     />
     <MixerMeter {snap} label={t('mixer.level', { name })} peakLabel={t('mixer.peak', { name })} clipLabel={t('mixer.clip')} {onreset} />
   </div>
-  <span class="readout gain" data-testid="mixer-gain">{formatGain(mixer?.gain_db)} dB</span>
+  <button
+    class="readout gain"
+    type="button"
+    tabindex="-1"
+    title={t('controls.type')}
+    data-testid="mixer-gain"
+    onmousedown={(e) => e.preventDefault()}
+    onclick={() => faderControl?.edit()}>{formatGain(shownGain)} dB</button
+  >
 </li>
 
 <style>
@@ -200,6 +246,10 @@
     width: 100%;
   }
   .readout {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: text;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
     font-size: 11px;

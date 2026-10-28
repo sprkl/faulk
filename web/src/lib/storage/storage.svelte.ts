@@ -709,10 +709,7 @@ export class ProjectStorage {
     })
   }
 
-  private async openHandle(
-    handle: FolderHandle,
-    options: { forgetIfGone?: string; kind?: 'folder' | 'browser'; dir?: string } = {},
-  ): Promise<boolean> {
+  private async openHandle(handle: FolderHandle, options: { forgetIfGone?: string; kind?: 'folder' | 'browser'; dir?: string } = {}): Promise<boolean> {
     const kind = options.kind ?? 'folder'
     const dir = options.dir ?? null
     // The project that is open already: nothing to open, and its own lock must not refuse it.

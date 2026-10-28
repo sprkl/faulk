@@ -9,7 +9,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 9;
+
+// Version 9 (#118): the commands gain `automation.lane.create`, `automation.lane.delete`, `automation.lane.restore`, `automation.points.add`, `automation.points.remove`, `automation.points.update`, `automation.points.restore` and `automation.lane.clear`; `device.restore` takes an optional `lanes` (the automation lanes `device.remove` took with the device); the events gain `automation_lane_created`, `automation_lane_deleted` and `automation_points_changed`. The project file format is unchanged (still 1).
+
+// Version 8 (#364): the master has a chain of effects. `device.insert` and `device.restore` take `track` or `master: true`, `device.remove` answers `track: null` for a master device, the event `device_chain_changed` carries `track: null` for the master, and the project holds `master_devices`. The engine addresses that chain with the track slot `u32::MAX` in the four device messages. The helper does not run device chains yet (BO-1, #102).
 
 // Version 7 (#83): the commands gain `clip.notes.quantize`, `clip.notes.transpose` and `clip.notes.duplicate`.
 
@@ -53,6 +57,9 @@ pub mod single_synth {
 /// A message from the page to the helper.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", deny_unknown_fields)]
+// A message is built, sent and dropped once per command, and its payload is the command itself: boxing it
+// would allocate on every message to save the room of the rare `pair`.
+#[allow(clippy::large_enum_variant)]
 pub enum ClientMessage {
     /// Pair with the helper using the one-time code it displays. Only on `/pair`.
     #[serde(rename = "pair")]
