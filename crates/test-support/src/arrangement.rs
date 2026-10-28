@@ -5,9 +5,9 @@
 //! 960 ticks are 0.5 s.
 
 use commands::testing;
-use commands::{Command, Output, clip, launch, track, transport};
+use commands::{Command, Output, automation, clip, launch, track, transport};
 use engine::msg::{ControlMsg, SceneSlot, TrackSlot};
-use project::{Note, Scene, SceneId, Tick, TickLoop};
+use project::{AutomationTarget, MixerParam, Note, Scene, SceneId, Shape, Tick, TickLoop};
 
 use crate::scenario::{Scenario, Session};
 
@@ -61,6 +61,14 @@ fn n(start: i64, pitch: u8, length: i64, velocity: u8) -> Note {
 /// one still sounding when the tracks are given back, the third later), and a one-bar loop
 /// in the grid.
 pub fn song(play: Play) -> Scenario {
+    song_with(play, false)
+}
+
+/// [`song`], with `lanes`: on each track, a gain lane at 0 dB with a point every 97 ticks
+/// and a pan lane that moves between the centre and the left (AM-2). They leave the left
+/// channel as it is (unity gain, and the near side of the pan keeps unity), while their
+/// points and slopes cut every track's blocks into pieces: the left channel must not move.
+pub fn song_with(play: Play, lanes: bool) -> Scenario {
     let fixture = testing::fixture();
     let mut state = fixture.state.clone();
     let mut ids = project::IdGenerator::new(1_700_000_000_000, 0x00CE_0000_0000_0000_0000);
@@ -133,6 +141,11 @@ pub fn song(play: Play) -> Scenario {
             end: Tick(3840),
         }),
     }));
+    if lanes {
+        for track in [&bass, &lead] {
+            neutral_lanes(&mut s, track);
+        }
+    }
     match play {
         Play::Straight => {
             s.run(Command::Transport(transport::Command::Play {}));
@@ -198,6 +211,43 @@ pub fn song(play: Play) -> Scenario {
     let rendered = s.scenario().seconds();
     s.render_secs(END_SECS - rendered);
     s.into_scenario()
+}
+
+/// The lanes of [`song_with`] on `track`.
+fn neutral_lanes(s: &mut Session, track: &project::TrackId) {
+    let point = |tick: i64, value: f64, shape: Shape| automation::Point {
+        tick: Tick(tick),
+        value,
+        shape,
+    };
+    let lanes = [
+        (
+            MixerParam::Gain,
+            (0..160)
+                .map(|i| point(i * 97, 0.0, Shape::Step))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            MixerParam::Pan,
+            (0..24)
+                .map(|i| point(i * 333, if i % 2 == 0 { 0.0 } else { -1.0 }, Shape::Linear))
+                .collect(),
+        ),
+    ];
+    for (param, points) in lanes {
+        let Output::Automation(automation::Output::LaneCreate { lane }) =
+            s.exec(Command::Automation(automation::Command::LaneCreate {
+                track: track.clone(),
+                target: AutomationTarget::Mixer { param },
+            }))
+        else {
+            panic!("a lane")
+        };
+        s.run(Command::Automation(automation::Command::PointsAdd {
+            lane,
+            points,
+        }));
+    }
 }
 
 /// #280: a clip created in the arrangement with the default length (one bar), lengthened to

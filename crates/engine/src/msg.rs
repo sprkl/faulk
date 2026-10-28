@@ -388,6 +388,8 @@ pub enum Curve {
 #[repr(C)]
 pub struct AutomationPoint {
     pub tick: Tick,
+    /// In the target's unit: the parameter's value, the pan (-1 to 1), or the gain in dB
+    /// (the Preparer turns it into a linear gain, `crate::automation`).
     pub value: f32,
     pub curve: Curve,
 }
@@ -395,8 +397,13 @@ pub struct AutomationPoint {
 /// What an automation lane drives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationTarget {
-    DeviceParam { device: DeviceSlot, param: ParamId },
+    DeviceParam {
+        device: DeviceSlot,
+        param: ParamId,
+    },
+    /// The track's gain; points in dB.
     MixerGain,
+    /// The track's pan, -1 (left) to 1 (right).
     MixerPan,
 }
 

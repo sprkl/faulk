@@ -6,7 +6,7 @@
 //! `crates/engine-wasm/tests/arrangement_parity.rs`.
 
 use test_support::arrangement::{
-    BACK_SECS, END_SECS, LAUNCH_SECS, Play, SEEK_SECS, STOP_SECS, song,
+    BACK_SECS, END_SECS, LAUNCH_SECS, Play, SEEK_SECS, STOP_SECS, song, song_with,
 };
 use test_support::{SAMPLE_RATE, render_native};
 
@@ -84,4 +84,18 @@ fn a_note_in_the_second_bar_of_a_lengthened_clip_sounds_on_play() {
     // the first bar is silent, the note of the second bar (2 s) sounds.
     r.assert_silent(0.0..1.9);
     r.assert_audible(2.05..3.4, 0.05);
+}
+
+/// AM-2: lanes that leave the left channel alone (a gain at 0 dB, a pan between the centre
+/// and the left) cut every track's blocks into pieces at their points and control frames;
+/// the clip player reads the pieces like smaller blocks, so the left channel is the same
+/// sample for sample, through the seek, the loop, the launch and the return.
+#[test]
+fn lanes_that_leave_the_left_channel_alone_do_not_change_it() {
+    let plain = render_native(&song(Play::Everything));
+    let laned = render_native(&song_with(Play::Everything, true));
+    laned.assert_clean();
+    assert_eq!(first_difference(&plain.left, &laned.left), None);
+    // The pan lane plays: the right channel moves.
+    assert!(first_difference(&plain.right, &laned.right).is_some());
 }

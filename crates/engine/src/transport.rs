@@ -114,6 +114,48 @@ impl Segment {
             ..*self
         }
     }
+
+    /// This segment with another mapping of ticks to samples (unit tests).
+    #[cfg(test)]
+    pub(crate) fn with_mapping(
+        self,
+        origin_tick: f64,
+        origin_sample: f64,
+        samples_per_tick: f64,
+    ) -> Segment {
+        Segment {
+            origin_tick,
+            origin_sample,
+            samples_per_tick,
+            ..self
+        }
+    }
+
+    /// The piece of this segment from frame `start` of the block to frame `end`, which
+    /// plays the ticks from `from` (the `to` of the piece before it, or this segment's
+    /// `from`) to the clock's rule at `end`: the first tick at or after the playhead there,
+    /// this segment's `to` at its end. Its ticks land where they land in this segment
+    /// (same origin): the pieces of a segment read like the segments of smaller blocks
+    /// (the automation's pieces, AM-2).
+    pub fn piece(&self, start: usize, end: usize, from: Tick) -> Segment {
+        let last = self.offset + self.frames;
+        let start = start.clamp(self.offset, last);
+        let end = end.clamp(start, last);
+        let to = if end >= last {
+            self.to
+        } else {
+            // `as` saturates and sends NaN to 0; clamped into the segment's ticks.
+            Tick(self.position_at(end).ceil() as i64)
+        };
+        let from = Tick(from.0.clamp(self.from.0, self.to.0.max(self.from.0)));
+        Segment {
+            offset: start,
+            frames: end - start,
+            from,
+            to: Tick(to.0.clamp(from.0, self.to.0.max(from.0))),
+            ..*self
+        }
+    }
 }
 
 /// A position as bars, beats and ticks, all zero-based (the UI adds one to the first two).

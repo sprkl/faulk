@@ -18,8 +18,8 @@
 //! # Events
 //!
 //! [`Event`]s are dated by an offset in the block, in frames, so that a note, and a
-//! parameter value written by automation (AM-2), land at the exact sample whatever the
-//! block size. The host (MO-4) guarantees, for the slice a device receives:
+//! parameter value written by automation (AM-2, [`crate::automation`]), land at the exact
+//! sample whatever the block size. The host (MO-4) guarantees, for the slice a device receives:
 //!
 //! - offsets are sorted (non-decreasing) and below [`BlockCtx::frames`];
 //! - at the same offset, parameter values come first, then the note events (`NoteOn`,

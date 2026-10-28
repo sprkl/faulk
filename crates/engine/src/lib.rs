@@ -4,6 +4,7 @@
 //! The same code runs natively in the helper and as WebAssembly in an `AudioWorklet`.
 
 pub mod arrangement;
+pub mod automation;
 pub mod clip_player;
 pub mod device;
 pub mod devices;

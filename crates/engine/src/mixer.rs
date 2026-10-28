@@ -32,7 +32,10 @@
 //! [`Event::ParamValue`] in the track's schedule ([`crate::events::ScheduledParam`]) whose
 //! device is [`MIXER_SLOT`] and whose id is [`GAIN`], [`PAN`] or [`MUTE`]. The master's are
 //! the same values in the master's schedule ([`crate::engine::State::set_master_schedule`]).
-//! The automation (AM-2) compiles its lanes into those entries.
+//! The automation (AM-2, [`crate::automation`]) sends its values to the strip the same way,
+//! through the track's sink: [`GAIN`] or [`PAN`] at the first frame of each sub-block, and
+//! [`GAIN_RAMP`] or [`PAN_RAMP`] at its last frame while the lane moves, so that the levels
+//! draw the lane's straight line between the two.
 //!
 //! A timed gain or pan takes effect **at its sample**, exactly: the automation's curve is
 //! the smoothing, a ramp the lane draws is followed to the sample, and the engine adds no
@@ -44,9 +47,10 @@
 //!
 //! A message changes a field of the strip only when that field changed since the last
 //! message (a gesture on the fader), so a lane's value is not overwritten at every block
-//! nor by a gesture on another field: the rule between a manual gesture and a lane is
-//! AM-2's. When a lane is gone (its schedule replaced, a `Reset`) the strip goes back to
-//! the faders ([`Mixer::forget`]).
+//! nor by a gesture on another field; a gesture on a field a lane drives holds the lane
+//! until its next point ([`crate::automation`]). When a lane is gone (its schedule
+//! replaced, a `Reset`) the strip goes back to the faders ([`Mixer::forget`]), a lane
+//! removed gives back its field only ([`Mixer::forget_gain`], [`Mixer::forget_pan`]).
 //!
 //! The strip keeps mute, solo and the fades in and out on a separate **gate** from the
 //! gain and the pan, so that a lane is followed to the sample even while a mute or a solo
@@ -71,6 +75,13 @@ pub const GAIN: ParamId = ParamId(0);
 pub const PAN: ParamId = ParamId(1);
 /// Mute: 1 (or any value ≥ 0.5) mutes, 0 does not.
 pub const MUTE: ParamId = ParamId(2);
+/// A linear gain reached **at** this sample, in a straight line from the strip's level at
+/// the previous timed value of the sub-block (or at its start): the end of a ramp an
+/// automation lane draws (AM-2, [`crate::automation`]).
+pub const GAIN_RAMP: ParamId = ParamId(3);
+/// A pan reached at this sample, like [`GAIN_RAMP`]: the levels move in a straight line
+/// between the two pans' levels.
+pub const PAN_RAMP: ParamId = ParamId(4);
 
 /// The levels of a strip: `audible × gain × balance(pan)` (module doc).
 pub fn mix_levels(gain: f32, pan: f32, audible: bool) -> (f32, f32) {
@@ -132,6 +143,12 @@ pub struct Mixer {
     /// The strip has taken a message at least once (a new strip jumps to its levels and
     /// fades in by the gate).
     synced: bool,
+    /// Frames left of the ramp a message started on the levels by moving the gain, resp.
+    /// the pan: a timed value of the **other** field that arrives meanwhile (a lane on it)
+    /// glides to its level over them instead of jumping, so that the gesture keeps its
+    /// ramp (AM-2). A timed value of the same field is exact, as ever: the lane wins.
+    glide_gain: u32,
+    glide_pan: u32,
     gate: Smoother,
     left: Smoother,
     right: Smoother,
@@ -149,6 +166,8 @@ impl Mixer {
             seen_pan: None,
             seen_mute: None,
             synced: false,
+            glide_gain: 0,
+            glide_pan: 0,
             gate: Smoother::new(0.0),
             left: Smoother::new(1.0),
             right: Smoother::new(1.0),
@@ -166,6 +185,8 @@ impl Mixer {
             seen_pan: Some(0.0f32.to_bits()),
             seen_mute: Some(false),
             synced: true,
+            glide_gain: 0,
+            glide_pan: 0,
             gate: Smoother::new(1.0),
             left: Smoother::new(1.0),
             right: Smoother::new(1.0),
@@ -198,19 +219,35 @@ impl Mixer {
         self.seen_mute = None;
     }
 
+    /// Forgets the fader's gain only: a gain lane is gone, the pan's and the mute's are
+    /// not (AM-2).
+    pub fn forget_gain(&mut self) {
+        self.seen_gain = None;
+    }
+
+    /// Forgets the fader's pan only (a pan lane is gone).
+    pub fn forget_pan(&mut self) {
+        self.seen_pan = None;
+    }
+
     /// Takes the values of the track's message state and whether the track is `audible`
     /// (not silenced by a solo), at the start of a block: what changed moves by a ramp of
     /// `fade` frames (module doc).
     pub fn sync(&mut self, gain: f32, pan: f32, mute: bool, audible: bool, fade: u32) {
         let mut levels = false;
+        let (mut moved_gain, mut moved_pan) = (false, false);
         let mut gate = !self.synced;
         if self.seen_gain != Some(gain.to_bits()) {
             self.seen_gain = Some(gain.to_bits());
+            // Taken again after a `forget`, the same value is no gesture.
+            moved_gain = self.gain.to_bits() != gain.to_bits();
             self.gain = gain;
             levels = true;
         }
         if self.seen_pan != Some(pan.to_bits()) {
             self.seen_pan = Some(pan.to_bits());
+            // Taken again after a `forget`, the same value is no gesture.
+            moved_pan = self.pan.to_bits() != pan.to_bits();
             self.pan = pan;
             levels = true;
         }
@@ -225,6 +262,14 @@ impl Mixer {
         }
         if levels {
             self.set_levels(fade, !self.synced);
+            if self.synced {
+                if moved_gain {
+                    self.glide_gain = fade;
+                }
+                if moved_pan {
+                    self.glide_pan = fade;
+                }
+            }
         }
         if gate {
             self.set_gate(fade);
@@ -233,8 +278,17 @@ impl Mixer {
     }
 
     fn set_levels(&mut self, fade: u32, exact: bool) {
+        self.levels_to(fade, exact, 0);
+    }
+
+    /// [`Mixer::set_levels`]; an exact change glides over `glide` frames when it is not 0
+    /// (a message's ramp on the other field is under way).
+    fn levels_to(&mut self, fade: u32, exact: bool, glide: u32) {
         let (l, r) = mix_levels(self.gain, self.pan, true);
-        if exact {
+        if exact && glide > 0 {
+            self.left.set(l, glide);
+            self.right.set(r, glide);
+        } else if exact {
             self.left.jump(l);
             self.right.jump(r);
         } else {
@@ -254,11 +308,11 @@ impl Mixer {
         match id {
             GAIN => {
                 self.gain = value;
-                self.set_levels(fade, true);
+                self.levels_to(fade, true, self.glide_pan);
             }
             PAN => {
                 self.pan = value;
-                self.set_levels(fade, true);
+                self.levels_to(fade, true, self.glide_gain);
             }
             MUTE => {
                 self.muted = value >= 0.5;
@@ -270,8 +324,10 @@ impl Mixer {
 
     /// Runs `piece(gate, left, right, from, to)` over the frames `0..frames` of a
     /// sub-block, cut at the offsets of `events`: each event takes effect at its offset
-    /// (clamped to the sub-block). The ramps advance after each piece, so `piece` reads
-    /// them from `at(i - from)`.
+    /// (clamped to the sub-block). A ramp end ([`GAIN_RAMP`], [`PAN_RAMP`], and every other
+    /// ramp end at the same offset) aims the levels at its value over the frames since the
+    /// last event, so that they reach it at its offset. The ramps advance after each piece,
+    /// so `piece` reads them from `at(i - from)`.
     fn drive(
         &mut self,
         frames: usize,
@@ -280,16 +336,42 @@ impl Mixer {
         mut piece: impl FnMut(&Smoother, &Smoother, &Smoother, usize, usize),
     ) {
         let mut pos = 0;
-        for (offset, id, value) in events {
+        let mut events = events.peekable();
+        while let Some((offset, id, value)) = events.next() {
             let at = (offset as usize).min(frames);
+            if id == GAIN_RAMP || id == PAN_RAMP {
+                self.ramp_value(id, value);
+                while let Some(&(o, next, v)) = events.peek() {
+                    if (next != GAIN_RAMP && next != PAN_RAMP) || (o as usize).min(frames) != at {
+                        break;
+                    }
+                    self.ramp_value(next, v);
+                    events.next();
+                }
+                let (l, r) = mix_levels(self.gain, self.pan, true);
+                let n = at.saturating_sub(pos) as u32;
+                self.left.set(l, n);
+                self.right.set(r, n);
+            }
             if at > pos {
                 self.run(pos, at, &mut piece);
                 pos = at;
             }
-            self.param(id, value, fade);
+            if id != GAIN_RAMP && id != PAN_RAMP {
+                self.param(id, value, fade);
+            }
         }
         if frames > pos {
             self.run(pos, frames, &mut piece);
+        }
+    }
+
+    /// Takes the value of a ramp end.
+    fn ramp_value(&mut self, id: ParamId, value: f32) {
+        if id == GAIN_RAMP {
+            self.gain = value;
+        } else {
+            self.pan = value;
         }
     }
 
@@ -304,6 +386,8 @@ impl Mixer {
         self.gate.advance(n);
         self.left.advance(n);
         self.right.advance(n);
+        self.glide_gain = self.glide_gain.saturating_sub(n);
+        self.glide_pan = self.glide_pan.saturating_sub(n);
     }
 
     /// Mixes a track's sub-block: adds `left` and `right` times the levels to `out_left`

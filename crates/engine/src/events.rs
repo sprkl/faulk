@@ -26,9 +26,10 @@
 //! the audio side with a [`Cursor`]. The cursor reads any tick-sorted run of [`Events`]:
 //! a schedule's table, or the notes of a clip, which the clip player (CL-2,
 //! [`crate::clip_player`]) keeps in a more compact table of their own, and the placements
-//! of the arrangement ([`crate::arrangement`], AR-2) read. The automation (AM-2) will fill
-//! the track's schedule; until it lands, nothing in the production path does (no message
-//! carries one), and the tests set it through `Engine::state_mut`.
+//! of the arrangement ([`crate::arrangement`], AR-2) read. The automation does not fill it:
+//! the engine reads its lanes directly ([`crate::automation`], AM-2), so nothing in the
+//! production path fills a schedule (no message carries one); the tests set it through
+//! `Engine::state_mut`.
 //!
 //! [`Schedule::read`] delivers the events of a segment's ticks `[from, to)`: each at
 //! [`Segment::offset_of`] its tick (the floor of its fractional sample, TR-1's rule),
@@ -685,6 +686,10 @@ pub struct Sink {
     notes_len: usize,
     params: Box<[(DeviceSlot, Event)]>,
     params_len: usize,
+    /// Room kept for the automation's values ([`Sink::push_lane_param`], AM-2), on top of
+    /// the room of the readers ([`Sink::param_room`]), and how much of it is used.
+    lane_room: usize,
+    lane_used: usize,
 }
 
 fn filled<T: Copy>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
@@ -702,6 +707,18 @@ impl Sink {
         Self::try_with_capacity(NOTE_ROOM, PARAM_CHUNK)
     }
 
+    /// A sink of `notes` note events and `params` parameter values, and room for
+    /// `lane_room` more values of the automation ([`Sink::push_lane_param`]).
+    pub fn try_with_lane_room(
+        notes: usize,
+        params: usize,
+        lane_room: usize,
+    ) -> Result<Self, MsgError> {
+        let mut sink = Self::try_with_capacity(notes, params.saturating_add(lane_room))?;
+        sink.lane_room = lane_room;
+        Ok(sink)
+    }
+
     /// A sink of `notes` note events and `params` parameter values.
     pub fn try_with_capacity(notes: usize, params: usize) -> Result<Self, MsgError> {
         let none = Event::AllNotesOff { offset: 0 };
@@ -710,6 +727,8 @@ impl Sink {
             notes_len: 0,
             params: filled(params, (DeviceSlot(0), none))?,
             params_len: 0,
+            lane_room: 0,
+            lane_used: 0,
         })
     }
 
@@ -717,6 +736,7 @@ impl Sink {
     pub fn clear(&mut self) {
         self.notes_len = 0;
         self.params_len = 0;
+        self.lane_used = 0;
     }
 
     /// Note events that still fit.
@@ -724,9 +744,10 @@ impl Sink {
         self.notes.len() - self.notes_len
     }
 
-    /// Parameter values that still fit.
+    /// Parameter values that still fit, the automation's room aside.
     pub fn param_room(&self) -> usize {
-        self.params.len() - self.params_len
+        let readers = self.params.len().saturating_sub(self.lane_room);
+        readers.saturating_sub(self.params_len - self.lane_used)
     }
 
     /// Appends a note event (`false` when full). An offset earlier than the last one's is
@@ -751,9 +772,24 @@ impl Sink {
     /// Appends a parameter value for `device` (`false` when full); kept sorted like the
     /// notes.
     pub fn push_param(&mut self, device: DeviceSlot, event: Event) -> bool {
-        if self.params_len >= self.params.len() {
+        if self.param_room() == 0 {
             return false;
         }
+        self.put_param(device, event);
+        true
+    }
+
+    /// [`Sink::push_param`] into the automation's room (`false` when it is used up).
+    pub fn push_lane_param(&mut self, device: DeviceSlot, event: Event) -> bool {
+        if self.lane_used >= self.lane_room || self.params_len >= self.params.len() {
+            return false;
+        }
+        self.lane_used += 1;
+        self.put_param(device, event);
+        true
+    }
+
+    fn put_param(&mut self, device: DeviceSlot, event: Event) {
         let last = match self.params_len {
             0 => 0,
             n => self.params[n - 1].1.offset(),
@@ -765,7 +801,6 @@ impl Sink {
         };
         self.params[self.params_len] = (device, event);
         self.params_len += 1;
-        true
     }
 
     /// The note events, sorted by offset, in the order they were pushed.
