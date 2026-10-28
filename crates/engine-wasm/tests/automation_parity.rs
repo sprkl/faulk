@@ -113,3 +113,33 @@ fn automation_renders_the_same_natively_and_in_wasm() {
     );
     r.assert_audible(0.2..3.0, 0.01);
 }
+
+/// A two-bar fade from 0 dB to -96 dB (#389) is the same natively and in WASM, and it goes
+/// down along the fader's travel: at the bar line the position is half way, 0.39, which the
+/// taper makes -21 dB (the amplitude law would give -6 dB there, the dB law -48 dB).
+#[test]
+fn a_volume_fade_follows_the_fader_law_in_both_targets() {
+    let mut s = Session::single_synth();
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        vec![
+            point(0, 0.0, Shape::Linear),
+            point(7680, -96.0, Shape::Linear),
+        ],
+    );
+    s.note_on(57, 110).render_secs(0.3);
+    s.run(Command::Transport(transport::Command::Play {}))
+        .render_secs(4.2);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    let start = r.rms_in(0.3..0.32);
+    let middle = r.rms_in(2.29..2.31);
+    let db = 20.0 * (middle / start).log10();
+    // 0.39 of the travel is -21 dB; the start window sits 0.2 dB below unity.
+    assert!((db + 20.8).abs() < 1.0, "{db} dB at the bar line");
+    // The end of the fade is silence.
+    assert!(r.rms_in(4.4..4.5) < 1e-6);
+}

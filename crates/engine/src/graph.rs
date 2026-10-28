@@ -899,7 +899,7 @@ fn render_track(
             // next sub-block.
             if end > start {
                 if let Some(l) = lanes.as_mut() {
-                    l.push_end(&segment, start, end, sink);
+                    l.push_end(&segment, clock.frame, start, end, sink);
                 }
                 chain(sink, start, end, position);
                 sink.clear();

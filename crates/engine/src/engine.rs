@@ -150,7 +150,7 @@ pub struct Clip {
 }
 
 /// An automation lane: what it drives and its points (a content snapshot), sorted by tick,
-/// one per tick, finite, a gain lane's in linear gain (the Preparer's work); and the audio
+/// one per tick, finite (the Preparer's work); a gain lane's values are in dB; and the audio
 /// side's state of its reading ([`crate::automation`], AM-2).
 #[derive(Debug)]
 pub struct Lane {
@@ -351,18 +351,14 @@ impl<T> Paged<T> {
 
 /// Makes a lane's points what the audio side reads (AM-2, [`crate::automation`]): finite
 /// values only, sorted by tick, one point per tick (the compiler sends them so; otherwise
-/// which of equal ticks stays is the unstable sort's choice, the same in every build), a
-/// gain lane's dB turned into a linear gain. In place, no allocation, off the audio path.
-fn sanitize_points(points: &mut Vec<AutomationPoint>, target: AutomationTarget) {
+/// which of equal ticks stays is the unstable sort's choice, the same in every build). A gain
+/// lane keeps its dB: the audio side reads them along the fader's travel, which clamps
+/// them to its range ([`crate::fader`]). In place, no allocation, off the audio path.
+fn sanitize_points(points: &mut Vec<AutomationPoint>) {
     points.retain(|p| p.value.is_finite());
     if !points.is_sorted_by(|a, b| a.tick < b.tick) {
         points.sort_unstable_by_key(|p| p.tick);
         points.dedup_by_key(|p| p.tick);
-    }
-    if target == AutomationTarget::MixerGain {
-        for p in points.iter_mut() {
-            p.value = 10f64.powf(f64::from(p.value) / 20.0) as f32;
-        }
     }
 }
 
@@ -1200,7 +1196,7 @@ impl Preparer {
                 let Some(mut points) = staged else {
                     return Ok(None);
                 };
-                sanitize_points(&mut points, target);
+                sanitize_points(&mut points);
                 value.points = Table::from_vec(points);
                 self.shadow.lanes.commit(lane.0, &growth);
                 RtMsg::LanePut(PagedPut {

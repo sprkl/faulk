@@ -136,6 +136,10 @@ pub fn schema_bundle() -> serde_json::Value {
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "param_defaults": param_defaults,
+        // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
+        // The page's fader, the axis of a volume lane and the engine's reading of a lane all
+        // follow it; the page builds its own from this table.
+        "fader_taper": engine::fader::TAPER,
         "single_synth": {
             "track": single_synth::TRACK,
             "device": single_synth::DEVICE,

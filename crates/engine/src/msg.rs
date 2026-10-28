@@ -389,7 +389,7 @@ pub enum Curve {
 pub struct AutomationPoint {
     pub tick: Tick,
     /// In the target's unit: the parameter's value, the pan (-1 to 1), or the gain in dB
-    /// (the Preparer turns it into a linear gain, `crate::automation`).
+    /// (a straight line between two points follows the fader's travel, `crate::fader`).
     pub value: f32,
     pub curve: Curve,
 }

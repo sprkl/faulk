@@ -3,6 +3,8 @@
 export const PROTOCOL_VERSION = 9 as const
 export const PARAM_IDS = {"attack":1,"decay":2,"gain":5,"release":4,"sustain":3,"waveform":0} as const
 export const PARAM_DEFAULTS = {"attack":0.005,"decay":0.2,"gain":0.8,"release":0.3,"sustain":0.7,"waveform":1} as const
+/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */
+export const FADER_TAPER = [[0,-96],[0.08,-60],[0.28,-30],[0.5,-12],[0.78,0],[1,6]] as const
 /** A parameter id of the built-in synth, as `device.set_param` takes it. */
 export type SynthParam = keyof typeof PARAM_IDS
 /** The ids of the one synth until the project runs in the page (PR-4, PR-5), and its device kind. */

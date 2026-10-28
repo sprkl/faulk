@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_GAIN_DB, MIN_GAIN_DB } from './tracks'
-import { FADER_MARKS, gainAt, positionOf, UNITY_POSITION } from './fader'
+import { FADER_TAPER } from '../generated/protocol'
+import { exactDbAt, FADER_MARKS, gainAt, positionOf, UNITY_POSITION } from './fader'
 
 describe('the fader taper', () => {
   it('puts silence at the bottom and +6 dB at the top', () => {
@@ -54,5 +55,31 @@ describe('the fader taper', () => {
     expect(positionOf(Infinity)).toBe(0)
     expect(positionOf(100)).toBe(1)
     expect(positionOf(undefined)).toBe(0)
+  })
+})
+
+describe('the law shared with the engine (#389)', () => {
+  it('is the table of `engine::fader`, as the schema carries it', () => {
+    // Pinned here and in `engine/src/fader.rs`: a change of one without the other fails a test.
+    expect(FADER_TAPER).toEqual([
+      [0, -96],
+      [0.08, -60],
+      [0.28, -30],
+      [0.5, -12],
+      [0.78, 0],
+      [1, 6],
+    ])
+    expect(FADER_TAPER[0][1]).toBe(MIN_GAIN_DB)
+    expect(FADER_TAPER[FADER_TAPER.length - 1][1]).toBe(MAX_GAIN_DB)
+    expect(UNITY_POSITION).toBe(0.78)
+  })
+
+  it('reads positions and gains unrounded, clamped to the table', () => {
+    expect(exactDbAt(0.39)).toBeCloseTo(-21, 9)
+    expect(exactDbAt(0.5)).toBe(-12)
+    expect(exactDbAt(0)).toBe(MIN_GAIN_DB)
+    expect(exactDbAt(NaN)).toBe(MIN_GAIN_DB)
+    expect(exactDbAt(2)).toBe(MAX_GAIN_DB)
+    for (const db of [-96, -75, -60, -45, -30, -20, -12, -6, 0, 3, 6]) expect(exactDbAt(positionOf(db))).toBeCloseTo(db, 9)
   })
 })

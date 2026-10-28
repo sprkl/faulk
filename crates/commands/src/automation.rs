@@ -11,10 +11,14 @@
 //!   of the master's chain are not automatable yet (a lane lives in a track).
 //! - A lane holds at most one point per tick: `{tick, value, shape}`. `shape` is the
 //!   transition from the point to the next one, `linear` (default) or `step`. A tick lies in
-//!   `[0, 2^40]`.
+//!   `[0, 2^40]`. A linear segment of a **volume** lane goes in a straight line along the
+//!   travel of the mixer's fader (#389, `engine::fader`: the same law as the fader and as the
+//!   lane's axis), so a drawn line is the fade that is heard; a pan lane and a device
+//!   parameter go in a straight line in their own unit.
 //! - A value is in the parameter's unit and is rounded to its declared step: a device
 //!   parameter is clamped to its range and rounded to its step (as `device.set_param`
-//!   does); a gain point is in dB, -96 to +6 (no silence), rounded to 0.01 dB; a pan point is
+//!   does); a gain point is in dB, -96 to +6, rounded to 0.01 dB (-96 is the lane's silence:
+//!   the engine plays it as a gain of 0); a pan point is
 //!   -1 to 1, rounded to 0.01. A gain or pan outside its range is refused.
 //! - A batch is one history entry and is all or nothing: one point refused, nothing changes.
 //!   A command that changes nothing returns no inverse and no event.
@@ -55,7 +59,12 @@ pub struct Point {
     pub tick: Tick,
     /// The value, in the parameter's unit; rounded to its step.
     pub value: f64,
-    /// The transition from this point to the next: `linear` (default) or `step`.
+    /// The transition from this point to the next: `linear` (default) or `step`. `linear`
+    /// is a straight line in the parameter's unit, except for a volume (`gain`) lane, where
+    /// it is a straight line along the travel of the mixer's fader, the same law as the
+    /// lane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the
+    /// top): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and
+    /// half way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.
     #[serde(default = "linear")]
     pub shape: Shape,
 }
@@ -101,7 +110,9 @@ domain! {
     /// Add points to a lane, in one batch (one history entry, all or nothing). Each point
     /// is `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded
     /// to its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or
-    /// a pan outside -1..1 is refused), `shape` `linear` (default) or `step`. A lane has at
+    /// a pan outside -1..1 is refused), `shape` `linear` (default) or `step`; a linear segment
+    /// of a volume lane is a straight line along the fader's travel (not in amplitude nor in
+    /// dB), of any other lane a straight line in its unit. A lane has at
     /// most one point per tick: a tick that already holds a different point, or that appears
     /// twice in the batch, is refused (use `automation.points.update` to change a point); a
     /// point equal to the one already there changes nothing. Refused with `limit` past the

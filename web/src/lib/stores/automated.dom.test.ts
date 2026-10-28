@@ -61,7 +61,7 @@ describe('the value of a lane at the play position', () => {
     expect(s.automated.device(s.synth, 'attack')).toBeUndefined()
   })
 
-  it('reads a volume lane by amplitude and gives it by track', () => {
+  it('reads a volume lane along the fader travel and gives it by track', () => {
     const s = session()
     s.run(createLane(s.track, { mixer: { param: 'gain' } }))
     s.run(
@@ -71,7 +71,7 @@ describe('the value of a lane at the play position', () => {
       ]),
     )
     s.play(500)
-    expect(s.automated.mixer(s.track, 'gain')).toBeCloseTo(-6.02, 1)
+    expect(s.automated.mixer(s.track, 'gain')).toBeCloseTo(-21, 6)
     expect(s.automated.mixer(s.track, 'pan')).toBeUndefined()
     expect(s.automated.mixer('someone-else', 'gain')).toBeUndefined()
   })
