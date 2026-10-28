@@ -13,7 +13,7 @@
 
   let { entry, chain }: { entry: ChainEntry; chain: readonly ChainEntry[] } = $props()
 
-  const { ui, dispatcher } = useStores()
+  const { ui, dispatcher, automated } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -84,7 +84,7 @@
         <ParamControl
           device={descriptor}
           {param}
-          value={entry.device.params[param.key] ?? param.default}
+          value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
           onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
           onbegin={gesture.begin}
           onend={gesture.end}

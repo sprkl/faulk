@@ -8,9 +8,11 @@ import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
 import { BLOCK_INSET, LANE_HEIGHT, laneTop, type Block } from './arrangement'
+import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
-  rows: number
+  /** The rows of the tracks and of their lanes. */
+  layout: Layout
   scrollY: number
   blocks: readonly Block[]
   /** The ids of the blocks a gesture is previewing elsewhere: not drawn at their place. */
@@ -55,8 +57,8 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
   ctx.strokeStyle = colors.line
   ctx.lineWidth = 1
   ctx.beginPath()
-  for (let row = 0; row <= scene.rows; row++) {
-    const y = crisp(laneTop(row, scene.scrollY))
+  for (const row of scene.layout.rows) {
+    const y = crisp(RULER_HEIGHT + row.top + row.height - scene.scrollY)
     if (y < RULER_HEIGHT || y > height) continue
     ctx.moveTo(0, y)
     ctx.lineTo(width, y)
@@ -79,7 +81,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     const x0 = tickToX(block.start, view)
     const x1 = tickToX(block.end, view)
     if (x1 < 0 || x0 > width) return
-    const y = laneTop(block.row, scene.scrollY) + BLOCK_INSET
+    const y = laneTop(scene.layout, block.row, scene.scrollY) + BLOCK_INSET
     const h = LANE_HEIGHT - 2 * BLOCK_INSET
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)

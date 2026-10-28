@@ -34,7 +34,10 @@ fn swapping_the_instrument_changes_what_a_note_plays_and_undo_gives_the_synth_ba
         track: f.track.clone(),
         instrument: "faulk.drums".into(),
     }));
-    let Output::Track(track::Output::SetInstrument { device, previous }) = out else {
+    let Output::Track(track::Output::SetInstrument {
+        device, previous, ..
+    }) = out
+    else {
         panic!("{out:?}")
     };
     assert_eq!(previous, f.device);

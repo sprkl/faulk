@@ -134,31 +134,41 @@ domain! {
     /// device starts at its default settings under a new identifier and takes the old
     /// one's place first in the chain; the effects stay. The old instrument's settings are
     /// lost unless undone. Choosing the instrument the track already plays changes
-    /// nothing. Refused on an audio track (it plays the clip player), for a type that is
-    /// not an instrument, and when an automation lane targets the old instrument. Undo:
-    /// `track.restore_instrument` brings the old instrument back with its identifier and
-    /// settings.
+    /// nothing. The automation lanes that target the old instrument go with it (lead's
+    /// decision on #380; the output counts them in `removed_lanes`, so that the interface
+    /// can say so) and come back with it on undo, in the same history entry. Refused on an
+    /// audio track (it plays the clip player) and for a type that is not an instrument.
+    /// Undo: `track.restore_instrument` brings the old instrument back with its
+    /// identifier, settings and lanes.
     "track.set_instrument" (kind = "edit", undo = "inverse", destructive = false)
     SetInstrument { track: TrackId, instrument: String } => {
         /// The track's instrument after the command.
         device: DeviceId,
         /// Its instrument before the command.
         previous: DeviceId,
+        /// How many automation lanes of the old instrument were removed with it.
+        removed_lanes: u32,
     };
 
     /// Swap a track's instrument for a device taken out earlier: the inverse of
     /// `track.set_instrument`. `current` is the instrument in the track now, replaced by
     /// `snapshot` under the identifier `device`. Refused when `device` is already in use,
-    /// when `current` is not the track's instrument, when an automation lane targets it,
-    /// or when the snapshot is not an instrument that fits the track (a built-in device
-    /// must be one of the registry; a module device is taken as it is). Undo: the same
-    /// swap the other way.
+    /// when `current` is not the track's instrument, or when the snapshot is not an
+    /// instrument that fits the track (a built-in device must be one of the registry; a
+    /// module device is taken as it is). The lanes that target `current` are removed with
+    /// it; `lanes` (absent: none) are the lanes that targeted the instrument put back, as
+    /// `track.set_instrument` took them out: each must target the restored instrument and
+    /// a parameter it has, under an identifier not in use. Undo: the same swap the other
+    /// way, which takes `lanes` out again and brings the lanes of `current` back.
     "track.restore_instrument" (kind = "edit", undo = "inverse", destructive = false)
     RestoreInstrument {
         track: TrackId,
         current: DeviceId,
         device: DeviceId,
         snapshot: Device,
+        /// The automation lanes of the instrument put back, by identifier.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        lanes: BTreeMap<LaneId, AutomationLane>,
     } => {};
 
     /// Arm or disarm a track: live input (`live.input_note_on`, the keyboard and MIDI
@@ -232,7 +242,8 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             current,
             device,
             snapshot,
-        } => restore_instrument(state, track, current, device, snapshot),
+            lanes,
+        } => restore_instrument(state, track, current, device, snapshot, lanes),
         Command::Duplicate { track, name } => duplicate(state, ctx, track, name.as_deref()),
         Command::Arm { track, armed } => {
             let previous = set_flag(state, track, *armed, |s| &mut s.armed)?;
@@ -547,33 +558,59 @@ fn set_instrument(
         return Ok(unchanged(Output::SetInstrument {
             device: old_id.clone(),
             previous: old_id,
+            removed_lanes: 0,
         }));
-    }
-    if crate::device::has_lane(track, &old_id) {
-        return Err(invalid(
-            "track",
-            "an automation lane targets the instrument: remove the lane first",
-        ));
     }
     // The new instrument takes the old one's place, first in the chain.
     device.order = old.order.clone();
     let new_id = DeviceId::generate(&mut ctx.ids);
     track.devices.remove(&old_id);
     track.devices.insert(new_id.clone(), device);
+    // The lanes of the old instrument go with it, and come back with it on undo.
+    let lanes = take_lanes(track, &old_id);
+    let mut events = lane_deletions(track_id, &lanes);
+    events.extend(chain_changed(track_id));
     Ok(Outcome {
         output: Output::SetInstrument {
             device: new_id.clone(),
             previous: old_id.clone(),
+            removed_lanes: u32::try_from(lanes.len()).unwrap_or(u32::MAX),
         },
         undo: Undo::Inverse(Box::new(Command::RestoreInstrument {
             track: track_id.clone(),
             current: new_id,
             device: old_id,
             snapshot: old,
+            lanes,
         })),
-        events: chain_changed(track_id),
+        events,
         control: vec![],
     })
+}
+
+/// Takes the automation lanes that target `device` out of the track.
+fn take_lanes(track: &mut Track, device: &DeviceId) -> BTreeMap<LaneId, AutomationLane> {
+    let ids: Vec<LaneId> = track
+        .automation
+        .iter()
+        .filter(|(_, lane)| {
+            matches!(&lane.target, AutomationTarget::Device { device: d, .. } if d == device)
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    ids.into_iter()
+        .filter_map(|id| track.automation.remove(&id).map(|lane| (id, lane)))
+        .collect()
+}
+
+fn lane_deletions(track: &TrackId, lanes: &BTreeMap<LaneId, AutomationLane>) -> Vec<ProjectEvent> {
+    lanes
+        .keys()
+        .map(|lane| ProjectEvent::AutomationLaneDeleted {
+            track: track.clone(),
+            lane: lane.clone(),
+        })
+        .collect()
 }
 
 fn restore_instrument(
@@ -582,6 +619,7 @@ fn restore_instrument(
     current: &DeviceId,
     device_id: &DeviceId,
     snapshot: &Device,
+    lanes: &BTreeMap<LaneId, AutomationLane>,
 ) -> Result<Out, CommandError> {
     if snapshot.role != DeviceRole::Instrument {
         return Err(invalid("snapshot", "only an instrument is swapped in"));
@@ -600,27 +638,56 @@ fn restore_instrument(
         .filter(|d| d.role == DeviceRole::Instrument)
         .cloned()
         .ok_or_else(|| invalid("current", "that device is not the track's instrument"))?;
-    if crate::device::has_lane(track, current) {
-        return Err(invalid(
-            "current",
-            "an automation lane targets the instrument: remove the lane first",
-        ));
-    }
+    // The lanes of the instrument that leaves go with it. What follows can refuse: the
+    // track is kept as it was, to be put back.
+    let kept = track.automation.clone();
+    let taken = take_lanes(track, current);
     track.devices.remove(current);
     track.devices.insert(device_id.clone(), snapshot.clone());
+    let put_back = |state: &mut State| {
+        if let Some(track) = state.project.tracks.get_mut(track_id) {
+            track.devices.remove(device_id);
+            track.devices.insert(current.clone(), out.clone());
+            track.automation = kept.clone();
+        }
+    };
+    // The lanes are checked after the instrument left, so that their identifiers can be
+    // the ones just taken (a swap and its undo).
+    if let Err(error) = crate::device::check_lanes(
+        state,
+        &crate::device::Place::Track(track_id.clone()),
+        device_id,
+        snapshot,
+        lanes,
+    ) {
+        put_back(state);
+        return Err(error);
+    }
+    if let Some(track) = state.project.tracks.get_mut(track_id) {
+        track
+            .automation
+            .extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
+    }
     // The snapshot is data from outside: the whole project must stay valid with it (the
     // instrument first, the clip player only on an audio track). A refusal puts the
     // chain back, so the state is untouched.
     if let Err(violations) = state.project.validate() {
-        if let Some(track) = state.project.tracks.get_mut(track_id) {
-            track.devices.remove(device_id);
-            track.devices.insert(current.clone(), out);
-        }
+        put_back(state);
         let first = violations
             .first()
             .map_or_else(String::new, ToString::to_string);
         return Err(invalid("snapshot", first));
     }
+    let mut events = lane_deletions(track_id, &taken);
+    events.extend(
+        lanes
+            .keys()
+            .map(|lane| ProjectEvent::AutomationLaneCreated {
+                track: track_id.clone(),
+                lane: lane.clone(),
+            }),
+    );
+    events.extend(chain_changed(track_id));
     Ok(Outcome {
         output: Output::RestoreInstrument {},
         undo: Undo::Inverse(Box::new(Command::RestoreInstrument {
@@ -628,8 +695,9 @@ fn restore_instrument(
             current: device_id.clone(),
             device: current.clone(),
             snapshot: out,
+            lanes: taken,
         })),
-        events: chain_changed(track_id),
+        events,
         control: vec![],
     })
 }

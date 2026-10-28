@@ -318,7 +318,10 @@ fn with_lane(state: &mut State, track: &TrackId, device: &DeviceId) {
         .unwrap()
         .automation
         .insert(
-            LaneId::generate(&mut ::project::IdGenerator::new(1_680_000_000_000, 7)),
+            LaneId::generate(&mut ::project::IdGenerator::new(
+                1_680_000_000_000 + NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                7,
+            )),
             AutomationLane {
                 target: AutomationTarget::Device {
                     device: device.clone(),
@@ -647,7 +650,9 @@ fn set_instrument_replaces_the_instrument_in_its_place_and_undoes_exactly() {
     go(&mut s, &param(&c.synth, "attack", 0.5));
     let before = s.clone();
     let out = go(&mut s, &set_instrument(&c.track, "faulk.drums"));
-    let Output::Track(track::Output::SetInstrument { device, previous }) = out.output.clone()
+    let Output::Track(track::Output::SetInstrument {
+        device, previous, ..
+    }) = out.output.clone()
     else {
         panic!()
     };
@@ -697,6 +702,113 @@ fn set_instrument_replaces_the_instrument_in_its_place_and_undoes_exactly() {
 }
 
 #[test]
+fn set_instrument_takes_the_lanes_of_the_old_instrument_and_undo_brings_them_back() {
+    let c = chain();
+    let mut s = c.state.clone();
+    with_lane(&mut s, &c.track, &c.synth);
+    with_lane(&mut s, &c.track, &c.a);
+    // The lane of an effect stays; only the instrument's goes.
+    let before = s.clone();
+    let lane_ids: Vec<LaneId> = s.project.tracks[&c.track]
+        .automation
+        .keys()
+        .cloned()
+        .collect();
+    let mut h = s.clone();
+    let out = run(
+        &set_instrument(&c.track, "faulk.drums"),
+        &mut h,
+        &mut context(),
+    )
+    .unwrap();
+    let Output::Track(track::Output::SetInstrument { removed_lanes, .. }) = out.output.clone()
+    else {
+        panic!()
+    };
+    assert_eq!(removed_lanes, 1);
+    h.project.validate().unwrap();
+    assert_eq!(h.project.tracks[&c.track].automation.len(), 1);
+    assert!(
+        events(&out)
+            .iter()
+            .any(|e| matches!(e, ProjectEvent::AutomationLaneDeleted { .. }))
+    );
+    // One history entry: undo gives the lane back with its identifier, redo takes it again.
+    let swapped = h.clone();
+    let undone = run(&undo(), &mut h, &mut context()).unwrap();
+    assert_eq!(h.project, before.project);
+    assert!(events(&undone).iter().any(
+        |e| matches!(e, ProjectEvent::AutomationLaneCreated { lane, .. } if lane_ids.contains(lane))
+    ));
+    run(&redo(), &mut h, &mut context()).unwrap();
+    assert_eq!(h.project, swapped.project);
+    run(&undo(), &mut h, &mut context()).unwrap();
+    assert_eq!(h.project, before.project);
+}
+
+#[test]
+fn restore_instrument_refuses_lanes_that_do_not_fit_and_leaves_the_state_alone() {
+    let c = chain();
+    let mut s = c.state.clone();
+    with_lane(&mut s, &c.track, &c.synth);
+    let Undo::Inverse(inverse) = go(&mut s, &set_instrument(&c.track, "faulk.drums")).undo else {
+        panic!()
+    };
+    let Command::Track(track::Command::RestoreInstrument {
+        track,
+        current,
+        device,
+        snapshot,
+        lanes,
+    }) = *inverse
+    else {
+        panic!()
+    };
+    assert_eq!(lanes.len(), 1);
+    let swap = |lanes: BTreeMap<LaneId, AutomationLane>| {
+        t(track::Command::RestoreInstrument {
+            track: track.clone(),
+            current: current.clone(),
+            device: device.clone(),
+            snapshot: snapshot.clone(),
+            lanes,
+        })
+    };
+    check(&swap(lanes.clone()), &s, &context()).unwrap();
+    // A lane that targets another device, or a parameter the instrument does not have.
+    let (id, lane) = lanes
+        .iter()
+        .next()
+        .map(|(i, l)| (i.clone(), l.clone()))
+        .unwrap();
+    let mut elsewhere = lane.clone();
+    elsewhere.target = AutomationTarget::Device {
+        device: c.a.clone(),
+        param: "gain".into(),
+    };
+    assert_eq!(
+        code(&swap(BTreeMap::from([(id.clone(), elsewhere)])), &s),
+        "invalid"
+    );
+    let mut unknown = lane.clone();
+    unknown.target = AutomationTarget::Device {
+        device: device.clone(),
+        param: "nothing".into(),
+    };
+    assert_eq!(
+        code(&swap(BTreeMap::from([(id.clone(), unknown)])), &s),
+        "invalid"
+    );
+    // A lane identifier that is in use (the track's own device).
+    let used = LaneId::parse(&c.a.to_string()).unwrap();
+    assert_eq!(code(&swap(BTreeMap::from([(used, lane)])), &s), "invalid");
+    // A refusal leaves the project untouched.
+    let before = s.clone();
+    let _ = check(&swap(BTreeMap::new()), &s, &context());
+    assert_eq!(s, before);
+}
+
+#[test]
 fn set_instrument_to_the_same_instrument_changes_nothing() {
     let c = chain();
     let mut s = c.state.clone();
@@ -705,7 +817,8 @@ fn set_instrument_to_the_same_instrument_changes_nothing() {
         out.output,
         Output::Track(track::Output::SetInstrument {
             device: c.synth.clone(),
-            previous: c.synth.clone()
+            previous: c.synth.clone(),
+            removed_lanes: 0
         })
     );
     assert_eq!((events(&out).len(), out.undo), (0, Undo::None));
@@ -713,7 +826,7 @@ fn set_instrument_to_the_same_instrument_changes_nothing() {
 }
 
 #[test]
-fn set_instrument_refuses_an_audio_track_a_non_instrument_and_a_targeted_instrument() {
+fn set_instrument_refuses_an_audio_track_and_a_non_instrument() {
     let c = chain();
     assert_eq!(
         code(&set_instrument(&c.audio_track, "faulk.drums"), &c.state),
@@ -729,10 +842,6 @@ fn set_instrument_refuses_an_audio_track_a_non_instrument_and_a_targeted_instrum
         code(&set_instrument(&missing, "faulk.drums"), &c.state),
         "not_found"
     );
-    let mut s = c.state.clone();
-    with_lane(&mut s, &c.track, &c.synth);
-    let e = refused(&set_instrument(&c.track, "faulk.drums"), &s);
-    assert!(e.to_string().contains("lane"), "{e}");
     // A MIDI track with no instrument has none to replace.
     let mut bare = c.state.clone();
     bare.project
@@ -770,6 +879,7 @@ fn restore_instrument_refuses_what_does_not_fit_and_leaves_the_state_alone() {
             current: current.clone(),
             device: id.clone(),
             snapshot,
+            lanes: Default::default(),
         })
     };
     check(
@@ -1131,6 +1241,19 @@ fn the_undo_of_set_instrument_swaps_the_instrument_in_the_engine() {
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
     let out = w.exec(&undo());
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
+}
+
+#[test]
+fn a_swap_that_takes_a_lane_and_its_undo_leave_the_engine_as_a_snapshot_would() {
+    let c = chain();
+    let mut state = c.state.clone();
+    with_lane(&mut state, &c.track, &c.synth);
+    let mut w = World::new(state);
+    // `exec` replays the messages and compares the engine with a fresh snapshot each time.
+    w.exec(&set_instrument(&c.track, "faulk.drums"));
+    w.exec(&undo());
+    w.exec(&redo());
+    w.exec(&undo());
 }
 
 // ---------------------------------------------------------------- the master's chain (#364)

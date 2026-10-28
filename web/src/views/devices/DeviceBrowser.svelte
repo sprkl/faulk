@@ -27,12 +27,26 @@
     descriptors?: readonly DeviceDescriptor[]
   } = $props()
 
-  const { ui, dispatcher } = useStores()
+  const { project, ui, dispatcher } = useStores()
   const t = ui.t
 
   const instruments = $derived(instrumentDescriptors(descriptors))
   const effects = $derived(effectDescriptors(descriptors))
   const current = $derived(chain.find((e) => e.effectIndex === null)?.kind ?? null)
+
+  // A new instrument takes the automation lanes of the old one with it (`track.set_instrument`; undo brings them back): the warning is
+  // shown before the swap, and the count of what it took after it. Both come from the project at the moment of the click.
+  const instrumentId = $derived(chain.find((e) => e.effectIndex === null)?.id ?? null)
+  const lanesOnInstrument = $derived.by(() => {
+    const lanes = project.tracks.find((e) => e.id === track)?.track.automation ?? {}
+    return Object.values(lanes).filter((lane) => lane && 'device' in lane.target && lane.target.device.device === instrumentId).length
+  })
+  let removed = $state({ track: '', n: 0 })
+  function pick(kind: string) {
+    const n = kind === current ? 0 : lanesOnInstrument
+    dispatcher.run(setInstrument(track, kind))
+    removed = { track, n }
+  }
 </script>
 
 <nav class="browser" aria-label={master ? t('devices.browserMaster') : t('devices.browser')} data-testid="device-browser">
@@ -53,13 +67,21 @@
             title={t('devices.use', { name: d.name })}
             data-testid="browse-instrument"
             data-kind={d.kind}
-            onclick={() => dispatcher.run(setInstrument(track, d.kind))}>{d.name}</button
+            onclick={() => pick(d.kind)}>{d.name}</button
           >
         </li>
       {/each}
     </ul>
   {:else}
     <p class="muted" data-testid="browse-audio">{t('devices.audioTrack')}</p>
+  {/if}
+  {#if !master && midi && lanesOnInstrument > 0}
+    <p class="warn" role="note" data-testid="instrument-lanes-warning">{t('automation.instrumentLanes', { n: lanesOnInstrument })}</p>
+  {:else if !master && midi && removed.track === track && removed.n > 0}
+    <p class="warn" role="status" data-testid="instrument-lanes-removed">
+      {t('automation.instrumentLanesRemoved', { n: removed.n })}
+      <button type="button" class="dismiss" onclick={() => (removed = { track: '', n: 0 })}>{t('automation.dismiss')}</button>
+    </p>
   {/if}
   <h3 class="label">{t('devices.effects')}</h3>
   {#if effects.length === 0}
@@ -124,5 +146,23 @@
   .muted {
     margin: 0;
     color: var(--fk-text-muted);
+  }
+  .warn {
+    margin: 0;
+    padding: var(--fk-space-2);
+    border: 1px solid var(--fk-accent-fg);
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-accent-tint);
+    font-size: 12px;
+  }
+  .dismiss {
+    display: block;
+    margin-top: var(--fk-space-1);
+    padding: 0 var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
   }
 </style>

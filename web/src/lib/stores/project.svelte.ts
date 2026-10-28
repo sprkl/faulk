@@ -13,6 +13,8 @@ export class ProjectStore {
   view = $state.raw<ProjectView | null>(null)
   canUndo = $state(false)
   canRedo = $state(false)
+  /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
+  watch: ((events: readonly ProjectEvent[]) => void) | null = null
 
   /** The synth's settings: the engine defaults overlaid with what the project holds for its device. */
   params = $derived.by<Record<SynthParam, number>>(() => {
@@ -72,6 +74,7 @@ export class ProjectStore {
    * most once, and only when an event changed something other than the history flags or came from a controller.
    */
   apply(events: ProjectEvent[], read: () => ProjectView) {
+    this.watch?.(events)
     let changed = false
     for (const event of events) {
       if (event.type === 'history_changed') {
