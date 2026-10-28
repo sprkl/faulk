@@ -5,6 +5,7 @@
  */
 
 import { arrangement } from './arrangement'
+import { automation } from './automation'
 import { audioExport } from './export'
 import { engine } from './engine'
 import type { FeatureMessages } from './feature'
@@ -53,6 +54,7 @@ export const features = {
   mixer,
   controls,
   arrangement,
+  automation,
   audioExport,
   refusal,
 } as const satisfies Record<string, FeatureMessages>

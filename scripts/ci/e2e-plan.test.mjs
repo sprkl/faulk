@@ -58,7 +58,7 @@ test('the smoke grep matches the printed title of its tests and not their neighb
 
 test('one change, one plan: whole specs, smoke of the others, shards', () => {
   const p = plan(['web/src/views/mixer/MixerFader.svelte'])
-  assert.deepEqual(p.specs, ['continuous', 'master-chain', 'mixer', 'mixer-sound'])
+  assert.deepEqual(p.specs, ['automation', 'continuous', 'master-chain', 'mixer', 'mixer-sound'])
   assert.deepEqual(p.smoke, ['export-audio', 'isolation', 'open-project', 'project-store', 'transport'])
   assert.equal(p.all, false)
   assert.equal(p.run, true)

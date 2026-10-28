@@ -381,13 +381,6 @@ pub(crate) fn built(builtin: &Builtin, role: DeviceRole, order: OrderKey) -> Dev
     }
 }
 
-/// Whether an automation lane of the track targets `device`.
-pub(crate) fn has_lane(track: &Track, device: &DeviceId) -> bool {
-    track.automation.values().any(
-        |lane| matches!(&lane.target, AutomationTarget::Device { device: d, .. } if d == device),
-    )
-}
-
 /// A device is one Faulk has: a built-in id of `registry` (or the clip player), with only
 /// parameters its descriptor declares. A restore from outside must not bring in what the
 /// registry cannot build.
@@ -636,7 +629,7 @@ fn restore(
 
 /// The lanes a restored device brings back: only in a track (the master has none), each
 /// targeting this device and a parameter it has, under a new identifier, within the safety limits of lanes.
-fn check_lanes(
+pub(crate) fn check_lanes(
     state: &State,
     place: &Place,
     device_id: &DeviceId,

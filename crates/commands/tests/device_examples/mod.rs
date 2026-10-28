@@ -10,8 +10,8 @@
 #![allow(dead_code)]
 
 use crate::clip_examples::{after, fx};
-use ::project::{DeviceId, IdGenerator, TrackId};
-use commands::{Author, Command, Context, State, device, track};
+use ::project::{AutomationTarget, DeviceId, IdGenerator, Shape, Tick, TrackId};
+use commands::{Author, Command, Context, State, automation, device, track};
 
 /// The test effect of the engine, as the commands name it.
 pub const EFFECT: &str = "faulk.test_gain";
@@ -154,6 +154,14 @@ pub fn examples() -> Vec<(Command, State)> {
             instrument: "faulk.drums".into(),
         }),
     );
+    let laned = with_instrument_lane(&c);
+    let swapped = after(
+        laned.clone(),
+        &t(track::Command::SetInstrument {
+            track: c.track.clone(),
+            instrument: "faulk.drums".into(),
+        }),
+    );
     let master_removed = after(
         c.state.clone(),
         &d(device::Command::Remove {
@@ -280,5 +288,57 @@ pub fn examples() -> Vec<(Command, State)> {
         })),
         // The inverse of `track.set_instrument`, from the state after it.
         (replaced.1, replaced.0),
+        // The same two from a state where a lane targets the instrument (AM-4): the swap takes the lane,
+        // its inverse carries it in `lanes` and gives it back.
+        (
+            t(track::Command::SetInstrument {
+                track: c.track.clone(),
+                instrument: "faulk.drums".into(),
+            }),
+            laned.clone(),
+        ),
+        (swapped.1, swapped.0),
     ]
+}
+
+/// A state where one lane, with two points, targets the track's instrument.
+fn with_instrument_lane(c: &Chain) -> State {
+    let create = Command::Automation(automation::Command::LaneCreate {
+        track: c.track.clone(),
+        target: AutomationTarget::Device {
+            device: c.synth.clone(),
+            param: "gain".into(),
+        },
+    });
+    // The lane's identifier comes from a generator of its own: it must meet neither the fixture's (`own_context`) nor the
+    // one the contract harness runs the swap with.
+    let mut state = c.state.clone();
+    let mut ctx = Context::new(
+        Author::User,
+        IdGenerator::new(1_671_000_000_000, 0x00DD_0000_0000_0000_0000),
+    );
+    commands::run(&create, &mut state, &mut ctx).unwrap();
+    let lane = state.project.tracks[&c.track]
+        .automation
+        .keys()
+        .next()
+        .cloned()
+        .expect("the lane was created");
+    let points = Command::Automation(automation::Command::PointsAdd {
+        lane,
+        points: vec![
+            automation::Point {
+                tick: Tick(0),
+                value: 0.2,
+                shape: Shape::Linear,
+            },
+            automation::Point {
+                tick: Tick(960),
+                value: 0.8,
+                shape: Shape::Step,
+            },
+        ],
+    });
+    state = after(state, &points).0;
+    state
 }

@@ -57,6 +57,9 @@ pub mod single_synth {
 /// A message from the page to the helper.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", deny_unknown_fields)]
+// A message is built, sent and dropped once per command, and its payload is the command itself: boxing it
+// would allocate on every message to save the room of the rare `pair`.
+#[allow(clippy::large_enum_variant)]
 pub enum ClientMessage {
     /// Pair with the helper using the one-time code it displays. Only on `/pair`.
     #[serde(rename = "pair")]

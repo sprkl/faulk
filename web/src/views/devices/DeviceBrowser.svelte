@@ -27,12 +27,23 @@
     descriptors?: readonly DeviceDescriptor[]
   } = $props()
 
-  const { ui, dispatcher } = useStores()
+  const { project, ui, dispatcher } = useStores()
   const t = ui.t
 
   const instruments = $derived(instrumentDescriptors(descriptors))
   const effects = $derived(effectDescriptors(descriptors))
   const current = $derived(chain.find((e) => e.effectIndex === null)?.kind ?? null)
+
+  // A new instrument takes the automation lanes of the old one with it (`track.set_instrument`; undo brings them back): the warning is
+  // shown before the swap, and what it took after it, whoever swapped (a click here, an agent, a redo): the project store notices it.
+  const instrumentId = $derived(chain.find((e) => e.effectIndex === null)?.id ?? null)
+  const lanesOnInstrument = $derived.by(() => {
+    const lanes = project.tracks.find((e) => e.id === track)?.track.automation ?? {}
+    return Object.values(lanes).filter((lane) => lane && 'device' in lane.target && lane.target.device.device === instrumentId).length
+  })
+  /** The note already read and dismissed (the store replaces its object at each swap). */
+  let dismissed = $state.raw<object | null>(null)
+  const taken = $derived(project.swapLanes?.track === track && project.swapLanes !== dismissed && lanesOnInstrument === 0 ? project.swapLanes : null)
 </script>
 
 <nav class="browser" aria-label={master ? t('devices.browserMaster') : t('devices.browser')} data-testid="device-browser">
@@ -60,6 +71,14 @@
     </ul>
   {:else}
     <p class="muted" data-testid="browse-audio">{t('devices.audioTrack')}</p>
+  {/if}
+  {#if !master && midi && lanesOnInstrument > 0}
+    <p class="warn" role="note" data-testid="instrument-lanes-warning">{t('automation.instrumentLanes', { n: lanesOnInstrument })}</p>
+  {:else if !master && midi && taken}
+    <p class="warn" role="status" data-testid="instrument-lanes-removed">
+      {t('automation.instrumentLanesRemoved', { n: taken.n })}
+      <button type="button" class="dismiss" onclick={() => (dismissed = taken)}>{t('automation.dismiss')}</button>
+    </p>
   {/if}
   <h3 class="label">{t('devices.effects')}</h3>
   {#if effects.length === 0}
@@ -124,5 +143,23 @@
   .muted {
     margin: 0;
     color: var(--fk-text-muted);
+  }
+  .warn {
+    margin: 0;
+    padding: var(--fk-space-2);
+    border: 1px solid var(--fk-accent-fg);
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-accent-tint);
+    font-size: 12px;
+  }
+  .dismiss {
+    display: block;
+    margin-top: var(--fk-space-1);
+    padding: 0 var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
   }
 </style>

@@ -139,6 +139,12 @@ current: string
  * Identifier of a device in a track's chain or in the master's.
  */
 device: string
+/**
+ * The automation lanes of the instrument put back, by identifier.
+ */
+lanes?: {
+[k: string]: AutomationLane | undefined
+}
 snapshot: Device
 /**
  * Identifier of a track.
@@ -1011,6 +1017,10 @@ device: string
  * Identifier of a device in a track's chain or in the master's.
  */
 previous: string
+/**
+ * How many automation lanes of the old instrument were removed with it.
+ */
+removed_lanes: number
 type: "track.set_instrument"
 } | {
 type: "track.restore_instrument"
@@ -1996,6 +2006,9 @@ placements: {
 }
 /**
  * A parameter's curve over time, in a track's arrangement.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
  * 
  * This interface was referenced by `undefined`'s JSON-Schema definition
  * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".

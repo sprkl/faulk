@@ -20,6 +20,15 @@ import {
   splittable,
   type Block,
 } from './arrangement'
+import { layoutOf } from './automation/layout'
+
+/** The layout of `n` tracks with no automation shown: one row of clips each. */
+const plain = (n: number) =>
+  layoutOf(
+    Array.from({ length: n }, (_, i) => ({ id: `t${i}` })),
+    new Set(),
+    () => [],
+  )
 
 const midi = (length = 3840, looping: { start: number; end: number } | null = null, name = ''): Clip =>
   ({ name, content: { midi: { length, notes: [], ...(looping ? { looping } : {}) } } }) as unknown as Clip
@@ -69,23 +78,23 @@ describe('blocks', () => {
 
 describe('lanes', () => {
   it('puts the first lane under the ruler and scrolls it away', () => {
-    expect(laneTop(0, 0)).toBe(RULER_HEIGHT)
-    expect(laneTop(2, 10)).toBe(RULER_HEIGHT + 2 * LANE_HEIGHT - 10)
+    expect(laneTop(plain(2), 0, 0)).toBe(RULER_HEIGHT)
+    expect(laneTop(plain(3), 2, 10)).toBe(RULER_HEIGHT + 2 * LANE_HEIGHT - 10)
   })
 
   it('finds the lane under a y, none on the ruler or past the last one', () => {
-    expect(rowAt(RULER_HEIGHT - 1, 0, 2)).toBeNull()
-    expect(rowAt(RULER_HEIGHT, 0, 2)).toBe(0)
-    expect(rowAt(RULER_HEIGHT + LANE_HEIGHT, 0, 2)).toBe(1)
-    expect(rowAt(RULER_HEIGHT + 2 * LANE_HEIGHT, 0, 2)).toBeNull()
-    expect(rowAt(RULER_HEIGHT + 5, LANE_HEIGHT, 2)).toBe(1)
+    expect(rowAt(plain(2), RULER_HEIGHT - 1, 0)).toBeNull()
+    expect(rowAt(plain(2), RULER_HEIGHT, 0)?.track).toBe(0)
+    expect(rowAt(plain(2), RULER_HEIGHT + LANE_HEIGHT, 0)?.track).toBe(1)
+    expect(rowAt(plain(2), RULER_HEIGHT + 2 * LANE_HEIGHT, 0)).toBeNull()
+    expect(rowAt(plain(2), RULER_HEIGHT + 5, LANE_HEIGHT)?.track).toBe(1)
   })
 
   it('keeps the scroll between the top and the end of the lanes, and survives a NaN', () => {
-    expect(clampScrollY(-5, 10, 300)).toBe(0)
-    expect(clampScrollY(9999, 10, 300)).toBe(10 * LANE_HEIGHT - (300 - RULER_HEIGHT))
-    expect(clampScrollY(50, 1, 300)).toBe(0)
-    expect(clampScrollY(Number.NaN, 10, 300)).toBe(0)
+    expect(clampScrollY(-5, 10 * LANE_HEIGHT, 300)).toBe(0)
+    expect(clampScrollY(9999, 10 * LANE_HEIGHT, 300)).toBe(10 * LANE_HEIGHT - (300 - RULER_HEIGHT))
+    expect(clampScrollY(50, LANE_HEIGHT, 300)).toBe(0)
+    expect(clampScrollY(Number.NaN, 10 * LANE_HEIGHT, 300)).toBe(0)
   })
 })
 
@@ -94,27 +103,27 @@ describe('hit test', () => {
   const y = RULER_HEIGHT + LANE_HEIGHT / 2
   it('tells the body from the two edges', () => {
     // p1 covers ticks 0..3840: x 0..384.
-    expect(hitBlock(blocks, 200, y, view, 0)).toMatchObject({ zone: 'body', block: { id: 'p1' } })
-    expect(hitBlock(blocks, 2, y, view, 0)?.zone).toBe('start')
-    expect(hitBlock(blocks, 383, y, view, 0)?.zone).toBe('end')
+    expect(hitBlock(blocks, plain(3), 200, y, view, 0)).toMatchObject({ zone: 'body', block: { id: 'p1' } })
+    expect(hitBlock(blocks, plain(3), 2, y, view, 0)?.zone).toBe('start')
+    expect(hitBlock(blocks, plain(3), 383, y, view, 0)?.zone).toBe('end')
   })
 
   it('finds a block in the second lane and nothing between blocks, on the ruler or in the inset', () => {
-    expect(hitBlock(blocks, 150, y + LANE_HEIGHT, view, 0)?.block.id).toBe('q1')
-    expect(hitBlock(blocks, 780, y, view, 0)).toBeNull()
-    expect(hitBlock(blocks, 200, RULER_HEIGHT - 2, view, 0)).toBeNull()
-    expect(hitBlock(blocks, 200, RULER_HEIGHT + 1, view, 0)).toBeNull()
-    expect(hitBlock(blocks, 200, y + 3 * LANE_HEIGHT, view, 0)).toBeNull()
+    expect(hitBlock(blocks, plain(3), 150, y + LANE_HEIGHT, view, 0)?.block.id).toBe('q1')
+    expect(hitBlock(blocks, plain(3), 780, y, view, 0)).toBeNull()
+    expect(hitBlock(blocks, plain(3), 200, RULER_HEIGHT - 2, view, 0)).toBeNull()
+    expect(hitBlock(blocks, plain(3), 200, RULER_HEIGHT + 1, view, 0)).toBeNull()
+    expect(hitBlock(blocks, plain(3), 200, y + 3 * LANE_HEIGHT, view, 0)).toBeNull()
   })
 
   it('follows the scroll of the grid and of the lanes', () => {
-    expect(hitBlock(blocks, 100, y - 10, { pxPerTick: 0.1, scrollTick: 960 }, 10)?.block.id).toBe('p1')
-    expect(hitBlock(blocks, 50, y, { pxPerTick: 0.1, scrollTick: 3840 }, 0)?.block.id).toBe('p2')
+    expect(hitBlock(blocks, plain(3), 100, y - 10, { pxPerTick: 0.1, scrollTick: 960 }, 10)?.block.id).toBe('p1')
+    expect(hitBlock(blocks, plain(3), 50, y, { pxPerTick: 0.1, scrollTick: 3840 }, 0)?.block.id).toBe('p2')
   })
 
   it('keeps a body for a very short block', () => {
     const tiny: Block = { ...get('p1'), start: 0, end: 30, length: 30 }
-    expect(hitBlock([tiny], 1.5, y, view, 0)?.zone).toBe('body')
+    expect(hitBlock([tiny], plain(3), 1.5, y, view, 0)?.zone).toBe('body')
   })
 })
 

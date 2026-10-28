@@ -6,7 +6,7 @@
    * The name is read-only here; renaming stays in the track list.
    */
   import { chainOf, masterChainOf } from '../../lib/project/chain'
-  import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { formatGain, formatPan, instrumentName, MIN_GAIN_DB, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
@@ -23,7 +23,7 @@
     onreset,
   }: { entry?: TrackEntry | null; snap: MeterSnap; selected?: boolean; soloed?: boolean; armed?: boolean; onreset: () => void } = $props()
 
-  const { project, ui, dispatcher } = useStores()
+  const { project, ui, dispatcher, automated } = useStores()
   const t = ui.t
 
   // The controls whose readouts open the field to type a value.
@@ -32,6 +32,10 @@
 
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
+  // While the transport runs, a lane that drives the volume or the pan moves the control with it (AM-4).
+  const automatedGain = $derived(entry ? automated.mixer(entry.id, 'gain') : undefined)
+  const shownGain = $derived(automatedGain === undefined ? mixer?.gain_db : automatedGain <= MIN_GAIN_DB ? null : automatedGain)
+  const shownPan = $derived((entry ? automated.mixer(entry.id, 'pan') : undefined) ?? entry?.track.mixer.pan ?? 0)
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
   const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
 
@@ -95,7 +99,7 @@
 
   {#if entry}
     <div class="pan">
-      <PanControl bind:this={panControl} track={entry.id} pan={entry.track.mixer.pan} label={t('tracks.pan', { name })} testid="mixer-pan" />
+      <PanControl bind:this={panControl} track={entry.id} pan={shownPan} label={t('tracks.pan', { name })} testid="mixer-pan" />
       <button
         class="readout"
         type="button"
@@ -103,7 +107,7 @@
         title={t('controls.type')}
         data-testid="mixer-pan-readout"
         onmousedown={(e) => e.preventDefault()}
-        onclick={() => panControl?.edit()}>{formatPan(entry.track.mixer.pan)}</button
+        onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
       >
     </div>
     <div class="toggles">
@@ -142,7 +146,7 @@
   <div class="levels">
     <MixerFader
       bind:this={faderControl}
-      gainDb={mixer?.gain_db}
+      gainDb={shownGain}
       label={entry ? t('tracks.volume', { name }) : t('mixer.masterVolume')}
       set={entry ? (gain) => setVolume(entry.id, gain) : setMasterVolume}
       testid={entry ? 'mixer-fader' : 'mixer-master-fader'}
@@ -156,7 +160,7 @@
     title={t('controls.type')}
     data-testid="mixer-gain"
     onmousedown={(e) => e.preventDefault()}
-    onclick={() => faderControl?.edit()}>{formatGain(mixer?.gain_db)} dB</button
+    onclick={() => faderControl?.edit()}>{formatGain(shownGain)} dB</button
   >
 </li>
 
