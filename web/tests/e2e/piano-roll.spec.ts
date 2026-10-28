@@ -21,7 +21,11 @@ interface Note {
   velocity: number
 }
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const meterDb = async (page: Page) => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))
 const roll = (page: Page) => page.getByTestId('piano-roll')
 const stage = (page: Page) => page.getByTestId('roll-stage')
@@ -306,7 +310,12 @@ test('piano roll: stays fluid with 2 000 notes', async ({ page }) => {
   await page.evaluate(
     ({ clip, bars }) => {
       const run = (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun
-      const notes = Array.from({ length: 2000 }, (_, i) => ({ start: Math.floor(i / 40) * 3840 + (i % 8) * 480, pitch: 48 + ((i * 7) % 24), length: 360, velocity: 40 + (i % 80) }))
+      const notes = Array.from({ length: 2000 }, (_, i) => ({
+        start: Math.floor(i / 40) * 3840 + (i % 8) * 480,
+        pitch: 48 + ((i * 7) % 24),
+        length: 360,
+        velocity: 40 + (i % 80),
+      }))
       run({ type: 'clip.set_content', clip, length: bars * 3840, looping: null, notes })
     },
     { clip, bars: BARS },
@@ -331,7 +340,8 @@ test('piano roll: stays fluid with 2 000 notes', async ({ page }) => {
           let frame = 0
           const FRAMES = 240
           const channel = new MessageChannel()
-          const send = (init: WheelEventInit) => root.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: box.left + 300, clientY: box.top + 150, ...init }))
+          const send = (init: WheelEventInit) =>
+            root.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: box.left + 300, clientY: box.top + 150, ...init }))
           const step = (now: number) => {
             if (last) intervals.push(now - last)
             last = now
@@ -380,7 +390,9 @@ test('piano roll: stays fluid with 2 000 notes', async ({ page }) => {
   await page.evaluate(() => {
     const root = document.querySelector('[data-testid=timegrid]') as HTMLElement
     const box = root.getBoundingClientRect()
-    root.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: 20000, clientX: box.left + 10, clientY: box.top + 100 }))
+    root.dispatchEvent(
+      new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: 20000, clientX: box.left + 10, clientY: box.top + 100 }),
+    )
   })
   await expect.poll(async () => (await spot(page)).ppt).toBeLessThan(0.006)
   await page.getByTestId('timegrid').press('Home')
@@ -442,7 +454,12 @@ test('piano roll: stays fluid with 2 000 notes', async ({ page }) => {
         const root = document.querySelector('[data-testid=timegrid]') as HTMLElement
         const run = (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun
         const before = Number(root.dataset.drawCount)
-        const notes = Array.from({ length: 2000 }, (_, i) => ({ start: Math.floor(i / 40) * 3840 + (i % 8) * 480, pitch: 48 + ((i * 7) % 24), length: 360, velocity: 40 + (i % 80) }))
+        const notes = Array.from({ length: 2000 }, (_, i) => ({
+          start: Math.floor(i / 40) * 3840 + (i % 8) * 480,
+          pitch: 48 + ((i * 7) % 24),
+          length: 360,
+          velocity: 40 + (i % 80),
+        }))
         const changes = notes.map((from) => ({ from, to: { ...from, velocity: from.velocity === 127 ? 126 : from.velocity + 1 } }))
         const t0 = performance.now()
         run({ type: 'clip.notes.update', clip, changes })

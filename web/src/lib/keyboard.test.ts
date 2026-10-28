@@ -1,6 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BARE_SHORTCUT_CODES, clampOctave, defaultOctave, historyShortcut, ignoreKeyEvent, noteForKey, octaveStep, PLAYING_KEYS, playsNote, saveShortcut, spaceTogglesTransport, trackFocusOrigin } from './keyboard'
+import {
+  BARE_SHORTCUT_CODES,
+  clampOctave,
+  defaultOctave,
+  historyShortcut,
+  ignoreKeyEvent,
+  noteForKey,
+  octaveStep,
+  PLAYING_KEYS,
+  playsNote,
+  saveShortcut,
+  spaceTogglesTransport,
+  trackFocusOrigin,
+} from './keyboard'
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -211,7 +224,25 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
-      'views/grid/GridView.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Enter', 'Enter', 'Escape', 'Escape', 'Escape', 'Escape', 'Escape', 'F2', 'F2'],
+      'views/grid/GridView.svelte': [
+        'ArrowDown',
+        'ArrowLeft',
+        'ArrowRight',
+        'ArrowUp',
+        'Backspace',
+        'Delete',
+        'Enter',
+        'Enter',
+        'Enter',
+        'Enter',
+        'Escape',
+        'Escape',
+        'Escape',
+        'Escape',
+        'Escape',
+        'F2',
+        'F2',
+      ],
       'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/ExportDialog.svelte': ['Escape'],
@@ -227,23 +258,40 @@ describe('playing and shortcuts never meet (UI-3)', () => {
 })
 
 describe('the keys are shared in every view (#361)', () => {
-  const event = (over: Record<string, unknown>) => ({ repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false, target: document.body, ...over }) as never
+  const event = (over: Record<string, unknown>) =>
+    ({ repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false, target: document.body, ...over }) as never
   const fixture = (html: string) => {
     document.body.innerHTML = html
     return document.body.firstElementChild!
   }
 
   it('1. a text field keeps every key, for every key that plays', () => {
-    for (const html of ['<input type="text">', '<input type="number">', '<input type="search">', '<textarea></textarea>', '<select></select>', '<div contenteditable="true"></div>']) {
+    for (const html of [
+      '<input type="text">',
+      '<input type="number">',
+      '<input type="search">',
+      '<textarea></textarea>',
+      '<select></select>',
+      '<div contenteditable="true"></div>',
+    ]) {
       expect(playsNote(event({ target: fixture(html) })), html).toBe(false)
     }
   })
 
   it('1b. a menu, a dialog and a spin box keep every key, whoever focused them', () => {
-    for (const html of ['<div role="menu"><button role="menuitem"></button></div>', '<div role="dialog"><button></button></div>', '<div role="spinbutton" tabindex="0"></div>', '<button aria-haspopup="menu" aria-expanded="true"></button>']) {
+    for (const html of [
+      '<div role="menu"><button role="menuitem"></button></div>',
+      '<div role="dialog"><button></button></div>',
+      '<div role="spinbutton" tabindex="0"></div>',
+      '<button aria-haspopup="menu" aria-expanded="true"></button>',
+    ]) {
       const root = fixture(html)
       const inner = root.firstElementChild ?? root
-      for (const target of [root, inner]) expect(playsNote(event({ target }), () => false), html).toBe(false)
+      for (const target of [root, inner])
+        expect(
+          playsNote(event({ target }), () => false),
+          html,
+        ).toBe(false)
     }
   })
 
@@ -256,10 +304,23 @@ describe('the keys are shared in every view (#361)', () => {
   })
 
   it('2. a control the keyboard focused keeps its keys, one the mouse clicked does not', () => {
-    for (const html of ['<button></button>', '<a href="#"></a>', '<input type="checkbox">', '<input type="radio">', '<input type="range">', '<div role="slider" tabindex="0"></div>']) {
+    for (const html of [
+      '<button></button>',
+      '<a href="#"></a>',
+      '<input type="checkbox">',
+      '<input type="radio">',
+      '<input type="range">',
+      '<div role="slider" tabindex="0"></div>',
+    ]) {
       const target = fixture(html)
-      expect(playsNote(event({ target }), () => true), `${html} focused by the keyboard`).toBe(false)
-      expect(playsNote(event({ target }), () => false), `${html} focused by the mouse`).toBe(true)
+      expect(
+        playsNote(event({ target }), () => true),
+        `${html} focused by the keyboard`,
+      ).toBe(false)
+      expect(
+        playsNote(event({ target }), () => false),
+        `${html} focused by the mouse`,
+      ).toBe(true)
     }
     // Not a control: a view's own surface (a time grid, a panel) plays whoever focused it.
     expect(playsNote(event({ target: fixture('<div tabindex="0"></div>') }), () => true)).toBe(true)

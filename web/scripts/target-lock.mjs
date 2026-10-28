@@ -72,7 +72,8 @@ export function withTargetLock(targetDir, fn) {
           const moved = `${lock}.dead-${process.pid}`
           renameSync(lock, moved) // one waiter wins this
           const pid = ownerOf(moved)
-          if (pid && alive(pid)) renameSync(moved, lock) // a new, live lock taken in between: give it back
+          if (pid && alive(pid))
+            renameSync(moved, lock) // a new, live lock taken in between: give it back
           else rmSync(moved, { recursive: true, force: true })
         } catch {
           /* another waiter took it over first */

@@ -74,12 +74,7 @@ export function mount(root: ParentNode = document): () => void {
       local.vy = pointer.vy
       local.down = pointer.down
       local.idleFor = (now - pointer.lastMove) / 1000
-      local.over =
-        pointer.present &&
-        local.x > -MARGIN &&
-        local.y > -MARGIN &&
-        local.x < rect.width + MARGIN &&
-        local.y < rect.height + MARGIN
+      local.over = pointer.present && local.x > -MARGIN && local.y > -MARGIN && local.x < rect.width + MARGIN && local.y < rect.height + MARGIN
       local.weight = stage.weight
       try {
         stage.render(t, dt, local, still)

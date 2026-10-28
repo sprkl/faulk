@@ -22,7 +22,7 @@ test.describe.configure({ mode: 'serial' })
 function pushes(name: string): number[][] {
   const bytes = readFileSync(fixtures + name)
   const out: number[][] = []
-  for (let at = 0; at + 5 <= bytes.length; ) {
+  for (let at = 0; at + 5 <= bytes.length;) {
     const n = bytes.readUInt32LE(at + 1)
     if (bytes[at] === 0) {
       out.push([...bytes.subarray(at + 5, at + 5 + n)])
@@ -57,7 +57,10 @@ function clockDrift(run: Awaited<ReturnType<typeof measureOnce>>): string | unde
   // A rate off by more than 25 % would make every figure of the run wrong by as much.
   const off = (a: number, b: number) => Math.abs(a - b) > 0.25 * b
   if (off(run.ticksPerUs, run.check)) return `${run.ticksPerUs.toFixed(1)} ticks/µs settled, ${run.check.toFixed(1)} at the end`
-  for (const [name, r] of [['1000 parameters', run.params], ['4095 tracks', run.tracks]] as const)
+  for (const [name, r] of [
+    ['1000 parameters', run.params],
+    ['4095 tracks', run.tracks],
+  ] as const)
     if (off(r.rate, run.check)) return `${r.rate.toFixed(1)} ticks/µs over the ${name} window, ${run.check.toFixed(1)} at the end`
   return undefined
 }
@@ -94,7 +97,7 @@ async function measureOnce(page: Page) {
       clockWorker.postMessage(clockBuffer)
       const rpc = new Function(`return (${sources.rpc}
 )`)() as (target: unknown, name: string, ms: number) => ((m: Record<string, unknown>) => Promise<Record<string, unknown>>) & { fail(error: Error): void }
-      const deadline = <T,>(what: string, promise: Promise<T>, ms = 15_000) =>
+      const deadline = <T>(what: string, promise: Promise<T>, ms = 15_000) =>
         Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${ms} ms`)), ms))])
       // The counter's rate over a window: ticks gained divided by the µs `performance.now()` counted.
       const mark = () => ({ c: Atomics.load(clock, 0), t: performance.now() })
@@ -211,7 +214,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
           `  idle: ${run.idle.blocks} blocks, pump ${us(run.idle.pumpUsPerCall)} µs per call`,
           `  1000 parameters: ${p.applied} applied, ${us(p.pumpUsPerMsg)} µs per message (pumps that applied), longest pump ${us(Math.max(p.pumpMaxUs, p.firstUs))} µs (first ${us(p.firstUs)}), ${us(p.pumpUsPerCall)} µs per pump incl. empty ones, silent blocks ${p.silent}, peak ${p.peak.toFixed(3)}`,
           `  4095 tracks: ${t.applied} applied (at most ${t.maxApplied} per block), ${us(t.pumpUsPerMsg)} µs per message, longest pump ${us(Math.max(t.pumpMaxUs, t.firstUs))} µs (first ${us(t.firstUs)}; incl. the swap of the table at its limit), tracks ${t.tracksHeld} in ${t.tracksCapacity} slots, silent ${t.silent}`,
-          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${run.counters.rejected}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${run.role}`,
+          `  render-side allocations ${t.renderAllocs + p.renderAllocs}, frees ${t.renderFrees + p.renderFrees}; rejected ${String(run.counters.rejected)}, codes ${JSON.stringify(run.counters.codes)}, skipped ${t.skipped}; roles worklet ${String(run.role)}`,
         ].join('\n'),
       )
       expect(run.ticksPerUs).toBeGreaterThan(1)

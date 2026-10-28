@@ -12,7 +12,8 @@ export const controls = defineFeature(
   },
   {
     'controls.default': 'Valeur par défaut',
-    'controls.hint': 'Double-clic ou Suppr pour remettre la valeur par défaut. Entrée pour saisir une valeur. Maintiens Ctrl (Cmd sur macOS) en glissant pour des pas fins.',
+    'controls.hint':
+      'Double-clic ou Suppr pour remettre la valeur par défaut. Entrée pour saisir une valeur. Maintiens Ctrl (Cmd sur macOS) en glissant pour des pas fins.',
     'controls.type': 'Cliquer pour saisir une valeur',
     'controls.field': 'Valeur de {name}',
     'controls.invalid': 'Valeur invalide',

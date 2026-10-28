@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { flushSync, mount, unmount } from 'svelte'
+import { flushSync, mount, unmount, type Component } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command } from '../generated/protocol'
 import { UiStore } from '../stores/ui.svelte'
@@ -20,7 +20,7 @@ let host: HTMLDivElement
 let sent: Command[]
 let app: ReturnType<typeof mount> | null
 
-function setup(component: typeof GainControl | typeof PanControl, props: Record<string, unknown>) {
+function setup(component: Component<never>, props: Record<string, unknown>) {
   // Only the user interface store and the dispatcher's `run` are read by these controls.
   const stores = { ui: new UiStore('play', 'devices'), dispatcher: { run: (command: Command) => void sent.push(command) } } as unknown as Stores
   app = mount(component as never, { target: host, props, context: storesContext(stores) })
@@ -51,8 +51,8 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.append(host)
 })
-afterEach(() => {
-  if (app) unmount(app)
+afterEach(async () => {
+  if (app) await unmount(app)
   app = null
   host.remove()
   vi.restoreAllMocks()
@@ -74,7 +74,7 @@ describe('a volume control', () => {
     const slider = setup(GainControl, gain(-6))
     slider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(sent).toEqual([setVolume('t1', 0)])
-    unmount(app!)
+    void unmount(app!)
     sent = []
     const at = setup(GainControl, gain(0))
     at.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
@@ -107,7 +107,11 @@ describe('a volume control', () => {
     expect(types()[0]).toBe('history.begin_group')
     expect(types().at(-1)).toBe('history.end_group')
     expect(types().filter((t) => t === 'history.begin_group')).toHaveLength(1)
-    expect(types().slice(1, -1).every((t) => t === 'mixer.set_volume')).toBe(true)
+    expect(
+      types()
+        .slice(1, -1)
+        .every((t) => t === 'mixer.set_volume'),
+    ).toBe(true)
     expect(types().length).toBeGreaterThan(2)
   })
 
@@ -195,7 +199,7 @@ describe('a pan control', () => {
     expect(slider.getAttribute('aria-valuetext')).toBe('R40')
     slider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(sent).toEqual([setPan('t1', 0)])
-    unmount(app!)
+    void unmount(app!)
     sent = []
     const centred = setup(PanControl, pan(0))
     centred.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))

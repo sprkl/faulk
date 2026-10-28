@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
 import { SINGLE_SYNTH, type Command } from '../generated/protocol'
@@ -21,8 +21,8 @@ interface FakeWeb {
   send: ReturnType<typeof vi.fn>
   push: ReturnType<typeof vi.fn>
   status: () => object
-  suspend: ReturnType<typeof vi.fn>
-  resume: ReturnType<typeof vi.fn>
+  suspend: Mock<() => Promise<void>>
+  resume: Mock<() => Promise<void>>
   close: ReturnType<typeof vi.fn>
 }
 let webEvents: EngineEvents | null = null
@@ -48,10 +48,7 @@ vi.mock('../engine/web-engine', () => ({
 // The project core runs for real (the module built from crates/project-wasm).
 vi.mock('../project/core', async (original) => ({
   ...(await original<typeof import('../project/core')>()),
-  coreModule: () =>
-    import('node:fs').then((fs) =>
-      WebAssembly.compile(fs.readFileSync(`${process.cwd()}/src/lib/project/wasm/project.wasm`)),
-    ),
+  coreModule: () => import('node:fs').then((fs) => WebAssembly.compile(fs.readFileSync(`${process.cwd()}/src/lib/project/wasm/project.wasm`))),
 }))
 let nativeEvents: EngineEvents | null = null
 let nativeEngine: { kind: 'native'; status: object; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
@@ -170,7 +167,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockResolvedValueOnce({ status: 'absent' })
     await session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('absent')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     await vi.waitFor(() => expect(session.engine.helper).toBe('available'))
     expect(probeHelper).toHaveBeenCalledTimes(2)
   })
@@ -181,7 +178,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (giveUp = r)))
     const first = session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('checking')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     await vi.waitFor(() => expect(session.engine.helper).toBe('available'))
     giveUp({ status: 'absent' })
     await first
@@ -194,7 +191,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockReturnValueOnce(new Promise<Probe>((r) => (answer = r)))
     probeHelper.mockReturnValueOnce(new Promise<Probe>(() => {}))
     const older = session.dispatcher.checkHelper()
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     answer({ status: 'available' })
     expect(await older).toBe('available')
     expect(session.engine.helper).toBe('checking')
@@ -204,7 +201,7 @@ describe('probing again once the browser allows local access', () => {
     const session = newSession()
     await session.dispatcher.checkHelper()
     expect(session.engine.helper).toBe('available')
-    session.dispatcher.onLocalAccessGranted()
+    void session.dispatcher.onLocalAccessGranted()
     expect(probeHelper).toHaveBeenCalledTimes(1)
   })
 })
@@ -268,8 +265,7 @@ describe('a pairing link that could not reach the helper behind the prompt', () 
 
 const SYNTH_TRACK = '00000000000000000000000001'
 const SYNTH_DEVICE = '00000000000000000000000002'
-const setParamCommand = (param: string, value: number) =>
-  ({ type: 'device.set_param', device: SYNTH_DEVICE, param, value }) as Command
+const setParamCommand = (param: string, value: number) => ({ type: 'device.set_param', device: SYNTH_DEVICE, param, value }) as Command
 const noteOn = (note: number) => ({ type: 'live.note_on', track: SYNTH_TRACK, note, velocity: 100 }) as Command
 const firstParam = Object.keys(DEFAULT_PARAMS)[0] as keyof typeof DEFAULT_PARAMS
 
@@ -442,7 +438,12 @@ describe('running commands through the project core', () => {
   })
 
   it('keeps the helper in step in Boost mode and catches the Web engine up by snapshot on return', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
@@ -506,7 +507,12 @@ describe('running commands through the project core', () => {
 
   it('takes a new snapshot when the helper is lost after Boost was entered again during the switch', async () => {
     const resumes: (() => void)[] = []
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
@@ -524,7 +530,12 @@ describe('running commands through the project core', () => {
   })
 
   it('joins a switch to Web already under way instead of taking a second snapshot', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
@@ -590,9 +601,7 @@ describe('running commands through the project core', () => {
       const session = newSession()
       await session.dispatcher.start()
       let refuse: (error: Error) => void = () => {}
-      const connect = vi
-        .spyOn(NativeEngine, 'connect')
-        .mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
+      const connect = vi.spyOn(NativeEngine, 'connect').mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)))
       const stale = session.dispatcher.enterBoost()
       // The pairing stores the new token and asks for Boost: it waits for the refused attempt.
       localStorage.setItem(TOKEN_KEY, 'new')
@@ -738,7 +747,12 @@ describe('running commands through the project core', () => {
   })
 
   it('still sends the helper the command the core could not encode, in Boost mode', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
@@ -786,7 +800,9 @@ describe('running commands through the project core', () => {
   it('names no command in the dispatcher', async () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(`${process.cwd()}/src/lib/stores/dispatcher.ts`, 'utf8')
-    expect(source).not.toMatch(/command\.type|type: '|'(project|track|device|clip|note|scene|launch|arrangement|automation|transport|mixer|record|midi(?!.connect)|live|history|view)\.[a-z_.]+'/)
+    expect(source).not.toMatch(
+      /command\.type|type: '|'(project|track|device|clip|note|scene|launch|arrangement|automation|transport|mixer|record|midi(?!.connect)|live|history|view)\.[a-z_.]+'/,
+    )
     expect(source).not.toMatch(/from '\.\.\/synth-commands'/)
   })
 })
@@ -874,7 +890,11 @@ describe('opening a project folder (SV-4)', () => {
     const view = session.project.view
     const pushes = webs[0].push.mock.calls.length
     const sends = webs[0].send.mock.calls.length
-    const newer = withFile(song(), 'project.json', new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 1', '"format": 99'))
+    const newer = withFile(
+      song(),
+      'project.json',
+      new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 1', '"format": 99'),
+    )
     const cases: [string, FolderEntry[], string, string][] = [
       ['a newer format', newer, 'newer_format', 'project.open.newer'],
       ['no project', [{ path: 'x.txt', bytes: new Uint8Array([1]) }], 'not_a_project', 'project.open.notAProject'],
@@ -983,7 +1003,12 @@ describe('the project in a folder (SV-2)', () => {
   })
 
   it('in Boost the storage commands stay in the page: the helper is never sent a command it does not know', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
@@ -1068,7 +1093,12 @@ describe('the project in a folder (SV-2)', () => {
   })
 
   it('the export is a command of the page: it opens the dialog with its settings, even without an engine, and never reaches the helper', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     // A core without an engine: a project opened before audio starts.
@@ -1248,7 +1278,12 @@ describe('the commands for the projects the page keeps (#323)', () => {
   })
 
   it('in Boost these commands stay in the page too', async () => {
-    nativeEngine = { kind: 'native', status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 }, send: vi.fn(), close: vi.fn(() => Promise.resolve()) }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()

@@ -8,28 +8,14 @@
   import { fillOf } from './ballistics'
   import type { MeterSnap } from './ballistics'
 
-  let {
-    snap,
-    label,
-    peakLabel,
-    clipLabel,
-    onreset,
-  }: { snap: MeterSnap; label: string; peakLabel: string; clipLabel: string; onreset: () => void } = $props()
+  let { snap, label, peakLabel, clipLabel, onreset }: { snap: MeterSnap; label: string; peakLabel: string; clipLabel: string; onreset: () => void } = $props()
 
   const MARKS = [0, -6, -12, -24, -48]
   const peakText = $derived(snap.peakDb <= -60 ? '−∞' : `${snap.peakDb < 0 ? '−' : '+'}${Math.abs(snap.peakDb).toFixed(1)}`)
 </script>
 
 <div class="wrap">
-  <div
-    class="meter"
-    role="meter"
-    aria-label={label}
-    aria-valuemin={-60}
-    aria-valuemax={6}
-    aria-valuenow={Math.round(snap.levelDb)}
-    data-testid="mixer-meter"
-  >
+  <div class="meter" role="meter" aria-label={label} aria-valuemin={-60} aria-valuemax={6} aria-valuenow={Math.round(snap.levelDb)} data-testid="mixer-meter">
     <div class="bar" style:transform={`scaleY(${snap.levelL})`}></div>
     <div class="bar" style:transform={`scaleY(${snap.levelR})`}></div>
     <div class="hold" style:--hold={snap.holdL}></div>

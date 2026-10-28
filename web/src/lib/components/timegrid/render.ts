@@ -41,7 +41,14 @@ export interface BodyFrame {
 }
 
 /** The drawing surface the renderer needs: a subset of `CanvasRenderingContext2D`. */
-export type Surface = Pick<CanvasRenderingContext2D, 'fillRect' | 'fillText' | 'beginPath' | 'moveTo' | 'lineTo' | 'stroke'> & { fillStyle: unknown; strokeStyle: unknown; lineWidth: number; font: string; textBaseline: unknown; globalAlpha: number }
+export type Surface = Pick<CanvasRenderingContext2D, 'fillRect' | 'fillText' | 'beginPath' | 'moveTo' | 'lineTo' | 'stroke'> & {
+  fillStyle: unknown
+  strokeStyle: unknown
+  lineWidth: number
+  font: string
+  textBaseline: unknown
+  globalAlpha: number
+}
 
 export function readColors(element: Element): Colors {
   const style = getComputedStyle(element)

@@ -41,16 +41,19 @@ describe('WebMidiHost', () => {
   it('lists inputs and plays the selected one', async () => {
     const { map, access, log, host } = setup()
     expect(await host.enable(async () => access)).toBe(true)
-    expect(log.inputs.at(-1)).toEqual([[{ id: 'a', name: 'Keys A' }, { id: 'b', name: 'Pads B' }], null])
+    expect(log.inputs.at(-1)).toEqual([
+      [
+        { id: 'a', name: 'Keys A' },
+        { id: 'b', name: 'Pads B' },
+      ],
+      null,
+    ])
     host.select('a')
     expect(log.inputs.at(-1)?.[1]).toBe('a')
     map.get('a')!.play(0x90, 60, 100)
     map.get('b')!.play(0x90, 61, 100) // not selected: ignored
     map.get('a')!.play(0x80, 60, 0)
-    expect(log.commands).toEqual([
-      inputNoteOn(60, 100),
-      inputNoteOff(60),
-    ])
+    expect(log.commands).toEqual([inputNoteOn(60, 100), inputNoteOff(60)])
     expect(log.activity).toEqual([
       [60, 100],
       [60, 0],

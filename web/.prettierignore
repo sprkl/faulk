@@ -1,0 +1,12 @@
+dist
+.svelte-kit
+node_modules
+pnpm-lock.yaml
+src/lib/generated
+src/lib/engine/wasm
+src/lib/project/wasm
+src/lib/engine/proto/build
+test-results
+playwright-report
+# Raw source text that the tests wrap and run in a page (`return (${source})`): a leading semicolon would break it.
+tests/e2e/fixtures/

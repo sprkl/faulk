@@ -370,10 +370,7 @@ export class AudioExport {
     }
     const setup = job.setup.slice().buffer
     const stop = job.stop.slice().buffer
-    worker.postMessage(
-      { type: 'start', module, sampleRate: rate, bits: BITS[this.choices.bitDepth], bodyFrames: body, setup, stop },
-      [module, setup, stop],
-    )
+    worker.postMessage({ type: 'start', module, sampleRate: rate, bits: BITS[this.choices.bitDepth], bodyFrames: body, setup, stop }, [module, setup, stop])
   }
 }
 

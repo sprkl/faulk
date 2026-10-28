@@ -93,7 +93,7 @@ Checks depend on what the task touches (`docs/agents/verification.md` gives the 
 
 - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and the WASM builds of the engine and of the project (`project-wasm`).
 - **Engine and modules**: offline render tests that assert on the signal (level, spectrum, silence, no NaN/denormals), the allocation detector on the audio path, and parity between the native and WASM builds on the same render.
-- **Web**: typecheck, lint, tests, then a check in a real browser with Playwright (audio context started, no console error, the changed screens exercised).
+- **Web**: format check (Prettier; a project hook formats each edited file, `pnpm format` does the rest), typecheck, lint, tests, then a check in a real browser with Playwright (audio context started, no console error, the changed screens exercised).
 - **Commands**: a new or changed command has its schema, description and undo tested, and the test that compares commands with MCP tools passes.
 - **Latency-sensitive changes**: measure and report the latency in both modes; never claim a latency you did not measure.
 

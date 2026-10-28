@@ -32,7 +32,30 @@ import { transport } from './transport'
 export { DEVICE_NAME_KEYS } from './synth'
 
 /** Every feature of the DAW, in the order of the screen. One line per feature. */
-export const features = { shell, layout, tracks, transport, engine, helper, midi, synth, drums, echo, reverb, compressor, devices, keys, pianoRoll, grid, project, mixer, controls, arrangement, audioExport, refusal } as const satisfies Record<string, FeatureMessages>
+export const features = {
+  shell,
+  layout,
+  tracks,
+  transport,
+  engine,
+  helper,
+  midi,
+  synth,
+  drums,
+  echo,
+  reverb,
+  compressor,
+  devices,
+  keys,
+  pianoRoll,
+  grid,
+  project,
+  mixer,
+  controls,
+  arrangement,
+  audioExport,
+  refusal,
+} as const satisfies Record<string, FeatureMessages>
 
 type Features = typeof features
 type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (i: infer I) => void ? I : never

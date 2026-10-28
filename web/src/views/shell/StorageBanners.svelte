@@ -43,7 +43,9 @@
     <span>{t(storage.reopen.kind === 'browser' ? 'save.banner.reopenDraft' : 'save.banner.reopen', { name: storage.reopen.name })}</span>
     <button class="primary" data-testid="reopen" onclick={() => dispatcher.run(reopenLast())}>{t('save.banner.reopenButton')}</button>
     {#if storage.reopen.kind === 'browser'}
-      <button data-testid="delete-draft" onclick={() => storage.reopen && dispatcher.run(deleteBrowserProject(storage.reopen.id))}>{t('save.banner.deleteDraft')}</button>
+      <button data-testid="delete-draft" onclick={() => storage.reopen && dispatcher.run(deleteBrowserProject(storage.reopen.id))}
+        >{t('save.banner.deleteDraft')}</button
+      >
     {/if}
     <button onclick={() => storage.dismissReopen()}>{t('save.banner.dismiss')}</button>
   </p>

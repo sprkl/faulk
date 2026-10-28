@@ -1,17 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Device, Track } from '../generated/protocol'
-import {
-  copyName,
-  formatGain,
-  formatPan,
-  INSTRUMENTS,
-  instrumentKind,
-  instrumentName,
-  nextColor,
-  sortedTracks,
-  TRACK_COLORS,
-  trackLabel,
-} from './tracks'
+import { copyName, formatGain, formatPan, INSTRUMENTS, instrumentKind, instrumentName, nextColor, sortedTracks, TRACK_COLORS, trackLabel } from './tracks'
 
 const mixer = { mute: false, pan: 0, gain_db: 0 }
 function track(order: string, over: Partial<Track> = {}): Track {

@@ -9,7 +9,10 @@ const midiClip = (name: string): Clip => ({ name, content: { midi: { length: 768
 
 function view(kind: 'midi' | 'audio', clips: Record<string, Clip> = {}): ProjectView {
   return {
-    project: { meter: [{ tick: 0, signature: { numerator: 4, denominator: 4 } }], tracks: { t1: { kind, order: 'a', name: 'T', clips, placements: {}, devices: {} } } },
+    project: {
+      meter: [{ tick: 0, signature: { numerator: 4, denominator: 4 } }],
+      tracks: { t1: { kind, order: 'a', name: 'T', clips, placements: {}, devices: {} } },
+    },
     session: { selected_track: 't1' },
   } as unknown as ProjectView
 }

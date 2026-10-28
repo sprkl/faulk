@@ -4,10 +4,7 @@ import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../gen
 export const HELPER_PORT = Number(import.meta.env.VITE_FAULK_HELPER_PORT) || 47800
 export const HELPER_URL = `ws://127.0.0.1:${HELPER_PORT}`
 
-export type ProbeResult =
-  | { status: 'absent' }
-  | { status: 'available' }
-  | { status: 'incompatible'; protocol: number }
+export type ProbeResult = { status: 'absent' } | { status: 'available' } | { status: 'incompatible'; protocol: number }
 
 /**
  * The message for a helper that speaks another protocol: an older helper needs its update,
@@ -45,21 +42,14 @@ export function probeHelper(timeoutMs = 1500): Promise<ProbeResult> {
     ws.onmessage = (event) => {
       const message = parseServerMessage(event.data)
       if (message?.type !== 'probe') return done({ status: 'absent' })
-      done(
-        message.protocol === PROTOCOL_VERSION
-          ? { status: 'available' }
-          : { status: 'incompatible', protocol: message.protocol },
-      )
+      done(message.protocol === PROTOCOL_VERSION ? { status: 'available' } : { status: 'incompatible', protocol: message.protocol })
     }
     ws.onerror = () => done({ status: 'absent' })
     ws.onclose = () => done({ status: 'absent' })
   })
 }
 
-export type PairResult =
-  | { status: 'paired'; token: string }
-  | { status: 'refused'; attemptsLeft: number }
-  | { status: 'failed' }
+export type PairResult = { status: 'paired'; token: string } | { status: 'refused'; attemptsLeft: number } | { status: 'failed' }
 
 /** Sends the code the helper shows; on success returns the session token. */
 export function pairHelper(code: string, timeoutMs = 3000): Promise<PairResult> {
@@ -74,8 +64,7 @@ export function pairHelper(code: string, timeoutMs = 3000): Promise<PairResult> 
       ws.close()
       resolve(result)
     }
-    ws.onopen = () =>
-      ws.send(JSON.stringify({ type: 'pair', code: code.replace(/\s+/g, '') } satisfies ClientMessage))
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'pair', code: code.replace(/\s+/g, '') } satisfies ClientMessage))
     ws.onmessage = (event) => {
       const message = parseServerMessage(event.data)
       if (message?.type === 'paired') done({ status: 'paired', token: message.token })

@@ -31,7 +31,12 @@ const entry = (id: string, index: number, clips: Record<string, Clip>, placement
 })
 
 const entries = [
-  entry('t0', 0, { a: midi(), b: midi(1920, { start: 480, end: 1920 }) }, { p2: place('a', 3840, 3840), p1: place('a', 0, 3840), p3: place('b', 8000, 960, 100) }),
+  entry(
+    't0',
+    0,
+    { a: midi(), b: midi(1920, { start: 480, end: 1920 }) },
+    { p2: place('a', 3840, 3840), p1: place('a', 0, 3840), p3: place('b', 8000, 960, 100) },
+  ),
   entry('t1', 1, { c: midi() }, { q1: place('c', 960, 1920) }),
 ]
 const blocks = blocksOf(entries)
@@ -40,7 +45,17 @@ const get = (id: string): Block => blocks.find((b) => b.id === id)!
 describe('blocks', () => {
   it('lists the placements by lane, then by start, with what is drawn of their clip', () => {
     expect(blocks.map((b) => b.id)).toEqual(['p1', 'p2', 'p3', 'q1'])
-    expect(get('p3')).toMatchObject({ row: 0, track: 't0', clip: 'b', start: 8000, length: 960, end: 8960, offset: 100, clipLength: 1920, looping: { start: 480, end: 1920 } })
+    expect(get('p3')).toMatchObject({
+      row: 0,
+      track: 't0',
+      clip: 'b',
+      start: 8000,
+      length: 960,
+      end: 8960,
+      offset: 100,
+      clipLength: 1920,
+      looping: { start: 480, end: 1920 },
+    })
     expect(get('q1').row).toBe(1)
     expect(get('p1').color).toBe('#ff0000')
   })
@@ -124,7 +139,10 @@ describe('move', () => {
 
   it('moves a whole selection by the same delta and keeps the lanes', () => {
     const shifted = moved([p1, get('q1')], 480)
-    expect(shifted.map((b) => [b.row, b.start, b.end])).toEqual([[0, 480, 4320], [1, 1440, 3360]])
+    expect(shifted.map((b) => [b.row, b.start, b.end])).toEqual([
+      [0, 480, 4320],
+      [1, 1440, 3360],
+    ])
     expect(moveDelta([], p1, 5, 0, null)).toBe(0)
   })
 })

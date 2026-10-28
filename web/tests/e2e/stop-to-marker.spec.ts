@@ -148,17 +148,31 @@ test('grid: a scene launched while stopped plays from the marker and Stop return
   test.setTimeout(120_000)
   const { errors } = watch(page)
   await start(page)
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
   const marker = 2 * BAR
   await run(page, { type: 'transport.seek', tick: marker })
   await expect.poll(() => tick(page)).toBe(marker)
   // A scene with a held-note clip on the first track.
   await run(page, { type: 'scene.create' })
-  const project = await page.evaluate(() => (window as unknown as { __faulkView(): { project: { tracks: Record<string, { kind: string }>; scenes: Record<string, unknown> } } }).__faulkView().project)
+  const project = await page.evaluate(
+    () =>
+      (window as unknown as { __faulkView(): { project: { tracks: Record<string, { kind: string }>; scenes: Record<string, unknown> } } }).__faulkView()
+        .project,
+  )
   const track = Object.entries(project.tracks).find(([, t]) => t.kind === 'midi')![0]
   const scene = Object.keys(project.scenes)[0]!
   await run(page, { type: 'clip.create', track, at: { at: 'slot', scene } })
-  const clip = await page.evaluate((id) => Object.keys((window as unknown as { __faulkView(): { project: { tracks: Record<string, { clips: Record<string, unknown> }> } } }).__faulkView().project.tracks[id]!.clips)[0]!, track)
+  const clip = await page.evaluate(
+    (id) =>
+      Object.keys(
+        (window as unknown as { __faulkView(): { project: { tracks: Record<string, { clips: Record<string, unknown> }> } } }).__faulkView().project.tracks[id]!
+          .clips,
+      )[0]!,
+    track,
+  )
   await run(page, { type: 'clip.notes.add', clip, notes: [{ start: 0, pitch: 60, length: 3800, velocity: 100 }] })
   await page.getByTestId('nav-grid').click()
   // The first scene of the default project: launch it from its row.
@@ -178,7 +192,10 @@ test('grid: a scene launched while stopped plays from the marker and Stop return
 test('a new project resets the engine: the head shown is where Play starts', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
   await run(page, { type: 'transport.seek', tick: 2 * BAR })
   await expect.poll(() => tick(page)).toBe(2 * BAR)
   await page.getByTestId('project-menu').click()

@@ -6,8 +6,20 @@ import { watch } from './support'
 // browser lists it with no change to the panel, and it is inserted, bypassed, removed and undone here.
 
 const TEXTS = {
-  en: { bypass: (n: string) => `Bypass ${n}`, use: (n: string) => `Use ${n} as the instrument`, add: (n: string) => `Add ${n} to the track`, remove: (n: string) => `Remove ${n}`, hint: 'Output level of the synth, from 0 to 1 (linear gain).' },
-  fr: { bypass: (n: string) => `Contourner ${n}`, use: (n: string) => `Utiliser ${n} comme instrument`, add: (n: string) => `Ajouter ${n} à la piste`, remove: (n: string) => `Retirer ${n}`, hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).' },
+  en: {
+    bypass: (n: string) => `Bypass ${n}`,
+    use: (n: string) => `Use ${n} as the instrument`,
+    add: (n: string) => `Add ${n} to the track`,
+    remove: (n: string) => `Remove ${n}`,
+    hint: 'Output level of the synth, from 0 to 1 (linear gain).',
+  },
+  fr: {
+    bypass: (n: string) => `Contourner ${n}`,
+    use: (n: string) => `Utiliser ${n} comme instrument`,
+    add: (n: string) => `Ajouter ${n} à la piste`,
+    remove: (n: string) => `Retirer ${n}`,
+    hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).',
+  },
 } as const
 
 const card = (page: Page, name: string) => page.getByTestId('device-card').filter({ has: page.getByRole('heading', { name, exact: true }) })

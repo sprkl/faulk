@@ -42,15 +42,7 @@ export function createFocus(rx: number, ry: number, mass: number, lean: number, 
  * One step. `px, py` is the pointer in stage fractions, `weight` its influence (0 when absent).
  * Without a pointer, every focus wanders slowly around its rest position.
  */
-export function stepFoci(
-  foci: Focus[],
-  t: number,
-  dt: number,
-  px: number,
-  py: number,
-  weight: number,
-  params: FociParams = DEFAULT_FOCI_PARAMS,
-): void {
+export function stepFoci(foci: Focus[], t: number, dt: number, px: number, py: number, weight: number, params: FociParams = DEFAULT_FOCI_PARAMS): void {
   for (let i = 0; i < foci.length; i++) {
     const f = foci[i]
     const wx = Math.sin(t * 0.21 + i * 2.1) * params.wander

@@ -69,8 +69,7 @@ export class Dispatcher {
 
   private events(kind: 'web' | 'native', generation = this.webGeneration): EngineEvents {
     // A Web engine is told apart by its generation, a helper session by the count of sessions that became current.
-    const current = () =>
-      this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
+    const current = () => this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -518,8 +517,7 @@ export class Dispatcher {
     this.state.helper = 'checking'
     const result = await probeHelper()
     if (this.native) return this.state.helper
-    const found: HelperState =
-      result.status === 'available' ? 'available' : result.status === 'incompatible' ? 'incompatible' : 'absent'
+    const found: HelperState = result.status === 'available' ? 'available' : result.status === 'incompatible' ? 'incompatible' : 'absent'
     if (probe !== this.probes) return found
     this.state.helper = found
     if (result.status === 'incompatible') this.state.helperProtocol = result.protocol
@@ -559,8 +557,7 @@ export class Dispatcher {
       this.state.paired = true
       await this.enterBoost()
     } else if (result.status === 'refused') {
-      this.state.pairingMessage =
-        result.attemptsLeft > 0 ? { key: 'helper.refused', n: result.attemptsLeft } : { key: 'helper.refusedNew' }
+      this.state.pairingMessage = result.attemptsLeft > 0 ? { key: 'helper.refused', n: result.attemptsLeft } : { key: 'helper.refusedNew' }
     } else {
       this.state.pairingMessage = { key: 'helper.failed' }
     }

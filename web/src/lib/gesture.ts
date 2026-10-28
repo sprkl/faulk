@@ -17,7 +17,8 @@ export function createGesture(run: (command: Command) => void) {
     run(endGroup())
   }
   return {
-    begin() {
+    // An arrow, not a method: the components pass `gesture.begin` as a callback, detached from the object.
+    begin: () => {
       if (open) return
       open = true
       globalThis.addEventListener?.('pointerup', end)

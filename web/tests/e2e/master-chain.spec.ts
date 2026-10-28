@@ -10,8 +10,7 @@ const TEXTS = {
   fr: { devices: 'Devices', add: (n: string) => `Ajouter ${n} au master`, bypass: (n: string) => `Contourner ${n}`, remove: (n: string) => `Retirer ${n}` },
 } as const
 
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
 for (const lang of ['en', 'fr'] as const) {
   test(`master chain, ${lang}: the Master strip lists the devices, the panel edits them, the sound goes through`, async ({ page }) => {

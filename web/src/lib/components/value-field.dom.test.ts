@@ -10,8 +10,29 @@ import ParamControl from './ParamControl.svelte'
 vi.mock('../stores/dispatcher', () => ({ Dispatcher: class {} }))
 
 // #365: typing a value into a control, through a device knob (the field is the one of every control: `Slider`).
-const device = { kind: 'faulk.fake_fx', kind_id: 99, version: 1, name: 'Fake FX', role: 'effect', memory_bytes: 0, midi_output: null, params: [] } as unknown as DeviceDescriptor
-const time = { id: 1, key: 'time', description: 'Time.', unit: 'seconds', min: 0.01, max: 2, default: 0.3, scale: 'log', step: 0, smoothing_seconds: 0, values: [] } as unknown as ParamDescriptor
+const device = {
+  kind: 'faulk.fake_fx',
+  kind_id: 99,
+  version: 1,
+  name: 'Fake FX',
+  role: 'effect',
+  memory_bytes: 0,
+  midi_output: null,
+  params: [],
+} as unknown as DeviceDescriptor
+const time = {
+  id: 1,
+  key: 'time',
+  description: 'Time.',
+  unit: 'seconds',
+  min: 0.01,
+  max: 2,
+  default: 0.3,
+  scale: 'log',
+  step: 0,
+  smoothing_seconds: 0,
+  values: [],
+} as unknown as ParamDescriptor
 
 let host: HTMLDivElement
 let app: ReturnType<typeof mount> | null
@@ -33,8 +54,8 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.append(host)
 })
-afterEach(() => {
-  if (app) unmount(app)
+afterEach(async () => {
+  if (app) await unmount(app)
   app = null
   host.remove()
 })
@@ -109,7 +130,7 @@ describe('typing a value (#365)', () => {
     flushSync()
     expect(changes).toEqual([0.5])
     expect(field()).toBeNull()
-    unmount(app!)
+    void unmount(app!)
     changes = []
     input = open(setup(0.9))
     type(input, 'x')
@@ -127,7 +148,7 @@ describe('typing a value (#365)', () => {
     type(input, '99 s')
     key(input, 'Enter')
     expect(changes).toEqual([2])
-    unmount(app!)
+    void unmount(app!)
     changes = []
     // 0.9004 s reads "900 ms": a field left as it opened must not overwrite the finer value.
     input = open(setup(0.9004))
@@ -136,7 +157,7 @@ describe('typing a value (#365)', () => {
     expect(changes).toEqual([])
     expect(field()).toBeNull()
     // Typing the value the control already has sends nothing either.
-    unmount(app!)
+    void unmount(app!)
     input = open(setup(2))
     type(input, '2 s')
     key(input, 'Enter')
@@ -154,7 +175,7 @@ describe('typing a value (#365)', () => {
     for (const k of ['a', ' ', 'Backspace', 'ArrowLeft', 'Delete', 'Enter']) key(field()!, k)
     expect(outer).toEqual([])
     // The Enter that opens the field is not seen above the control either.
-    unmount(app!)
+    void unmount(app!)
     outer.length = 0
     const again = setup(0.9)
     open(again)

@@ -5,11 +5,9 @@ import { fakeWebMidi, watch } from './support'
 // while the selection or the arming changes still ends. Real worklet, engine and project core; the
 // per-track peaks of the hidden `feedback` element say which track sounds.
 
-const send = (page: Page, bytes: number[]) =>
-  page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+const send = (page: Page, bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
 
-const peaks = async (page: Page) =>
-  ((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').map(Number)
+const peaks = async (page: Page) => ((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').map(Number)
 
 const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
 

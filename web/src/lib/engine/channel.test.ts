@@ -51,7 +51,7 @@ function steps(name: string): Step[] {
   const bytes = new Uint8Array(readFileSync(new URL(name, fixtures)))
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const out: Step[] = []
-  for (let at = 0; at + 5 <= bytes.length; ) {
+  for (let at = 0; at + 5 <= bytes.length;) {
     const n = view.getUint32(at + 1, true)
     if (bytes[at] === 0) {
       out.push({ push: bytes.slice(at + 5, at + 5 + n) })

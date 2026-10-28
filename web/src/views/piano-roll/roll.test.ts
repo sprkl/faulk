@@ -297,11 +297,29 @@ describe('changes that outlive their clip', () => {
   const b = note(960, 62)
 
   it('still apply while every note they replace is in the clip and every note they bring fits it', () => {
-    expect(stillApplies([a, b], [{ from: a, to: note(480, 60) }, { from: b, to: note(1440, 62) }], 3840)).toBe(true)
+    expect(
+      stillApplies(
+        [a, b],
+        [
+          { from: a, to: note(480, 60) },
+          { from: b, to: note(1440, 62) },
+        ],
+        3840,
+      ),
+    ).toBe(true)
   })
 
   it('stop applying when a replaced note is gone, even one that was not the grabbed one', () => {
-    expect(stillApplies([a], [{ from: a, to: note(480, 60) }, { from: b, to: note(1440, 62) }], 3840)).toBe(false)
+    expect(
+      stillApplies(
+        [a],
+        [
+          { from: a, to: note(480, 60) },
+          { from: b, to: note(1440, 62) },
+        ],
+        3840,
+      ),
+    ).toBe(false)
   })
 
   it('stop applying when the clip became shorter than the note they bring', () => {

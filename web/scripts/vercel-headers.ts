@@ -32,11 +32,7 @@ export function siteWideHeaders(config: unknown): Header[] {
     if (source !== SITE_WIDE) {
       throw new Error(`${where}: only "${SITE_WIDE}" is mirrored locally, got ${JSON.stringify(source)}`)
     }
-    if (
-      !Array.isArray(headers) ||
-      headers.length === 0 ||
-      !headers.every((h) => typeof h?.key === 'string' && typeof h?.value === 'string')
-    ) {
+    if (!Array.isArray(headers) || headers.length === 0 || !headers.every((h) => typeof h?.key === 'string' && typeof h?.value === 'string')) {
       throw new Error(`${where}: "headers" must be a non-empty list of { key, value } strings`)
     }
     return headers as Header[]

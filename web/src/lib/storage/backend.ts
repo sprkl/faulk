@@ -2,15 +2,7 @@
 // tests run against a stand-in directory. Plain functions on a `FileSystemDirectoryHandle`; no
 // state beyond the handle, so a call that fails leaves nothing to repair.
 import { needsBytes, type FolderEntry, type SaveEntry } from '../project/core'
-import {
-  IGNORED_FILES,
-  SKIPPED_DIRS,
-  StoreError,
-  SWAP_SUFFIX,
-  type ProjectStore,
-  type Signature,
-  type StoreErrorCode,
-} from './types'
+import { IGNORED_FILES, SKIPPED_DIRS, StoreError, SWAP_SUFFIX, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 
 /** `FileSystemDirectoryHandle.values()`, which `lib.dom` does not type everywhere. */
 type Listable = { values(): AsyncIterable<FileSystemHandle> }

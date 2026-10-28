@@ -9,7 +9,11 @@ import { watch } from './support'
 const ROW = 16
 const RULER = 28
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const transport = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
 const timegrid = (page: Page) => page.getByTestId('timegrid')
 const cell = (page: Page, scene: number) => page.getByTestId('scene-row').nth(scene).getByTestId('cell').first()

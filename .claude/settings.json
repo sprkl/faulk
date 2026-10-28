@@ -83,6 +83,16 @@
 						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-qa/post-tool-use.mjs\""
 					}
 				]
+			},
+			{
+				"matcher": "Edit|Write|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent/format-hook.mjs\"",
+						"timeout": 60
+					}
+				]
 			}
 		],
 		"Stop": [

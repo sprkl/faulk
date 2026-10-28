@@ -104,10 +104,7 @@ export class Renderer {
  * empty rectangle over its hidden CSS object. Thrown while the stage is built, so the stage is
  * dropped and keeps its CSS object.
  */
-export function assertLinked(
-  gl: Pick<WebGL2RenderingContext, 'getProgramParameter' | 'LINK_STATUS'>,
-  program: Pick<Program, 'program'>,
-): void {
+export function assertLinked(gl: Pick<WebGL2RenderingContext, 'getProgramParameter' | 'LINK_STATUS'>, program: Pick<Program, 'program'>): void {
   if (!gl.getProgramParameter(program.program, gl.LINK_STATUS)) throw new Error('shader program did not link')
 }
 
@@ -243,11 +240,7 @@ function stir(flow: Flowmap, stage: Stage, p: PointerState, dt: number): void {
 const PARTICLES = 16384
 
 export class HeroStage extends Stage {
-  private readonly foci: Focus[] = [
-    createFocus(0.28, 0.6, 1.0, 0.55, 0.4),
-    createFocus(0.55, 0.46, 1.7, 0.45, 0.42),
-    createFocus(0.72, 0.3, 2.6, 0.6, 0.3),
-  ]
+  private readonly foci: Focus[] = [createFocus(0.28, 0.6, 1.0, 0.55, 0.4), createFocus(0.55, 0.46, 1.7, 0.45, 0.42), createFocus(0.72, 0.3, 2.6, 0.6, 0.3)]
   private readonly glow: Mesh
   private readonly uniforms: Uniforms
   private readonly flow: Flowmap | undefined
@@ -428,9 +421,7 @@ export class KickStage extends Stage {
   }
 
   protected override measured(): void {
-    const g = this.transparent
-      ? { cx: this.cssW / 2, cy: this.cssH / 2, r: Math.min(this.cssW, this.cssH) / 2 - 28 }
-      : objectGeometry(this.el, this)
+    const g = this.transparent ? { cx: this.cssW / 2, cy: this.cssH / 2, r: Math.min(this.cssW, this.cssH) / 2 - 28 } : objectGeometry(this.el, this)
     this.cx = g.cx
     this.cy = g.cy
     this.r0 = g.r
@@ -472,11 +463,7 @@ export class KickStage extends Stage {
 }
 
 export class HazeStage extends Stage {
-  private readonly foci: Focus[] = [
-    createFocus(0.4, 0.55, 1.4, 0.5, 0.4),
-    createFocus(0.62, 0.42, 2.2, 0.4, 0.36),
-    createFocus(0.55, 0.6, 3.0, 0.7, 0.2),
-  ]
+  private readonly foci: Focus[] = [createFocus(0.4, 0.55, 1.4, 0.5, 0.4), createFocus(0.62, 0.42, 2.2, 0.4, 0.36), createFocus(0.55, 0.6, 3.0, 0.7, 0.2)]
   private readonly mesh: Mesh
   private readonly uniforms: Uniforms
   private readonly flow: Flowmap | undefined

@@ -32,8 +32,7 @@ export const project = defineFeature(
     'save.folder': 'Saved in the folder “{name}”',
     'save.noFolder': 'Not in a folder yet: Save as chooses one',
 
-    'save.banner.permission':
-      'Faulk can no longer write in “{name}”. Your changes are kept here. Allow access to carry on saving.',
+    'save.banner.permission': 'Faulk can no longer write in “{name}”. Your changes are kept here. Allow access to carry on saving.',
     'save.banner.allow': 'Allow',
     'save.banner.error': 'Faulk could not write in “{name}”. Your changes are kept here and it will try again.',
     'save.banner.retry': 'Try again',
@@ -44,8 +43,7 @@ export const project = defineFeature(
     'save.banner.reopenButton': 'Reopen',
     'save.banner.dismiss': 'Dismiss',
 
-    'storage.unsupported':
-      'This browser cannot save to a folder. Your project stays in this tab. Use Chrome or Edge to keep it on your computer.',
+    'storage.unsupported': 'This browser cannot save to a folder. Your project stays in this tab. Use Chrome or Edge to keep it on your computer.',
     'storage.refused': 'The browser did not allow that folder. Choose another one, for example a new folder inside Documents.',
     'storage.notEmpty': 'That folder is not empty. Choose an empty folder: Faulk never writes among other files.',
     'storage.locked': 'This project is open in another tab. Close it there first, or use that tab.',
@@ -133,8 +131,7 @@ export const project = defineFeature(
     'save.folder': 'Enregistré dans le dossier « {name} »',
     'save.noFolder': 'Pas encore dans un dossier : « Enregistrer sous » en choisit un',
 
-    'save.banner.permission':
-      'Faulk ne peut plus écrire dans « {name} ». Tes modifications sont gardées ici. Autorise l’accès pour continuer à enregistrer.',
+    'save.banner.permission': 'Faulk ne peut plus écrire dans « {name} ». Tes modifications sont gardées ici. Autorise l’accès pour continuer à enregistrer.',
     'save.banner.allow': 'Autoriser',
     'save.banner.error': 'Faulk n’a pas pu écrire dans « {name} ». Tes modifications sont gardées ici et il va réessayer.',
     'save.banner.retry': 'Réessayer',
@@ -164,7 +161,8 @@ export const project = defineFeature(
     'confirm.delete.body': '« {name} » sera supprimé de ce navigateur, pour de bon. Exporte-le d’abord si tu veux en garder une copie.',
     'confirm.delete.confirm': 'Supprimer',
     'confirm.keepMine.title': 'Remplacer la version du dossier par la tienne ?',
-    'confirm.keepMine.body': '« {name} » a été modifié hors de Faulk. Si tu continues, ta version est écrite dans le dossier et ces modifications sont perdues.',
+    'confirm.keepMine.body':
+      '« {name} » a été modifié hors de Faulk. Si tu continues, ta version est écrite dans le dossier et ces modifications sont perdues.',
     'confirm.keepMine.confirm': 'Remplacer la version du dossier',
     'confirm.loadFolder.title': 'Charger la version du dossier ?',
     'confirm.loadFolder.body': '« {name} » est rechargé depuis le dossier. Les modifications faites depuis le dernier enregistrement sont perdues.',
@@ -193,7 +191,8 @@ export const project = defineFeature(
     'storage.browserFull': 'Le navigateur n’a pas la place pour ce projet. Libère de la place et réessaie.',
     'storage.deleteOpen': 'Ce projet est ouvert. Commence un nouveau projet ou ouvre-en un autre d’abord.',
     'storage.deleteFailed': 'Le projet n’a pas pu être supprimé.',
-    'storage.needsClick': 'Le navigateur n’ouvre son sélecteur de fichier et sa demande d’autorisation qu’après un clic. Utilise toi-même le menu Projet ou le bandeau.',
+    'storage.needsClick':
+      'Le navigateur n’ouvre son sélecteur de fichier et sa demande d’autorisation qu’après un clic. Utilise toi-même le menu Projet ou le bandeau.',
     'storage.recentGone': 'Ce dossier n’est plus dans les projets récents.',
     'storage.nothingToReopen': 'Il n’y a pas de projet à rouvrir.',
     'storage.noConflict': 'Le dossier n’a pas été modifié hors de Faulk, ou c’est déjà réglé. Rien n’a été changé.',

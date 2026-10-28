@@ -9,12 +9,18 @@ const RULER = 28
 const LANE = 64
 const BAR = 3840
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const stage = (page: Page) => page.getByTestId('arr-stage')
 const names = (page: Page) =>
   page.evaluate(() => {
     const view = (window as unknown as { __faulkView(): { project: { tracks: Record<string, { clips: Record<string, { name: string }> }> } } }).__faulkView()
-    return Object.values(view.project.tracks).flatMap((t) => Object.values(t.clips).map((c) => c.name)).sort()
+    return Object.values(view.project.tracks)
+      .flatMap((t) => Object.values(t.clips).map((c) => c.name))
+      .sort()
   })
 
 test('clip names: the same in the grid, the timeline and the piano roll, stable, renamed from the roll', async ({ page }) => {
@@ -24,7 +30,10 @@ test('clip names: the same in the grid, the timeline and the piano roll, stable,
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkView?: unknown }).__faulkView)) !== 'function', 'the view hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkView?: unknown }).__faulkView)) !== 'function',
+    'the view hook exists in the dev server only',
+  )
 
   // 1. A clip in the cell of the first scene: "Clip 1".
   await page.getByTestId('nav-grid').click()
@@ -52,7 +61,11 @@ test('clip names: the same in the grid, the timeline and the piano roll, stable,
 
   // 4. The roll names every clip the same way and says where each one lives.
   await page.getByTestId('panel-piano-roll').click()
-  await expect(page.getByTestId('roll-clip').locator('option')).toHaveText(['Clip 2 (Arrangement · bar 1)', 'Clip 3 (Arrangement · bar 2)', 'Clip 1 (Grid · Scene 1)'])
+  await expect(page.getByTestId('roll-clip').locator('option')).toHaveText([
+    'Clip 2 (Arrangement · bar 1)',
+    'Clip 3 (Arrangement · bar 2)',
+    'Clip 1 (Grid · Scene 1)',
+  ])
   await page.getByTestId('roll-clip').selectOption({ label: 'Clip 2 (Arrangement · bar 1)' })
   await expect(page.getByTestId('roll-clip-name')).toHaveText('Clip 2')
   await expect(page.getByTestId('roll-clip-origin')).toHaveText('Arrangement · bar 1')

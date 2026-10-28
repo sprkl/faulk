@@ -5,8 +5,13 @@ import { watch } from './support'
 // temporary toast; repeated refusals share the one toast. The refusal is made through the dev
 // server's `__faulkRun` hook: no view sends a command the core refuses by itself.
 
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
-const missingTrack = () => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'track.rename', track: '00000000000000000000000009', name: 'x' })
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
+const missingTrack = () =>
+  (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'track.rename', track: '00000000000000000000000009', name: 'x' })
 
 for (const [locale, text] of [
   ['en-US', 'Not done: what this targets no longer exists.'],
@@ -19,7 +24,10 @@ for (const [locale, text] of [
     await page.goto('/app')
     await startAudio(page)
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
 
     const toast = page.getByTestId('refusal-toast')
     await expect(toast).toHaveCount(0)

@@ -38,12 +38,7 @@ export interface Stores {
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
-export function createStores(
-  view: MainViewId,
-  panel: PanelViewId,
-  deps: StorageDeps = browserDeps,
-  exportDeps: ExportDeps = browserExportDeps,
-): Stores {
+export function createStores(view: MainViewId, panel: PanelViewId, deps: StorageDeps = browserDeps, exportDeps: ExportDeps = browserExportDeps): Stores {
   const project = new ProjectStore()
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)

@@ -118,7 +118,27 @@ for (const lang of ['en', 'fr'] as const) {
     const mute = header(page, 'Synth').getByRole('button', { name: x.mute('Synth'), exact: true })
     await mute.click()
     await expect(mute).toHaveAttribute('aria-pressed', 'true')
-    for (const code of ['KeyA', 'KeyW', 'KeyS', 'KeyE', 'KeyD', 'KeyF', 'KeyT', 'KeyG', 'KeyY', 'KeyH', 'KeyU', 'KeyJ', 'KeyK', 'KeyO', 'KeyL', 'KeyP', 'Semicolon', 'KeyZ', 'KeyX']) {
+    for (const code of [
+      'KeyA',
+      'KeyW',
+      'KeyS',
+      'KeyE',
+      'KeyD',
+      'KeyF',
+      'KeyT',
+      'KeyG',
+      'KeyY',
+      'KeyH',
+      'KeyU',
+      'KeyJ',
+      'KeyK',
+      'KeyO',
+      'KeyL',
+      'KeyP',
+      'Semicolon',
+      'KeyZ',
+      'KeyX',
+    ]) {
       await page.keyboard.press(code)
     }
     await expect(mute).toHaveAttribute('aria-pressed', 'true')

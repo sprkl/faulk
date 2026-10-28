@@ -55,9 +55,17 @@
   <div class="choice" data-testid="param-{param.key}" title={hint}>
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
-        <button role="radio" aria-checked={value === choice.value} aria-label={valueLabel(choice.key)} title={valueLabel(choice.key)} onclick={() => onchange(choice.value)}>
+        <button
+          role="radio"
+          aria-checked={value === choice.value}
+          aria-label={valueLabel(choice.key)}
+          title={valueLabel(choice.key)}
+          onclick={() => onchange(choice.value)}
+        >
           {#if ICONS[choice.key]}
-            <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
+            <svg width="24" height="20" viewBox="0 0 24 20" aria-hidden="true"
+              ><path d={ICONS[choice.key]} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg
+            >
           {:else}
             {valueLabel(choice.key)}
           {/if}

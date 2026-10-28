@@ -217,7 +217,11 @@
   {:else}
     <span class="rail"></span>
     {#if kind === 'pan'}
-      <span class="fill" style:left="calc({Math.min(position, 0.5)} * (100% - {THUMB}px) + {THUMB / 2}px)" style:width="calc({Math.abs(position - 0.5)} * (100% - {THUMB}px))"></span>
+      <span
+        class="fill"
+        style:left="calc({Math.min(position, 0.5)} * (100% - {THUMB}px) + {THUMB / 2}px)"
+        style:width="calc({Math.abs(position - 0.5)} * (100% - {THUMB}px))"
+      ></span>
     {:else if vertical}
       <span class="fill" style:height="calc({along(position)} + {THUMB / 2}px)"></span>
     {:else}
@@ -244,7 +248,16 @@
 {/if}
 
 {#if menu}
-  <ValueMenu x={menu.x} y={menu.y} value={defaultText} onreset={() => { closeMenu(); onreset() }} onclose={() => closeMenu()} />
+  <ValueMenu
+    x={menu.x}
+    y={menu.y}
+    value={defaultText}
+    onreset={() => {
+      closeMenu()
+      onreset()
+    }}
+    onclose={() => closeMenu()}
+  />
 {/if}
 
 <style>

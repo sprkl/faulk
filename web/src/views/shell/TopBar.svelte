@@ -15,14 +15,10 @@
   const t = ui.t
 
   const latency = $derived(
-    engine.status?.estimatedLatencyMs != null
-      ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) })
-      : t('engine.latencyUnknown'),
+    engine.status?.estimatedLatencyMs != null ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
   // The engine's load, when the host measures it (neither the worklet nor the helper does yet: it stays hidden until it is).
-  const load = $derived(
-    engine.feedback?.cpuLoad != null ? t('transport.load', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null,
-  )
+  const load = $derived(engine.feedback?.cpuLoad != null ? t('transport.load', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null)
 </script>
 
 <header class="top">
@@ -34,11 +30,7 @@
 
   <nav class="views" aria-label={t('views.nav')}>
     {#each viewsIn('main') as view (view.id)}
-      <button
-        aria-current={ui.view === view.id ? 'page' : undefined}
-        data-testid="nav-{view.id}"
-        onclick={() => ui.show(view.id)}>{t(view.label)}</button
-      >
+      <button aria-current={ui.view === view.id ? 'page' : undefined} data-testid="nav-{view.id}" onclick={() => ui.show(view.id)}>{t(view.label)}</button>
     {/each}
   </nav>
 
@@ -53,7 +45,9 @@
           <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1 L3 9 H8 L7 15 L13 7 H8 Z" fill="currentColor" /></svg>
           {t('engine.boost')}
         {:else}
-          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8 H14.5 M8 1.5 C 5 5, 5 11, 8 14.5 M8 1.5 C 11 5, 11 11, 8 14.5" /></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
+            ><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8 H14.5 M8 1.5 C 5 5, 5 11, 8 14.5 M8 1.5 C 11 5, 11 11, 8 14.5" /></svg
+          >
           {t('engine.web')}
         {/if}
         <span class="value" data-testid="latency">{latency}</span>

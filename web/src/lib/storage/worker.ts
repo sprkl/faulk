@@ -36,6 +36,7 @@ async function handle(request: Request): Promise<unknown> {
     if (!source) throw new Error('no source folder')
     return backend.copyBlobsFrom(source)
   }
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- read here, called on the next line with `this` bound to the backend
   const call = backend[request.method] as (...args: unknown[]) => Promise<unknown>
   return call.apply(backend, request.args)
 }

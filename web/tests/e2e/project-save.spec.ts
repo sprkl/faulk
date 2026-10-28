@@ -117,7 +117,9 @@ test('the automatic save of a medium project: its cost, and the page and the aud
     `autosave of one edited note (medium project, ${TRACKS * CLIPS * NOTES} notes), main-thread core ms: ${costs.map((c) => c.coreMs.toFixed(1)).join(', ')}; ` +
       `Worker write ms: ${costs.map((c) => c.writeMs.toFixed(1)).join(', ')}; files ${costs[0]!.files}, bytes ${costs[0]!.bytes}`,
   )
-  console.log(`main-thread long tasks while playing and saving: ${probe.long.length} (worst ${worst(probe.long).toFixed(0)} ms); engine reports: ${probe.gaps.length}, longest gap ${worst(probe.gaps).toFixed(0)} ms`)
+  console.log(
+    `main-thread long tasks while playing and saving: ${probe.long.length} (worst ${worst(probe.long).toFixed(0)} ms); engine reports: ${probe.gaps.length}, longest gap ${worst(probe.gaps).toFixed(0)} ms`,
+  )
   for (const cost of costs) {
     expect(cost.files).toBe(1)
     expect(cost.coreMs).toBeLessThan(500)

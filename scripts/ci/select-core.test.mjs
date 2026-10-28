@@ -29,6 +29,22 @@ test('a push runs nothing heavy, on develop and on main', () => {
   assert.equal(r.e2e, '')
 })
 
+test('the blame-ignore list runs nothing', () => {
+  const r = pr(['.git-blame-ignore-revs'])
+  assert.equal(r.mode, 'targeted')
+  assert.equal(r.web || r.rustChecks || r.helperWindows || r.agentScripts || r.rustProto, false)
+  assert.equal(r.e2e, '')
+})
+
+test('the formatter and lint settings run the web checks and no browser test', () => {
+  for (const f of ['web/.prettierrc.json', 'web/.prettierignore', 'web/eslint.config.js']) {
+    const r = pr([f])
+    assert.equal(r.web, true, f)
+    assert.equal(r.e2e, '', f)
+    assert.equal(r.rustChecks, false, f)
+  }
+})
+
 test('docs-only, notes and .scratch run nothing', () => {
   const r = pr(['docs/agents/verification.md', 'docs/log.d/330-x.md', 'README.md', 'CLAUDE.md', '.scratch/x.md', '.github/ISSUE_TEMPLATE/a.yml'])
   assert.equal(pr(['.github/actions/setup/action.yml']).mode, 'full')

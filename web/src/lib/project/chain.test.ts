@@ -5,7 +5,13 @@ import type { Device, Track } from '../generated/protocol'
 import { addEffectCommand, addMasterEffectCommand, cardActions, chainOf, effectCount, masterChainOf, moveTarget } from './chain'
 
 const builtin = (id: string) => ({ builtin: { id, version: 1 } })
-const device = (kind: string, role: 'instrument' | 'effect', order: string, enabled = true): Device => ({ order, role, enabled, params: {}, source: builtin(kind) })
+const device = (kind: string, role: 'instrument' | 'effect', order: string, enabled = true): Device => ({
+  order,
+  role,
+  enabled,
+  params: {},
+  source: builtin(kind),
+})
 const track = (devices: Record<string, Device>): Track => ({ devices }) as unknown as Track
 
 const fake = (kind: string, role: string): DeviceDescriptor => ({ kind, name: kind, role, params: [] }) as unknown as DeviceDescriptor

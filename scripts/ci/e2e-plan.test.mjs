@@ -67,7 +67,7 @@ test('one change, one plan: whole specs, smoke of the others, shards', () => {
 })
 
 test('nothing a browser sees: no plan to run, no smoke either', () => {
-  for (const f of ['docs/a.md', 'scripts/agent/verify.mjs', 'web/src/lib/a.test.ts', 'web/README.md', 'CLAUDE.md', '.claude/settings.json', '.github/ISSUE_TEMPLATE/x.yml']) {
+  for (const f of ['docs/a.md', 'scripts/agent/verify.mjs', 'web/src/lib/a.test.ts', 'web/README.md', 'web/.prettierrc.json', 'web/.prettierignore', 'web/eslint.config.js', 'CLAUDE.md', '.claude/settings.json', '.github/ISSUE_TEMPLATE/x.yml']) {
     const p = plan([f])
     assert.deepEqual([p.run, p.specs, p.smoke, p.shards], [false, [], [], 0], f)
   }

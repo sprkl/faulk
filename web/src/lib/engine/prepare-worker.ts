@@ -33,9 +33,7 @@ self.onmessage = (event) => {
       const exports = instantiate(new WebAssembly.Module(message.bytes), message.memory)
       const setup = createChannel(exports, message.sampleRate)
       const channel = setup.channel
-      queue = new PushQueue(exports, message.memory, channel, (code, at) =>
-        self.postMessage({ type: 'pushed', code, at }),
-      )
+      queue = new PushQueue(exports, message.memory, channel, (code, at) => self.postMessage({ type: 'pushed', code, at }))
       setInterval(() => queue?.flush(), FLUSH_MS)
       self.postMessage({
         type: 'ready',

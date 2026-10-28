@@ -6,7 +6,11 @@ import { watch } from './support'
 // gesture is then checked for what it changes and for being one undo.
 
 const SILENCE_DB = -60
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
 const meterDb = async (page: Page) => {
   const peak = Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
@@ -41,15 +45,33 @@ test('grid: delete, rename, duplicate, copy and move a clip from its cell', asyn
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
 
   // Columns: the first MIDI track, a second MIDI track, an audio track. Rows: four scenes.
   await run(page, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
   await run(page, { type: 'track.create', kind: 'audio' })
   for (let i = 0; i < 4; i++) await run(page, { type: 'scene.create' })
-  const view = () => page.evaluate(() => (window as unknown as { __faulkView(): { project: { tracks: Record<string, { kind: string; clips: Record<string, { slot: string | null; name: string; content: { midi?: { notes: unknown[] } } }> }>; scenes: Record<string, unknown> } } }).__faulkView().project)
+  const view = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __faulkView(): {
+              project: {
+                tracks: Record<string, { kind: string; clips: Record<string, { slot: string | null; name: string; content: { midi?: { notes: unknown[] } } }> }>
+                scenes: Record<string, unknown>
+              }
+            }
+          }
+        ).__faulkView().project,
+    )
   const project = await view()
-  const midi = Object.entries(project.tracks).filter(([, t]) => t.kind === 'midi').map(([id]) => id)
+  const midi = Object.entries(project.tracks)
+    .filter(([, t]) => t.kind === 'midi')
+    .map(([id]) => id)
   const scenes = Object.keys(project.scenes)
   expect(midi).toHaveLength(2)
   // A clip with a held note in the first cell of the first MIDI track.

@@ -7,7 +7,11 @@ import { watch } from './support'
 
 const SILENCE_DB = -60
 const BAR = 3840
-const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: /Start audio|Démarrer/ }).click()
+const startAudio = (page: Page) =>
+  page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
 const meterDb = async (page: Page) => {
   const peak = Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
@@ -22,7 +26,9 @@ interface Block {
   length: number
 }
 const blocks = async (page: Page): Promise<Block[]> =>
-  (JSON.parse((await page.getByTestId('arrangement').getAttribute('data-blocks')) ?? '[]') as Block[]).sort((a, b) => a.start - b.start || (a.track < b.track ? -1 : 1))
+  (JSON.parse((await page.getByTestId('arrangement').getAttribute('data-blocks')) ?? '[]') as Block[]).sort(
+    (a, b) => a.start - b.start || (a.track < b.track ? -1 : 1),
+  )
 
 interface View {
   tracks: Record<string, { kind: string; clips: Record<string, { slot: string | null; content: { midi?: { notes: unknown[] } } }> }>
@@ -38,14 +44,19 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  test.skip((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
 
   // Two MIDI tracks and two scenes; each track holds a held-note clip in the first scene.
   await run(page, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
   await run(page, { type: 'scene.create' })
   await run(page, { type: 'scene.create' })
   const first = await view(page)
-  const midi = Object.entries(first.tracks).filter(([, t]) => t.kind === 'midi').map(([id]) => id)
+  const midi = Object.entries(first.tracks)
+    .filter(([, t]) => t.kind === 'midi')
+    .map(([id]) => id)
   const scenes = Object.keys(first.scenes)
   expect(midi).toHaveLength(2)
   const gridClips: string[] = []
@@ -76,7 +87,14 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
   project = await view(page)
   expect(notesOf(project, midi[0]!, gridClips[0]!)).toBe(2)
   expect(notesOf(project, midi[0]!, copy!.clip)).toBe(1)
-  await run(page, { type: 'clip.notes.add', clip: copy!.clip, notes: [{ start: 1920, pitch: 67, length: 480, velocity: 90 }, { start: 2400, pitch: 69, length: 480, velocity: 90 }] })
+  await run(page, {
+    type: 'clip.notes.add',
+    clip: copy!.clip,
+    notes: [
+      { start: 1920, pitch: 67, length: 480, velocity: 90 },
+      { start: 2400, pitch: 69, length: 480, velocity: 90 },
+    ],
+  })
   project = await view(page)
   expect(notesOf(project, midi[0]!, copy!.clip)).toBe(3)
   expect(notesOf(project, midi[0]!, gridClips[0]!)).toBe(2)

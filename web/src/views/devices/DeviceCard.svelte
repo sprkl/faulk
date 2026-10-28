@@ -31,18 +31,49 @@
   <header>
     <h3 title={name}>{name}</h3>
     <div class="actions">
-      <button aria-label={t('devices.bypass', { name })} aria-pressed={bypassed} title={t('devices.bypass', { name })} data-testid="device-bypass" onclick={() => dispatcher.run(actions.bypass)}>
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1 V 7 M3.8 3.2 A 5 5 0 1 0 10.2 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+      <button
+        aria-label={t('devices.bypass', { name })}
+        aria-pressed={bypassed}
+        title={t('devices.bypass', { name })}
+        data-testid="device-bypass"
+        onclick={() => dispatcher.run(actions.bypass)}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+          ><path d="M7 1 V 7 M3.8 3.2 A 5 5 0 1 0 10.2 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg
+        >
       </button>
       {#if isEffect}
-        <button aria-label={t('devices.moveLeft', { name })} title={t('devices.moveLeft', { name })} data-testid="device-left" disabled={actions.moveLeft === null} onclick={() => actions.moveLeft && dispatcher.run(actions.moveLeft)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M9 2 L 4 7 L 9 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <button
+          aria-label={t('devices.moveLeft', { name })}
+          title={t('devices.moveLeft', { name })}
+          data-testid="device-left"
+          disabled={actions.moveLeft === null}
+          onclick={() => actions.moveLeft && dispatcher.run(actions.moveLeft)}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+            ><path d="M9 2 L 4 7 L 9 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg
+          >
         </button>
-        <button aria-label={t('devices.moveRight', { name })} title={t('devices.moveRight', { name })} data-testid="device-right" disabled={actions.moveRight === null} onclick={() => actions.moveRight && dispatcher.run(actions.moveRight)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2 L 10 7 L 5 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <button
+          aria-label={t('devices.moveRight', { name })}
+          title={t('devices.moveRight', { name })}
+          data-testid="device-right"
+          disabled={actions.moveRight === null}
+          onclick={() => actions.moveRight && dispatcher.run(actions.moveRight)}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+            ><path d="M5 2 L 10 7 L 5 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg
+          >
         </button>
-        <button aria-label={t('devices.remove', { name })} title={t('devices.remove', { name })} data-testid="device-remove" onclick={() => dispatcher.run(actions.remove)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L 11 11 M11 3 L 3 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+        <button
+          aria-label={t('devices.remove', { name })}
+          title={t('devices.remove', { name })}
+          data-testid="device-remove"
+          onclick={() => dispatcher.run(actions.remove)}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+            ><path d="M3 3 L 11 11 M11 3 L 3 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg
+          >
         </button>
       {/if}
     </div>

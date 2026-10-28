@@ -69,11 +69,7 @@ export function particleConstants(size: number, count: number, seed = 7): Float3
 export function waveform(x: number, t: number): number {
   const env = Math.exp(-2.2 * x) * (1 - Math.exp(-40 * x))
   const breath = 0.86 + 0.14 * Math.sin(t * 0.9)
-  return (
-    env *
-    breath *
-    (Math.sin(x * 80 + t * 1.1) * 0.7 + Math.sin(x * 211 - t * 2.3) * 0.25 + Math.sin(x * 23 + t * 0.6) * 0.3)
-  )
+  return env * breath * (Math.sin(x * 80 + t * 1.1) * 0.7 + Math.sin(x * 211 - t * 2.3) * 0.25 + Math.sin(x * 23 + t * 0.6) * 0.3)
 }
 
 export interface Box {
