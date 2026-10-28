@@ -35,18 +35,15 @@
   const current = $derived(chain.find((e) => e.effectIndex === null)?.kind ?? null)
 
   // A new instrument takes the automation lanes of the old one with it (`track.set_instrument`; undo brings them back): the warning is
-  // shown before the swap, and the count of what it took after it. Both come from the project at the moment of the click.
+  // shown before the swap, and what it took after it, whoever swapped (a click here, an agent, a redo): the project store notices it.
   const instrumentId = $derived(chain.find((e) => e.effectIndex === null)?.id ?? null)
   const lanesOnInstrument = $derived.by(() => {
     const lanes = project.tracks.find((e) => e.id === track)?.track.automation ?? {}
     return Object.values(lanes).filter((lane) => lane && 'device' in lane.target && lane.target.device.device === instrumentId).length
   })
-  let removed = $state({ track: '', n: 0 })
-  function pick(kind: string) {
-    const n = kind === current ? 0 : lanesOnInstrument
-    dispatcher.run(setInstrument(track, kind))
-    removed = { track, n }
-  }
+  /** The note already read and dismissed (the store replaces its object at each swap). */
+  let dismissed = $state.raw<object | null>(null)
+  const taken = $derived(project.swapLanes?.track === track && project.swapLanes !== dismissed && lanesOnInstrument === 0 ? project.swapLanes : null)
 </script>
 
 <nav class="browser" aria-label={master ? t('devices.browserMaster') : t('devices.browser')} data-testid="device-browser">
@@ -67,7 +64,7 @@
             title={t('devices.use', { name: d.name })}
             data-testid="browse-instrument"
             data-kind={d.kind}
-            onclick={() => pick(d.kind)}>{d.name}</button
+            onclick={() => dispatcher.run(setInstrument(track, d.kind))}>{d.name}</button
           >
         </li>
       {/each}
@@ -77,10 +74,10 @@
   {/if}
   {#if !master && midi && lanesOnInstrument > 0}
     <p class="warn" role="note" data-testid="instrument-lanes-warning">{t('automation.instrumentLanes', { n: lanesOnInstrument })}</p>
-  {:else if !master && midi && removed.track === track && removed.n > 0}
+  {:else if !master && midi && taken}
     <p class="warn" role="status" data-testid="instrument-lanes-removed">
-      {t('automation.instrumentLanesRemoved', { n: removed.n })}
-      <button type="button" class="dismiss" onclick={() => (removed = { track: '', n: 0 })}>{t('automation.dismiss')}</button>
+      {t('automation.instrumentLanesRemoved', { n: taken.n })}
+      <button type="button" class="dismiss" onclick={() => (dismissed = taken)}>{t('automation.dismiss')}</button>
     </p>
   {/if}
   <h3 class="label">{t('devices.effects')}</h3>

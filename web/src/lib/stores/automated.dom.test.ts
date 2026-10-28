@@ -1,5 +1,7 @@
 // The controls that follow a lane while the transport runs (AM-4), fed by the real project core as the dispatcher feeds it.
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { flushSync } from 'svelte'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { addPoints, createLane } from '../automation-commands'
 import { setDeviceParam } from '../device-commands'
@@ -13,7 +15,7 @@ import { ProjectStore } from './project.svelte'
 
 let module: WebAssembly.Module
 beforeAll(async () => {
-  module = await coreModule(readFileSync(new URL('../project/wasm/project.wasm', import.meta.url)))
+  module = await coreModule(readFileSync(resolve(process.cwd(), 'src/lib/project/wasm/project.wasm')))
 })
 
 function session() {
@@ -32,6 +34,8 @@ function session() {
   const play = (tick: number | null) => {
     engine.started = true
     engine.feedback = { transport: tick === null ? 'stopped' : 'playing', playheadTick: tick ?? 0 } as unknown as FeedbackReport
+    // The effect that ends a hold at a jump runs on the next flush.
+    flushSync()
   }
   const lane = (n = 0) => Object.keys(project.tracks[0]!.track.automation)[n]!
   return { project, engine, automated, run, track: track.id, synth, play, lane }
@@ -132,5 +136,32 @@ describe('a change of the parameter while the lane plays', () => {
     expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
     s.play(10)
     expect(s.automated.device(s.synth, 'sustain')).toBe(0.2)
+  })
+
+  it('lets go when the transport stops and plays again, or leaps ahead: the engine frees every lane at a jump', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: 0, shape: 'linear' },
+        { tick: 1000, value: 1, shape: 'linear' },
+        { tick: 4000, value: 0, shape: 'linear' },
+      ]),
+    )
+    s.play(600)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    s.play(700)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // Stop at 700 and Play: the position is inside the span the change held, and the lane has the hand.
+    s.play(null)
+    s.play(700)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.7, 6)
+    // A change at 1200 holds until 4000; a leap to 3500 (more than half a second of music) frees the lane.
+    s.play(1200)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.2))
+    s.play(1300)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    s.play(3500)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(1 - 2500 / 3000, 6)
   })
 })

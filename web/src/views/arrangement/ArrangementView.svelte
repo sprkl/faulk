@@ -129,7 +129,17 @@
   const blocks = $derived(blocksOf(entries))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
-  const totalBars = $derived(Math.max(DEFAULT_TOTAL_BARS, Math.ceil(lastEnd(blocks) / bar) + SPARE_BARS))
+  /** The tick of the last point of any lane: a lane may reach further than the clips (an agent, a fade-out), and must stay in reach. */
+  const lastPoint = $derived.by(() => {
+    let last = 0
+    for (const e of entries) {
+      for (const lane of Object.values(e.track.automation)) {
+        if (lane) for (const tick in lane.points) last = Math.max(last, Number(tick))
+      }
+    }
+    return last
+  })
+  const totalBars = $derived(Math.max(DEFAULT_TOTAL_BARS, Math.ceil(Math.max(lastEnd(blocks), lastPoint) / bar) + SPARE_BARS))
   const transport = $derived(project.view?.project.transport ?? null)
 
   // View state.

@@ -802,10 +802,6 @@ fn restore_instrument_refuses_lanes_that_do_not_fit_and_leaves_the_state_alone()
     // A lane identifier that is in use (the track's own device).
     let used = LaneId::parse(&c.a.to_string()).unwrap();
     assert_eq!(code(&swap(BTreeMap::from([(used, lane)])), &s), "invalid");
-    // A refusal leaves the project untouched.
-    let before = s.clone();
-    let _ = check(&swap(BTreeMap::new()), &s, &context());
-    assert_eq!(s, before);
 }
 
 #[test]

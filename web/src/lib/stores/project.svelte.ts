@@ -15,6 +15,11 @@ export class ProjectStore {
   canRedo = $state(false)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
   watch: ((events: readonly ProjectEvent[]) => void) | null = null
+  /**
+   * The automation lanes a swap of a track's instrument took with it (`track.set_instrument`: the lanes of the old instrument go in the
+   * same history entry), whoever asked for it: a click, an agent, a redo. Cleared when lanes come back (an undo). `null` before any.
+   */
+  swapLanes = $state.raw<{ track: string; n: number } | null>(null)
 
   /** The synth's settings: the engine defaults overlaid with what the project holds for its device. */
   params = $derived.by<Record<SynthParam, number>>(() => {
@@ -70,11 +75,37 @@ export class ProjectStore {
   }
 
   /**
+   * Notices an instrument swap that took lanes: some events delete lanes that target the track's instrument and the chain of that
+   * track changes in the same command (deleting a lane alone, or an effect with its lanes, is another command). Read before the
+   * mirror takes the events, while it still holds the lanes that go.
+   */
+  private noteSwap(events: readonly ProjectEvent[]) {
+    const view = this.view
+    if (!view) return
+    const gone: string[] = []
+    const taken: Record<string, number> = {}
+    for (const event of events) {
+      if (event.type === 'automation_lane_created') this.swapLanes = null
+      if (event.type === 'track_deleted') gone.push(event.track)
+    }
+    for (const event of events) {
+      if (event.type !== 'automation_lane_deleted' || gone.includes(event.track)) continue
+      const track = view.project.tracks[event.track]
+      const target = track?.automation[event.lane]?.target
+      if (!track || !target || !('device' in target) || track.devices[target.device.device]?.role !== 'instrument') continue
+      if (events.some((e) => e.type === 'device_chain_changed' && e.track === event.track)) taken[event.track] = (taken[event.track] ?? 0) + 1
+    }
+    const [track] = Object.keys(taken)
+    if (track !== undefined) this.swapLanes = { track, n: taken[track]! }
+  }
+
+  /**
    * Takes the events of an applied command. `read` gives the core's project; it is called at
    * most once, and only when an event changed something other than the history flags or came from a controller.
    */
   apply(events: ProjectEvent[], read: () => ProjectView) {
     this.watch?.(events)
+    this.noteSwap(events)
     let changed = false
     for (const event of events) {
       if (event.type === 'history_changed') {

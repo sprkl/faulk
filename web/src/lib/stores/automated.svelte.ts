@@ -1,5 +1,7 @@
+import { untrack } from 'svelte'
 import type { AutomationLane, ProjectEvent } from '../generated/protocol'
 import { pointsOf, targetKey, valueAt, lowerBound } from '../../views/arrangement/automation/model'
+import { PPQ } from '../../views/transport/time'
 import type { EngineStore } from './engine.svelte'
 import type { ProjectStore } from './project.svelte'
 
@@ -56,6 +58,25 @@ export class AutomatedValues {
     private readonly engine: EngineStore,
   ) {
     project.watch = (events) => this.observe(events)
+    // The engine gives every lane its hand back at a jump (AM-2): the transport stopping (Play is a jump), the play position going
+    // back (a seek, the loop) or leaping ahead. A forward seek of less than half a second of music looks like playing and goes unseen.
+    $effect.root(() => {
+      let last: number | null = null
+      $effect(() => {
+        const tick = this.tick
+        untrack(() => {
+          // eslint-disable-next-line svelte/prefer-svelte-reactivity
+          if (this.holds.size > 0 && (tick === null || (last !== null && (tick < last || tick - last > this.jumpTicks())))) this.holds = new Map()
+          last = tick
+        })
+      })
+    })
+  }
+
+  /** Half a second of music at the project's tempo, in ticks: a play position that moves further between two reports has jumped. */
+  private jumpTicks(): number {
+    const bpm = this.project.view?.project.tempo[0]?.bpm ?? 120
+    return (bpm / 60) * PPQ * 0.5
   }
 
   /** The value a device parameter is automated to now, or `undefined` when no running lane drives it. */

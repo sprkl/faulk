@@ -269,6 +269,11 @@ test('automation: changing the instrument takes its lanes with it, says so, and 
   expect(await lanes(page)).toHaveLength(2)
   await expect(page.getByTestId('arr-lane')).toHaveCount(2)
   await expect(page.getByTestId('instrument-lanes-warning')).toBeVisible()
+  // The same swap by an agent (a command that does not come from the browser's buttons): the page says so too.
+  const track = (await tracks(page))[0]![0]
+  await run(page, { type: 'track.set_instrument', track, instrument: 'faulk.drums' })
+  await expect(page.getByTestId('instrument-lanes-removed')).toContainText('(1)')
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
   expect(seen.errors).toEqual([])
 })
 
@@ -305,7 +310,8 @@ test('automation: stays fluid with 10 000 points in sight', async ({ page }) => 
   })
   await expect.poll(async () => Number(await grid.getAttribute('data-px-per-tick'))).toBeLessThan(0.01)
   await grid.press('Home')
-  await expect.poll(async () => Number(await stage(page).getAttribute('data-lane-points'))).toBeGreaterThan(5000)
+  // All the points of the lane are in sight (the count of the points the last frame looked at).
+  await expect.poll(async () => Number(await stage(page).getAttribute('data-lane-points'))).toBe(POINTS)
   expect(await stage(page).getAttribute('data-lane-dense')).toBe('true')
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-10000.png` })
 
