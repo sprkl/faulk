@@ -45,8 +45,8 @@ pub const MAX_CLIPS_PER_TRACK: usize = 100_000;
 /// Most placements in one track's arrangement.
 pub const MAX_PLACEMENTS_PER_TRACK: usize = 100_000;
 
-/// Most automation lanes in one track.
-pub const MAX_LANES_PER_TRACK: usize = 10_000;
+/// Most automation lanes in one track: as many as the engine plays on one track (AM-2).
+pub const MAX_LANES_PER_TRACK: usize = engine::automation::LANES_PER_TRACK;
 
 /// Most notes in one MIDI clip.
 pub const MAX_NOTES_PER_CLIP: usize = 1_000_000;

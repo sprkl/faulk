@@ -22,8 +22,8 @@
 //!   lanes (`track.delete`); their undo brings the lanes back with their points.
 //! - A lane with more points than the density threshold of the project format is stored as a
 //!   blob and read back as the same table: nothing changes for the commands.
-//! - Playing the lanes is the engine's (AM-2), editing them in the timeline is the interface's
-//!   (AM-4): these commands only change the project.
+//! - Playing the lanes is the engine's (AM-2, `engine::automation`), editing them in the
+//!   timeline is the interface's (AM-4): these commands only change the project.
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::device::{descriptor_of, registry};

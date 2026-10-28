@@ -37,6 +37,7 @@ use std::sync::Arc;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::arrangement;
+use crate::automation::TrackLanes;
 use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
@@ -148,12 +149,15 @@ pub struct Clip {
     pub content: ClipContent,
 }
 
-/// An automation lane: what it drives and its points (a content snapshot).
+/// An automation lane: what it drives and its points (a content snapshot), sorted by tick,
+/// one per tick, finite, a gain lane's in linear gain (the Preparer's work); and the audio
+/// side's state of its reading ([`crate::automation`], AM-2).
 #[derive(Debug)]
 pub struct Lane {
     pub track: TrackSlot,
     pub target: AutomationTarget,
     pub points: Table<AutomationPoint>,
+    pub run: crate::automation::LaneRun,
 }
 
 /// A declared audio source; AU-3 adds its streaming buffers.
@@ -259,6 +263,22 @@ impl<T> Paged<T> {
             .as_mut()
     }
 
+    /// Calls `f` with the slot and the value of every value held, in slot order, visiting
+    /// every slot of the allocated pages. No allocation.
+    pub fn for_each_mut(&mut self, mut f: impl FnMut(u32, &mut T)) {
+        for (p, page) in self.pages.as_mut_slice().iter_mut().enumerate() {
+            let Some(page) = page.as_mut() else {
+                continue;
+            };
+            for (i, value) in page.as_mut_slice().iter_mut().enumerate() {
+                if let Some(value) = value.as_mut() {
+                    // A directory addresses fewer than `u32::MAX` slots (`limits`).
+                    f((p * PAGE_SLOTS + i) as u32, value);
+                }
+            }
+        }
+    }
+
     /// The values held, in slot order.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.pages
@@ -329,6 +349,23 @@ impl<T> Paged<T> {
     }
 }
 
+/// Makes a lane's points what the audio side reads (AM-2, [`crate::automation`]): finite
+/// values only, sorted by tick, one point per tick (the compiler sends them so; otherwise
+/// which of equal ticks stays is the unstable sort's choice, the same in every build), a
+/// gain lane's dB turned into a linear gain. In place, no allocation, off the audio path.
+fn sanitize_points(points: &mut Vec<AutomationPoint>, target: AutomationTarget) {
+    points.retain(|p| p.value.is_finite());
+    if !points.is_sorted_by(|a, b| a.tick < b.tick) {
+        points.sort_unstable_by_key(|p| p.tick);
+        points.dedup_by_key(|p| p.tick);
+    }
+    if target == AutomationTarget::MixerGain {
+        for p in points.iter_mut() {
+            p.value = 10f64.powf(f64::from(p.value) / 20.0) as f32;
+        }
+    }
+}
+
 /// Everything the audio side holds about the project. Built by `prepare` (the initial one
 /// by [`channel`], a fresh one for each `Reset`), mutated only by `apply`.
 #[derive(Debug)]
@@ -355,8 +392,8 @@ pub struct State {
 
 impl State {
     /// Puts `schedule` on the master (its timed gain, pan and mute, [`crate::mixer`]) and
-    /// returns the one it replaces, to be freed off the audio path. No message fills it
-    /// yet: the automation (AM-2) will.
+    /// returns the one it replaces, to be freed off the audio path. No message fills it:
+    /// the master's automation is #378's; the tests set it.
     pub fn set_master_schedule(
         &mut self,
         schedule: Option<Box<crate::events::Schedule>>,
@@ -1150,6 +1187,7 @@ impl Preparer {
                     track,
                     target,
                     points: Table::from_vec(Vec::new()),
+                    run: crate::automation::LaneRun::default(),
                 })?;
                 let staged = stage(
                     &mut self.points,
@@ -1159,9 +1197,10 @@ impl Preparer {
                     points,
                     &mut self.rejected,
                 )?;
-                let Some(points) = staged else {
+                let Some(mut points) = staged else {
                     return Ok(None);
                 };
+                sanitize_points(&mut points, target);
                 value.points = Table::from_vec(points);
                 self.shadow.lanes.commit(lane.0, &growth);
                 RtMsg::LanePut(PagedPut {
@@ -1619,6 +1658,7 @@ impl Engine {
                 running: self.transport.is_running(),
                 segments: self.segments.as_slice(),
                 position: self.transport.position(),
+                frame: self.transport.total_samples(),
             };
             let live: &[LiveEvent] = if first {
                 self.live_block.as_slice()
@@ -1930,9 +1970,17 @@ impl Engine {
             } => {
                 match state.track_mut(track) {
                     Some(t) => {
+                        // A gesture on the fader or the pan holds the lane that drives it
+                        // (AM-2); one on the mute holds neither.
+                        let moved_gain = t.gain.to_bits() != gain.to_bits();
+                        let moved_pan = t.pan.to_bits() != pan.to_bits();
                         t.gain = gain;
                         t.pan = pan;
                         t.mute = mute;
+                        hold_lanes(state, track, |target| {
+                            (moved_gain && target == AutomationTarget::MixerGain)
+                                || (moved_pan && target == AutomationTarget::MixerPan)
+                        });
                     }
                     None => skipped = true,
                 }
@@ -1965,6 +2013,7 @@ impl Engine {
             }
             RtMsg::DevicePut { track, put } => match state.chain_mut(track) {
                 Some(chain) => {
+                    let device = DeviceSlot(put.slot as u16);
                     let midi = takes_notes(&put.value);
                     let (spare, out) = put_slot(chain, put);
                     skipped = out;
@@ -1973,6 +2022,7 @@ impl Engine {
                     {
                         t.graph.release_notes();
                     }
+                    resend_lanes(state, track, device);
                     Some(Garbage::Devices(spare))
                 }
                 None => {
@@ -2023,6 +2073,7 @@ impl Engine {
                     }
                     None => skipped = true,
                 }
+                resend_lanes(state, track, device);
                 if release && let Some(t) = state.track_mut(track) {
                     t.graph.release_notes();
                 }
@@ -2035,7 +2086,12 @@ impl Engine {
                 value,
             } => {
                 match device_mut(state, track, device) {
-                    Some(entry) => entry.device.set_param(param, value),
+                    Some(entry) => {
+                        entry.device.set_param(param, value);
+                        // A gesture holds the lane that drives this parameter (AM-2).
+                        let target = AutomationTarget::DeviceParam { device, param };
+                        hold_lanes(state, track, |t| t == target);
+                    }
                     None => skipped = true,
                 }
                 None
@@ -2098,16 +2154,34 @@ impl Engine {
                     Some(Garbage::Placements(placements))
                 }
             },
-            RtMsg::LanePut(put) => {
+            RtMsg::LanePut(mut put) => {
+                // A new upload of the same lane goes on where the old one was (its
+                // gesture); a strip that loses a lane goes back to its fader.
+                let lost = match state.lanes.get(put.slot) {
+                    Some(old) if old.track == put.value.track && old.target == put.value.target => {
+                        put.value.run.inherit(&old.run);
+                        None
+                    }
+                    Some(old) => Some((old.track, old.target)),
+                    None => None,
+                };
                 let (spare, out) = state.lanes.put(put);
                 skipped = out;
+                if !out && let Some((track, target)) = lost {
+                    forget_lane(state, track, target);
+                }
                 Some(Garbage::Lanes(spare))
             }
             RtMsg::LaneRemove(lane) => match state.lanes.take(lane.0) {
-                Ok(old) => Some(Garbage::Lanes(PagedSpare {
-                    growth: None,
-                    item: old,
-                })),
+                Ok(old) => {
+                    if let Some(old) = &old {
+                        forget_lane(state, old.track, old.target);
+                    }
+                    Some(Garbage::Lanes(PagedSpare {
+                        growth: None,
+                        item: old,
+                    }))
+                }
                 Err(()) => {
                     skipped = true;
                     None
@@ -2201,6 +2275,44 @@ impl Engine {
             core::mem::forget(lost);
             self.leaked = self.leaked.saturating_add(1);
         }
+    }
+}
+
+/// The lanes of `track`, through the list the last block linked (AM-2,
+/// [`crate::automation`]).
+fn lanes_of(state: &mut State, track: TrackSlot) -> Option<TrackLanes<'_>> {
+    let head = state.track(track).map(|t| t.graph.lanes)?;
+    Some(TrackLanes {
+        table: &mut state.lanes,
+        head,
+    })
+}
+
+/// A manual gesture on `track` holds its lanes whose target `matches`.
+fn hold_lanes(state: &mut State, track: TrackSlot, matches: impl Fn(AutomationTarget) -> bool) {
+    if let Some(mut lanes) = lanes_of(state, track) {
+        lanes.hold(track, matches);
+    }
+}
+
+/// The device in slot `device` of `track` changed (replaced, switched on or off): its lanes
+/// send their value again.
+fn resend_lanes(state: &mut State, track: TrackSlot, device: DeviceSlot) {
+    if let Some(mut lanes) = lanes_of(state, track) {
+        lanes.resend(track, device);
+    }
+}
+
+/// A lane of `track` on `target` is gone: a mixer lane gives the strip's field back to the
+/// fader (AM-2); a device keeps the lane's last value.
+fn forget_lane(state: &mut State, track: TrackSlot, target: AutomationTarget) {
+    let Some(t) = state.track_mut(track) else {
+        return;
+    };
+    match target {
+        AutomationTarget::MixerGain => t.graph.forget_gain(),
+        AutomationTarget::MixerPan => t.graph.forget_pan(),
+        AutomationTarget::DeviceParam { .. } => {}
     }
 }
 

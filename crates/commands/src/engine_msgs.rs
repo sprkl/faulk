@@ -451,7 +451,7 @@ fn compile_event(
         }
         // The lane goes up whole: a device that was not in the engine yet (a restored
         // device, whose chain event follows) is uploaded with the chain, since a lane
-        // names the device's slot. Playing the lane is AM-2.
+        // names the device's slot. The engine plays it (AM-2, `engine::automation`).
         ProjectEvent::AutomationLaneCreated { track, lane }
         | ProjectEvent::AutomationPointsChanged { track, lane } => {
             let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
