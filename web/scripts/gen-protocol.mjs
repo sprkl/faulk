@@ -54,6 +54,8 @@ const parts = [
   `export const PROTOCOL_VERSION = ${bundle.protocol_version} as const`,
   `export const PARAM_IDS = ${JSON.stringify(bundle.param_ids)} as const`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
+  '/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */',
+  `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
   '/** The ids of the one synth until the project runs in the page (PR-4, PR-5), and its device kind. */',

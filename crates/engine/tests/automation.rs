@@ -30,6 +30,10 @@ const BAR: i64 = 3_840;
 const WARM: usize = 4_096;
 /// Largest difference allowed between a sample and its expected value (−120 dBFS).
 const EXACT: f32 = 1e-6;
+/// Largest difference allowed between a sample of a volume ramp and the ideal curve of the
+/// fader's law: the strip draws chords of at most 64 frames of that curve (#389), and the
+/// worst chord of the tests (a one-bar fade across the knee of the taper at -12 dB) is 9e-6 off (absolute, in sample amplitude: the per-bar dB measures hold the law to 0.05 dB).
+const CHORD: f32 = 2e-5;
 
 fn gain_of(db: f32) -> f32 {
     10f32.powf(db / 20.0)
@@ -191,17 +195,39 @@ fn reference(block: usize, frames: usize) -> Vec<f32> {
     r.left
 }
 
-/// Asserts `out[k] = reference[k] × level(k)` over `range`.
+/// Asserts `out[k] = reference[k] × level(k)` over `range`, to the last bit that matters
+/// ([`EXACT`]).
 fn assert_levels(
     out: &[f32],
     reference: &[f32],
     range: core::ops::Range<usize>,
     level: impl Fn(usize) -> f32,
 ) {
+    assert_levels_within(out, reference, range, EXACT, level);
+}
+
+/// The same for a volume ramp, which the strip draws in chords of the fader's curve: within
+/// [`CHORD`] of the ideal curve.
+fn assert_curve(
+    out: &[f32],
+    reference: &[f32],
+    range: core::ops::Range<usize>,
+    level: impl Fn(usize) -> f32,
+) {
+    assert_levels_within(out, reference, range, CHORD, level);
+}
+
+fn assert_levels_within(
+    out: &[f32],
+    reference: &[f32],
+    range: core::ops::Range<usize>,
+    tolerance: f32,
+    level: impl Fn(usize) -> f32,
+) {
     for k in range {
         let want = reference[k] * level(k);
         assert!(
-            (out[k] - want).abs() <= EXACT,
+            (out[k] - want).abs() <= tolerance,
             "frame {k}: {} instead of {want} (level {})",
             out[k],
             level(k)
@@ -214,14 +240,37 @@ fn fade_in() -> [AutomationPoint; 2] {
     [pt(0, -96.0, Curve::Linear), pt(BAR, 0.0, Curve::Linear)]
 }
 
+/// The fader's law, written again here from its table (position, dB) so that the engine's is
+/// checked against it, not against itself.
+const LAW: [(f64, f64); 6] = [
+    (0.0, -96.0),
+    (0.08, -60.0),
+    (0.28, -30.0),
+    (0.5, -12.0),
+    (0.78, 0.0),
+    (1.0, 6.0),
+];
+
+/// The amplitude at a position of the fader's travel (0 at the bottom).
+fn law_gain(position: f64) -> f32 {
+    if position <= 0.0 {
+        return 0.0;
+    }
+    let i = LAW.iter().position(|&(p, _)| position <= p).unwrap();
+    let ((p0, d0), (p1, d1)) = (LAW[i - 1], LAW[i]);
+    let db = d0 + (position - p0) / (p1 - p0) * (d1 - d0);
+    10f64.powf(db / 20.0) as f32
+}
+
+/// The level at frame `k` of a ramp from -96 dB (position 0) to 0 dB (position 0.78) over
+/// one bar, then held.
 fn fade_level(k: usize) -> f32 {
-    let g0 = f64::from(gain_of(-96.0));
     let t = (k as f64 / (BAR as usize * FPT) as f64).min(1.0);
-    (g0 + (1.0 - g0) * t) as f32
+    law_gain(0.78 * t)
 }
 
 #[test]
-fn a_gain_lane_from_minus_96_to_0_db_over_one_bar_is_followed_to_the_sample() {
+fn a_gain_lane_from_minus_96_to_0_db_over_one_bar_follows_the_fader_law_whatever_the_block_size() {
     let len = BAR as usize * FPT;
     let mut renders = Vec::new();
     for block in [33, 97, 128, 1024] {
@@ -235,10 +284,10 @@ fn a_gain_lane_from_minus_96_to_0_db_over_one_bar_is_followed_to_the_sample() {
         let reference = reference(block, r.at);
         let out = &r.left[start..];
         let reference = &reference[start..];
-        assert_levels(out, reference, 0..len + 4_000, fade_level);
-        // The first point on its sample (−96 dB), the last one on its own (unity).
-        assert!((out[0] - reference[0] * gain_of(-96.0)).abs() <= 1e-9);
-        assert_eq!(out[len], reference[len]);
+        assert_curve(out, reference, 0..len + 4_000, fade_level);
+        // The first point on its sample (−96 dB, silence), the last one on its own (unity).
+        assert_eq!(out[0], 0.0);
+        assert!((out[len] - reference[len]).abs() <= 1e-7);
         renders.push(out[..len + 4_000].to_vec());
     }
     for r in &renders[1..] {
@@ -270,13 +319,13 @@ fn a_seek_into_a_ramp_has_the_right_level_on_its_first_sample() {
     r.run(100 * block);
     r.check();
     let reference = reference(block, r.at);
-    assert_levels(&r.left, &reference, start..seek, |k| fade_level(k - start));
+    assert_curve(&r.left, &reference, start..seek, |k| fade_level(k - start));
     let half = BAR as usize * FPT / 2;
-    assert_levels(&r.left, &reference, seek..seek + 200 * block, |k| {
+    assert_curve(&r.left, &reference, seek..seek + 200 * block, |k| {
         fade_level(half + k - seek)
     });
     let three = BAR as usize * FPT * 3 / 4;
-    assert_levels(&r.left, &reference, replay..replay + 100 * block, |k| {
+    assert_curve(&r.left, &reference, replay..replay + 100 * block, |k| {
         fade_level(three + k - replay)
     });
 }
@@ -319,7 +368,7 @@ fn a_loop_wrap_brings_the_lane_back_to_the_loop_start() {
     r.run(half * 2 + 1_000);
     r.check();
     let reference = reference(block, r.at);
-    assert_levels(&r.left, &reference, start..start + half * 2 + 1_000, |k| {
+    assert_curve(&r.left, &reference, start..start + half * 2 + 1_000, |k| {
         fade_level((k - start) % half)
     });
 }
@@ -491,14 +540,14 @@ fn a_pan_gesture_does_not_hold_the_gain_lane() {
     // During the gesture's 5 ms ramp (240 frames) the lane's values glide with it; exact
     // before and after.
     let fade = 240;
-    assert_levels(&r.left, &reference, start..gesture, |k| {
+    assert_curve(&r.left, &reference, start..gesture, |k| {
         fade_level(k - start)
     });
     for k in gesture..gesture + fade {
         let want = reference[k] * fade_level(k - start);
         assert!((r.left[k] - want).abs() < 1e-4, "frame {k}");
     }
-    assert_levels(&r.left, &reference, gesture + fade..r.at, |k| {
+    assert_curve(&r.left, &reference, gesture + fade..r.at, |k| {
         fade_level(k - start)
     });
     assert!(
@@ -870,4 +919,123 @@ fn a_hundred_lanes_of_a_thousand_points_play_without_allocating() {
     }
     r.check();
     assert!(r.left.iter().any(|s| s.abs() > 0.01));
+}
+
+/// 0 dB to -96 dB over eight bars: the level at the start of each bar, in dB, by the law of
+/// the fader (a position that goes down by an eighth of 0.78 per bar), worked out by hand.
+const BAR_DB: [f64; 9] = [
+    0.0,
+    -4.178_571_428_6,
+    -8.357_142_857_1,
+    -13.022_727_272_7,
+    -21.0,
+    -28.977_272_727_3,
+    -42.75,
+    -57.375,
+    f64::NEG_INFINITY,
+];
+
+/// Level of `out` against `reference` over the 128 frames around `k`, in dB.
+fn measured_db(out: &[f32], reference: &[f32], k: usize) -> f64 {
+    let sum = |s: &[f32]| {
+        s[k - 64..k + 64]
+            .iter()
+            .map(|x| f64::from(*x).powi(2))
+            .sum::<f64>()
+    };
+    10.0 * (sum(out) / sum(reference)).log10()
+}
+
+#[test]
+fn an_eight_bar_fade_from_0_db_to_minus_infinity_goes_down_like_a_fader_pulled_at_constant_speed() {
+    let bar = BAR as usize * FPT;
+    let len = 8 * bar;
+    let mut renders = Vec::new();
+    for block in [33, 128, 1024] {
+        let mut r = Rig::new(block, 1);
+        r.lane(
+            0,
+            0,
+            AutomationTarget::MixerGain,
+            &[pt(0, 0.0, Curve::Linear), pt(8 * BAR, -96.0, Curve::Linear)],
+        );
+        r.run_to(8_192);
+        let start = r.play(0);
+        r.run(len + 4_000);
+        r.check();
+        let reference = reference(block, r.at);
+        let out = &r.left[start..];
+        let reference = &reference[start..];
+        let level = |k: usize| law_gain(0.78 * (1.0 - (k as f64 / len as f64).min(1.0)));
+        assert_curve(out, reference, 0..len + 4_000, level);
+        // The level at each bar line, measured.
+        for (i, want) in BAR_DB.iter().enumerate().take(8).skip(1) {
+            let k = i * bar;
+            let got = measured_db(out, reference, k);
+            assert!(
+                (got - want).abs() < 0.05,
+                "bar {i}: {got} dB instead of {want} dB"
+            );
+        }
+        // The end of the fade is silence, exactly, and stays so.
+        assert!(out[len..len + 4_000].iter().all(|x| *x == 0.0));
+        // Not the amplitude law (half way would be -6 dB) and not the dB law (-48 dB): the
+        // middle of the travel, 0.39, is -21 dB.
+        let mid = measured_db(out, reference, 4 * bar);
+        assert!((mid + 21.0).abs() < 0.05, "{mid} dB at the fourth bar");
+        renders.push(out[..len + 4_000].to_vec());
+    }
+    for r in &renders[1..] {
+        let diff = r
+            .iter()
+            .zip(&renders[0])
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(diff <= EXACT, "block sizes differ by {diff}");
+    }
+}
+
+#[test]
+fn a_step_and_a_flat_linear_segment_of_a_volume_lane_hold_their_exact_gain() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(
+        0,
+        0,
+        AutomationTarget::MixerGain,
+        &[
+            pt(0, 0.0, Curve::Linear),
+            pt(100, 0.0, Curve::Step),
+            pt(200, -6.0, Curve::Linear),
+            pt(300, -6.0, Curve::Linear),
+        ],
+    );
+    let start = r.play(0);
+    r.run(12_000);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, start..start + 200 * FPT, |_| 1.0);
+    assert_levels(
+        &r.left,
+        &reference,
+        start + 200 * FPT..start + 11_000,
+        |_| gain_of(-6.0),
+    );
+}
+
+#[test]
+fn a_gain_lane_outside_the_fader_range_is_clamped_not_a_panic() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(
+        0,
+        0,
+        AutomationTarget::MixerGain,
+        &[pt(0, 40.0, Curve::Linear), pt(100, -300.0, Curve::Linear)],
+    );
+    let start = r.play(0);
+    r.run(6_000);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, start..start + 1, |_| gain_of(6.0));
+    assert_levels(&r.left, &reference, start + 2_600..start + 6_000, |_| 0.0);
 }

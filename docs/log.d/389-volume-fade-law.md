@@ -1,0 +1,2 @@
+2026-10-28
+* **Update** (#389): a linear segment of a volume lane is a straight line along the travel of the fader (the law of the mixer's fader and of the lane's axis), no longer in amplitude: `specs/02-decoupage-mvp.md` AM-2 (volume, chords, cost, versions), the `automation.*` command descriptions, and the law written once in `crates/engine/src/fader.rs`, exported in the schema bundle (`fader_taper`) from which the page builds its fader. -96 dB on a lane is a gain of 0. `PROTOCOL_VERSION` stays 9 (helper 0.1.9 plays the old law, flagged in the spec).

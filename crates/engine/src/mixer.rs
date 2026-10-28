@@ -35,7 +35,8 @@
 //! The automation (AM-2, [`crate::automation`]) sends its values to the strip the same way,
 //! through the track's sink: [`GAIN`] or [`PAN`] at the first frame of each sub-block, and
 //! [`GAIN_RAMP`] or [`PAN_RAMP`] at its last frame while the lane moves, so that the levels
-//! draw the lane's straight line between the two.
+//! draw a straight line between the two (a volume lane sends chords of its curve along the
+//! fader's travel, see [`crate::automation`]).
 //!
 //! A timed gain or pan takes effect **at its sample**, exactly: the automation's curve is
 //! the smoothing, a ramp the lane draws is followed to the sample, and the engine adds no

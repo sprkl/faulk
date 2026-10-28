@@ -5,8 +5,8 @@
 //! # A lane
 //!
 //! A lane ([`crate::engine::Lane`]) is a table of points sorted by tick, at most one per
-//! tick, with finite values (the Preparer makes them so, and turns a gain lane's dB into a
-//! linear gain: a gain lane moves in amplitude). The shape of a point is the transition
+//! tick, with finite values (the Preparer makes them so; a gain lane keeps its dB, which the
+//! fader's law clamps to its range). The shape of a point is the transition
 //! **after** it: `Linear` goes in a straight line to the next point's value, `Step` holds
 //! its value until the next point. Before its first point a lane holds the first value,
 //! after its last point the last value.
@@ -16,6 +16,24 @@
 //! MO-4). The value of a lane at frame `c` is the value of the transition after the last
 //! point reached, at the playhead `max(position_at(c), tick of that point)`: a point's
 //! value falls exactly on its sample and a linear transition is linear in frames.
+//!
+//! # A volume lane (#389)
+//!
+//! A straight line drawn on a volume lane is a line along the **travel of the fader**
+//! ([`crate::fader`], the law of the mixer's fader and of the lane's axis in the timeline), not
+//! in amplitude and not in dB: a fade from 0 dB to -96 dB over eight bars goes down like a
+//! fader pulled at constant speed. A linear transition goes in a straight line in position
+//! from the position of the point's dB to the position of the next one's. The lane's lowest
+//! value, -96 dB, is silence: an amplitude of exactly 0. A pan lane and a device parameter
+//! stay linear in their own unit.
+//!
+//! The strip draws straight lines between the values it receives (below), so the curve is
+//! sent as **chords**: the value of a volume lane at a frame is the straight line, in
+//! amplitude, between the curve's amplitudes at the two anchors around the frame, the last
+//! control frame (or the point just reached) and the next control frame (or the next point).
+//! The anchors are the same whatever the block size, so the render does not depend on it
+//! either; a chord is at most [`CONTROL_FRAMES`] long, and a point and a control frame are
+//! on the curve exactly.
 //!
 //! # Pieces and control instants
 //!
@@ -68,6 +86,7 @@
 use crate::device::Event;
 use crate::engine::{Lane, Paged, Track};
 use crate::events::Sink;
+
 use crate::mixer::{GAIN, GAIN_RAMP, MIXER_SLOT, PAN, PAN_RAMP};
 use crate::msg::{AutomationPoint, AutomationTarget, Curve, DeviceSlot, ParamId, Slots, TrackSlot};
 use crate::transport::Segment;
@@ -183,6 +202,95 @@ pub fn value_at(points: &[AutomationPoint], r: usize, segment: &Segment, c: usiz
     let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
     let (va, vb) = (f64::from(prev.value), f64::from(next.value));
     Some((va + (vb - va) * t) as f32)
+}
+
+/// What the engine sends for a lane at frame `c` (module doc): the value of the lane in its
+/// unit, except for a volume lane, which goes to the strip as an amplitude along the fader's
+/// travel ([`gain_value`]).
+fn lane_value(
+    target: AutomationTarget,
+    points: &[AutomationPoint],
+    r: usize,
+    segment: &Segment,
+    base: u64,
+    c: usize,
+) -> Option<f32> {
+    if target == AutomationTarget::MixerGain {
+        gain_value(points, r, segment, base, c)
+    } else {
+        value_at(points, r, segment, c)
+    }
+}
+
+/// The amplitude of a volume lane at frame `c` with `r` points reached (module doc, "A volume
+/// lane"). A held value is the amplitude of its dB. On a linear transition the fader's
+/// position goes in a straight line from the value of the point to the value of the next
+/// one, and the amplitude is drawn as a chord of that curve between the two **anchors**
+/// around `c`: the last control frame or the frame of the last point reached, and the next
+/// control frame or the frame of the next point. The anchors do not depend on how the clock
+/// was cut into blocks, so neither does the line the strip draws between the values it
+/// receives; at a point and at a control frame the value is exact.
+fn gain_value(
+    points: &[AutomationPoint],
+    r: usize,
+    segment: &Segment,
+    base: u64,
+    c: usize,
+) -> Option<f32> {
+    let first = points.first()?;
+    if r == 0 {
+        return Some(held_gain(first.value));
+    }
+    let prev = points.get(r - 1)?;
+    let Some(next) = points.get(r) else {
+        return Some(held_gain(prev.value));
+    };
+    if prev.curve == Curve::Step || next.tick <= prev.tick || prev.value == next.value {
+        return Some(held_gain(prev.value));
+    }
+    let control = c as i64 - (base.wrapping_add(c as u64) % CONTROL_FRAMES) as i64;
+    let point = segment.sample_of(prev.tick).floor();
+    let a = (control as f64).max(point);
+    let landing = segment.sample_of(next.tick).floor();
+    let b = ((control + CONTROL_FRAMES as i64) as f64).min(landing);
+    let (pa, pb) = (position(prev.value), position(next.value));
+    let ga = f64::from(crate::fader::gain_at(along(prev, next, segment, a, pa, pb)));
+    let gb = if b >= landing {
+        f64::from(crate::fader::gain_at(pb))
+    } else {
+        f64::from(crate::fader::gain_at(along(prev, next, segment, b, pa, pb)))
+    };
+    if b <= a {
+        return Some(ga as f32);
+    }
+    let x = ((c as f64 - a) / (b - a)).clamp(0.0, 1.0);
+    Some((ga + (gb - ga) * x) as f32)
+}
+
+/// The amplitude of a held gain in dB (`MIN_DB` is silence).
+fn held_gain(db: f32) -> f32 {
+    crate::fader::gain_at(position(db))
+}
+
+/// The fader position of a gain in dB.
+fn position(db: f32) -> f64 {
+    crate::fader::position_of_db(f64::from(db))
+}
+
+/// The fader position at fractional frame `frame` of a linear transition from `prev` to
+/// `next` (the lane's straight line in travel, from `pa` to `pb`).
+fn along(
+    prev: &AutomationPoint,
+    next: &AutomationPoint,
+    segment: &Segment,
+    frame: f64,
+    pa: f64,
+    pb: f64,
+) -> f64 {
+    let (ta, tb) = (prev.tick.0 as f64, next.tick.0 as f64);
+    let x = segment.position_at_frame(frame).max(ta);
+    let t = ((x - ta) / (tb - ta)).clamp(0.0, 1.0);
+    pa + (pb - pa) * t
 }
 
 /// Whether the transition after the last of `r` points reached moves.
@@ -362,7 +470,7 @@ impl TrackLanes<'_> {
             if lane.run.manual != Manual::Free {
                 return;
             }
-            let Some(value) = value_at(points, r, segment, start) else {
+            let Some(value) = lane_value(lane.target, points, r, segment, base, start) else {
                 return;
             };
             if let AutomationTarget::DeviceParam { .. } = lane.target {
@@ -397,6 +505,7 @@ impl TrackLanes<'_> {
     pub(crate) fn push_end(
         &mut self,
         segment: &Segment,
+        base: u64,
         start: usize,
         end: usize,
         sink: &mut Sink,
@@ -417,7 +526,7 @@ impl TrackLanes<'_> {
             if !on_slope(points, r) {
                 return;
             }
-            let Some(value) = value_at(points, r, segment, last) else {
+            let Some(value) = lane_value(lane.target, points, r, segment, base, last) else {
                 return;
             };
             let (device, id) = address(lane.target, true);

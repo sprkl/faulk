@@ -90,7 +90,13 @@ impl Segment {
 
     /// The playhead, in fractional ticks, at frame `offset` of the block.
     pub fn position_at(&self, offset: usize) -> f64 {
-        self.origin_tick + (offset as f64 - self.origin_sample) / self.samples_per_tick
+        self.position_at_frame(offset as f64)
+    }
+
+    /// The playhead, in fractional ticks, at a frame of the block that may lie before it
+    /// (a negative frame) or between two samples.
+    pub fn position_at_frame(&self, frame: f64) -> f64 {
+        self.origin_tick + (frame - self.origin_sample) / self.samples_per_tick
     }
 
     /// The fractional position of `tick`, in samples from the block start (not clamped).

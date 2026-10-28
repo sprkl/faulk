@@ -117,9 +117,14 @@ describe('the value of a lane at a tick', () => {
     expect(valueAt(p, 1500, gainTarget)).toBe(1)
     expect(valueAt(p, 1920, gainTarget)).toBe(0.2)
   })
-  it('interpolates a volume lane by amplitude, like the engine (the middle of -96 to 0 dB is -6 dB)', () => {
+  it("interpolates a volume lane along the fader's travel, like the engine (#389: the middle of -96 to 0 dB is -21 dB)", () => {
     const p = lane(volume, [0, -96], [1000, 0])
-    expect(valueAt(p, 500, volume)).toBeCloseTo(-6.02, 1)
+    // Half of the travel from the bottom to unity (0.39) is -21 dB: not -6 dB (amplitude), not -48 dB (dB).
+    expect(valueAt(p, 500, volume)).toBeCloseTo(-21, 9)
+    expect(valueAt(p, 0, volume)).toBe(-96)
+    expect(valueAt(p, 1000, volume)).toBeCloseTo(0, 9)
+    // A fade down is the same curve backwards.
+    expect(valueAt(lane(volume, [0, 0], [8000, -96]), 4000, volume)).toBeCloseTo(-21, 9)
     // A pan is interpolated in its own units.
     expect(valueAt(lane(pan, [0, -1], [1000, 1]), 250, pan)).toBeCloseTo(-0.5, 9)
   })
