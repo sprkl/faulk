@@ -9,6 +9,11 @@
 //!   `automation.lane.create` refuses a second lane on a parameter (a restore gives back what
 //!   was there, even two lanes that a merge left on one parameter). The master and the devices
 //!   of the master's chain are not automatable yet (a lane lives in a track).
+//! - Before its first point a lane holds the first point's value (from tick 0), after its
+//!   last point the last value; the engine applies the lane's value at the playhead when the
+//!   transport stops and at every seek (#388), so a lane sets its parameter from the first bar.
+//!   A lane belongs to the track and its points are at absolute ticks of the timeline: moving,
+//!   copying, cutting or deleting clips does not touch lanes (#390).
 //! - A lane holds at most one point per tick: `{tick, value, shape}`. `shape` is the
 //!   transition from the point to the next one, `linear` (default) or `step`. A tick lies in
 //!   `[0, 2^40]`. A linear segment of a **volume** lane goes in a straight line along the
@@ -80,7 +85,11 @@ domain! {
     /// `not_found` for an unknown track, device or parameter, with `invalid` when the track
     /// already has a lane on that parameter or when the device is in the master's chain
     /// (the master is not automatable yet), and with `limit` at the safety limit of lanes.
-    /// Undo: `automation.lane.delete`.
+    /// A lane has no point yet and does nothing; once it has points, it holds the first
+    /// point's value from the start of the timeline until that point, and the engine applies
+    /// its value at the playhead when the transport stops and at every seek, so a lane with a
+    /// single point at bar 9 already sets its parameter from bar 1. A lane belongs to the
+    /// track, not to its clips. Undo: `automation.lane.delete`.
     "automation.lane.create" (kind = "edit", undo = "inverse", destructive = false)
     LaneCreate { track: TrackId, target: AutomationTarget } => {
         /// The lane created.
@@ -116,8 +125,11 @@ domain! {
     /// most one point per tick: a tick that already holds a different point, or that appears
     /// twice in the batch, is refused (use `automation.points.update` to change a point); a
     /// point equal to the one already there changes nothing. Refused with `limit` past the
-    /// safety limit of points per lane or in the project. Undo: `automation.points.remove`
-    /// of the points actually added.
+    /// safety limit of points per lane or in the project. Before its first point a lane holds
+    /// the first point's value (from tick 0, bar 1), so the first point sets the value of
+    /// everything before it: to keep a parameter at its current value until a change, add a
+    /// point at tick 0 with that value. Points are at absolute ticks of the timeline, they do
+    /// not follow clips. Undo: `automation.points.remove` of the points actually added.
     "automation.points.add" (kind = "edit", undo = "inverse", destructive = false)
     PointsAdd { lane: LaneId, points: Vec<Point> } => {
         /// How many points were new.

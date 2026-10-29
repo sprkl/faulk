@@ -66,8 +66,17 @@
 //! pan changed) **holds** the matching lanes of the track: they send nothing, and the
 //! gesture applies, until the playhead reaches the lane's next point, where the lane takes
 //! over at that point's sample (after the last point: until the next jump). A jump (play,
-//! seek, loop wrap) gives every parameter back to its lanes at once. Stopped, the lanes
-//! send nothing: the last value, a gesture's or a lane's, stays. A new upload of a lane
+//! seek, loop wrap) gives every parameter back to its lanes at once.
+//!
+//! # Stopped (#388)
+//!
+//! What sounds is what the page shows: when the clock stops, and at every seek while it is
+//! stopped, each lane sends its value at the playhead ([`TrackLanes::push_frozen`], the lane
+//! read through a one-frame [`Segment::frozen`]; before the first point, the first value).
+//! Then it sends nothing: a gesture made while stopped holds until the next play or seek,
+//! which give the parameter back to its lanes. A lane that is uploaded again (its points
+//! edited), created, or whose device was built again sends its value at the playhead too.
+//! A new upload of a lane
 //! (its points edited) keeps its hold; a lane uploaded in the same batch of messages as the
 //! gesture is not held (the list is the last block's). A device built again in its slot,
 //! or switched on or off, receives its lanes' values again.
@@ -389,6 +398,42 @@ impl TrackLanes<'_> {
         self.each(|lane| {
             lane.run.manual = Manual::Free;
             lane.run.sent = None;
+        });
+    }
+
+    /// The clock is stopped at `position`: every lane whose parameter is not held by a
+    /// gesture and has not applied its value yet sends it at offset 0 (a device's value, a
+    /// strip's gain or pan, without a ramp end). `moved` is a stop or a seek: it gives every
+    /// parameter back to its lanes first, like a jump. Between two such events a lane sends
+    /// nothing, so a gesture holds until the next play or seek.
+    pub(crate) fn push_frozen(&mut self, position: f64, moved: bool, sink: &mut Sink) {
+        let segment = Segment::frozen(position);
+        self.each(|lane| {
+            if moved {
+                lane.run.manual = Manual::Free;
+                lane.run.sent = None;
+            }
+            if lane.run.manual != Manual::Free || lane.run.sent.is_some() {
+                return;
+            }
+            let points = lane.points.as_slice();
+            let r = reached(points, lane.run.index, &segment, 0);
+            lane.run.index = r;
+            let Some(value) = lane_value(lane.target, points, r, &segment, 0, 0) else {
+                return;
+            };
+            let (device, id) = address(lane.target, false);
+            let pushed = sink.push_lane_param(
+                device,
+                Event::ParamValue {
+                    offset: 0,
+                    id,
+                    value,
+                },
+            );
+            if pushed {
+                lane.run.sent = Some(value.to_bits());
+            }
         });
     }
 

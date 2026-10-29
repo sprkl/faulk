@@ -104,14 +104,80 @@ fn automation_renders_the_same_natively_and_in_wasm() {
         .render_secs(0.6);
     let r = parity(s.scenario());
     r.assert_clean();
-    // The gain lane plays: the play starts it at −96 dB, from the fader's 0 dB.
-    let before = r.rms_in(0.0..0.05);
-    let after = r.rms_in(0.06..0.08);
-    assert!(
-        before > 0.01 && after < before * 0.1,
-        "{before} then {after}"
-    );
+    // The gain lane applies at the stopped playhead (#388): it starts at −96 dB, so the held
+    // notes are silent before the play, and they sound later in the scenario.
+    assert!(r.rms_in(0.0..0.05) < 1e-4);
     r.assert_audible(0.2..3.0, 0.01);
+}
+
+/// A stop and a seek while stopped apply the lanes at the playhead (#388), the same natively
+/// and in WASM: a volume lane steps from -24 dB to 0 dB at the second bar, and the held
+/// notes follow the playhead, then a fader gesture while stopped holds until the next seek.
+#[test]
+fn a_stop_and_a_stopped_seek_apply_the_lanes_in_both_targets() {
+    let mut s = Session::single_synth();
+    let track = s.state().project.tracks.keys().next().unwrap().clone();
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        vec![point(0, -24.0, Shape::Step), point(3840, 0.0, Shape::Step)],
+    );
+    s.note_on(57, 110).render_secs(0.5);
+    // Stopped at the start: -24 dB.
+    s.run(Command::Transport(transport::Command::Seek {
+        tick: Tick(3840),
+    }))
+    .render_secs(0.5);
+    // Stopped at the second bar: 0 dB.
+    s.run(Command::Transport(transport::Command::Play {}))
+        .render_secs(0.5);
+    s.run(Command::Transport(transport::Command::Stop {}))
+        .render_secs(0.5);
+    // The stop applies the lane where the clock stands (still the second bar), a seek back
+    // applies the first value, a fader gesture holds, and a seek to the same tick lets go.
+    s.run(Command::Transport(transport::Command::Seek {
+        tick: Tick(0),
+    }))
+    .render_secs(0.5);
+    s.run(Command::Mixer(mixer::Command::SetVolume {
+        track,
+        gain_db: Some(-6.0),
+    }))
+    .render_secs(0.5);
+    s.run(Command::Transport(transport::Command::Seek {
+        tick: Tick(0),
+    }))
+    .render_secs(0.5);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    let quiet = r.rms_in(0.2..0.5);
+    let loud = r.rms_in(0.7..1.0);
+    let db = 20.0 * (loud / quiet).log10();
+    assert!((db - 24.0).abs() < 2.0, "{db} dB between the two bars");
+    // The stop kept the second bar's value, the seek back went to -24 dB.
+    let stopped = r.rms_in(1.7..2.0);
+    assert!(
+        (20.0 * (stopped / loud).log10()).abs() < 2.0,
+        "{stopped} after the stop"
+    );
+    let back = r.rms_in(2.2..2.5);
+    assert!(
+        (20.0 * (back / quiet).log10()).abs() < 2.0,
+        "{back} after the seek back"
+    );
+    // The gesture (-6 dB) holds, then the seek to the same tick gives the lane back.
+    let held = r.rms_in(2.7..3.0);
+    assert!(
+        (20.0 * (held / quiet).log10() - 18.0).abs() < 2.0,
+        "{held} under the gesture"
+    );
+    let lane_again = r.rms_in(3.2..3.5);
+    assert!(
+        (20.0 * (lane_again / quiet).log10()).abs() < 2.0,
+        "{lane_again} after the second seek"
+    );
 }
 
 /// A two-bar fade from 0 dB to -96 dB (#389) is the same natively and in WASM, and it goes

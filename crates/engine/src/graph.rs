@@ -179,6 +179,10 @@ pub struct TrackGraph {
     /// The tick the next clock segment starts at when the playhead moves on without a jump
     /// (`None` after a stopped block): a jump gives the parameters back to the lanes.
     lane_expect: Option<Tick>,
+    /// The bits of the playhead and the cue count the lanes were last applied at while the
+    /// clock is stopped (`None` while it runs): a stop or a seek changes it and gives the
+    /// parameters back to the lanes.
+    stopped_at: Option<(u64, u64)>,
     next: Option<Box<Track>>,
 }
 
@@ -196,6 +200,7 @@ impl TrackGraph {
             lanes: NO_LANE,
             lane_count: 0,
             lane_expect: None,
+            stopped_at: None,
             next: None,
         }
     }
@@ -284,6 +289,9 @@ pub struct BlockClock<'a> {
     /// The block's first frame since the engine started (the automation's control frames,
     /// [`crate::automation`]).
     pub frame: u64,
+    /// The cues the clock has taken ([`crate::transport::Transport::cues`]): a seek while stopped, even to the
+    /// tick the playhead stands on, changes it.
+    pub cues: u64,
 }
 
 /// The render of the graph (module doc), owned by the audio side.
@@ -696,6 +704,8 @@ fn render_track(
     let player_runs = input.as_ref().is_some_and(|i| i.clips.is_some())
         && (track.player.engaged() || track.launch.is_some() || track.back);
     if !has_enabled_device(track) && !player_runs {
+        // Not rendered: the next stopped block it renders applies its lanes again.
+        track.graph.stopped_at = None;
         return false;
     }
     let frames = ctx.frames as usize;
@@ -740,6 +750,7 @@ fn render_track(
         schedule: track_schedule,
         lanes: lane_head,
         lane_expect,
+        stopped_at,
         ..
     } = graph;
     // The track's automation lanes (AM-2, [`crate::automation`]).
@@ -812,8 +823,21 @@ fn render_track(
         );
     };
     if !clock.running || clock.segments.is_empty() {
-        // Stopped, the lanes send nothing: the last value stays (AM-2).
+        // Stopped, the lanes apply their value at the playhead once, when the clock stops
+        // and at every seek (and after an upload or a rebuilt device); a gesture holds
+        // until the next play or seek (AM-2).
         *lane_expect = None;
+        if clock.running {
+            // A running block without a segment (an `f64` edge of the clock) is not a stop.
+            *stopped_at = None;
+        } else {
+            let at = (clock.position.to_bits(), clock.cues);
+            let moved = *stopped_at != Some(at);
+            *stopped_at = Some(at);
+            if let Some(l) = lanes.as_mut() {
+                l.push_frozen(clock.position, moved, sink);
+            }
+        }
         if let Some(s) = schedule.as_deref_mut() {
             s.stop(sink);
         }
@@ -822,6 +846,7 @@ fn render_track(
         }
         chain(sink, 0, frames, clock.position);
     } else {
+        *stopped_at = None;
         let mut start = 0;
         let mut i = 0;
         let mut position = clock.position;

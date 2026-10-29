@@ -14,6 +14,7 @@
     device,
     param,
     value,
+    automated,
     onchange,
     onbegin,
     onend,
@@ -21,6 +22,8 @@
     device: DeviceDescriptor
     param: ParamDescriptor
     value: number
+    /** The tooltip when an automation lane drives the parameter (#388): it marks the control. */
+    automated?: string
     /** The new value in the parameter's unit. */
     onchange: (value: number) => void
     /** A drag starts and ends (knobs only): the owner groups it as one history entry. */
@@ -52,7 +55,7 @@
 </script>
 
 {#if isChoice(param)}
-  <div class="choice" data-testid="param-{param.key}" title={hint}>
+  <div class="choice" class:automated={automated !== undefined} data-testid="param-{param.key}" title={automated ?? hint}>
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
         <button
@@ -78,6 +81,7 @@
     <Knob
       {label}
       {hint}
+      {automated}
       {onbegin}
       {onend}
       position={positionOf(param, value)}
@@ -113,6 +117,10 @@
 <style>
   .choice {
     display: flex;
+  }
+  .choice.automated .segmented {
+    background: var(--fk-accent-tint);
+    border-color: var(--fk-accent-fg);
   }
   .segmented {
     display: inline-flex;

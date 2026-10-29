@@ -85,6 +85,7 @@
           device={descriptor}
           {param}
           value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
+          automated={automated.deviceMark(entry.id, param.key)}
           onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
           onbegin={gesture.begin}
           onend={gesture.end}

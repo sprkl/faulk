@@ -15,6 +15,8 @@ export const automation = defineFeature(
     'automation.addLane': 'Add a lane…',
     'automation.addLaneFor': 'Add an automation lane to {name}',
     'automation.valueNow': 'Value at the play position',
+    'automation.mark':
+      'Automated: the lane {lane} sets this value. A change made here lasts until the lane’s next point while playing, or until the next play or seek when stopped.',
     'automation.laneHint':
       'Click to add a point, drag a point to move it, drag on an empty part to select several. Delete removes the selected points. Hold Ctrl or Cmd to skip snapping. Double-click a point to type its value.',
     'automation.curves': 'Curve of the selected points',
@@ -44,6 +46,8 @@ export const automation = defineFeature(
     'automation.addLane': 'Ajouter un couloir…',
     'automation.addLaneFor': 'Ajouter un couloir d’automation à {name}',
     'automation.valueNow': 'Valeur à la position de lecture',
+    'automation.mark':
+      'Automatisé : le couloir {lane} impose cette valeur. Un changement fait ici dure jusqu’au prochain point du couloir pendant la lecture, ou jusqu’à la prochaine lecture ou au prochain déplacement de la tête à l’arrêt.',
     'automation.laneHint':
       'Clique pour ajouter un point, glisse un point pour le déplacer, glisse sur une partie vide pour en sélectionner plusieurs. Suppr efface les points sélectionnés. Maintiens Ctrl ou Cmd pour ignorer l’aimantation. Double-clique un point pour taper sa valeur.',
     'automation.curves': 'Courbe des points sélectionnés',
