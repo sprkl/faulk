@@ -150,7 +150,10 @@ fn a_master_volume_gesture_holds_the_master_lane_until_its_next_point_and_native
             AutomationTarget::Mixer {
                 param: MixerParam::Gain,
             },
-            vec![point(0, 0.0, Shape::Step), point(2 * 3840, -30.0, Shape::Step)],
+            vec![
+                point(0, 0.0, Shape::Step),
+                point(2 * 3840, -30.0, Shape::Step),
+            ],
         );
     });
     s.run(Command::Mixer(commands::mixer::Command::SetMasterVolume {
