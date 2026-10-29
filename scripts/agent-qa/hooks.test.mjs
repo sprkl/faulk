@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { changeFingerprint, codeState } from "./fingerprint.mjs";
+import { sessionState } from "./session.mjs";
 
 const SCRIPTS = dirname(dirname(fileURLToPath(import.meta.url)));
 const REPO = dirname(SCRIPTS);
@@ -94,16 +95,34 @@ function toolCall(
   root,
   session,
   action,
-  { cwdBefore = root, cwdAfter = cwdBefore, project = root, tool = "Bash", toolInput = { command: "x" }, post = true } = {},
+  {
+    cwdBefore = root,
+    cwdAfter = cwdBefore,
+    project = root,
+    tool = "Bash",
+    toolInput = { command: "x" },
+    post = true,
+    pre = true,
+    id = `call-${++calls}`,
+    agent,
+  } = {},
 ) {
-  const id = `call-${++calls}`;
   const run = (script, cwd) =>
     spawnSync(process.execPath, [join(SCRIPTS, script)], {
-      input: JSON.stringify({ session_id: session, cwd, tool_name: tool, tool_input: toolInput, tool_use_id: id }),
+      input: JSON.stringify({
+        session_id: session,
+        cwd,
+        tool_name: tool,
+        tool_input: toolInput,
+        tool_use_id: id,
+        ...(agent === undefined ? {} : { agent_id: agent, agent_type: "general-purpose" }),
+      }),
       env: { ...cleanEnv(), CLAUDE_PROJECT_DIR: project },
       encoding: "utf8",
     });
-  assert.equal(run("agent-review/agent-guard.mjs", cwdBefore).status, 0);
+  if (pre) {
+    assert.equal(run("agent-review/agent-guard.mjs", cwdBefore).status, 0);
+  }
   action();
   if (post) {
     assert.equal(run("agent-qa/post-tool-use.mjs", cwdAfter).status, 0);
@@ -524,6 +543,260 @@ describe("Stop hook: a session that changes nothing is never blocked", () => {
     const output = stop(root, "g");
     assert.equal(output.decision, undefined);
     assert.match(output.systemMessage, /guardrails differ from develop.*scripts\/agent-qa\/record\.mjs/);
+  });
+});
+
+describe("Stop hook: the worktree of a running subagent (#392)", () => {
+  // Claude Code gives the hooks of a subagent's tool calls the lead's session id
+  // and an `agent_id` (hooks reference, "common input fields").
+  const idHash = (text) =>
+    createHash("sha256")
+      .update(process.platform === "win32" ? text.toLowerCase() : text)
+      .digest("hex")
+      .slice(0, 16);
+
+  function agentWorktree(project, name = "agent-a1", branch = "feat/6-agent") {
+    const dir = join(project, ".claude", "worktrees", name);
+    git(project, "worktree", "add", "-q", "-b", branch, dir);
+    return dir;
+  }
+
+  /** An edit of the guarded code by the subagent, in `dir`; its hooks run with the lead's session. */
+  const agentEdit = (project, dir, session, agent, content) =>
+    toolCall(dir, session, () => writeCode(dir, content), {
+      project,
+      agent,
+      tool: "Edit",
+      toolInput: { file_path: join(dir, ...LIB) },
+    });
+
+  const backdate = (project, session, agent, minutes) => {
+    const path = qa(project, "sessions", session, `agent-${idHash(agent)}.json`);
+    const record = JSON.parse(readFileSync(path, "utf8"));
+    record.at = new Date(Date.now() - minutes * 60_000).toISOString();
+    writeFileSync(path, JSON.stringify(record));
+  };
+
+  const sessionOf = (project, key) => sessionState(toplevel(project), key);
+
+  /** The input of a subagent's own stop, as the hooks reference describes it. */
+  const subagentStop = (agent, cwd) => ({
+    hook_event_name: "SubagentStop",
+    agent_id: agent,
+    agent_type: "general-purpose",
+    agent_transcript_path: join(cwd, "agent.jsonl"),
+    last_assistant_message: "done",
+    stop_hook_active: false,
+    cwd,
+  });
+
+  /** The lead's Agent call: `during` runs between its two hooks, as the subagent's own calls would. */
+  const leadAgentCall = (project, during) =>
+    toolCall(project, "lead", during, { tool: "Agent", toolInput: { subagent_type: "general-purpose", prompt: "work" } });
+
+  it("ends the exemption when the lead's Agent call returns: a finished foreground agent is judged at once", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    leadAgentCall(project, () => agentEdit(project, worktree, "lead", "a1"));
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), false);
+    const output = stop(project, "lead");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)), output.reason);
+  });
+
+  it("leaves an agent that started before the lead's Agent call running, and one that resumes", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1"); // a background agent, launched earlier
+    leadAgentCall(project, () => {}); // for instance a Judge Dredd plan review
+    assert.equal(stop(project, "lead"), null);
+    leadAgentCall(project, () => agentEdit(project, worktree, "lead", "a2", "pub fn gain() -> f32 { 0.7 }\n"));
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
+    agentEdit(project, worktree, "lead", "a2");
+    assert.equal(sessionOf(project, "lead").agentRunning("a2"), true, "an event after the end runs it again");
+  });
+
+  it("a call that never got its Post stops keeping a finished agent running", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    leadAgentCall(project, () => {
+      agentEdit(project, worktree, "lead", "a1");
+      toolCall(worktree, "lead", () => {}, { project, agent: "a1", post: false }); // a failed cargo test
+    });
+    assert.equal(stop(project, "lead").decision, "block");
+    const session = sessionOf(project, "lead");
+    assert.equal(session.agentRunning("a1", Date.now() + 30 * 60_000), false);
+  });
+
+  it("the lead's stop during a subagent's shell call keeps that call's snapshot, so its change is attributed", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    toolCall(worktree, "lead", () => {}, { project, agent: "a1", id: "bg-1", post: false }); // sed -i is about to run
+    assert.equal(stop(project, "lead"), null);
+    toolCall(worktree, "lead", () => writeCode(worktree), { project, agent: "a1", id: "bg-1", pre: false });
+    assert.equal(sessionOf(project, "lead").isWriter(toplevel(worktree), undefined, "a1"), true);
+  });
+
+  it("a Stop that carries an agent_id but is not a SubagentStop is the lead's own", () => {
+    const project = makeRepo();
+    startSession(project, "lead");
+    toolCall(project, "lead", () => writeCode(project));
+    assert.equal(stop(project, "lead", { agent_id: "a1" }).decision, "block");
+  });
+
+  it("lets the lead stop while a subagent edits its own worktree, with the shell and the edit tools", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    toolCall(worktree, "lead", () => writeCode(worktree, "pub fn gain() -> f32 { 0.2 }\n"), { project, agent: "a1" });
+    assert.equal(stop(project, "lead"), null);
+  });
+
+  it("judges that worktree again once the subagent has gone quiet, and names it", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    backdate(project, "lead", "a1", 30);
+    const output = stop(project, "lead");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)), output.reason);
+  });
+
+  it("keeps a subagent running while one of its calls is in progress, however quiet", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    toolCall(worktree, "lead", () => {}, { project, agent: "a1", post: false }); // a long cargo run
+    backdate(project, "lead", "a1", 90);
+    assert.equal(stop(project, "lead"), null);
+    const session = sessionOf(project, "lead");
+    assert.equal(session.agentRunning("a1", Date.now()), true);
+    assert.equal(session.agentRunning("a1", Date.now() + 3 * 60 * 60_000), false); // a call that never ends stops counting
+  });
+
+  it("still blocks the lead on an edit it made itself in the worktree of a running subagent", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    toolCall(worktree, "lead", () => writeCode(worktree, "pub fn gain() -> f32 { 0.3 }\n"), {
+      project,
+      tool: "Edit",
+      toolInput: { file_path: join(worktree, ...LIB) },
+    });
+    const output = stop(project, "lead");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)), output.reason);
+  });
+
+  it("does not exempt a subagent that edits the lead's own checkout", () => {
+    const project = makeRepo();
+    startSession(project, "lead");
+    agentEdit(project, project, "lead", "a1");
+    assert.equal(stop(project, "lead").decision, "block");
+  });
+
+  it("does not exempt the worktree the lead stops in, nor one that is not an agent's", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    const other = agentWorktree(project, "wt-other", "feat/6-other");
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    agentEdit(project, other, "lead", "a2");
+    const output = stop(project, "lead", { cwd: worktree });
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)), output.reason);
+    assert.ok(output.reason.includes(toplevel(other)), output.reason);
+    const away = stop(project, "lead");
+    assert.ok(away.reason.includes(toplevel(other)), away.reason);
+    assert.ok(!away.reason.includes(toplevel(worktree)), away.reason);
+  });
+
+  it("does not exempt a folder named like an agent's that belongs to another repository", () => {
+    const project = makeRepo();
+    const stranger = makeRepo("feat/7-y");
+    const fake = join(stranger, ".claude", "worktrees", "agent-fake");
+    git(stranger, "worktree", "add", "-q", "-b", "feat/7-fake", fake);
+    startSession(project, "lead");
+    agentEdit(project, fake, "lead", "a1");
+    const output = stop(project, "lead");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(fake)), output.reason);
+  });
+
+  it("treats a malformed agent id as the lead's own call", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "bad id!");
+    assert.equal(stop(project, "lead").decision, "block");
+  });
+
+  it("holds the subagent to its own check: its stop is blocked until verified and reviewed, then it has ended", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    const blocked = stop(project, "lead", subagentStop("a1", worktree));
+    assert.equal(blocked.decision, "block");
+    assert.match(blocked.reason, /record\.mjs verified/);
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
+    assert.equal(stop(project, "lead"), null); // the lead is still not held for it
+    assert.equal(script("agent-qa/record.mjs", worktree, "verified", ...RUST).status, 0);
+    deliveryReview(worktree);
+    assert.equal(review(worktree).status, 0);
+    assert.equal(stop(project, "lead", subagentStop("a1", worktree)), null);
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), false);
+    assert.equal(stop(project, "lead"), null); // verified and reviewed: nothing left to judge either
+  });
+
+  it("an ended subagent that wrote again is running again, and an unverified end is judged by the lead", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    assert.equal(script("agent-qa/record.mjs", worktree, "verified", ...RUST).status, 0);
+    deliveryReview(worktree);
+    assert.equal(review(worktree).status, 0);
+    assert.equal(stop(project, "lead", subagentStop("a1", worktree)), null);
+    agentEdit(project, worktree, "lead", "a1", "pub fn gain() -> f32 { 0.9 }\n");
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
+    sessionOf(project, "lead").endAgent("a1"); // as a SubagentStop that let it through would
+    assert.equal(stop(project, "lead").decision, "block"); // the new edit is unverified
+  });
+
+  it("a subagent's events never write the session's baseline, and its marker never stands for the lead's", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1");
+    toolCall(worktree, "lead", () => {}, { project, agent: "a1" });
+    hook("agent-qa/session-start.mjs", project, { session_id: "lead", source: "startup", agent_id: "a1", cwd: worktree });
+    assert.equal(existsSync(qa(project, "sessions", "lead", `baseline-${rootIdOf(worktree)}.json`)), false);
+    const session = sessionOf(project, "lead");
+    const root = toplevel(worktree);
+    assert.equal(session.isWriter(root, "feat/6-agent"), false);
+    assert.equal(session.isWriter(root, undefined), false);
+    assert.equal(session.isWriter(root, "feat/6-agent", "a1"), true);
+    assert.equal(session.isWriter(root, "feat/6-agent", "a2"), false);
+  });
+
+  it("limits: an agent never seen, with an unreadable record or past the idle time, is not running", () => {
+    const project = makeRepo();
+    const session = sessionOf(project, "lead");
+    assert.equal(session.agentRunning("never-seen"), false);
+    session.touchAgent("a1");
+    assert.equal(session.agentRunning("a1"), true);
+    assert.equal(session.agentRunning("a1", Date.now() + 21 * 60_000), false);
+    writeFileSync(qa(project, "sessions", "lead", `agent-${idHash("a1")}.json`), "{not json");
+    assert.equal(session.agentRunning("a1"), false);
   });
 });
 
