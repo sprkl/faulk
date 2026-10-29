@@ -729051,7 +729051,7 @@
       "params": [
         {
           "default": 0,
-          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass).",
+          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.",
           "id": 0,
           "key": "mode",
           "max": 2,

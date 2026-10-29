@@ -20,6 +20,10 @@ static ALLOCATOR: AllocDisabler = AllocDisabler;
 
 const SR: f32 = 48_000.0;
 
+/// The most any bounded input of peak 1 can come out at: the L1 norm of the impulse response
+/// at full resonance is about 32 for the low-pass, and one more for the high-pass.
+const BOUND: f32 = 36.0;
+
 fn with_rate(sr: f32, params: &[(u32, f32)]) -> Filter {
     let mut f = Filter::new(sr);
     for (id, value) in params {
@@ -256,7 +260,7 @@ fn the_cutoff_sits_where_it_is_set_across_the_range() {
 #[test]
 fn it_is_stable_at_maximum_resonance_under_noise_for_every_mode_and_cutoff() {
     let input = noise(SR as usize * 2, 7);
-    let bound = 1.0 / K_MIN * 8.0;
+    let bound = BOUND;
     let mut worst = 0f32;
     for mode in [LOW_PASS, HIGH_PASS, BAND_PASS] {
         for cutoff in [20.0, 100.0, 1000.0, 8000.0, 20_000.0] {
@@ -282,19 +286,34 @@ fn it_is_stable_at_maximum_resonance_under_noise_for_every_mode_and_cutoff() {
 #[test]
 fn an_impulse_at_maximum_resonance_rings_then_dies_away() {
     for mode in [LOW_PASS, HIGH_PASS, BAND_PASS] {
-        for cutoff in [60.0, 1000.0, 15_000.0] {
+        for cutoff in [20.0, 60.0, 1000.0, 15_000.0, 20_000.0] {
             let mut f = with(&[(MODE, mode as f32), (CUTOFF, cutoff), (RESONANCE, 1.0)]);
             let mut input = vec![0.0; SR as usize * 6];
             input[0] = 1.0;
             let out = mono(&mut f, &input);
             check(&out);
-            assert!(peak(&out) < 1.0 / K_MIN * 2.0, "peak {}", peak(&out));
+            assert!(peak(&out) < BOUND, "peak {}", peak(&out));
             assert!(peak(&out) > 1e-4, "the impulse sounds");
             // The ring decays: the last second is a tiny fraction of the first.
             let tail = peak(&out[out.len() - SR as usize..]);
             assert!(tail < 1e-3, "mode {mode}, cutoff {cutoff}: tail {tail}");
         }
     }
+}
+
+#[test]
+fn a_full_scale_square_wave_at_the_cutoff_reaches_about_the_worst_case_gain() {
+    // The worst case of the bound: a square wave at the cutoff has a fundamental of 4/pi, which
+    // the peak of 1 / K_MIN lifts to about 32 (and never beyond BOUND).
+    let input: Vec<f32> = (0..SR as usize)
+        .map(|n| if (n / 24) % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+    let mut f = with(&[(MODE, 0.0), (CUTOFF, 1000.0), (RESONANCE, 1.0)]);
+    let out = mono(&mut f, &input);
+    check(&out);
+    let worst = peak(&out[SR as usize / 2..]);
+    println!("full-scale square at the cutoff, full resonance: peak {worst:.1}");
+    assert!((24.0..BOUND).contains(&worst), "peak {worst}");
 }
 
 #[test]
@@ -309,7 +328,7 @@ fn it_stays_bounded_while_the_cutoff_and_resonance_are_swept_hard() {
     }
     let out = run(&mut f, (&input, &input), 128, &events).0;
     check(&out);
-    assert!(peak(&out) < 1.0 / K_MIN * 8.0, "peak {}", peak(&out));
+    assert!(peak(&out) < BOUND, "peak {}", peak(&out));
 }
 
 #[test]
@@ -325,11 +344,7 @@ fn the_cutoff_stays_under_nyquist_at_every_sample_rate() {
             let input = noise(sr as usize, 3);
             let out = run_at(sr, &mut f, (&input, &input), 128, &[]).0;
             check(&out);
-            assert!(
-                peak(&out) < 1.0 / K_MIN * 8.0,
-                "sr {sr}: peak {}",
-                peak(&out)
-            );
+            assert!(peak(&out) < BOUND, "sr {sr}: peak {}", peak(&out));
         }
     }
 }
@@ -366,7 +381,7 @@ fn it_survives_non_finite_and_huge_input() {
         let mut f = with(&[(MODE, mode as f32), (RESONANCE, 1.0)]);
         let out = mono(&mut f, &input);
         check(&out);
-        assert!(peak(&out) < 1e6 * 1.0 / K_MIN * 8.0);
+        assert!(peak(&out) < 1e6 * BOUND);
     }
 }
 
@@ -386,7 +401,7 @@ fn every_parameter_swept_to_its_bounds_gives_clean_output() {
             .collect();
         let out = run(&mut f, (&input, &input), 64, &events).0;
         check(&out);
-        assert!(peak(&out) < 1.0 / K_MIN * 8.0, "corner {corner}");
+        assert!(peak(&out) < BOUND, "corner {corner}");
     }
 }
 
@@ -418,10 +433,12 @@ fn a_cutoff_jump_is_ramped_not_stepped() {
     )
     .0;
     check(&out);
-    // The sine's own slope bounds the step: 0.5 * 2 pi 100 / 48000 per sample, times the
-    // gain (at most ~1.0 + the peak of a flat response).
+    // The sine's own slope is 0.5 * 2 pi 100 / 48000 = 0.0065 per sample. Across the ramp the
+    // output sheds the phase lag of the 200 Hz filter within a few hundred samples (measured:
+    // up to 0.0125 per sample); an unramped jump would shed it at once, a step of several tenths.
     let own = 0.5 * core::f32::consts::TAU * 100.0 / SR;
-    assert!(max_step(&out[at - 200..at + 2000]) < own * 1.5);
+    let step = max_step(&out[at - 200..at + 2000]);
+    assert!(step < own * 3.0, "step {step}");
     // 20 ms (960 frames) after the event, it is the steady state of the new cutoff.
     let reference = steady(8000.0);
     let from = at + 960 + 480;
@@ -435,6 +452,24 @@ fn a_cutoff_jump_is_ramped_not_stepped() {
     let mid = at + 100;
     let early = (out[mid] - reference[mid]).abs();
     assert!(early > 1e-4, "the ramp is not instantaneous: {early}");
+}
+
+#[test]
+fn the_cutoff_follows_the_contracts_linear_ramp_in_hertz() {
+    // `start + (target - start) * i / n`, n = 960 frames (20 ms): halfway is the mean of the
+    // two cutoffs, not their geometric mean.
+    let mut f = with(&[(CUTOFF, 200.0)]);
+    let input = vec![0.0; 480];
+    let at = Event::ParamValue {
+        offset: 0,
+        id: ParamId(CUTOFF),
+        value: 8000.0,
+    };
+    run(&mut f, (&input, &input), 480, &[(0, at)]);
+    let halfway = f.cutoff_hz();
+    assert!((halfway - 4100.0).abs() < 1.0, "{halfway}");
+    run(&mut f, (&input, &input), 480, &[]);
+    assert_eq!(f.cutoff_hz(), 8000.0);
 }
 
 #[test]

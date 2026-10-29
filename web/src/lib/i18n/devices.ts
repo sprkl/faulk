@@ -66,7 +66,8 @@ export const devices = defineFeature(
     'reverb.time_change.hint':
       'What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.',
     'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
-    'filter.mode.hint': 'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass).',
+    'filter.mode.hint':
+      'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.',
     'filter.cutoff.hint': 'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.',
     'filter.resonance.hint': 'Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).',
     'filter.mix.hint': 'Balance between the dry sound (0) and the filtered sound (1).',
@@ -135,7 +136,8 @@ export const devices = defineFeature(
     'reverb.time_change.hint':
       'Ce que fait un nouveau pré-délai pendant que la réverbération sonne. Glissé : glisse comme une bande, la hauteur de la queue se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat, peut claquer.',
     'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
-    'filter.mode.hint': 'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut) ou autour (passe-bande).',
+    'filter.mode.hint':
+      'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut) ou autour (passe-bande). Un changement se fait en fondu de 10 ms.',
     'filter.cutoff.hint': 'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz.',
     'filter.resonance.hint': 'Renforcement du son autour de la fréquence de coupure, de 0 (aucun) à 1 (un pic net qui reste stable).',
     'filter.mix.hint': 'Équilibre entre le son direct (0) et le son filtré (1).',

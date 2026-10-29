@@ -26,8 +26,10 @@
 //! `resonance` (0 to 1) sets the damping on an exponential law between `k = sqrt(2)` (0: no
 //! peak, a maximally flat low-pass, -3 dB at the cutoff, about -12.3 dB one octave away) and
 //! `k = K_MIN` (1: a peak of about +28 dB at the cutoff). `K_MIN` is above zero on purpose:
-//! the filter never reaches self-oscillation, its impulse response always decays, and the
-//! output is bounded by the peak gain `1 / K_MIN` times the (clamped) input. The structure is
+//! the filter never reaches self-oscillation and its impulse response always decays. A steady
+//! sine comes out at most `1 / K_MIN` (25) times its level, and any bounded input at most the
+//! L1 norm of the impulse response, about `2 / (pi * K_MIN / 2)` (32) for the low-pass and one
+//! more for the high-pass (a full-scale square wave at the cutoff reaches about 32). The structure is
 //! stable for any `g > 0` and `k > 0`, also while they move. The cutoff is clamped to
 //! `[20 Hz, 0.45 * sample_rate]`, so it stays under Nyquist at every sample rate.
 //!
@@ -37,10 +39,12 @@
 //!
 //! # Parameters and smoothing
 //!
-//! `cutoff` is smoothed in **octaves** (the ramp runs on `log2(cutoff)`, so a sweep is
-//! even to the ear), `resonance` and `mix` linearly, each over the 20 ms the descriptor
-//! declares; a change of `mode` (a choice, which declares no smoothing) crossfades the three
-//! outputs over 10 ms, so it does not click. The coefficients are recomputed per sample while a ramp runs and kept when it does
+//! `cutoff`, `resonance` and `mix` follow the linear ramp of the device contract over the
+//! 20 ms their descriptor declares (the cutoff in hertz); a change of `mode` (a choice, which
+//! declares no smoothing: its description says what it does) crossfades the three outputs over
+//! 10 ms, so it does not click (the low-pass and the high-pass are in opposite phase at the
+//! cutoff, so a change between them dips around it while it fades). The coefficients are
+//! recomputed per sample while a ramp runs and kept when it does
 //! not, so the render does not depend on how the host cuts blocks. [`Device::reset`] zeroes
 //! the states and snaps the ramps; the parameter values are kept. Every value goes through
 //! [`ParamDescriptor::sanitize`].
@@ -97,7 +101,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MODE),
             key: "mode",
-            description: "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass).",
+            description: "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -242,7 +246,7 @@ impl Channel {
 #[derive(Debug)]
 pub struct Filter {
     sample_rate: f32,
-    /// `log2` of the cutoff in hertz.
+    /// The cutoff in hertz.
     cutoff: Smoother,
     resonance: Smoother,
     mix: Smoother,
@@ -272,7 +276,7 @@ impl Filter {
         };
         let mode_frames = (MODE_SECONDS * f64::from(sample_rate)).round() as u32;
         let w = weights(default(MODE) as u32);
-        let cutoff = (default(CUTOFF) as f32).log2();
+        let cutoff = default(CUTOFF) as f32;
         let resonance = default(RESONANCE) as f32;
         Self {
             sample_rate,
@@ -285,7 +289,7 @@ impl Filter {
                 Smoother::new(w[2]),
             ],
             ramp_frames: [mode_frames, ramp(CUTOFF), ramp(RESONANCE), ramp(MIX)],
-            coefficients: Coefficients::new(cutoff.exp2(), resonance, sample_rate),
+            coefficients: Coefficients::new(cutoff, resonance, sample_rate),
             stale: false,
             left: Channel::default(),
             right: Channel::default(),
@@ -307,7 +311,7 @@ impl Filter {
                 }
             }
             CUTOFF => {
-                self.cutoff.set(value.log2(), self.ramp_frames[1]);
+                self.cutoff.set(value, self.ramp_frames[1]);
                 self.stale = true;
             }
             RESONANCE => {
@@ -319,6 +323,11 @@ impl Filter {
         }
     }
 
+    /// The cutoff the next frame uses, in hertz (the smoother's value, ramp included).
+    pub fn cutoff_hz(&self) -> f32 {
+        self.cutoff.current()
+    }
+
     /// Renders the frames of `left` and `right` (same length).
     fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
@@ -326,7 +335,7 @@ impl Filter {
             let cutoff = self.cutoff.next_value();
             let resonance = self.resonance.next_value();
             if moving || self.stale {
-                self.coefficients = Coefficients::new(cutoff.exp2(), resonance, self.sample_rate);
+                self.coefficients = Coefficients::new(cutoff, resonance, self.sample_rate);
                 self.stale = moving;
             }
             let mix = self.mix.next_value().clamp(0.0, 1.0);
@@ -383,7 +392,7 @@ impl Device for Filter {
             w.snap();
         }
         self.coefficients = Coefficients::new(
-            self.cutoff.current().exp2(),
+            self.cutoff.current(),
             self.resonance.current(),
             self.sample_rate,
         );
