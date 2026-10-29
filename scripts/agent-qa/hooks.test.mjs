@@ -778,6 +778,7 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     startSession(project, "lead");
     agentEdit(project, worktree, "lead", "a1");
     toolCall(worktree, "lead", () => {}, { project, agent: "a1" });
+    hook("agent-qa/session-start.mjs", project, { session_id: "lead", source: "startup", agent_id: "a1", cwd: worktree });
     assert.equal(existsSync(qa(project, "sessions", "lead", `baseline-${rootIdOf(worktree)}.json`)), false);
     const session = sessionOf(project, "lead");
     const root = toplevel(worktree);

@@ -188,7 +188,9 @@ export function sessionState(state, key) {
      * first event since it started have finished (a foreground call returns
      * when its agent does), calls without a Post included. One that is in
      * fact still running (a background launch, a parallel call) is running
-     * again at its next event: the error is a block, never a pass.
+     * again at its next event: a block. The opposite error is possible: an
+     * agent whose run began before the call (a background agent continued in
+     * the foreground) is not ended by it, and stays exempt while it is quiet.
      */
     endLaunched: (toolUseId) => {
       const started = Date.parse(read(launchPath(toolUseId))?.at);
