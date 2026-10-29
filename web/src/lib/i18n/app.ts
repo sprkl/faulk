@@ -16,6 +16,7 @@ import { devices } from './devices'
 import { drums } from './drums'
 import { compressor } from './compressor'
 import { echo } from './echo'
+import { filter } from './filter'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -45,6 +46,7 @@ export const features = {
   drums,
   echo,
   reverb,
+  filter,
   compressor,
   devices,
   keys,

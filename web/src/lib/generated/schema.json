@@ -729040,6 +729040,74 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.filter",
+      "kind_id": 6,
+      "memory_bytes": 152,
+      "midi_output": null,
+      "name": "Filter",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.",
+          "id": 0,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "lowpass",
+            "highpass",
+            "bandpass"
+          ]
+        },
+        {
+          "default": 1000,
+          "description": "Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.",
+          "id": 1,
+          "key": "cutoff",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.2,
+          "description": "Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).",
+          "id": 2,
+          "key": "resonance",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Balance between the dry sound (0) and the filtered sound (1).",
+          "id": 3,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "fader_taper": [
