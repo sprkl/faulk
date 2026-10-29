@@ -56,7 +56,8 @@ fn a_cutoff_lane_sweeps_the_low_pass_over_a_held_saw() {
     // Eight steps of an exponential sweep, 200 Hz to 8 kHz in 4 s (even to the ear).
     let Output::Automation(automation::Output::LaneCreate { lane }) =
         s.exec(Command::Automation(automation::Command::LaneCreate {
-            track: f.track.clone(),
+            track: Some(f.track.clone()),
+            master: false,
             target: AutomationTarget::Device {
                 device: fx.clone(),
                 param: "cutoff".into(),

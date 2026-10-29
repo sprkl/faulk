@@ -1010,7 +1010,8 @@ mod tests {
             Caps::MVP,
             &mut state,
             Command::LaneCreate {
-                track: f.track.clone(),
+                track: Some(f.track.clone()),
+                master: false,
                 target: gain(),
             },
         )
@@ -1059,7 +1060,8 @@ mod tests {
             Caps::MVP,
             &mut state,
             Command::LaneCreate {
-                track,
+                track: Some(track),
+                master: false,
                 target: pan(),
             },
         )
@@ -1083,7 +1085,8 @@ mod tests {
         let f = fixture();
         let mut state = f.state;
         let create = |track: &TrackId, target| Command::LaneCreate {
-            track: track.clone(),
+            track: Some(track.clone()),
+            master: false,
             target,
         };
         let c = caps(1, 100, 100, 100);
@@ -1130,7 +1133,8 @@ mod tests {
                 tight,
                 &mut state,
                 Command::LaneRestore {
-                    track,
+                    track: Some(track),
+                    master: false,
                     lane: new,
                     snapshot
                 }

@@ -87,7 +87,8 @@ fn add_cmd(lane: &LaneId, points: Vec<automation::Point>) -> Command {
 
 fn create_cmd(track: &TrackId, target: AutomationTarget) -> Command {
     a(automation::Command::LaneCreate {
-        track: track.clone(),
+        track: Some(track.clone()),
+        master: false,
         target,
     })
 }
@@ -120,7 +121,7 @@ fn a_lane_is_created_on_a_parameter_the_track_has() {
     assert_eq!(
         created,
         [ProjectEvent::AutomationLaneCreated {
-            track: f.track.clone(),
+            track: Some(f.track.clone()),
             lane: id.clone()
         }]
     );
@@ -217,7 +218,8 @@ fn a_lane_restore_is_refused_when_it_does_not_fit() {
     let fresh = LaneId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
     let restore = |track: &TrackId, id: &LaneId, snapshot: AutomationLane| {
         a(automation::Command::LaneRestore {
-            track: track.clone(),
+            track: Some(track.clone()),
+            master: false,
             lane: id.clone(),
             snapshot,
         })
@@ -698,7 +700,7 @@ fn removing_a_device_takes_its_lanes_and_undo_brings_them_back() {
         events(&out),
         [
             ProjectEvent::AutomationLaneDeleted {
-                track: f.track.clone(),
+                track: Some(f.track.clone()),
                 lane: f.effect_lane.clone()
             },
             ProjectEvent::DeviceChainChanged {
