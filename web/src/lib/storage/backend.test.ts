@@ -136,7 +136,15 @@ describe('FolderBackend.readFolder and scan', () => {
     const { store } = song()
     const { entries } = await store.readFolder()
     const byPath = Object.fromEntries(entries.map((e) => [e.path, e]))
-    expect(Object.keys(byPath).sort()).toEqual(['.faulk/session.json', '.gitignore', 'blobs/audio', 'blobs/lane', 'master/automation/l.tsv', 'project.json', 'tracks/a/track.json'])
+    expect(Object.keys(byPath).sort()).toEqual([
+      '.faulk/session.json',
+      '.gitignore',
+      'blobs/audio',
+      'blobs/lane',
+      'master/automation/l.tsv',
+      'project.json',
+      'tracks/a/track.json',
+    ])
     expect('bytes' in byPath['project.json']!).toBe(true)
     expect('bytes' in byPath['.faulk/session.json']!).toBe(true)
     expect('bytes' in byPath['blobs/lane']!).toBe(true)

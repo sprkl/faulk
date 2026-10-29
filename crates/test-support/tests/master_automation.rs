@@ -139,3 +139,38 @@ fn a_master_effect_lane_changes_the_sound_in_both_targets() {
     println!("after the step: x{late:.2}");
     assert!(late > 1.5, "the threshold lane did not act: x{late}");
 }
+
+#[test]
+fn a_master_volume_gesture_holds_the_master_lane_until_its_next_point_and_native_equals_wasm() {
+    // 0 dB, then -30 dB at the second bar (2 s of playing). A `mixer.set_master_volume` at 0.8 s
+    // of playing holds the lane: the fader's -12 dB sounds until the lane's next point.
+    let mut s = song(0.8, |s| {
+        master_lane(
+            s,
+            AutomationTarget::Mixer {
+                param: MixerParam::Gain,
+            },
+            vec![point(0, 0.0, Shape::Step), point(2 * 3840, -30.0, Shape::Step)],
+        );
+    });
+    s.run(Command::Mixer(commands::mixer::Command::SetMasterVolume {
+        gain_db: Some(-12.0),
+    }))
+    .render_secs(2.4);
+    let held = parity(s.scenario());
+    held.assert_clean();
+    let reference = render_native(song(3.2, |_| {}).scenario());
+    let db = |window: std::ops::Range<f32>| {
+        20.0 * f64::from(held.rms_in(window.clone()) / reference.rms_in(window)).log10()
+    };
+    // Before the gesture the lane's 0 dB; then the fader's -12 dB, held through the lane's
+    // next point at 2.3 s of the render (0.3 s lead-in, 2 s of the second bar)... the lane
+    // takes over at that point: -30 dB.
+    let before = db(0.5..0.9);
+    let under = db(1.3..2.2);
+    let after = db(2.5..3.1);
+    println!("before {before:.2} dB, held {under:.2} dB, after the point {after:.2} dB");
+    assert!(before.abs() < 0.3, "{before}");
+    assert!((under + 12.0).abs() < 0.5, "{under}");
+    assert!((after + 30.0).abs() < 0.8, "{after}");
+}
