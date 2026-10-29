@@ -55,7 +55,13 @@
 </script>
 
 {#if isChoice(param)}
-  <div class="choice" class:automated={automated !== undefined} data-testid="param-{param.key}" title={automated ?? hint}>
+  <div
+    class="choice"
+    class:automated={automated !== undefined}
+    data-automated={automated === undefined ? undefined : 'true'}
+    data-testid="param-{param.key}"
+    title={automated ?? hint}
+  >
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
         <button
