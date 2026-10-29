@@ -270,6 +270,8 @@ fn live_and_snapshot_render_the_same_natively_and_in_wasm() {
     // The same playing on both engines: notes on every MIDI track, the transport with the
     // metronome (each stream applies its messages first: 128 per block at most).
     for s in [&mut live, &mut snapshot] {
+        // The live session's stopped gestures (the edits) hold until a seek gives the lanes back (AM-2).
+        s.run(cmd(json!({"type": "transport.seek", "tick": 0})));
         s.render_secs(0.2);
         s.run(cmd(
             json!({"type": "mixer.set_solo", "track": synth, "solo": false}),
