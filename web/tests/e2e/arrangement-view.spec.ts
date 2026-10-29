@@ -330,7 +330,8 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
 
   // A seek far outside the window (the dispatcher hook of the dev server): with Follow on the view goes to the position,
   // with Follow off it stays.
-  const seek = (tick: number) => page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
+  const seek = (tick: number) =>
+    page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
   await seek(10 * BAR)
   await page.waitForTimeout(500)
   expect(await scroll()).toBe(held)
