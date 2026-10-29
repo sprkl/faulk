@@ -646,7 +646,15 @@ fn sync_chain(
     for (lane_id, lane) in &track.automation {
         if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
         {
-            lane_msgs(Some(track_id), slot, &track.devices, lane_id, lane, sync, out);
+            lane_msgs(
+                Some(track_id),
+                slot,
+                &track.devices,
+                lane_id,
+                lane,
+                sync,
+                out,
+            );
         }
     }
 }
@@ -675,7 +683,15 @@ fn sync_master_chain(
     for (lane_id, lane) in &project.master_automation {
         if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
         {
-            lane_msgs(None, TrackSlot::MASTER, &project.master_devices, lane_id, lane, sync, out);
+            lane_msgs(
+                None,
+                TrackSlot::MASTER,
+                &project.master_devices,
+                lane_id,
+                lane,
+                sync,
+                out,
+            );
         }
     }
 }
@@ -684,7 +700,15 @@ fn sync_master_chain(
 /// slots they name.
 fn master_lane_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
     for (lane_id, lane) in &project.master_automation {
-        lane_msgs(None, TrackSlot::MASTER, &project.master_devices, lane_id, lane, sync, out);
+        lane_msgs(
+            None,
+            TrackSlot::MASTER,
+            &project.master_devices,
+            lane_id,
+            lane,
+            sync,
+            out,
+        );
     }
 }
 

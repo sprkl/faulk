@@ -409,10 +409,12 @@ fn lanes_of<'a>(
     state: &'a State,
     owner: &Owner,
 ) -> Result<&'a BTreeMap<LaneId, AutomationLane>, CommandError> {
-    state
-        .project
-        .lanes(owner.as_ref())
-        .ok_or_else(|| not_found("track", owner.as_ref().map_or_else(String::new, ToString::to_string)))
+    state.project.lanes(owner.as_ref()).ok_or_else(|| {
+        not_found(
+            "track",
+            owner.as_ref().map_or_else(String::new, ToString::to_string),
+        )
+    })
 }
 
 /// The rule of a target in an owner's lanes, and the check that the target exists there: the
@@ -431,8 +433,12 @@ fn rule_of(state: &State, owner: &Owner, target: &AutomationTarget) -> Result<Ru
                     return Err(invalid(
                         "target",
                         match owner {
-                            None => "the device is not in the master's chain: a lane targets a device of its owner's chain",
-                            Some(_) => "the device is not in this track's chain: a lane targets a device of its owner's chain",
+                            None => {
+                                "the device is not in the master's chain: a lane targets a device of its owner's chain"
+                            }
+                            Some(_) => {
+                                "the device is not in this track's chain: a lane targets a device of its owner's chain"
+                            }
                         },
                     ));
                 }
@@ -515,7 +521,10 @@ fn check_new_lane(
     target: &AutomationTarget,
 ) -> Result<(), CommandError> {
     check_lane_limits(caps, state, owner)?;
-    if lanes_of(state, owner)?.values().any(|l| l.target == *target) {
+    if lanes_of(state, owner)?
+        .values()
+        .any(|l| l.target == *target)
+    {
         return Err(invalid(
             "target",
             "the owner already has a lane on that parameter",

@@ -70,7 +70,8 @@ pub enum TargetView {
 /// An automation lane as the engine holds it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaneView {
-    pub track: TrackId,
+    /// The track the lane is in; `None` for a lane of the master (#378).
+    pub track: Option<TrackId>,
     pub target: TargetView,
     pub points: Vec<AutomationPoint>,
 }
@@ -406,10 +407,19 @@ impl EngineView {
             .lanes
             .iter()
             .map(|(slot, (track, target, points))| {
-                let track = track_id(*track);
+                let owner = (!TrackSlot(*track).is_master()).then(|| track_id(*track));
                 let target = match target {
                     AutomationTarget::DeviceParam { device, param } => TargetView::Device {
-                        device: device_id(&track, device.0),
+                        device: match &owner {
+                            Some(track) => device_id(track, device.0),
+                            None => slots
+                                .master_devices
+                                .id_at(u32::from(device.0))
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    panic!("master device slot {} is not in the table", device.0)
+                                }),
+                        },
                         param: param.0,
                     },
                     AutomationTarget::MixerGain => TargetView::MixerGain,
@@ -423,7 +433,7 @@ impl EngineView {
                 (
                     lane,
                     LaneView {
-                        track,
+                        track: owner,
                         target,
                         points: points.clone(),
                     },
@@ -574,7 +584,7 @@ impl EngineView {
                 lanes.insert(
                     lid.clone(),
                     LaneView {
-                        track: id.clone(),
+                        track: Some(id.clone()),
                         target,
                         points: lane
                             .points
@@ -607,6 +617,49 @@ impl EngineView {
                     devices,
                     scenes,
                     placements,
+                },
+            );
+        }
+        for (lid, lane) in &project.master_automation {
+            let target = match &lane.target {
+                project::AutomationTarget::Mixer {
+                    param: project::MixerParam::Gain,
+                } => TargetView::MixerGain,
+                project::AutomationTarget::Mixer {
+                    param: project::MixerParam::Pan,
+                } => TargetView::MixerPan,
+                project::AutomationTarget::Device { device, param: key } => {
+                    let Some(p) = project
+                        .master_devices
+                        .get(device)
+                        .filter(|_| master_devices.contains_key(device))
+                        .and_then(|d| param(&d.source, key))
+                    else {
+                        continue;
+                    };
+                    TargetView::Device {
+                        device: device.clone(),
+                        param: p,
+                    }
+                }
+            };
+            lanes.insert(
+                lid.clone(),
+                LaneView {
+                    track: None,
+                    target,
+                    points: lane
+                        .points
+                        .iter()
+                        .map(|(tick, p)| AutomationPoint {
+                            tick: *tick,
+                            value: finite_f32(p.value),
+                            curve: match p.shape {
+                                project::Shape::Step => Curve::Step,
+                                project::Shape::Linear => Curve::Linear,
+                            },
+                        })
+                        .collect(),
                 },
             );
         }

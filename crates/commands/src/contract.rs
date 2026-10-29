@@ -391,13 +391,22 @@ pub enum ProjectEvent {
     /// An automation lane was created or brought back, with its points (AM-1). The page
     /// reads the lane from its own copy of the project, to which the same command applies.
     /// `track` is `null` for a lane of the master (#378).
-    AutomationLaneCreated { track: Option<TrackId>, lane: LaneId },
+    AutomationLaneCreated {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
     /// An automation lane was deleted, with its points: by `automation.lane.delete`, or
     /// because the device it targets was removed. `track` is `null` for a lane of the master.
-    AutomationLaneDeleted { track: Option<TrackId>, lane: LaneId },
+    AutomationLaneDeleted {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
     /// The points of a lane changed: some were added, removed, changed or cleared. `track` is
     /// `null` for a lane of the master.
-    AutomationPointsChanged { track: Option<TrackId>, lane: LaneId },
+    AutomationPointsChanged {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },

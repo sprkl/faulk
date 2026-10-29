@@ -273,8 +273,8 @@ pub mod limits {
 /// Index of a track in the engine, assigned by the project.
 ///
 /// [`TrackSlot::MASTER`] is not a track: it addresses the master's chain of effects (#364) in
-/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`)
-/// and nowhere else. The project never assigns it (tracks stay below
+/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`),
+/// and the master's automation lanes (#378) in `AutomationLaneUpload`, and nowhere else. The project never assigns it (tracks stay below
 /// [`limits::MAX_TRACKS`]), so a message of a track that names it finds no track and is
 /// refused or skipped, as a slot nobody holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -922,7 +922,10 @@ impl ControlMsg {
                 ..
             } => {
                 lane(l)?;
-                track(t)?;
+                // A lane of the master (#378) names the master's row.
+                if !t.is_master() {
+                    track(t)?;
+                }
                 chunk(
                     "points per lane",
                     *first,

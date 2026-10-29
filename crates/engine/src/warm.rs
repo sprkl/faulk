@@ -267,6 +267,47 @@ pub fn messages() -> Vec<Phase> {
         });
     }
 
+    // The master's lanes (#378): its fader, and the first parameter of its first effect. The
+    // render of a lane on the master is its own path through the graph.
+    structure.push(M::AutomationLaneUpload {
+        lane: LaneSlot(2),
+        track: TrackSlot::MASTER,
+        target: AutomationTarget::MixerGain,
+        first: 0,
+        total: 2,
+        points: vec![
+            AutomationPoint {
+                tick: Tick(0),
+                value: 0.0,
+                curve: Curve::Linear,
+            },
+            AutomationPoint {
+                tick: Tick(240),
+                value: -6.0,
+                curve: Curve::Step,
+            },
+        ],
+    });
+    if let Some((track, device, desc)) = master_placed.first().copied()
+        && let Some(param) = desc.params.first()
+    {
+        structure.push(M::AutomationLaneUpload {
+            lane: LaneSlot(3),
+            track,
+            target: AutomationTarget::DeviceParam {
+                device,
+                param: param.id,
+            },
+            first: 0,
+            total: 1,
+            points: vec![AutomationPoint {
+                tick: Tick(0),
+                value: param.default as f32,
+                curve: Curve::Step,
+            }],
+        });
+    }
+
     // Phase 2: the mix, and every parameter of every device at its default.
     let mut mix = vec![
         M::TrackSetMix {
@@ -376,6 +417,7 @@ pub fn messages() -> Vec<Phase> {
     let mut removals = vec![
         M::SelectTrack { track: None },
         M::AutomationLaneRemove { lane: LaneSlot(0) },
+        M::AutomationLaneRemove { lane: LaneSlot(2) },
         M::ClipRemove { clip: ClipSlot(0) },
         M::ClipRemove { clip: ClipSlot(1) },
         M::AudioSourceRelease {
