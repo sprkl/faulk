@@ -296,7 +296,8 @@
   }
   $effect(() => {
     void [shownTick, stageW]
-    if (running && follow) untrack(showPosition)
+    // Running or not: Stop, Back to start and a seek bring the view to the position too (#395).
+    if (follow) untrack(showPosition)
   })
   // A new Play follows again.
   $effect(() => {
