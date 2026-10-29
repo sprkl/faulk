@@ -173,8 +173,9 @@ try {
       roots.push(root);
     }
   }
-  // `agent`: this is a subagent's own stop (`SubagentStop`, or a `Stop` fired in a subagent).
-  const ctx = { agent: agentKey(input), here, state };
+  // `agent`: this is a subagent's own stop. Only a `SubagentStop` counts (Claude Code
+  // turns a subagent's `Stop` into one): a `Stop` that carried an `agent_id` anyway is the main thread's.
+  const ctx = { agent: input.hook_event_name === "SubagentStop" ? agentKey(input) : undefined, here, state };
   if (session && !ctx.agent) {
     ensureBaselines(session, here, changeFingerprint, "stop");
     // Calls that never got their PostToolUse (denied, interrupted, failed)

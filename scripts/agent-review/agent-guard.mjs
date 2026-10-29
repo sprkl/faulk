@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import { changeFingerprint, codeState, currentRef, hookRoots } from "../agent-qa/fingerprint.mjs";
 import { agentKey, editTarget, ensureBaselines, safely, sessionKey, sessionState, stateRoot } from "../agent-qa/session.mjs";
-import { EDIT_TOOLS, SNAPSHOT_TOOLS, judgeToolCall } from "./guard-core.mjs";
+import { EDIT_TOOLS, SNAPSHOT_TOOLS, SUBAGENT_TOOLS, judgeToolCall } from "./guard-core.mjs";
 
 let input;
 try {
@@ -50,6 +50,9 @@ try {
   const agent = agentKey(input);
   if (state && agent) {
     sessionState(state, key).touchAgent(agent, input.tool_use_id);
+  } else if (state && SUBAGENT_TOOLS.has(input.tool_name) && typeof input.tool_use_id === "string") {
+    // The lead launches a subagent: when its call returns, the agents that started in between have finished.
+    sessionState(state, key).noteLaunch(input.tool_use_id);
   }
   if (state && EDIT_TOOLS.has(input.tool_name)) {
     // The baseline of the checkout the edit targets, taken before the edit.
@@ -75,6 +78,7 @@ try {
             input.tool_use_id,
             root,
             state === "unknown" ? { fingerprint: "unknown" } : state,
+            agent,
           );
         }
       }

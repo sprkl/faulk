@@ -15,7 +15,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { EDIT_TOOLS, SNAPSHOT_TOOLS } from "../agent-review/guard-core.mjs";
+import { EDIT_TOOLS, SNAPSHOT_TOOLS, SUBAGENT_TOOLS } from "../agent-review/guard-core.mjs";
 import { codeState, currentRef, headMovesSince, hookRoots } from "./fingerprint.mjs";
 import {
   editTarget,
@@ -98,6 +98,8 @@ try {
     const agent = agentKey(input);
     if (agent) {
       session.touchAgent(agent, input.tool_use_id, true);
+    } else if (SUBAGENT_TOOLS.has(input.tool_name) && typeof input.tool_use_id === "string") {
+      session.endLaunched(input.tool_use_id);
     }
     if (EDIT_TOOLS.has(input.tool_name)) {
       afterEdit(session, input, agent);

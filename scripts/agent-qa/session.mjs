@@ -34,7 +34,7 @@ export const agentKey = (input) => (validSessionId(input?.agent_id) ? input.agen
 /** A subagent with no hook event for this long, and no call in progress, is no longer running. */
 export const AGENT_IDLE_MS = 20 * 60 * 1000;
 /** A call in progress (a Pre hook without its Post) counts for this long at most. */
-export const AGENT_CALL_MS = 2 * 60 * 60 * 1000;
+export const AGENT_CALL_MS = 60 * 60 * 1000;
 
 /** Checkout holding the session's state: the project directory's, else the input's `cwd`'s. */
 export function stateRoot(input) {
@@ -95,6 +95,27 @@ export function sessionState(state, key) {
   const movePath = (root) => join(dir, `moved-${rootId(root)}.json`);
   const prePath = (toolUseId, root) => join(dir, `pre-${safeId(toolUseId)}-${rootId(root)}.json`);
   const listed = (pattern) => (existsSync(dir) ? readdirSync(dir).filter((name) => pattern.test(name)) : []);
+  const agentRunning = (agent, now = Date.now()) => {
+    const record = read(agentPath(agent));
+    const seen = Date.parse(record?.at);
+    if (!Number.isFinite(seen) || record.ended === true) {
+      return false;
+    }
+    if (now - seen < AGENT_IDLE_MS) {
+      return true;
+    }
+    return listed(new RegExp(`^call-${rootId(agent)}-`)).some((name) => {
+      const started = Date.parse(read(join(dir, name))?.at);
+      return Number.isFinite(started) && now - started < AGENT_CALL_MS;
+    });
+  };
+  const launchPath = (toolUseId) => join(dir, `launch-${safeId(toolUseId)}.json`);
+  const endAgent = (agent) => {
+    write(agentPath(agent), { agent, first: read(agentPath(agent))?.first, ended: true });
+    for (const name of listed(new RegExp(`^call-${rootId(agent)}-`))) {
+      rmSync(join(dir, name), { force: true });
+    }
+  };
   return {
     /** `{ fingerprint }`, `{}` when unreadable, `null` when the checkout was never seen. */
     baseline: (root) => read(baselinePath(root)),
@@ -124,7 +145,10 @@ export function sessionState(state, key) {
      * A call in progress keeps the agent running however long it takes.
      */
     touchAgent: (agent, call, done = false) => {
-      write(agentPath(agent), { agent });
+      const previous = read(agentPath(agent));
+      // `first`: when this run of the agent began (a resumed agent starts a new one).
+      const first = previous?.ended !== true && typeof previous?.first === "string" ? previous.first : new Date().toISOString();
+      write(agentPath(agent), { agent, first });
       if (typeof call === "string") {
         const path = agentCallPath(agent, call);
         if (done) {
@@ -134,28 +158,15 @@ export function sessionState(state, key) {
         }
       }
     },
-    /** The subagent's own stop let it through: it has ended, until it fires an event again. */
-    endAgent: (agent) => write(agentPath(agent), { agent, ended: true }),
+    /** The subagent has ended (its own stop let it through, or the lead's call that launched it returned), until it fires an event again. */
+    endAgent,
     /**
      * Whether the subagent is still running: it has not ended and either fired
      * a hook event less than `AGENT_IDLE_MS` before `now` or has a call in
      * progress (started less than `AGENT_CALL_MS` before `now`; a call that
      * never ends, denied by another hook or interrupted, stops counting then).
      */
-    agentRunning: (agent, now = Date.now()) => {
-      const record = read(agentPath(agent));
-      const seen = Date.parse(record?.at);
-      if (!Number.isFinite(seen) || record.ended === true) {
-        return false;
-      }
-      if (now - seen < AGENT_IDLE_MS) {
-        return true;
-      }
-      return listed(new RegExp(`^call-${rootId(agent)}-`)).some((name) => {
-        const started = Date.parse(read(join(dir, name))?.at);
-        return Number.isFinite(started) && now - started < AGENT_CALL_MS;
-      });
-    },
+    agentRunning,
     /** Every `{ root, ref, at, agent? }` the session wrote on. */
     writers: () =>
       listed(writerPattern())
@@ -168,7 +179,31 @@ export function sessionState(state, key) {
           .filter((root) => typeof root === "string"),
       ),
     ],
-    savePre: (toolUseId, root, snapshot) => write(prePath(toolUseId, root), { root, ...snapshot }),
+    savePre: (toolUseId, root, snapshot, agent) =>
+      write(prePath(toolUseId, root), { root, ...snapshot, ...(agent ? { agent } : {}) }),
+    /** The lead is about to launch a subagent (its Agent or Task call): remembers when. */
+    noteLaunch: (toolUseId) => write(launchPath(toolUseId), {}),
+    /**
+     * The lead's Agent or Task call returned: the subagents that fired their
+     * first event since it started have finished (a foreground call returns
+     * when its agent does), calls without a Post included. One that is in
+     * fact still running (a background launch, a parallel call) is running
+     * again at its next event: the error is a block, never a pass.
+     */
+    endLaunched: (toolUseId) => {
+      const started = Date.parse(read(launchPath(toolUseId))?.at);
+      rmSync(launchPath(toolUseId), { force: true });
+      if (!Number.isFinite(started)) {
+        return;
+      }
+      for (const name of listed(/^agent-[0-9a-f]{16}\.json$/)) {
+        const record = read(join(dir, name));
+        const first = Date.parse(record?.first);
+        if (typeof record?.agent === "string" && Number.isFinite(first) && first >= started) {
+          endAgent(record.agent);
+        }
+      }
+    },
     /** The snapshots taken before this tool call, removed once read. */
     takePre: (toolUseId) => {
       const snapshots = [];
@@ -188,6 +223,11 @@ export function sessionState(state, key) {
      */
     dropPending: () => {
       for (const name of listed(/^pre-/)) {
+        // The snapshot of a call a running subagent is making is not pending: its Post is coming.
+        const agent = read(join(dir, name))?.agent;
+        if (typeof agent === "string" && agentRunning(agent)) {
+          continue;
+        }
         rmSync(join(dir, name), { force: true });
       }
     },

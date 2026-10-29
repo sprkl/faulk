@@ -102,10 +102,11 @@ function toolCall(
     tool = "Bash",
     toolInput = { command: "x" },
     post = true,
+    pre = true,
+    id = `call-${++calls}`,
     agent,
   } = {},
 ) {
-  const id = `call-${++calls}`;
   const run = (script, cwd) =>
     spawnSync(process.execPath, [join(SCRIPTS, script)], {
       input: JSON.stringify({
@@ -119,7 +120,9 @@ function toolCall(
       env: { ...cleanEnv(), CLAUDE_PROJECT_DIR: project },
       encoding: "utf8",
     });
-  assert.equal(run("agent-review/agent-guard.mjs", cwdBefore).status, 0);
+  if (pre) {
+    assert.equal(run("agent-review/agent-guard.mjs", cwdBefore).status, 0);
+  }
   action();
   if (post) {
     assert.equal(run("agent-qa/post-tool-use.mjs", cwdAfter).status, 0);
@@ -576,6 +579,75 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
 
   const sessionOf = (project, key) => sessionState(toplevel(project), key);
 
+  /** The input of a subagent's own stop, as the hooks reference describes it. */
+  const subagentStop = (agent, cwd) => ({
+    hook_event_name: "SubagentStop",
+    agent_id: agent,
+    agent_type: "general-purpose",
+    agent_transcript_path: join(cwd, "agent.jsonl"),
+    last_assistant_message: "done",
+    stop_hook_active: false,
+    cwd,
+  });
+
+  /** The lead's Agent call: `during` runs between its two hooks, as the subagent's own calls would. */
+  const leadAgentCall = (project, during) =>
+    toolCall(project, "lead", during, { tool: "Agent", toolInput: { subagent_type: "general-purpose", prompt: "work" } });
+
+  it("ends the exemption when the lead's Agent call returns: a finished foreground agent is judged at once", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    leadAgentCall(project, () => agentEdit(project, worktree, "lead", "a1"));
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), false);
+    const output = stop(project, "lead");
+    assert.equal(output.decision, "block");
+    assert.ok(output.reason.includes(toplevel(worktree)), output.reason);
+  });
+
+  it("leaves an agent that started before the lead's Agent call running, and one that resumes", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    agentEdit(project, worktree, "lead", "a1"); // a background agent, launched earlier
+    leadAgentCall(project, () => {}); // for instance a Judge Dredd plan review
+    assert.equal(stop(project, "lead"), null);
+    leadAgentCall(project, () => agentEdit(project, worktree, "lead", "a2", "pub fn gain() -> f32 { 0.7 }\n"));
+    assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
+    agentEdit(project, worktree, "lead", "a2");
+    assert.equal(sessionOf(project, "lead").agentRunning("a2"), true, "an event after the end runs it again");
+  });
+
+  it("a call that never got its Post stops keeping a finished agent running", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    leadAgentCall(project, () => {
+      agentEdit(project, worktree, "lead", "a1");
+      toolCall(worktree, "lead", () => {}, { project, agent: "a1", post: false }); // a failed cargo test
+    });
+    assert.equal(stop(project, "lead").decision, "block");
+    const session = sessionOf(project, "lead");
+    assert.equal(session.agentRunning("a1", Date.now() + 30 * 60_000), false);
+  });
+
+  it("the lead's stop during a subagent's shell call keeps that call's snapshot, so its change is attributed", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    toolCall(worktree, "lead", () => {}, { project, agent: "a1", id: "bg-1", post: false }); // sed -i is about to run
+    assert.equal(stop(project, "lead"), null);
+    toolCall(worktree, "lead", () => writeCode(worktree), { project, agent: "a1", id: "bg-1", pre: false });
+    assert.equal(sessionOf(project, "lead").isWriter(toplevel(worktree), undefined, "a1"), true);
+  });
+
+  it("a Stop that carries an agent_id but is not a SubagentStop is the lead's own", () => {
+    const project = makeRepo();
+    startSession(project, "lead");
+    toolCall(project, "lead", () => writeCode(project));
+    assert.equal(stop(project, "lead", { agent_id: "a1" }).decision, "block");
+  });
+
   it("lets the lead stop while a subagent edits its own worktree, with the shell and the edit tools", () => {
     const project = makeRepo();
     const worktree = agentWorktree(project);
@@ -672,7 +744,7 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     const worktree = agentWorktree(project);
     startSession(project, "lead");
     agentEdit(project, worktree, "lead", "a1");
-    const blocked = stop(project, "lead", { agent_id: "a1", cwd: worktree });
+    const blocked = stop(project, "lead", subagentStop("a1", worktree));
     assert.equal(blocked.decision, "block");
     assert.match(blocked.reason, /record\.mjs verified/);
     assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
@@ -680,7 +752,7 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     assert.equal(script("agent-qa/record.mjs", worktree, "verified", ...RUST).status, 0);
     deliveryReview(worktree);
     assert.equal(review(worktree).status, 0);
-    assert.equal(stop(project, "lead", { agent_id: "a1", cwd: worktree }), null);
+    assert.equal(stop(project, "lead", subagentStop("a1", worktree)), null);
     assert.equal(sessionOf(project, "lead").agentRunning("a1"), false);
     assert.equal(stop(project, "lead"), null); // verified and reviewed: nothing left to judge either
   });
@@ -693,7 +765,7 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     assert.equal(script("agent-qa/record.mjs", worktree, "verified", ...RUST).status, 0);
     deliveryReview(worktree);
     assert.equal(review(worktree).status, 0);
-    assert.equal(stop(project, "lead", { agent_id: "a1", cwd: worktree }), null);
+    assert.equal(stop(project, "lead", subagentStop("a1", worktree)), null);
     agentEdit(project, worktree, "lead", "a1", "pub fn gain() -> f32 { 0.9 }\n");
     assert.equal(sessionOf(project, "lead").agentRunning("a1"), true);
     sessionOf(project, "lead").endAgent("a1"); // as a SubagentStop that let it through would
