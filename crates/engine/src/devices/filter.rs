@@ -39,8 +39,8 @@
 //!
 //! `cutoff` is smoothed in **octaves** (the ramp runs on `log2(cutoff)`, so a sweep is
 //! even to the ear), `resonance` and `mix` linearly, each over the 20 ms the descriptor
-//! declares; a change of `mode` (a choice, which declares no smoothing) crossfades the three outputs over 10 ms, so it does not
-//! click. The coefficients are recomputed per sample while a ramp runs and kept when it does
+//! declares; a change of `mode` (a choice, which declares no smoothing) crossfades the three
+//! outputs over 10 ms, so it does not click. The coefficients are recomputed per sample while a ramp runs and kept when it does
 //! not, so the render does not depend on how the host cuts blocks. [`Device::reset`] zeroes
 //! the states and snaps the ramps; the parameter values are kept. Every value goes through
 //! [`ParamDescriptor::sanitize`].
