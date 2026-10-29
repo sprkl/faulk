@@ -1039,3 +1039,150 @@ fn a_gain_lane_outside_the_fader_range_is_clamped_not_a_panic() {
     assert_levels(&r.left, &reference, start..start + 1, |_| gain_of(6.0));
     assert_levels(&r.left, &reference, start + 2_600..start + 6_000, |_| 0.0);
 }
+
+// ---------------------------------------------------------------- stopped (#388)
+
+#[test]
+fn a_stop_and_every_seek_apply_the_lanes_value_at_the_playhead() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    // Before its first point (tick 100) the lane holds the first value.
+    let points = [
+        pt(100, -20.0, Curve::Step),
+        pt(1000, -6.0, Curve::Step),
+        pt(2000, -12.0, Curve::Step),
+    ];
+    r.lane(0, 0, AutomationTarget::MixerGain, &points);
+    // The clock has not run: the lane already applies at the playhead (tick 0).
+    let before = r.at;
+    r.run(20 * block);
+    let start = r.play(0);
+    r.run_to(start + 1500 * FPT);
+    // The stop applies the lane's value where the clock stands: -6 dB.
+    r.send(&[M::Stop]);
+    let stopped = r.at;
+    r.run(20 * block);
+    // Stopped seeks: before the first point, on a point, just before it, past the last.
+    let seeks = [(50, -20.0), (1000, -6.0), (999, -20.0), (5000, -12.0)];
+    let mut spans = Vec::new();
+    for (tick, db) in seeks {
+        r.send(&[M::Seek { tick: Tick(tick) }]);
+        spans.push((r.at, db));
+        r.run(20 * block);
+    }
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, before..before + 20 * block, |_| {
+        gain_of(-20.0)
+    });
+    assert_levels(&r.left, &reference, stopped..stopped + 20 * block, |_| {
+        gain_of(-6.0)
+    });
+    for (at, db) in spans {
+        assert_levels(&r.left, &reference, at..at + 20 * block, |_| gain_of(db));
+    }
+}
+
+#[test]
+fn a_stopped_volume_lane_on_a_slope_applies_the_level_at_the_playhead() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(0, 0, AutomationTarget::MixerGain, &fade_in());
+    let start = r.play(0);
+    r.run(100 * block);
+    r.send(&[M::Stop]);
+    // The stop took effect at the start of the next block: the playhead stands there.
+    let stop = r.at;
+    let head = stop - start;
+    r.run(40 * block);
+    r.send(&[M::Seek {
+        tick: Tick(BAR / 4),
+    }]);
+    let seek = r.at;
+    r.run(40 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_curve(&r.left, &reference, stop..stop + 40 * block, |_| {
+        fade_level(head)
+    });
+    assert_curve(&r.left, &reference, seek..seek + 40 * block, |_| {
+        fade_level(BAR as usize * FPT / 4)
+    });
+}
+
+#[test]
+fn a_gesture_while_stopped_holds_until_the_next_seek_or_play() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    let points = [pt(0, -20.0, Curve::Step), pt(1000, -6.0, Curve::Step)];
+    r.lane(0, 0, AutomationTarget::MixerGain, &points);
+    r.run(10 * block);
+    let held = |e: &Engine| e.state().lanes.get(0).unwrap().run.manual();
+    // The gesture holds over many blocks, and a lane that is edited keeps the hold.
+    let gesture = r.at;
+    r.mix(0.5, 0.0);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Held);
+    r.lane(0, 0, AutomationTarget::MixerGain, &points[..1]);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Held);
+    // A seek gives the strip back to the lane.
+    let seek = r.at;
+    r.send(&[M::Seek { tick: Tick(1500) }]);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Free);
+    // A second gesture, then a seek to the tick where the playhead already stands: it is a
+    // seek all the same, the lane has the hand again.
+    r.mix(0.25, 0.0);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Held);
+    let again = r.at;
+    r.send(&[M::Seek { tick: Tick(1500) }]);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Free);
+    // A third gesture, then a play: the lane has the hand again.
+    r.mix(0.125, 0.0);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Held);
+    let play = r.play(1500);
+    r.run(40 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    let fade = 240;
+    assert_levels(&r.left, &reference, gesture + fade..seek, |_| 0.5);
+    assert_levels(&r.left, &reference, seek..seek + 40 * block, |_| {
+        gain_of(-20.0)
+    });
+    assert_levels(
+        &r.left,
+        &reference,
+        again + fade..again + 40 * block,
+        |_| gain_of(-20.0),
+    );
+    assert_levels(&r.left, &reference, play..r.at, |_| gain_of(-20.0));
+}
+
+#[test]
+fn an_edited_lane_and_a_rebuilt_device_apply_again_while_stopped() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(0, 0, TRIM, &[pt(0, 0.5, Curve::Step)]);
+    r.run(40 * block);
+    // Points edited while stopped: the new value applies without a seek.
+    let edited = r.at;
+    r.lane(0, 0, TRIM, &[pt(0, 1.5, Curve::Step)]);
+    r.run(40 * block);
+    // The effect built again in its slot: trim back at 1, then the lane's value.
+    let put = r.at;
+    r.send(&[M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(1),
+        kind: GAIN.kind_id,
+        state: encode_state(&[]),
+    }]);
+    r.run(40 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, edited + 10 * block..put, |_| 1.5);
+    assert_levels(&r.left, &reference, put + 10 * block..r.at, |_| 1.5);
+}

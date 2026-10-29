@@ -19,12 +19,15 @@
     label,
     set,
     orientation = 'horizontal',
+    automated,
     testid,
   }: {
     gainDb: number | null | undefined
     label: string
     set: (gainDb: number | null) => Command
     orientation?: 'horizontal' | 'vertical'
+    /** The tooltip when an automation lane drives the volume (#388). */
+    automated?: string
     testid?: string
   } = $props()
 
@@ -69,6 +72,7 @@
   {entry}
   {orientation}
   {label}
+  {automated}
   {testid}
   position={positionOf(gainDb)}
   home={UNITY_POSITION}

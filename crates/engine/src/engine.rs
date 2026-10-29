@@ -1655,6 +1655,7 @@ impl Engine {
                 segments: self.segments.as_slice(),
                 position: self.transport.position(),
                 frame: self.transport.total_samples(),
+                cues: self.transport.cues(),
             };
             let live: &[LiveEvent] = if first {
                 self.live_block.as_slice()

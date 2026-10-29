@@ -37,13 +37,16 @@
     dropTarget?: boolean
   } = $props()
 
-  const { project, ui, dispatcher } = useStores()
+  const { project, ui, dispatcher, automated } = useStores()
   const t = ui.t
 
   const track = $derived(entry.track)
   const label = $derived(trackLabel(entry, t))
   const instrument = $derived(instrumentName(track))
   const mixer = $derived(track.mixer)
+  // A lane that drives the volume or the pan moves the control with the play position, and marks it (AM-4, #388).
+  const shownGain = $derived(automated.shownGain(entry.id, mixer.gain_db))
+  const shownPan = $derived(automated.shownPan(entry.id, mixer.pan))
 
   // The controls whose readouts open the field to type a value.
   let gainControl: ReturnType<typeof GainControl> | undefined = $state()
@@ -301,7 +304,13 @@
           onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
         >
       {/if}
-      <GainControl bind:this={gainControl} gainDb={mixer.gain_db} label={t('tracks.volume', { name: label })} set={(gain) => setVolume(entry.id, gain)} />
+      <GainControl
+        bind:this={gainControl}
+        gainDb={shownGain}
+        label={t('tracks.volume', { name: label })}
+        set={(gain) => setVolume(entry.id, gain)}
+        automated={automated.mixerMark(entry.id, 'gain')}
+      />
       <button
         class="value readout"
         type="button"
@@ -309,12 +318,18 @@
         title={t('controls.type')}
         data-testid="track-gain-readout"
         onmousedown={(e) => e.preventDefault()}
-        onclick={() => gainControl?.edit()}>{formatGain(mixer.gain_db)}</button
+        onclick={() => gainControl?.edit()}>{formatGain(shownGain)}</button
       >
     </div>
     <div class="strip pan">
       <span class="label">{t('tracks.panShort')}</span>
-      <PanControl bind:this={panControl} track={entry.id} pan={mixer.pan} label={t('tracks.pan', { name: label })} />
+      <PanControl
+        bind:this={panControl}
+        track={entry.id}
+        pan={shownPan}
+        label={t('tracks.pan', { name: label })}
+        automated={automated.mixerMark(entry.id, 'pan')}
+      />
       <button
         class="value readout"
         type="button"
@@ -322,7 +337,7 @@
         title={t('controls.type')}
         data-testid="track-pan-readout"
         onmousedown={(e) => e.preventDefault()}
-        onclick={() => panControl?.edit()}>{formatPan(mixer.pan)}</button
+        onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
       >
     </div>
   {/if}

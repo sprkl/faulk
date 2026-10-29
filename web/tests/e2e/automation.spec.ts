@@ -109,9 +109,18 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   expect(pointsOf(lane).every((p) => p.shape === 'linear')).toBe(true)
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-three-points.png` })
 
-  // Play: the Gain knob of the device panel moves with the lane (the engine plays the lane; the panel shows it).
+  // Stopped at the start, the Gain knob shows the lane's value there (what sounds at Play) and says that a lane drives it (#388);
+  // a seek while stopped moves it, and a knob that no lane drives has no mark.
   const gain = page.getByTestId('device-card').first().getByTestId('param-gain').getByRole('slider')
+  await expect(gain).toHaveAttribute('data-automated', 'true')
+  await expect(gain).toHaveAttribute('title', /Oscillator › Gain/)
+  await expect(page.getByTestId('device-card').first().getByTestId('param-attack').getByRole('slider')).not.toHaveAttribute('data-automated', /.*/)
   const stored = await gain.getAttribute('aria-valuetext')
+  await run(page, { type: 'transport.seek', tick: BAR / 2 })
+  await expect(gain).not.toHaveAttribute('aria-valuetext', stored!)
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(gain).toHaveAttribute('aria-valuetext', stored!)
+  // Play: the Gain knob of the device panel moves with the lane (the engine plays the lane; the panel shows it).
   await page.getByTestId('transport-play').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'playing')
   const seenTexts = new Set<string>()
@@ -123,7 +132,7 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-playing.png` })
   await page.getByTestId('transport-stop').click()
   expect(seenTexts.size, `the knob showed ${[...seenTexts].join(' | ')}`).toBeGreaterThan(5)
-  // Stopped, the control shows the project's value again.
+  // Stopped (the playhead goes back to the start), the control shows the lane's value there again.
   await expect(gain).toHaveAttribute('aria-valuetext', stored!)
 
   // A drag of the middle point is ONE group: one undo gives the lane back as it was. (The page may have moved while playing: read the spots again.)
@@ -221,6 +230,29 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(-12)
   await page.keyboard.press('Control+z')
   expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
+
+  // Stopped, the track list and the mixer show the lane's value at the playhead, marked as driven by a lane, and follow a seek (#388).
+  const listGain = page.getByTestId('track-header').first().getByTestId('track-gain-readout')
+  const listFader = page.getByTestId('track-header').first().getByRole('slider').first()
+  await expect(listGain).toHaveText('0.0')
+  await expect(listFader).toHaveAttribute('data-automated', 'true')
+  await expect(listFader).toHaveAttribute('title', /Mixer › Volume/)
+  await run(page, { type: 'transport.seek', tick: BAR })
+  await expect(listGain).toHaveText('−60.0')
+  await page.getByTestId('nav-mixer').click()
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('−60.0 dB')
+  await expect(page.getByTestId('mixer-fader').first()).toHaveAttribute('data-automated', 'true')
+  await expect(page.getByTestId('mixer-pan').first()).not.toHaveAttribute('data-automated', /.*/)
+  // A fader gesture while stopped holds until the next seek (AM-2): the mixer shows it, the seek gives the lane back.
+  await run(page, { type: 'mixer.set_volume', track: (await tracks(page))[0]![0], gain_db: -12 })
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('−12.0 dB')
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('0.0 dB')
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  const toggle = page.getByTestId('arr-automation-toggle').first()
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
 
   // A note held on the track: the master's level follows the lane when the transport passes the second point.
   await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))

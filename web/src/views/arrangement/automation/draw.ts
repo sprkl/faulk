@@ -126,9 +126,11 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
       ctx.beginPath()
       const x0 = xOf(first)
       const y0 = yOf(first)
-      // Before the first point the lane holds the first value.
-      if (first === 0 && x0 > -6) {
-        ctx.moveTo(-6, y0)
+      // Before the first point the lane holds the first value (AM-2): a solid line from bar 1 (the start of the timeline).
+      const start = Math.max(-6, tickToX(0, view))
+      const held = first === 0 && x0 > start
+      if (held) {
+        ctx.moveTo(start, y0)
         ctx.lineTo(x0, y0)
       } else ctx.moveTo(x0, y0)
       for (let i = first; i < last; i++) {
@@ -143,7 +145,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
       ctx.stroke()
       // The area under the line, lightly.
       ctx.lineTo(width + 6, yOfPos(0, geo))
-      ctx.lineTo(first === 0 && x0 > -6 ? -6 : x0, yOfPos(0, geo))
+      ctx.lineTo(held ? start : x0, yOfPos(0, geo))
       ctx.closePath()
       ctx.globalAlpha = 0.12
       ctx.fill()

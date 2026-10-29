@@ -78,7 +78,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     storage,
     audioExport,
     keys: new KeyboardPlayer(project, engine, ui, dispatcher),
-    automated: new AutomatedValues(project, engine),
+    automated: new AutomatedValues(project, engine, ui),
   }
 }
 

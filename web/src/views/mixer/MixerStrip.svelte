@@ -6,7 +6,7 @@
    * The name is read-only here; renaming stays in the track list.
    */
   import { chainOf, masterChainOf } from '../../lib/project/chain'
-  import { formatGain, formatPan, instrumentName, MIN_GAIN_DB, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
@@ -32,10 +32,11 @@
 
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
-  // While the transport runs, a lane that drives the volume or the pan moves the control with it (AM-4).
-  const automatedGain = $derived(entry ? automated.mixer(entry.id, 'gain') : undefined)
-  const shownGain = $derived(automatedGain === undefined ? mixer?.gain_db : automatedGain <= MIN_GAIN_DB ? null : automatedGain)
-  const shownPan = $derived((entry ? automated.mixer(entry.id, 'pan') : undefined) ?? entry?.track.mixer.pan ?? 0)
+  // A lane that drives the volume or the pan moves the control with the play position, and marks it (AM-4, #388).
+  const shownGain = $derived(entry ? automated.shownGain(entry.id, mixer?.gain_db) : mixer?.gain_db)
+  const shownPan = $derived(entry ? automated.shownPan(entry.id, entry.track.mixer.pan) : 0)
+  const gainMark = $derived(entry ? automated.mixerMark(entry.id, 'gain') : undefined)
+  const panMark = $derived(entry ? automated.mixerMark(entry.id, 'pan') : undefined)
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
   const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
 
@@ -99,7 +100,7 @@
 
   {#if entry}
     <div class="pan">
-      <PanControl bind:this={panControl} track={entry.id} pan={shownPan} label={t('tracks.pan', { name })} testid="mixer-pan" />
+      <PanControl bind:this={panControl} track={entry.id} pan={shownPan} label={t('tracks.pan', { name })} automated={panMark} testid="mixer-pan" />
       <button
         class="readout"
         type="button"
@@ -149,6 +150,7 @@
       gainDb={shownGain}
       label={entry ? t('tracks.volume', { name }) : t('mixer.masterVolume')}
       set={entry ? (gain) => setVolume(entry.id, gain) : setMasterVolume}
+      automated={gainMark}
       testid={entry ? 'mixer-fader' : 'mixer-master-fader'}
     />
     <MixerMeter {snap} label={t('mixer.level', { name })} peakLabel={t('mixer.peak', { name })} clipLabel={t('mixer.clip')} {onreset} />

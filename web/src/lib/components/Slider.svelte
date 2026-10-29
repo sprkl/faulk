@@ -30,6 +30,7 @@
     defaultText,
     travel,
     hint,
+    automated,
     testid,
     onposition,
     onreset,
@@ -53,6 +54,8 @@
     /** The pointer travel for the whole range, in pixels; by default 160 for a knob and the control's length minus the thumb otherwise. */
     travel?: number
     hint?: string
+    /** The tooltip of a control that an automation lane drives (#388): it marks the control and replaces `hint`. */
+    automated?: string
     testid?: string
     onposition: (position: number) => void
     /** Puts the default value back, as one command. */
@@ -184,10 +187,12 @@
 <div
   bind:this={root}
   class="slider {kind} {orientation}"
+  class:automated={automated !== undefined}
   role="slider"
   tabindex="0"
-  title={hint ?? ui.t('controls.hint')}
+  title={automated ?? hint ?? ui.t('controls.hint')}
   aria-label={label}
+  data-automated={automated === undefined ? undefined : 'true'}
   aria-orientation={orientation}
   aria-valuemin="0"
   aria-valuemax="1"
@@ -353,5 +358,19 @@
     left: 2px;
     right: 2px;
     height: 16px;
+  }
+  /* A lane drives the control (#388): an accent tint around it and a filled thumb. */
+  .slider.automated {
+    border-radius: var(--fk-radius-work);
+    background: var(--fk-accent-tint);
+    box-shadow:
+      0 0 0 2px var(--fk-accent-tint),
+      0 0 0 3px var(--fk-accent-fg);
+  }
+  .slider.knob.automated {
+    border-radius: 50%;
+  }
+  .automated .thumb {
+    background: var(--fk-accent-fg);
   }
 </style>

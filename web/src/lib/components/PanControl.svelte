@@ -12,7 +12,7 @@
   import { parsePan } from '../value-entry'
   import Slider from './Slider.svelte'
 
-  let { track, pan, label, testid }: { track: string; pan: number; label: string; testid?: string } = $props()
+  let { track, pan, label, automated, testid }: { track: string; pan: number; label: string; automated?: string; testid?: string } = $props()
 
   const { dispatcher } = useStores()
   const gesture = createGesture((command) => dispatcher.run(command))
@@ -53,6 +53,7 @@
   kind="pan"
   {entry}
   {label}
+  {automated}
   {testid}
   position={(pan + 1) / 2}
   home={0.5}

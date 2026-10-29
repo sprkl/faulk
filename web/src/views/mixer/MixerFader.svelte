@@ -8,7 +8,13 @@
   import type { Command } from '../../lib/generated/protocol'
   import { FADER_MARKS, positionOf } from '../../lib/project/fader'
 
-  let { gainDb, label, set, testid }: { gainDb: number | null | undefined; label: string; set: (gainDb: number | null) => Command; testid: string } = $props()
+  let {
+    gainDb,
+    label,
+    set,
+    automated,
+    testid,
+  }: { gainDb: number | null | undefined; label: string; set: (gainDb: number | null) => Command; automated?: string; testid: string } = $props()
 
   let control: ReturnType<typeof GainControl> | undefined = $state()
 
@@ -19,7 +25,7 @@
 </script>
 
 <div class="fader">
-  <GainControl bind:this={control} {gainDb} {label} {set} {testid} orientation="vertical" />
+  <GainControl bind:this={control} {gainDb} {label} {set} {automated} {testid} orientation="vertical" />
   <div class="marks" aria-hidden="true">
     {#each FADER_MARKS as db (db)}
       <span class="mark" class:zero={db === 0} style:--at={positionOf(db)}>{db > 0 ? `+${db}` : db < 0 ? `−${-db}` : '0'}</span>
