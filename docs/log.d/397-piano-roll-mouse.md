@@ -1,0 +1,2 @@
+2026-10-29
+* **Update** (#397): piano roll mouse gestures. Drawing with the Auto snap never goes below a sixteenth (a click puts a note one step long, a drag is rounded to the step; a finer step only if the musician picks it). `clip.notes.duplicate` without `offset` and the Duplicate button shift by the selection span counted from the bar of its first note, rounded up to whole bars (at least one bar). Ctrl+A selects all notes of the open piano roll even when the focus is not on the grid, and prevents the page text selection.

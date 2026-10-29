@@ -135,21 +135,23 @@ test('piano roll: quantizes with a strength, transposes, duplicates, copies, cut
   await page.keyboard.press('Control+d')
   await expect(roll(page)).toHaveAttribute('data-clip-length', '7680')
   await expect(roll(page)).toHaveAttribute('data-note-count', '6')
-  const span = Math.max(...before.map((n) => n.start + n.length)) - Math.min(...before.map((n) => n.start))
+  // The copies go a whole bar later (the notes are all in the first bar).
+  const span = 3840
   expect(await starts(page)).toEqual([...before.map((n) => n.start), ...before.map((n) => n.start + span)].sort((a, b) => a - b))
   await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
   await page.keyboard.press('Control+z')
   await expect(roll(page)).toHaveAttribute('data-clip-length', '3840')
   await expect(roll(page)).toHaveAttribute('data-note-count', '3')
-  // A duplicate that fits does not touch the length; the button does the same as the key.
+  // A single note is copied a whole bar later too, so the one-bar clip grows; the button does the same as the key.
   await page.getByTestId('roll-tool-select').click()
   await page.mouse.click(g.x(full[0]! + 20), g.y(60))
   await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
   await page.getByTestId('roll-duplicate').click()
   await expect(roll(page)).toHaveAttribute('data-note-count', '4')
-  await expect(roll(page)).toHaveAttribute('data-clip-length', '3840')
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '7680')
   await page.keyboard.press('Control+z')
   await expect(roll(page)).toHaveAttribute('data-note-count', '3')
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '3840')
 
   // Copy, then paste: the copy lands at the start of the clip (no play position), the selection is the pasted note.
   await page.mouse.click(g.x(full[2]! + 20), g.y(64))
@@ -196,4 +198,55 @@ test('piano roll: the editing controls speak English', async ({ page }) => {
   await expect(page.getByTestId('roll-quantize-grid').locator('option').last()).toHaveText('1/16 triplet')
   await expect(page.getByTestId('roll-duplicate')).toBeDisabled()
   expect(seen.errors).toEqual([])
+})
+
+// #397: the mouse gestures of the roll. At the default zoom the ruler's Auto step is a 32nd; drawing stops at a sixteenth.
+test('piano roll: Auto draws on a sixteenth at least, duplicate goes whole bars later, Ctrl+A selects the notes without the page text', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  await expect(page.getByTestId('roll-snap')).toHaveValue('auto')
+  const sixteenth = 240
+  const g = await spot(page)
+
+  // A click puts a note on the step, one step long, not a sliver of the finest grid.
+  await page.mouse.click(g.x(100), g.y(60))
+  expect(await notes(page)).toEqual([{ start: 0, pitch: 60, length: sixteenth, velocity: 100 }])
+  // A drag is rounded to the step.
+  await page.mouse.move(g.x(1000), g.y(62))
+  await page.mouse.down()
+  await page.mouse.move(g.x(1300), g.y(62), { steps: 4 })
+  await page.mouse.move(g.x(1700), g.y(62), { steps: 4 })
+  await page.mouse.up()
+  const dragged = (await notes(page)).find((n) => n.pitch === 62)!
+  expect(dragged.start % sixteenth).toBe(0)
+  expect(dragged.length % sixteenth).toBe(0)
+  expect(dragged.length).toBeGreaterThanOrEqual(sixteenth)
+  const total = (await notes(page)).length
+
+  // Duplicate: a selection inside the first bar is copied to the second bar, whatever its span.
+  await page.getByTestId('roll-tool-select').click()
+  await page.mouse.click(g.x(100), g.y(60))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  await page.getByTestId('roll-duplicate').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', String(total + 1))
+  expect(await starts(page)).toContain(3840)
+  await expect(roll(page)).toHaveAttribute('data-clip-length', '7680')
+
+  // Ctrl+A with the focus off the grid (on the page body) selects every note and leaves no page text selected.
+  await focusGrid(page)
+  await page.keyboard.press('Escape')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', String(total + 1))
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+
+  // In a text field Ctrl+A stays the field's own: the notes are not selected.
+  await focusGrid(page)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('roll-quantize-strength').focus()
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  expect(seen.errors).toEqual([])
+  expect(warnings).toEqual([])
 })

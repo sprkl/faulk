@@ -20,12 +20,17 @@ fn notes_of(state: &State, fx: &ClipFx, clip: &ClipId) -> BTreeSet<Note> {
 
 /// A clip of 3840 ticks holding exactly `notes`.
 fn with_notes(notes: &[Note]) -> (ClipFx, State) {
+    with_length_notes(3840, notes)
+}
+
+/// A clip of `length` ticks holding exactly `notes`.
+fn with_length_notes(length: i64, notes: &[Note]) -> (ClipFx, State) {
     let f = fx();
     let mut state = f.state.clone();
     run(
         &c(clip::Command::SetContent {
             clip: f.clip.clone(),
-            length: Tick(3840),
+            length: Tick(length),
             looping: None,
             notes: notes.to_vec(),
             placements: None,
@@ -357,7 +362,7 @@ fn transpose_that_lands_on_another_note_merges_and_undoes() {
 
 #[test]
 fn duplicate_follows_the_selection_by_default_and_takes_an_offset() {
-    let (f, state) = with_notes(&[n(0, 60, 480, 100), n(480, 62, 480, 100)]);
+    let (f, state) = with_length_notes(3 * 3840, &[n(0, 60, 480, 100), n(480, 62, 480, 100)]);
     let duplicate = |notes: Vec<Note>, offset: Option<i64>| {
         c(clip::Command::NotesDuplicate {
             clip: f.clip.clone(),
@@ -378,15 +383,15 @@ fn duplicate_follows_the_selection_by_default_and_takes_an_offset() {
         BTreeSet::from([
             n(0, 60, 480, 100),
             n(480, 62, 480, 100),
-            n(960, 60, 480, 100),
-            n(1440, 62, 480, 100)
+            n(3840, 60, 480, 100),
+            n(4320, 62, 480, 100)
         ])
     );
     assert_eq!(after.history.undo.len(), state.history.undo.len() + 1);
     assert_eq!(undo(after, out).project, state.project);
     // A negative offset copies earlier; the last end may touch the clip end.
-    let (after, _) = go(&state, &duplicate(vec![all[1]], Some(2880)));
-    assert!(notes_of(&after, &f, &f.clip).contains(&n(3840 - 480, 62, 480, 100)));
+    let (after, _) = go(&state, &duplicate(vec![all[1]], Some(3 * 3840 - 960)));
+    assert!(notes_of(&after, &f, &f.clip).contains(&n(3 * 3840 - 480, 62, 480, 100)));
     let (after, _) = go(&state, &duplicate(vec![all[1]], Some(-480)));
     assert!(notes_of(&after, &f, &f.clip).contains(&n(0, 62, 480, 100)));
     // Copies already there change nothing; only the new ones count and are undone.
@@ -415,7 +420,7 @@ fn duplicate_follows_the_selection_by_default_and_takes_an_offset() {
     assert_eq!((after, out.undo), (state3.clone(), Undo::None));
     // Refusals: past either end of the clip, an offset of 0, a note that is not there.
     assert_eq!(
-        refusal(&state, &duplicate(all.clone(), Some(2881))).code(),
+        refusal(&state, &duplicate(all.clone(), Some(3 * 3840 - 960 + 1))).code(),
         "invalid"
     );
     assert_eq!(
@@ -430,6 +435,33 @@ fn duplicate_follows_the_selection_by_default_and_takes_an_offset() {
         refusal(&state, &duplicate(vec![n(5, 60, 5, 5)], None)).code(),
         "not_found"
     );
+    // The default offset is whole bars from the bar of the first note: a selection of one bar or
+    // less goes to the next bar, a selection across a bar line takes both bars.
+    let (fb, bars) = with_length_notes(4 * 3840, &[n(3840 + 100, 60, 480, 100)]);
+    let dup = |notes: Vec<Note>| {
+        c(clip::Command::NotesDuplicate {
+            clip: fb.clip.clone(),
+            notes,
+            offset: None,
+        })
+    };
+    let (after, _) = go(&bars, &dup(vec![n(3840 + 100, 60, 480, 100)]));
+    assert!(notes_of(&after, &fb, &fb.clip).contains(&n(2 * 3840 + 100, 60, 480, 100)));
+    let across = [
+        n(3840 + 3800, 60, 480, 100),
+        n(2 * 3840 + 100, 62, 100, 100),
+    ];
+    let (fa, spanning) = with_length_notes(6 * 3840, &across);
+    let (after, _) = go(
+        &spanning,
+        &c(clip::Command::NotesDuplicate {
+            clip: fa.clip.clone(),
+            notes: across.to_vec(),
+            offset: None,
+        }),
+    );
+    assert!(notes_of(&after, &fa, &fa.clip).contains(&n(3 * 3840 + 3800, 60, 480, 100)));
+    assert!(notes_of(&after, &fa, &fa.clip).contains(&n(4 * 3840 + 100, 62, 100, 100)));
     // The whole clip as the selection has no room to follow itself.
     let (f2, state2) = with_notes(&[n(0, 60, 3840, 100)]);
     let whole = c(clip::Command::NotesDuplicate {

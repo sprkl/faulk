@@ -64,6 +64,7 @@
     DEFAULT_QUANTIZE_STRENGTH,
     MAX_BARS,
     QUANTIZE_GRIDS,
+    drawStep,
     duplicateOffset,
     endOf,
     floorTick,
@@ -178,6 +179,8 @@
 
   const shown = $derived(clampView(view, stageW, totalBars * bar))
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
+  /** The step notes are drawn on: Auto never goes below a sixteenth. */
+  const drawing = $derived(drawStep(snap === 'auto', step))
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
@@ -365,7 +368,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -388,9 +391,9 @@
     if (g.kind === 'loop') {
       gesture = { ...g, to: Math.min(clipLength, snapTick(xToTick(x, shown), step)) }
     } else if (g.kind === 'draw') {
-      const end = snapTick(xToTick(x, shown), step)
+      const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength) }
+      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -449,6 +452,15 @@
     picked = new Set()
   }
 
+  const isSelectAll = (event: KeyboardEvent) => (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a'
+
+  /** Ctrl+A anywhere on the page (the stage may not hold the focus) selects the notes, not the page's text. */
+  function onWindowKeyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented || !edited || !isSelectAll(event) || isTextTarget(event.target)) return
+    picked = new Set(notes.map(noteKey))
+    event.preventDefault()
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
     if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -456,7 +468,7 @@
     } else if (event.key === 'Escape') {
       if (gesture) cancel()
       else picked = new Set()
-    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
+    } else if (isSelectAll(event)) {
       picked = new Set(notes.map(noteKey))
     } else if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'x', 'v', 'd'].includes(event.key.toLowerCase())) {
       const key = event.key.toLowerCase()
@@ -673,7 +685,7 @@
   function duplicateChosen() {
     if (!edited || chosenNotes.length === 0) return
     const source = [...chosenNotes]
-    const offset = duplicateOffset(source)
+    const offset = duplicateOffset(source, bar)
     if (offset <= 0) return
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
@@ -696,7 +708,7 @@
   }
 </script>
 
-<svelte:window onblur={silence} />
+<svelte:window onblur={silence} onkeydown={onWindowKeyDown} />
 <svelte:document onvisibilitychange={silence} />
 
 {#if !track}
