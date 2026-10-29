@@ -89,7 +89,8 @@ export class ProjectStore {
       if (event.type === 'track_deleted') gone.push(event.track)
     }
     for (const event of events) {
-      if (event.type !== 'automation_lane_deleted' || gone.includes(event.track)) continue
+      // A lane of the master (`track: null`) is never a swap of an instrument: the master has none.
+      if (event.type !== 'automation_lane_deleted' || !event.track || gone.includes(event.track)) continue
       const track = view.project.tracks[event.track]
       const target = track?.automation[event.lane]?.target
       if (!track || !target || !('device' in target) || track.devices[target.device.device]?.role !== 'instrument') continue

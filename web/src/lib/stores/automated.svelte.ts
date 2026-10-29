@@ -1,5 +1,5 @@
 import { untrack } from 'svelte'
-import type { AutomationLane, ProjectEvent } from '../generated/protocol'
+import type { AutomationLane, Project, ProjectEvent, Track } from '../generated/protocol'
 import { deviceText, labelKey } from '../devices'
 import { lanesOf, pointsOf, targetKey, valueAt, lowerBound, type Labels } from '../../views/arrangement/automation/model'
 import { PPQ } from '../../views/transport/time'
@@ -11,6 +11,17 @@ import type { UiStore } from './ui.svelte'
 /** The key of the parameter a lane drives, as `values` and `drivers` have it: `d:<device>:<param>` or `m:<track>:<gain|pan>`. */
 function whereOf(trackId: string, lane: AutomationLane): string {
   return 'device' in lane.target ? targetKey(lane.target) : `m:${trackId}:${lane.target.mixer.param}`
+}
+
+/** The owner id of the master's lanes in `values`, `drivers` and the marks (`m:master:gain`): a track id is never this word. */
+export const MASTER = 'master'
+
+/** What owns lanes: every track, then the master with its chain and its lanes (#378). */
+function ownersOf(project: Project): [string, Pick<Track, 'devices' | 'automation'>][] {
+  const out: [string, Pick<Track, 'devices' | 'automation'>][] = []
+  for (const [id, track] of Object.entries(project.tracks)) if (track) out.push([id, track])
+  out.push([MASTER, { devices: project.master_devices ?? {}, automation: project.master_automation ?? {} }])
+  return out
 }
 
 /** The span of the transport positions where a manual change holds the lane: `[from, until)`. */
@@ -53,8 +64,7 @@ export class AutomatedValues {
     const out = new Map<string, number>()
     const view = this.project.view
     if (!view) return out
-    for (const [trackId, track] of Object.entries(view.project.tracks)) {
-      if (!track) continue
+    for (const [trackId, track] of ownersOf(view.project)) {
       for (const lane of Object.values(track.automation)) {
         if (!lane) continue
         const where = whereOf(trackId, lane)
@@ -80,8 +90,7 @@ export class AutomatedValues {
       param: (d, p) => deviceText(lang, labelKey(d, p.key)) ?? p.key,
       choice: (d, key) => deviceText(lang, labelKey(d, key)) ?? key,
     }
-    for (const [trackId, track] of Object.entries(view.project.tracks)) {
-      if (!track) continue
+    for (const [trackId, track] of ownersOf(view.project)) {
       for (const info of lanesOf(track, labels)) {
         // A lane with no point does nothing (AM-1): its parameter is not driven.
         if (pointsOf(info.lane).length === 0) continue
@@ -186,14 +195,16 @@ export class AutomatedValues {
     for (const event of events) {
       if (event.type === 'device_param_changed') {
         const lanes: AutomationLane[] = []
-        for (const track of Object.values(view.project.tracks)) {
-          for (const lane of Object.values(track?.automation ?? {})) {
+        for (const [, track] of ownersOf(view.project)) {
+          for (const lane of Object.values(track.automation)) {
             if (lane && 'device' in lane.target && lane.target.device.device === event.device && lane.target.device.param === event.param) lanes.push(lane)
           }
         }
         if (lanes.length > 0) this.hold(`d:${event.device}:${event.param}`, lanes)
-      } else if (event.type === 'mixer_changed' && event.track) {
-        const track = view.project.tracks[event.track]
+      } else if (event.type === 'mixer_changed') {
+        // A track's strip, or the master's when `track` is null.
+        const owner = event.track ?? MASTER
+        const track = event.track ? view.project.tracks[event.track] : { mixer: view.project.master, automation: view.project.master_automation ?? {} }
         if (!track) continue
         for (const param of ['gain', 'pan'] as const) {
           const changed = param === 'gain' ? (track.mixer.gain_db ?? null) !== (event.gain_db ?? null) : track.mixer.pan !== event.pan
@@ -202,7 +213,7 @@ export class AutomatedValues {
           for (const lane of Object.values(track.automation)) {
             if (lane && 'mixer' in lane.target && lane.target.mixer.param === param) lanes.push(lane)
           }
-          if (lanes.length > 0) this.hold(`m:${event.track}:${param}`, lanes)
+          if (lanes.length > 0) this.hold(`m:${owner}:${param}`, lanes)
         }
       }
     }

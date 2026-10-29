@@ -8,6 +8,7 @@
   import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
+  import { MASTER } from '../../lib/stores/automated.svelte'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
   import MixerFader from './MixerFader.svelte'
@@ -33,9 +34,9 @@
   const name = $derived(entry ? trackLabel(entry, t) : t('mixer.master'))
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
   // A lane that drives the volume or the pan moves the control with the play position, and marks it (AM-4, #388).
-  const shownGain = $derived(entry ? automated.shownGain(entry.id, mixer?.gain_db) : mixer?.gain_db)
+  const shownGain = $derived(automated.shownGain(entry ? entry.id : MASTER, mixer?.gain_db))
   const shownPan = $derived(entry ? automated.shownPan(entry.id, entry.track.mixer.pan) : 0)
-  const gainMark = $derived(entry ? automated.mixerMark(entry.id, 'gain') : undefined)
+  const gainMark = $derived(automated.mixerMark(entry ? entry.id : MASTER, 'gain'))
   const panMark = $derived(entry ? automated.mixerMark(entry.id, 'pan') : undefined)
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
   const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
