@@ -3,12 +3,17 @@
 //! The contract of the automation commands, written once here and repeated in their
 //! descriptions for agents:
 //!
-//! - A lane belongs to a track and automates one parameter of it: a parameter of one of
-//!   the track's devices (`{"device": {"device": <id>, "param": <key>}}`, validated against
-//!   the device's descriptor) or the track's `gain` or `pan` (`{"mixer": {"param": "gain"}}`).
-//!   `automation.lane.create` refuses a second lane on a parameter (a restore gives back what
-//!   was there, even two lanes that a merge left on one parameter). The master and the devices
-//!   of the master's chain are not automatable yet (a lane lives in a track).
+//! - A lane belongs to a track, or to the master (#378), and automates one parameter of it:
+//!   a parameter of one of its devices (`{"device": {"device": <id>, "param": <key>}}`,
+//!   validated against the device's descriptor) or its `gain` or `pan`
+//!   (`{"mixer": {"param": "gain"}}`). `automation.lane.create` and `automation.lane.restore`
+//!   name the owner like `device.insert` names a chain: `track` for a track's lane,
+//!   `master: true` for the master's, exactly one of the two. The master's lanes target the
+//!   effects of the master's chain and the master's `gain` and `pan`; there is no `mute` lane,
+//!   for the master as for a track. `automation.lane.create` refuses a second lane on a
+//!   parameter (a restore gives back what was there, even two lanes that a merge left on one
+//!   parameter). Every other command finds a lane by its identifier, in a track or in the
+//!   master.
 //! - Before its first point a lane holds the first point's value (from tick 0), after its
 //!   last point the last value; the engine applies the lane's value at the playhead when the
 //!   transport stops and at every seek (#388), so a lane sets its parameter from the first bar.
@@ -27,8 +32,9 @@
 //!   -1 to 1, rounded to 0.01. A gain or pan outside its range is refused.
 //! - A batch is one history entry and is all or nothing: one point refused, nothing changes.
 //!   A command that changes nothing returns no inverse and no event.
-//! - Deleting a device deletes its lanes (`device.remove`) and deleting a track deletes its
-//!   lanes (`track.delete`); their undo brings the lanes back with their points.
+//! - Deleting a device deletes its lanes (`device.remove`, in a track's chain or in the
+//!   master's) and deleting a track deletes its lanes (`track.delete`); their undo brings the
+//!   lanes back with their points.
 //! - A lane with more points than the density threshold of the project format is stored as a
 //!   blob and read back as the same table: nothing changes for the commands.
 //! - Playing the lanes is the engine's (AM-2, `engine::automation`), editing them in the
@@ -40,8 +46,8 @@ use crate::macros::domain;
 use engine::device::ParamDescriptor;
 use project::limits::{MAX_LANES, MAX_LANES_PER_TRACK, MAX_POINTS, MAX_POINTS_PER_LANE, MAX_TICK};
 use project::{
-    AutomationLane, AutomationPoint, AutomationTarget, LaneId, MAX_GAIN_DB, MIN_GAIN_DB,
-    MixerParam, Shape, Tick, Track, TrackId,
+    AutomationLane, AutomationPoint, AutomationTarget, Device, DeviceId, LaneId, MAX_GAIN_DB,
+    MIN_GAIN_DB, MixerParam, Shape, Tick, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -51,6 +57,11 @@ use std::collections::BTreeMap;
 const GAIN_STEP_DB: f64 = 0.01;
 /// The step of a pan automation point.
 const PAN_STEP: f64 = 0.01;
+
+/// For `skip_serializing_if`: a `master: false` is left out of the command.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 fn linear() -> Shape {
     Shape::Linear
@@ -77,21 +88,32 @@ pub struct Point {
 domain! {
     domain = "automation", schema = ("AutomationCommand", "AutomationOutput");
 
-    /// Create an empty automation lane on a parameter of a track. `target` is
+    /// Create an empty automation lane on a parameter of a track or of the master. Name the
+    /// owner with `track` (a track's identifier) or with `master: true` (the master),
+    /// exactly one of the two. `target` is
     /// `{"device": {"device": <device id>, "param": <parameter key>}}` for a parameter of
-    /// one of the track's devices (the keys are in the device descriptors of the schema
-    /// bundle; the device must be in this track's chain) or `{"mixer": {"param": "gain"}}`
-    /// / `{"mixer": {"param": "pan"}}` for the track's volume or pan. Refused with
-    /// `not_found` for an unknown track, device or parameter, with `invalid` when the track
-    /// already has a lane on that parameter or when the device is in the master's chain
-    /// (the master is not automatable yet), and with `limit` at the safety limit of lanes.
+    /// one of the owner's devices (the keys are in the device descriptors of the schema
+    /// bundle; the device must be in the owner's chain: a track's, or the master's effects)
+    /// or `{"mixer": {"param": "gain"}}` / `{"mixer": {"param": "pan"}}` for the owner's
+    /// volume or pan (there is no mute lane). Refused with `not_found` for an unknown track,
+    /// device or parameter, with `invalid` when both or neither of `track` and `master` are
+    /// given, when the owner already has a lane on that parameter or when the device is in
+    /// another chain than the owner's, and with `limit` at the safety limit of lanes.
     /// A lane has no point yet and does nothing; once it has points, it holds the first
     /// point's value from the start of the timeline until that point, and the engine applies
     /// its value at the playhead when the transport stops and at every seek, so a lane with a
     /// single point at bar 9 already sets its parameter from bar 1. A lane belongs to the
     /// track, not to its clips. Undo: `automation.lane.delete`.
     "automation.lane.create" (kind = "edit", undo = "inverse", destructive = false)
-    LaneCreate { track: TrackId, target: AutomationTarget } => {
+    LaneCreate {
+        /// The track that owns the lane; absent for the master.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<TrackId>,
+        /// `true` for a lane of the master instead of a track's.
+        #[serde(default, skip_serializing_if = "is_false")]
+        master: bool,
+        target: AutomationTarget,
+    } => {
         /// The lane created.
         lane: LaneId,
     };
@@ -100,18 +122,25 @@ domain! {
     /// brings it back with its identifier and points.
     "automation.lane.delete" (kind = "edit", undo = "inverse", destructive = false)
     LaneDelete { lane: LaneId } => {
-        /// The track the lane was in.
-        track: TrackId,
+        /// The track the lane was in; `null` when it was a lane of the master.
+        track: Option<TrackId>,
     };
 
     /// Bring a deleted lane back under its identifier, as `automation.lane.delete` took it
-    /// out: the inverse of a delete. `snapshot` is the whole lane: its target and points.
-    /// Refused when the identifier is already in use, when the track does not exist, when
-    /// the target is not valid for the track or the track already has a lane on it, at the
-    /// safety limit of lanes, or when a point is not valid. Undo: `automation.lane.delete`.
+    /// out: the inverse of a delete. `track` or `master: true` names the owner, as for
+    /// `automation.lane.create`. `snapshot` is the whole lane: its target and points.
+    /// Refused when the identifier is already in use, when both or neither of `track` and
+    /// `master` are given, when the track does not exist, when the target is not valid for
+    /// the owner, at the safety limit of lanes, or when a point is not valid. Undo:
+    /// `automation.lane.delete`.
     "automation.lane.restore" (kind = "edit", undo = "inverse", destructive = false)
     LaneRestore {
-        track: TrackId,
+        /// The track that owns the lane; absent for the master.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<TrackId>,
+        /// `true` for a lane of the master instead of a track's.
+        #[serde(default, skip_serializing_if = "is_false")]
+        master: bool,
         lane: LaneId,
         snapshot: AutomationLane,
     } => {};
@@ -251,13 +280,18 @@ pub(crate) fn apply_with(
     ctx: &mut Context,
 ) -> Result<Out, CommandError> {
     match command {
-        Command::LaneCreate { track, target } => lane_create(caps, state, ctx, track, target),
+        Command::LaneCreate {
+            track,
+            master,
+            target,
+        } => lane_create(caps, state, ctx, &owner_of(track, *master)?, target),
         Command::LaneDelete { lane } => lane_delete(state, lane),
         Command::LaneRestore {
             track,
+            master,
             lane,
             snapshot,
-        } => lane_restore(caps, state, track, lane, snapshot),
+        } => lane_restore(caps, state, &owner_of(track, *master)?, lane, snapshot),
         Command::PointsAdd { lane, points } => points_add(caps, state, lane, points),
         Command::PointsRemove { lane, ticks } => points_remove(state, lane, ticks),
         Command::PointsUpdate { lane, points } => points_update(caps, state, lane, points),
@@ -335,9 +369,55 @@ impl Rule {
     }
 }
 
-/// The rule of a target in a track, and the check that the target exists there: the device
-/// is in the track's chain and declares the parameter.
-fn rule_of(state: &State, track: &Track, target: &AutomationTarget) -> Result<Rule, CommandError> {
+/// Who owns a lane: a track (`Some`) or the master (`None`).
+type Owner = Option<TrackId>;
+
+/// The owner a command names: `track` or `master: true`, exactly one of the two.
+fn owner_of(track: &Option<TrackId>, master: bool) -> Result<Owner, CommandError> {
+    match (track, master) {
+        (Some(t), false) => Ok(Some(t.clone())),
+        (None, true) => Ok(None),
+        (Some(_), true) => Err(invalid(
+            "master",
+            "name the track or the master, not both: give `track`, or `master: true`",
+        )),
+        (None, false) => Err(invalid(
+            "track",
+            "name the owner of the lane: a `track`, or `master: true` for the master",
+        )),
+    }
+}
+
+/// The chain of an owner: a track's devices, or the master's.
+fn chain_of<'a>(
+    state: &'a State,
+    owner: &Owner,
+) -> Result<&'a BTreeMap<DeviceId, Device>, CommandError> {
+    match owner {
+        None => Ok(&state.project.master_devices),
+        Some(t) => state
+            .project
+            .tracks
+            .get(t)
+            .map(|t| &t.devices)
+            .ok_or_else(|| not_found("track", t)),
+    }
+}
+
+/// The lanes of an owner.
+fn lanes_of<'a>(
+    state: &'a State,
+    owner: &Owner,
+) -> Result<&'a BTreeMap<LaneId, AutomationLane>, CommandError> {
+    state
+        .project
+        .lanes(owner.as_ref())
+        .ok_or_else(|| not_found("track", owner.as_ref().map_or_else(String::new, ToString::to_string)))
+}
+
+/// The rule of a target in an owner's lanes, and the check that the target exists there: the
+/// device is in the owner's chain and declares the parameter.
+fn rule_of(state: &State, owner: &Owner, target: &AutomationTarget) -> Result<Rule, CommandError> {
     match target {
         AutomationTarget::Mixer {
             param: MixerParam::Gain,
@@ -346,11 +426,14 @@ fn rule_of(state: &State, track: &Track, target: &AutomationTarget) -> Result<Ru
             param: MixerParam::Pan,
         } => Ok(Rule::Pan),
         AutomationTarget::Device { device, param } => {
-            let Some(found) = track.devices.get(device) else {
-                if state.project.master_devices.contains_key(device) {
+            let Some(found) = chain_of(state, owner)?.get(device) else {
+                if state.project.device(device).is_some() {
                     return Err(invalid(
                         "target",
-                        "the master's devices are not automatable yet: a lane lives in a track",
+                        match owner {
+                            None => "the device is not in the master's chain: a lane targets a device of its owner's chain",
+                            Some(_) => "the device is not in this track's chain: a lane targets a device of its owner's chain",
+                        },
                     ));
                 }
                 return Err(not_found("device", device));
@@ -389,43 +472,31 @@ pub(crate) fn check_restored_lane(
     Ok(())
 }
 
-/// The track that holds a lane.
-fn track_of(state: &State, lane: &LaneId) -> Result<TrackId, CommandError> {
+/// The owner of a lane.
+fn owner_of_lane(state: &State, lane: &LaneId) -> Result<Owner, CommandError> {
     state
         .project
-        .tracks
-        .iter()
-        .find(|(_, t)| t.automation.contains_key(lane))
-        .map(|(id, _)| id.clone())
+        .lane_owner(lane)
         .ok_or_else(|| not_found("lane", lane))
 }
 
-fn track_ref<'a>(state: &'a State, track: &TrackId) -> Result<&'a Track, CommandError> {
-    state
-        .project
-        .tracks
-        .get(track)
-        .ok_or_else(|| not_found("track", track))
-}
-
-/// The lane and its track, to edit.
+/// The lane and its owner, to edit.
 fn lane_mut<'a>(
     state: &'a mut State,
     lane: &LaneId,
-) -> Result<(TrackId, &'a mut AutomationLane), CommandError> {
-    let track = track_of(state, lane)?;
+) -> Result<(Owner, &'a mut AutomationLane), CommandError> {
+    let owner = owner_of_lane(state, lane)?;
     let found = state
         .project
-        .tracks
-        .get_mut(&track)
-        .and_then(|t| t.automation.get_mut(lane))
+        .lanes_mut(owner.as_ref())
+        .and_then(|lanes| lanes.get_mut(lane))
         .ok_or_else(|| not_found("lane", lane))?;
-    Ok((track, found))
+    Ok((owner, found))
 }
 
-/// Whether a lane may be added to the track under the safety limits of lanes.
-fn check_lane_limits(caps: Caps, state: &State, track: &Track) -> Result<(), CommandError> {
-    if track.automation.len() >= caps.lanes_per_track {
+/// Whether a lane may be added to the owner under the safety limits of lanes.
+fn check_lane_limits(caps: Caps, state: &State, owner: &Owner) -> Result<(), CommandError> {
+    if lanes_of(state, owner)?.len() >= caps.lanes_per_track {
         return Err(limit("lanes", caps.lanes_per_track));
     }
     if state.project.counts().lanes >= caps.lanes {
@@ -440,36 +511,36 @@ fn check_lane_limits(caps: Caps, state: &State, track: &Track) -> Result<(), Com
 fn check_new_lane(
     caps: Caps,
     state: &State,
-    track: &Track,
+    owner: &Owner,
     target: &AutomationTarget,
 ) -> Result<(), CommandError> {
-    check_lane_limits(caps, state, track)?;
-    if track.automation.values().any(|l| l.target == *target) {
+    check_lane_limits(caps, state, owner)?;
+    if lanes_of(state, owner)?.values().any(|l| l.target == *target) {
         return Err(invalid(
             "target",
-            "the track already has a lane on that parameter",
+            "the owner already has a lane on that parameter",
         ));
     }
     Ok(())
 }
 
 fn lane_events(
-    make: fn(TrackId, LaneId) -> ProjectEvent,
-    track: &TrackId,
+    make: fn(Owner, LaneId) -> ProjectEvent,
+    owner: &Owner,
     lane: &LaneId,
 ) -> Vec<ProjectEvent> {
-    vec![make(track.clone(), lane.clone())]
+    vec![make(owner.clone(), lane.clone())]
 }
 
-fn created(track: TrackId, lane: LaneId) -> ProjectEvent {
+fn created(track: Owner, lane: LaneId) -> ProjectEvent {
     ProjectEvent::AutomationLaneCreated { track, lane }
 }
 
-fn deleted(track: TrackId, lane: LaneId) -> ProjectEvent {
+fn deleted(track: Owner, lane: LaneId) -> ProjectEvent {
     ProjectEvent::AutomationLaneDeleted { track, lane }
 }
 
-fn points_changed(track: TrackId, lane: LaneId) -> ProjectEvent {
+fn points_changed(track: Owner, lane: LaneId) -> ProjectEvent {
     ProjectEvent::AutomationPointsChanged { track, lane }
 }
 
@@ -477,27 +548,25 @@ fn lane_create(
     caps: Caps,
     state: &mut State,
     ctx: &mut Context,
-    track_id: &TrackId,
+    owner: &Owner,
     target: &AutomationTarget,
 ) -> Result<Out, CommandError> {
-    let track = track_ref(state, track_id)?;
-    rule_of(state, track, target)?;
-    check_new_lane(caps, state, track, target)?;
+    rule_of(state, owner, target)?;
+    check_new_lane(caps, state, owner, target)?;
     let lane = LaneId::generate(&mut ctx.ids);
-    let track = state
+    state
         .project
-        .tracks
-        .get_mut(track_id)
-        .ok_or_else(|| not_found("track", track_id))?;
-    track.automation.insert(
-        lane.clone(),
-        AutomationLane {
-            target: target.clone(),
-            points: BTreeMap::new(),
-        },
-    );
+        .lanes_mut(owner.as_ref())
+        .ok_or_else(|| not_found("track", ""))?
+        .insert(
+            lane.clone(),
+            AutomationLane {
+                target: target.clone(),
+                points: BTreeMap::new(),
+            },
+        );
     Ok(Outcome {
-        events: lane_events(created, track_id, &lane),
+        events: lane_events(created, owner, &lane),
         output: Output::LaneCreate { lane: lane.clone() },
         undo: Undo::Inverse(Box::new(Command::LaneDelete { lane })),
         control: vec![],
@@ -505,20 +574,20 @@ fn lane_create(
 }
 
 fn lane_delete(state: &mut State, lane_id: &LaneId) -> Result<Out, CommandError> {
-    let track_id = track_of(state, lane_id)?;
+    let owner = owner_of_lane(state, lane_id)?;
     let snapshot = state
         .project
-        .tracks
-        .get_mut(&track_id)
-        .and_then(|t| t.automation.remove(lane_id))
+        .lanes_mut(owner.as_ref())
+        .and_then(|lanes| lanes.remove(lane_id))
         .ok_or_else(|| not_found("lane", lane_id))?;
     Ok(Outcome {
-        events: lane_events(deleted, &track_id, lane_id),
+        events: lane_events(deleted, &owner, lane_id),
         output: Output::LaneDelete {
-            track: track_id.clone(),
+            track: owner.clone(),
         },
         undo: Undo::Inverse(Box::new(Command::LaneRestore {
-            track: track_id,
+            master: owner.is_none(),
+            track: owner,
             lane: lane_id.clone(),
             snapshot,
         })),
@@ -529,7 +598,7 @@ fn lane_delete(state: &mut State, lane_id: &LaneId) -> Result<Out, CommandError>
 fn lane_restore(
     caps: Caps,
     state: &mut State,
-    track_id: &TrackId,
+    owner: &Owner,
     lane_id: &LaneId,
     snapshot: &AutomationLane,
 ) -> Result<Out, CommandError> {
@@ -539,27 +608,26 @@ fn lane_restore(
             format!("the identifier {lane_id} is already in use"),
         ));
     }
-    let track = track_ref(state, track_id)?;
-    let rule = rule_of(state, track, &snapshot.target)?;
+    let rule = rule_of(state, owner, &snapshot.target)?;
     for point in snapshot.points.values() {
         rule.verbatim(point.value)?;
     }
-    check_lane_limits(caps, state, track)?;
+    check_lane_limits(caps, state, owner)?;
     if snapshot.points.len() > caps.points_per_lane {
         return Err(limit("automation points", caps.points_per_lane));
     }
     if points_in(state).saturating_add(snapshot.points.len()) > caps.points {
         return Err(limit("automation points", caps.points));
     }
-    if let Some(track) = state.project.tracks.get_mut(track_id) {
-        track.automation.insert(lane_id.clone(), snapshot.clone());
+    if let Some(lanes) = state.project.lanes_mut(owner.as_ref()) {
+        lanes.insert(lane_id.clone(), snapshot.clone());
     }
     // The snapshot is data from outside: the whole project must stay valid with it (ticks
     // in range, finite values, a gain or a pan in its range). A refusal takes the lane back
     // out, so the state is untouched.
     if let Err(violations) = state.project.validate() {
-        if let Some(track) = state.project.tracks.get_mut(track_id) {
-            track.automation.remove(lane_id);
+        if let Some(lanes) = state.project.lanes_mut(owner.as_ref()) {
+            lanes.remove(lane_id);
         }
         let first = violations
             .first()
@@ -567,7 +635,7 @@ fn lane_restore(
         return Err(invalid("snapshot", first));
     }
     Ok(Outcome {
-        events: lane_events(created, track_id, lane_id),
+        events: lane_events(created, owner, lane_id),
         output: Output::LaneRestore {},
         undo: Undo::Inverse(Box::new(Command::LaneDelete {
             lane: lane_id.clone(),
@@ -583,6 +651,7 @@ fn points_in(state: &State) -> usize {
         .tracks
         .values()
         .flat_map(|t| t.automation.values())
+        .chain(state.project.master_automation.values())
         .fold(0usize, |n, l| n.saturating_add(l.points.len()))
 }
 
@@ -640,13 +709,11 @@ fn as_points<'a>(points: impl IntoIterator<Item = (&'a Tick, &'a AutomationPoint
 }
 
 /// The rule of an existing lane.
-fn rule_of_lane(state: &State, track_id: &TrackId, lane: &LaneId) -> Result<Rule, CommandError> {
-    let track = track_ref(state, track_id)?;
-    let found = track
-        .automation
+fn rule_of_lane(state: &State, owner: &Owner, lane: &LaneId) -> Result<Rule, CommandError> {
+    let found = lanes_of(state, owner)?
         .get(lane)
         .ok_or_else(|| not_found("lane", lane))?;
-    rule_of(state, track, &found.target)
+    rule_of(state, owner, &found.target)
 }
 
 fn points_add(
@@ -655,7 +722,7 @@ fn points_add(
     lane_id: &LaneId,
     points: &[Point],
 ) -> Result<Out, CommandError> {
-    let track_id = track_of(state, lane_id)?;
+    let track_id = owner_of_lane(state, lane_id)?;
     let rule = rule_of_lane(state, &track_id, lane_id)?;
     let batch = staged(caps, rule, points)?;
     let output = |added: usize| Output::PointsAdd {
@@ -736,7 +803,7 @@ fn points_update(
     lane_id: &LaneId,
     points: &[Point],
 ) -> Result<Out, CommandError> {
-    let track_id = track_of(state, lane_id)?;
+    let track_id = owner_of_lane(state, lane_id)?;
     let rule = rule_of_lane(state, &track_id, lane_id)?;
     let batch = staged(caps, rule, points)?;
     let (_, lane) = lane_mut(state, lane_id)?;
@@ -799,7 +866,7 @@ fn points_restore(
     points: &[Point],
     remove: &[Tick],
 ) -> Result<Out, CommandError> {
-    let track_id = track_of(state, lane_id)?;
+    let track_id = owner_of_lane(state, lane_id)?;
     let rule = rule_of_lane(state, &track_id, lane_id)?;
     if points.len() > caps.points_per_lane || remove.len() > caps.points_per_lane {
         return Err(limit("automation points", caps.points_per_lane));

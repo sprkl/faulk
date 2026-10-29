@@ -156,6 +156,8 @@ pub struct EngineSlots {
     /// The master's devices sent to the engine (#364); the slot of a device is its place in
     /// the master's chain, as for a track.
     pub master_devices: SlotTable<DeviceId>,
+    /// The master's automation lanes sent to the engine (#378), by their slot in `lanes`.
+    pub master_lanes: BTreeSet<LaneId>,
     /// What each track with a slot holds in the engine.
     pub track: BTreeMap<TrackId, TrackSlots>,
     pub clips: SlotTable<ClipId>,

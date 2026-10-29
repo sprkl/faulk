@@ -27,7 +27,7 @@
 //! the chain stays empty. A clip's loop region and its notes' cents, chance and repeat
 //! are sent (CL-2, #225); the engine plays the cents, #192 the chance and the repeat.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use engine::msg::{
     AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
@@ -454,16 +454,38 @@ fn compile_event(
         // names the device's slot. The engine plays it (AM-2, `engine::automation`).
         ProjectEvent::AutomationLaneCreated { track, lane }
         | ProjectEvent::AutomationPointsChanged { track, lane } => {
-            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
+            let slot = match track {
+                None => TrackSlot::MASTER,
+                Some(t) => match track_slot(sync, t) {
+                    Some(slot) => slot,
+                    None => return,
+                },
+            };
+            let Some(l) = project
+                .lanes(track.as_ref())
+                .and_then(|lanes| lanes.get(lane))
+            else {
                 return;
             };
-            if let Some(l) = t.automation.get(lane) {
-                lane_msgs(track, slot, t, lane, l, sync, out);
-            }
+            let devices = match track {
+                None => &project.master_devices,
+                Some(t) => match project.tracks.get(t) {
+                    Some(t) => &t.devices,
+                    None => return,
+                },
+            };
+            lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
         }
         ProjectEvent::AutomationLaneDeleted { track, lane } => {
-            if let Some(entry) = sync.track.get_mut(track) {
-                entry.lanes.remove(lane);
+            match track {
+                None => {
+                    sync.master_lanes.remove(lane);
+                }
+                Some(track) => {
+                    if let Some(entry) = sync.track.get_mut(track) {
+                        entry.lanes.remove(lane);
+                    }
+                }
             }
             if let Some(slot) = sync.lanes.release(lane) {
                 out.push(ControlMsg::AutomationLaneRemove {
@@ -529,6 +551,7 @@ pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, 
     out.push(set_metronome(project));
     out.push(master(project));
     master_chain_msgs(project, &mut sync, &mut out);
+    master_lane_msgs(project, &mut sync, &mut out);
     for (scene, _) in project.scenes_in_order() {
         if sync.scenes.assign(scene, limits::MAX_SCENES).is_none() {
             sync.overflow += 1;
@@ -572,6 +595,21 @@ fn device_slot(sync: &EngineSlots, track: &TrackId, device: &DeviceId) -> Option
     Some(DeviceSlot(slot as u16))
 }
 
+/// The slot of a device in the chain of a lane's owner: a track's (`Some`) or the master's.
+fn owner_device_slot(
+    sync: &EngineSlots,
+    owner: Option<&TrackId>,
+    device: &DeviceId,
+) -> Option<DeviceSlot> {
+    match owner {
+        Some(track) => device_slot(sync, track, device),
+        None => sync
+            .master_devices
+            .get(device)
+            .map(|slot| DeviceSlot(slot as u16)),
+    }
+}
+
 /// What the engine needs after a track's chain changed (a device inserted, removed, moved,
 /// brought back, or the instrument replaced): the engine runs the chain in slot order and a
 /// device's slot is its index in the chain, as in the snapshot. So a device whose index
@@ -608,14 +646,15 @@ fn sync_chain(
     for (lane_id, lane) in &track.automation {
         if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
         {
-            lane_msgs(track_id, slot, track, lane_id, lane, sync, out);
+            lane_msgs(Some(track_id), slot, &track.devices, lane_id, lane, sync, out);
         }
     }
 }
 
 /// [`sync_chain`] for the master's chain (#364): the same rule, on the master's slot table.
-/// The master has no lanes to upload again. Note that inserting or moving an effect early in
-/// the chain builds again the ones that follow it (their tails restart), on the whole mix.
+/// The master's lanes that target a device built again are uploaded again, as a track's are
+/// (#378). Note that inserting or moving an effect early in the chain builds again the ones
+/// that follow it (their tails restart), on the whole mix.
 fn sync_master_chain(
     project: &Project,
     sync: &mut EngineSlots,
@@ -624,7 +663,7 @@ fn sync_master_chain(
 ) {
     let chain = project.master_devices_in_order();
     let mut table = std::mem::take(&mut sync.master_devices);
-    sync_devices(
+    let built = sync_devices(
         TrackSlot::MASTER,
         &chain,
         &mut table,
@@ -633,6 +672,20 @@ fn sync_master_chain(
         insert_of,
     );
     sync.master_devices = table;
+    for (lane_id, lane) in &project.master_automation {
+        if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
+        {
+            lane_msgs(None, TrackSlot::MASTER, &project.master_devices, lane_id, lane, sync, out);
+        }
+    }
+}
+
+/// The messages that bring the master's lanes to an empty engine: after its chain, whose
+/// slots they name.
+fn master_lane_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    for (lane_id, lane) in &project.master_automation {
+        lane_msgs(None, TrackSlot::MASTER, &project.master_devices, lane_id, lane, sync, out);
+    }
 }
 
 /// The messages that bring the master's chain of an empty engine to the project's.
@@ -784,7 +837,7 @@ fn track_msgs(
         placements_msgs(id, track, sync, out);
     }
     for (lane_id, lane) in &track.automation {
-        lane_msgs(id, slot, track, lane_id, lane, sync, out);
+        lane_msgs(Some(id), slot, &track.devices, lane_id, lane, sync, out);
     }
 }
 
@@ -992,11 +1045,12 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     }));
 }
 
-/// An automation lane of a track, when the engine has its target.
+/// An automation lane of a track (`owner` is `Some`) or of the master, when the engine has
+/// its target. `track_slot` is the owner's row: the track's, or [`TrackSlot::MASTER`].
 fn lane_msgs(
-    track_id: &TrackId,
+    owner: Option<&TrackId>,
     track_slot: TrackSlot,
-    track: &Track,
+    devices: &BTreeMap<DeviceId, Device>,
     id: &LaneId,
     lane: &AutomationLane,
     sync: &mut EngineSlots,
@@ -1011,8 +1065,8 @@ fn lane_msgs(
         } => EngineTarget::MixerPan,
         AutomationTarget::Device { device, param } => {
             let (Some(slot), Some(param)) = (
-                device_slot(sync, track_id, device),
-                track.devices.get(device).and_then(|d| param_id(d, param)),
+                owner_device_slot(sync, owner, device),
+                devices.get(device).and_then(|d| param_id(d, param)),
             ) else {
                 return;
             };
@@ -1026,8 +1080,15 @@ fn lane_msgs(
         sync.overflow += 1;
         return;
     };
-    if let Some(entry) = sync.track.get_mut(track_id) {
-        entry.lanes.insert(id.clone());
+    match owner {
+        Some(track) => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.insert(id.clone());
+            }
+        }
+        None => {
+            sync.master_lanes.insert(id.clone());
+        }
     }
     let points: Vec<EnginePoint> = lane
         .points

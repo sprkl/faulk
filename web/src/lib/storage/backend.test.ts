@@ -118,6 +118,7 @@ describe('FolderBackend.readFolder and scan', () => {
     dir
       .put('project.json', '{"id":"x"}')
       .put('tracks/a/track.json', '{}')
+      .put('master/automation/l.tsv', 'lane')
       .put('blobs/lane', lane)
       .put('blobs/audio', audio)
       .put('.faulk/session.json', '{"solo":[]}')
@@ -135,7 +136,7 @@ describe('FolderBackend.readFolder and scan', () => {
     const { store } = song()
     const { entries } = await store.readFolder()
     const byPath = Object.fromEntries(entries.map((e) => [e.path, e]))
-    expect(Object.keys(byPath).sort()).toEqual(['.faulk/session.json', '.gitignore', 'blobs/audio', 'blobs/lane', 'project.json', 'tracks/a/track.json'])
+    expect(Object.keys(byPath).sort()).toEqual(['.faulk/session.json', '.gitignore', 'blobs/audio', 'blobs/lane', 'master/automation/l.tsv', 'project.json', 'tracks/a/track.json'])
     expect('bytes' in byPath['project.json']!).toBe(true)
     expect('bytes' in byPath['.faulk/session.json']!).toBe(true)
     expect('bytes' in byPath['blobs/lane']!).toBe(true)
@@ -145,7 +146,7 @@ describe('FolderBackend.readFolder and scan', () => {
   it('stamps only the project: never .faulk, .git, a swap file, a README, a mixdown or the .DS_Store a file manager writes', async () => {
     const { store } = song()
     const { signature } = await store.readFolder()
-    expect(Object.keys(signature).sort()).toEqual(['blobs/audio', 'blobs/lane', 'project.json', 'tracks/a/track.json'])
+    expect(Object.keys(signature).sort()).toEqual(['blobs/audio', 'blobs/lane', 'master/automation/l.tsv', 'project.json', 'tracks/a/track.json'])
     expect(await store.scan()).toEqual(signature)
     await store.apply([write('project.json', '{"id":"y"}')])
     expect((await store.scan())['project.json']).not.toBe(signature['project.json'])
