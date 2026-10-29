@@ -317,6 +317,30 @@ fn a_full_scale_square_wave_at_the_cutoff_reaches_about_the_worst_case_gain() {
 }
 
 #[test]
+fn it_stays_bounded_under_full_ramps_between_the_extremes_at_full_resonance() {
+    // Events spaced beyond the 960-frame ramp: the cutoff really travels 20 Hz <-> 20 kHz and
+    // the resonance really settles at 1, under full-scale noise and a full-scale square.
+    let noise_in = noise(SR as usize * 2, 123);
+    let square: Vec<f32> = (0..SR as usize * 2)
+        .map(|n| if (n / 24) % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+    for mode in [LOW_PASS, HIGH_PASS, BAND_PASS] {
+        for input in [&noise_in, &square] {
+            let mut f = with(&[(MODE, mode as f32), (RESONANCE, 1.0)]);
+            let events: Vec<(usize, Event)> = (0..(SR as usize * 2 / 1_500))
+                .map(|i| {
+                    let hz = if i % 2 == 0 { 20.0 } else { 20_000.0 };
+                    (i * 1_500, param(CUTOFF, hz))
+                })
+                .collect();
+            let out = run(&mut f, (input, input), 128, &events).0;
+            check(&out);
+            assert!(peak(&out) < BOUND, "mode {mode}: peak {}", peak(&out));
+        }
+    }
+}
+
+#[test]
 fn it_stays_bounded_while_the_cutoff_and_resonance_are_swept_hard() {
     let input = noise(SR as usize * 2, 99);
     let mut f = with(&[(MODE, 0.0), (RESONANCE, 1.0)]);

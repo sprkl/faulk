@@ -134,7 +134,11 @@ fn bypassed_the_filter_changes_nothing_and_its_mix_blends() {
     // The mix ramps for 20 ms from its default (1) to 0: the dry sound is exact after it.
     let from = (0.1 * plain.sample_rate) as usize;
     let tail = |r: &test_support::Render| {
-        test_support::Render::new(r.sample_rate, r.left[from..].to_vec(), r.right[from..].to_vec())
+        test_support::Render::new(
+            r.sample_rate,
+            r.left[from..].to_vec(),
+            r.right[from..].to_vec(),
+        )
     };
     tail(&plain).assert_close(&tail(&dry), 1e-6);
     let (diff, _) = plain.max_difference(&wet);
