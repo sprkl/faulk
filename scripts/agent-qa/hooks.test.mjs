@@ -1057,7 +1057,9 @@ describe("settings.json", () => {
     for (const key of ["extraKnownMarketplaces", "enabledPlugins", "permissions", "hooks"]) {
       assert.ok(key in settings, key);
     }
-    assert.deepEqual(Object.keys(settings.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
+    assert.deepEqual(Object.keys(settings.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart", "Stop", "SubagentStop", "UserPromptSubmit"]);
+    // A subagent is checked by its own stop with the same guard as the main thread.
+    assert.deepEqual(settings.hooks.SubagentStop, settings.hooks.Stop);
   });
 
   it("runs every hook command through bash as Claude Code does, and each script exists", (t) => {
