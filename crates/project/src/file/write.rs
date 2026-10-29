@@ -60,7 +60,7 @@ pub struct SaveState {
     /// The (size, stamp) each file had when it was last read or written: what the cache
     /// snapshot may vouch for without reading the file again.
     pub(crate) stamps: BTreeMap<String, (u64, u64)>,
-    pub(crate) blob_lanes: BTreeMap<(TrackId, LaneId), Hash>,
+    pub(crate) blob_lanes: BTreeMap<(Option<TrackId>, LaneId), Hash>,
     support_checked: bool,
 }
 
@@ -86,7 +86,13 @@ impl SaveState {
 
     /// Whether a lane is stored as a blob.
     pub fn is_blob_lane(&self, track: &TrackId, lane: &LaneId) -> bool {
-        self.blob_lanes.contains_key(&(track.clone(), lane.clone()))
+        self.blob_lanes
+            .contains_key(&(Some(track.clone()), lane.clone()))
+    }
+
+    /// Whether a lane of the master is stored as a blob.
+    pub fn is_blob_master_lane(&self, lane: &LaneId) -> bool {
+        self.blob_lanes.contains_key(&(None, lane.clone()))
     }
 }
 
@@ -146,7 +152,19 @@ pub fn save(
     let mut report = SaveReport::default();
     let mut units: Vec<Unit> = match dirty {
         Some(d) => d.units.iter().cloned().collect(),
-        None => project.tracks.keys().cloned().map(Unit::Track).collect(),
+        None => project
+            .tracks
+            .keys()
+            .cloned()
+            .map(Unit::Track)
+            .chain(
+                project
+                    .master_automation
+                    .keys()
+                    .cloned()
+                    .map(Unit::MasterLane),
+            )
+            .collect(),
     };
     // `project.json` last.
     units.retain(|u| *u != Unit::Project);
@@ -201,7 +219,7 @@ pub fn save(
             if let Unit::Track(t) = unit
                 && !project.tracks.contains_key(t)
             {
-                state.blob_lanes.retain(|(tt, _), _| tt != t);
+                state.blob_lanes.retain(|(tt, _), _| tt.as_ref() != Some(t));
             }
         }
         emitted_all.extend(emitted);
@@ -214,9 +232,8 @@ pub fn save(
         }
         state.blob_lanes.retain(|(t, l), _| {
             project
-                .tracks
-                .get(t)
-                .is_some_and(|t| t.automation.contains_key(l))
+                .lanes(t.as_ref())
+                .is_some_and(|lanes| lanes.contains_key(l))
         });
     }
 

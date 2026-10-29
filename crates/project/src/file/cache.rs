@@ -202,6 +202,9 @@ pub(crate) fn write(
         for t in project.tracks.keys() {
             emit(project, &Unit::Track(t.clone()), &mut ctx, &mut sink)?;
         }
+        for l in project.master_automation.keys() {
+            emit(project, &Unit::MasterLane(l.clone()), &mut ctx, &mut sink)?;
+        }
         emit(project, &Unit::Project, &mut ctx, &mut sink)?;
         entries = all;
     }

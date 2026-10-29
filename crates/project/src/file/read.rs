@@ -161,6 +161,11 @@ pub(crate) fn text_path(path: &str) -> bool {
     if path == PROJECT_FILE {
         return true;
     }
+    if let Some(f) = path.strip_prefix("master/automation/") {
+        return f
+            .strip_suffix(".tsv")
+            .is_some_and(|id| LaneId::parse(id).is_ok());
+    }
     let mut parts = path.split('/');
     if parts.next() != Some("tracks") || TrackId::parse(parts.next().unwrap_or("")).is_err() {
         return false;
@@ -214,6 +219,12 @@ pub(crate) fn project_files(fs: &dyn FileSystem) -> Result<Vec<(String, DirEntry
             }
         }
     }
+    for f in fs.list("master/automation")? {
+        let file = format!("master/automation/{}", f.name);
+        if !f.is_dir && text_path(&file) {
+            out.push((file, f));
+        }
+    }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
 }
@@ -263,7 +274,7 @@ struct Reader<'a> {
     snapshot: Option<Snapshot>,
     known: BTreeMap<String, u64>,
     stamps: BTreeMap<String, (u64, u64)>,
-    blob_lanes: BTreeMap<(TrackId, LaneId), Hash>,
+    blob_lanes: BTreeMap<(Option<TrackId>, LaneId), Hash>,
     blob_sizes: Option<BTreeMap<String, u64>>,
     report: OpenReport,
 }
@@ -319,7 +330,7 @@ impl Reader<'_> {
 
     fn read_lane(
         &mut self,
-        tid: &TrackId,
+        owner: Option<&TrackId>,
         id: &LaneId,
         path: &str,
         entry: &DirEntry,
@@ -374,12 +385,40 @@ impl Reader<'_> {
                     format!("{n} points announced, {} found", points.len()),
                 ));
             }
-            self.blob_lanes.insert((tid.clone(), id.clone()), hash);
+            self.blob_lanes.insert((owner.cloned(), id.clone()), hash);
         }
         Ok(AutomationLane {
             target: header.target,
             points,
         })
+    }
+
+    /// The lanes of the master (#378): `master/automation/<lane>.tsv`. A folder without
+    /// them is a project without master automation (every project written before).
+    fn read_master_lanes(&mut self) -> Result<BTreeMap<LaneId, AutomationLane>, FileError> {
+        let mut lanes = BTreeMap::new();
+        let dir = "master/automation";
+        for e in self.list(dir)? {
+            let path = format!("{dir}/{}", e.name);
+            let Some(id) = e
+                .name
+                .strip_suffix(".tsv")
+                .and_then(|s| LaneId::parse(s).ok())
+                .filter(|_| !e.is_dir)
+            else {
+                self.ignore(path);
+                continue;
+            };
+            if lanes.len() >= MAX_LANES_PER_TRACK {
+                return Err(FileError::corrupt(
+                    dir,
+                    "more lanes than the master can hold",
+                ));
+            }
+            let lane = self.read_lane(None, &id, &path, &e)?;
+            lanes.insert(id, lane);
+        }
+        Ok(lanes)
     }
 
     fn read_track(&mut self, tid: &TrackId, entries: Vec<DirEntry>) -> Result<Track, FileError> {
@@ -513,7 +552,7 @@ impl Reader<'_> {
                 if track.automation.len() >= MAX_LANES_PER_TRACK {
                     return Err(FileError::corrupt(&dir, "more lanes than a track can hold"));
                 }
-                let lane = self.read_lane(tid, &id, &path, &e)?;
+                let lane = self.read_lane(Some(tid), &id, &path, &e)?;
                 track.automation.insert(id, lane);
             }
         }
@@ -627,6 +666,8 @@ fn read_folder(
         let track = reader.read_track(&id, entries)?;
         project.tracks.insert(id, track);
     }
+
+    project.master_automation = reader.read_master_lanes()?;
 
     project
         .validate()
