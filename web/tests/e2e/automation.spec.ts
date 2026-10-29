@@ -250,6 +250,9 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   await expect(page.getByTestId('mixer-gain').first()).toHaveText('0.0 dB')
   await page.getByTestId('nav-arrangement').click()
   await expect(arr(page)).toBeVisible()
+  const toggle = page.getByTestId('arr-automation-toggle').first()
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
 
   // A note held on the track: the master's level follows the lane when the transport passes the second point.
   await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))

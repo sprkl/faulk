@@ -192,7 +192,6 @@
   tabindex="0"
   title={automated ?? hint ?? ui.t('controls.hint')}
   aria-label={label}
-  aria-description={automated}
   data-automated={automated === undefined ? undefined : 'true'}
   aria-orientation={orientation}
   aria-valuemin="0"
