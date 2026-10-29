@@ -1333,7 +1333,7 @@ fn a_master_lane_is_saved_in_its_own_file_and_opens_again() {
         "type": "automation.points.update", "lane": lane,
         "points": [{"tick": 3840, "value": -60.0}]
     }));
-    assert_eq!(h.paths(0), [file.clone()]);
+    assert_eq!(h.paths(0), std::slice::from_ref(&file));
     h.saved(true);
     h.apply(json!({"type": "automation.lane.delete", "lane": lane}));
     let (_, entries) = h.save(0);
