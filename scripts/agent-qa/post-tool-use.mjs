@@ -22,25 +22,26 @@ import {
   isGuardedFile,
   judgeHeadMove,
   safely,
+  agentKey,
   sessionKey,
   sessionState,
   stateRoot,
   wroteDuringCall,
 } from "./session.mjs";
 
-function afterEdit(session, input) {
+function afterEdit(session, input, agent) {
   for (const [key, value] of Object.entries(input.tool_input ?? {})) {
     if (!/path/i.test(key) || typeof value !== "string") {
       continue;
     }
     const target = editTarget(value, [input.cwd, process.env.CLAUDE_PROJECT_DIR]);
     if (target && isGuardedFile(target.file)) {
-      session.markWriter(target.root, input.tool_name, currentRef(target.root));
+      session.markWriter(target.root, input.tool_name, currentRef(target.root), agent);
     }
   }
 }
 
-function afterSnapshotCall(session, input) {
+function afterSnapshotCall(session, input, agent) {
   const before = new Map(
     typeof input.tool_use_id === "string"
       ? session.takePre(input.tool_use_id).map((snapshot) => [snapshot.root, snapshot])
@@ -49,7 +50,7 @@ function afterSnapshotCall(session, input) {
   const roots = [...new Set([...before.keys(), ...hookRoots(input)])];
   for (const root of roots) {
     const ref = currentRef(root);
-    if (session.isWriter(root, ref)) {
+    if (session.isWriter(root, ref, agent)) {
       continue;
     }
     const snapshot = before.get(root);
@@ -61,7 +62,7 @@ function afterSnapshotCall(session, input) {
       // Its state now becomes the baseline if it has none; only an edit tool
       // targeting one of its files, or a later measured call, makes the
       // session a writer there.
-      if (session.baseline(root) === null && after !== "unknown") {
+      if (!agent && session.baseline(root) === null && after !== "unknown") {
         session.recordBaseline(root, after, "post-tool-use");
       }
       continue;
@@ -76,14 +77,14 @@ function afterSnapshotCall(session, input) {
         localAfter: state.local,
       });
       if (verdict.writer) {
-        session.markWriter(root, input.tool_name, ref);
-      } else if (verdict.rebase) {
+        session.markWriter(root, input.tool_name, ref, agent);
+      } else if (verdict.rebase && !agent) {
         session.rebaseBaseline(root, after, moves?.[0] ?? "HEAD moved");
       }
       continue;
     }
     if (wroteDuringCall({ before: snapshot.fingerprint, after })) {
-      session.markWriter(root, input.tool_name, ref);
+      session.markWriter(root, input.tool_name, ref, agent);
     }
   }
 }
@@ -94,10 +95,14 @@ try {
   const state = key ? stateRoot(input) : null;
   if (state) {
     const session = sessionState(state, key);
+    const agent = agentKey(input);
+    if (agent) {
+      session.touchAgent(agent, input.tool_use_id, true);
+    }
     if (EDIT_TOOLS.has(input.tool_name)) {
-      afterEdit(session, input);
+      afterEdit(session, input, agent);
     } else if (SNAPSHOT_TOOLS.has(input.tool_name)) {
-      afterSnapshotCall(session, input);
+      afterSnapshotCall(session, input, agent);
     }
   }
 } catch {

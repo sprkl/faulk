@@ -14,7 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import { changeFingerprint, codeState, currentRef, hookRoots } from "../agent-qa/fingerprint.mjs";
-import { editTarget, ensureBaselines, safely, sessionKey, sessionState, stateRoot } from "../agent-qa/session.mjs";
+import { agentKey, editTarget, ensureBaselines, safely, sessionKey, sessionState, stateRoot } from "../agent-qa/session.mjs";
 import { EDIT_TOOLS, SNAPSHOT_TOOLS, judgeToolCall } from "./guard-core.mjs";
 
 let input;
@@ -47,21 +47,29 @@ try {
   }
   const key = sessionKey(input);
   const state = key ? stateRoot(input) : null;
+  const agent = agentKey(input);
+  if (state && agent) {
+    sessionState(state, key).touchAgent(agent, input.tool_use_id);
+  }
   if (state && EDIT_TOOLS.has(input.tool_name)) {
     // The baseline of the checkout the edit targets, taken before the edit.
     const targets = Object.entries(input.tool_input ?? {})
       .filter(([name, value]) => /path/i.test(name) && typeof value === "string")
       .map(([, value]) => editTarget(value, [input.cwd, process.env.CLAUDE_PROJECT_DIR])?.root)
       .filter(Boolean);
-    ensureBaselines(sessionState(state, key), [...new Set([...roots, ...targets])], changeFingerprint, "pre-tool-use");
+    if (!agent) {
+      ensureBaselines(sessionState(state, key), [...new Set([...roots, ...targets])], changeFingerprint, "pre-tool-use");
+    }
   } else if (state && SNAPSHOT_TOOLS.has(input.tool_name)) {
     const session = sessionState(state, key);
-    ensureBaselines(session, roots, changeFingerprint, "pre-tool-use");
+    if (!agent) {
+      ensureBaselines(session, roots, changeFingerprint, "pre-tool-use");
+    }
     if (typeof input.tool_use_id === "string") {
       for (const root of roots) {
         // A session already known to have written there is judged anyway:
         // no snapshot needed, and no cost.
-        if (!session.isWriter(root, currentRef(root))) {
+        if (!session.isWriter(root, currentRef(root), agent)) {
           const state = safely(codeState, root);
           session.savePre(
             input.tool_use_id,

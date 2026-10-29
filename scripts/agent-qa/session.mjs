@@ -22,6 +22,20 @@ export const validSessionId = (id) => typeof id === "string" && /^[\w-]{1,128}$/
 /** The key of the session in a hook input, or `undefined`. */
 export const sessionKey = (input) => (validSessionId(input?.session_id) ? input.session_id : undefined);
 
+/**
+ * The subagent a hook input comes from: Claude Code adds `agent_id` to the
+ * input of every hook that fires inside a subagent, which shares the lead's
+ * `session_id`. Absent for the lead's own calls. An id that is present but
+ * malformed is not honored (`undefined`): the call is then attributed to the
+ * lead, the stricter side.
+ */
+export const agentKey = (input) => (validSessionId(input?.agent_id) ? input.agent_id : undefined);
+
+/** A subagent with no hook event for this long, and no call in progress, is no longer running. */
+export const AGENT_IDLE_MS = 20 * 60 * 1000;
+/** A call in progress (a Pre hook without its Post) counts for this long at most. */
+export const AGENT_CALL_MS = 2 * 60 * 60 * 1000;
+
 /** Checkout holding the session's state: the project directory's, else the input's `cwd`'s. */
 export function stateRoot(input) {
   for (const dir of [process.env.CLAUDE_PROJECT_DIR, input?.cwd]) {
@@ -71,8 +85,13 @@ export function sessionState(state, key) {
   const dir = sessionDir(state, key);
   const baselinePath = (root) => join(dir, `baseline-${rootId(root)}.json`);
   // One marker per checkout and per branch (or commit) the session wrote on.
-  const writerPath = (root, ref) => join(dir, `wrote-${rootId(root)}-${rootId(String(ref ?? "(none)"))}.json`);
-  const writerPattern = (root) => new RegExp(`^wrote-${root ? rootId(root) : "[0-9a-f]{16}"}-[0-9a-f]{16}\\.json$`);
+  // The lead's markers have no agent suffix; a subagent's carry the hash of its id.
+  const writerPath = (root, ref, agent) =>
+    join(dir, `wrote-${rootId(root)}-${rootId(String(ref ?? "(none)"))}${agent ? `-${rootId(agent)}` : ""}.json`);
+  const writerPattern = (root) =>
+    new RegExp(`^wrote-${root ? rootId(root) : "[0-9a-f]{16}"}-[0-9a-f]{16}(?:-[0-9a-f]{16})?\\.json$`);
+  const agentPath = (agent) => join(dir, `agent-${rootId(agent)}.json`);
+  const agentCallPath = (agent, call) => join(dir, `call-${rootId(agent)}-${safeId(call)}.json`);
   const movePath = (root) => join(dir, `moved-${rootId(root)}.json`);
   const prePath = (toolUseId, root) => join(dir, `pre-${safeId(toolUseId)}-${rootId(root)}.json`);
   const listed = (pattern) => (existsSync(dir) ? readdirSync(dir).filter((name) => pattern.test(name)) : []);
@@ -87,12 +106,57 @@ export function sessionState(state, key) {
       write(movePath(root), { root, move });
     },
     lastMove: (root) => read(movePath(root)),
-    /** Wrote in this checkout on `ref`, or on any ref when `ref` is undefined. */
-    isWriter: (root, ref) =>
-      ref === undefined ? listed(writerPattern(root)).length > 0 : existsSync(writerPath(root, ref)),
+    /**
+     * Wrote in this checkout on `ref`, or on any ref when `ref` is undefined.
+     * `agent`: the subagent whose calls are asked about; without it, the
+     * lead's own (a subagent's marker never stands for the lead's).
+     */
+    isWriter: (root, ref, agent) =>
+      ref === undefined
+        ? listed(writerPattern(root)).some((name) => (read(join(dir, name))?.agent ?? undefined) === agent)
+        : existsSync(writerPath(root, ref, agent)),
     /** `ref`: the branch (or commit, on a detached head) the session wrote on. Keeps the first time. */
-    markWriter: (root, tool, ref) => write(writerPath(root, ref), { root, ref: ref ?? null, tool }, true),
-    /** Every `{ root, ref, at }` the session wrote on. */
+    markWriter: (root, tool, ref, agent) =>
+      write(writerPath(root, ref, agent), { root, ref: ref ?? null, tool, ...(agent ? { agent } : {}) }, true),
+    /**
+     * The subagent is alive: called by each hook event it fires. `call`: the
+     * id of its tool call, started (`done` false: before the call) or ended.
+     * A call in progress keeps the agent running however long it takes.
+     */
+    touchAgent: (agent, call, done = false) => {
+      write(agentPath(agent), { agent });
+      if (typeof call === "string") {
+        const path = agentCallPath(agent, call);
+        if (done) {
+          rmSync(path, { force: true });
+        } else {
+          write(path, { agent });
+        }
+      }
+    },
+    /** The subagent's own stop let it through: it has ended, until it fires an event again. */
+    endAgent: (agent) => write(agentPath(agent), { agent, ended: true }),
+    /**
+     * Whether the subagent is still running: it has not ended and either fired
+     * a hook event less than `AGENT_IDLE_MS` before `now` or has a call in
+     * progress (started less than `AGENT_CALL_MS` before `now`; a call that
+     * never ends, denied by another hook or interrupted, stops counting then).
+     */
+    agentRunning: (agent, now = Date.now()) => {
+      const record = read(agentPath(agent));
+      const seen = Date.parse(record?.at);
+      if (!Number.isFinite(seen) || record.ended === true) {
+        return false;
+      }
+      if (now - seen < AGENT_IDLE_MS) {
+        return true;
+      }
+      return listed(new RegExp(`^call-${rootId(agent)}-`)).some((name) => {
+        const started = Date.parse(read(join(dir, name))?.at);
+        return Number.isFinite(started) && now - started < AGENT_CALL_MS;
+      });
+    },
+    /** Every `{ root, ref, at, agent? }` the session wrote on. */
     writers: () =>
       listed(writerPattern())
         .map((name) => read(join(dir, name)))

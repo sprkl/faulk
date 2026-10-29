@@ -96,7 +96,7 @@ export function hookRoots(input) {
   return roots;
 }
 
-const samePath = (a, b) => samePathKey(a) === samePathKey(b);
+export const samePath = (a, b) => samePathKey(a) === samePathKey(b);
 
 /** Root for a script run by the agent: its working directory first. */
 export const scriptRoot = () => projectRoot(process.cwd(), process.env.CLAUDE_PROJECT_DIR);
@@ -344,6 +344,11 @@ export function gitDir(cwd) {
     gitDirs.set(cwd, git(cwd, "rev-parse", "--absolute-git-dir").trim());
   }
   return gitDirs.get(cwd);
+}
+
+/** The git directory shared by all the worktrees of a repository (absolute, forward slashes). */
+export function commonDir(cwd) {
+  return git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").trim().replaceAll("\\", "/");
 }
 
 /**

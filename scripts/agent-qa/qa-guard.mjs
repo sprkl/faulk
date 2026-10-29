@@ -18,6 +18,7 @@ import {
   changeFingerprint,
   changedFiles,
   changedGuardFiles,
+  commonDir,
   currentBranch,
   currentRef,
   deferralPath,
@@ -27,11 +28,12 @@ import {
   readRecord,
   refFingerprint,
   reviewPath,
+  samePath,
   stashesSince,
   verificationPath,
 } from "./fingerprint.mjs";
-import { ensureBaselines, sessionKey, sessionState, stateRoot } from "./session.mjs";
-import { blockReason, stopDecision } from "./stop-core.mjs";
+import { agentKey, ensureBaselines, sessionKey, sessionState, stateRoot } from "./session.mjs";
+import { blockReason, exemptAgentMarker, isAgentWorktreePath, stopDecision } from "./stop-core.mjs";
 
 /**
  * Judges one branch (or commit) the session wrote on in a checkout: the
@@ -39,7 +41,7 @@ import { blockReason, stopDecision } from "./stop-core.mjs";
  * that leaving the branch (`git switch develop`) does not leave its code
  * unverified. Returns `{ reason }` to block, `{ warning }`, or `{}`.
  */
-function judgeRef(root, session, marker, current) {
+function judgeRef(root, session, marker, current, ctx) {
   const onIt = marker.ref === null || marker.ref === current;
   let files;
   let fingerprint;
@@ -58,7 +60,9 @@ function judgeRef(root, session, marker, current) {
   const decision = stopDecision({
     fingerprint,
     writer: true,
-    baseline: onIt ? session.baseline(root)?.fingerprint : undefined,
+    // A subagent has no baseline: its events never write the session's, and one
+    // taken by the lead's own stop would hold the agent's work as already there.
+    baseline: onIt && !marker.agent ? session.baseline(root)?.fingerprint : undefined,
     branch: onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined,
     verification: readRecord(verificationPath(root)),
     review: readRecord(reviewPath(root)),
@@ -89,18 +93,50 @@ function judgeRef(root, session, marker, current) {
   return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing }), ...notes].join(" ") };
 }
 
+/**
+ * The markers of a checkout this stop answers for. A subagent's stop (an
+ * input with `agent_id`) answers for that agent's markers only, none exempt.
+ * The lead's stop answers for its own and for the subagents' markers, except
+ * those of a subagent still running in its own worktree (`exemptAgentMarker`):
+ * that work is not finished, and the agent is judged on its own stop.
+ */
+function markersFor(root, session, ctx) {
+  const markers = session.writers().filter((marker) => marker.root === root);
+  if (ctx.agent) {
+    return markers.filter((marker) => marker.agent === ctx.agent);
+  }
+  return markers.filter(
+    (marker) =>
+      !exemptAgentMarker({
+        marker,
+        running: Boolean(marker.agent) && session.agentRunning(marker.agent),
+        agentWorktree: isAgentWorktreePath(root),
+        sameRepository: Boolean(marker.agent) && sameRepository(root, ctx.state),
+        leadRoot: ctx.here.some((dir) => samePath(dir, root)),
+      }),
+  );
+}
+
+function sameRepository(a, b) {
+  try {
+    return samePath(commonDir(a), commonDir(b));
+  } catch {
+    return false;
+  }
+}
+
 /** Reasons to block and warnings for one checkout. */
-function judge(root, session) {
+function judge(root, session, ctx) {
   // A checkout removed since (a worktree cleaned up) has nothing left to verify.
   if (!session || !existsSync(root)) {
     return [];
   }
-  const markers = session.writers().filter((marker) => marker.root === root);
+  const markers = markersFor(root, session, ctx);
   if (markers.length === 0) {
     return [];
   }
   const current = currentRef(root);
-  const results = markers.map((marker) => judgeRef(root, session, marker, current));
+  const results = markers.map((marker) => judgeRef(root, session, marker, current, ctx));
   // A stash made since the session first wrote here holds code it may have
   // changed, out of the working tree: it is still pending.
   const since = markers.map((marker) => marker.at).sort()[0];
@@ -137,15 +173,21 @@ try {
       roots.push(root);
     }
   }
-  if (session) {
+  // `agent`: this is a subagent's own stop (`SubagentStop`, or a `Stop` fired in a subagent).
+  const ctx = { agent: agentKey(input), here, state };
+  if (session && !ctx.agent) {
     ensureBaselines(session, here, changeFingerprint, "stop");
     // Calls that never got their PostToolUse (denied, interrupted, failed)
     // say nothing about who changed the code since: drop their snapshots.
     session.dropPending();
   }
-  const results = roots.flatMap((root) => judge(root, session));
+  const results = roots.flatMap((root) => judge(root, session, ctx));
   warnings.push(...results.map((result) => result.warning).filter(Boolean));
   const reasons = results.map((result) => result.reason).filter(Boolean);
+  if (session && ctx.agent && reasons.length === 0) {
+    // Its own stop let the subagent through: it has ended.
+    session.endAgent(ctx.agent);
+  }
   if (reasons.length > 0) {
     output.decision = "block";
     output.reason = reasons.join("\n\n");
