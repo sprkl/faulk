@@ -172,6 +172,7 @@
   /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
   let lastLength = $state<number | null>(null)
   let lastVelocity = $state(DEFAULT_VELOCITY)
+  let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'draw' | 'move' | 'resize'>('draw')
@@ -452,13 +453,33 @@
     picked = new Set()
   }
 
-  const isSelectAll = (event: KeyboardEvent) => (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a'
+  /**
+   * Select all, copy, cut, paste and duplicate (Ctrl or Cmd + A, C, X, V, D). Returns whether the key was one of them.
+   * Shared by the stage and the window, so that they work with the focus on the toolbar too.
+   */
+  function editShortcut(event: KeyboardEvent): boolean {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return false
+    const key = event.key.toLowerCase()
+    if (key === 'a') picked = new Set(notes.map(noteKey))
+    else if (key === 'c') copyChosen()
+    else if (key === 'x') {
+      if (copyChosen()) removeSelected()
+    } else if (key === 'v') pasteBoard()
+    else if (key === 'd') duplicateChosen()
+    else return false
+    return true
+  }
 
-  /** Ctrl+A anywhere on the page (the stage may not hold the focus) selects the notes, not the page's text. */
+  /**
+   * The editing shortcuts anywhere on the page while a clip is open (the stage may not hold the focus, for
+   * example after a click on the toolbar): Ctrl+A selects the notes, not the page's text. Only when the focus is in
+   * the roll or on the page itself (nothing focused): another screen keeps its own keys, and a text field its own.
+   */
   function onWindowKeyDown(event: KeyboardEvent) {
-    if (event.defaultPrevented || !edited || !isSelectAll(event) || isTextTarget(event.target)) return
-    picked = new Set(notes.map(noteKey))
-    event.preventDefault()
+    if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
+    const target = event.target as Node | null
+    if (target !== document.body && !(target && rollEl?.contains(target))) return
+    if (editShortcut(event)) event.preventDefault()
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -468,15 +489,8 @@
     } else if (event.key === 'Escape') {
       if (gesture) cancel()
       else picked = new Set()
-    } else if (isSelectAll(event)) {
-      picked = new Set(notes.map(noteKey))
-    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'x', 'v', 'd'].includes(event.key.toLowerCase())) {
-      const key = event.key.toLowerCase()
-      if (key === 'c') copyChosen()
-      else if (key === 'x') {
-        if (copyChosen()) removeSelected()
-      } else if (key === 'v') pasteBoard()
-      else duplicateChosen()
+    } else if (editShortcut(event)) {
+      // Handled by editShortcut; the key is consumed below.
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else return
@@ -721,6 +735,7 @@
 {:else}
   <div
     class="roll"
+    bind:this={rollEl}
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}

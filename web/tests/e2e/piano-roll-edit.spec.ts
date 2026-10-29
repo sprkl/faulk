@@ -232,10 +232,23 @@ test('piano roll: Auto draws on a sixteenth at least, duplicate goes whole bars 
   expect(await starts(page)).toContain(3840)
   await expect(roll(page)).toHaveAttribute('data-clip-length', '7680')
 
-  // Ctrl+A with the focus off the grid (on the page body) selects every note and leaves no page text selected.
+  // Ctrl+A with the focus on the toolbar (the "Select" button just clicked), not on the grid: every note is selected
+  // and no page text is. Ctrl+D then duplicates the selection from there too.
   await focusGrid(page)
   await page.keyboard.press('Escape')
   await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await page.getByTestId('roll-tool-select').click()
+  await expect(page.getByTestId('roll-tool-select')).toBeFocused()
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', String(total + 1))
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+  await page.keyboard.press('Control+d')
+  await expect(roll(page)).toHaveAttribute('data-note-count', String(2 * (total + 1)))
+  await page.keyboard.press('Control+z')
+  await expect(roll(page)).toHaveAttribute('data-note-count', String(total + 1))
+  // The same with nothing focused (the page body).
+  await focusGrid(page)
+  await page.keyboard.press('Escape')
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await page.keyboard.press('Control+a')
   await expect(roll(page)).toHaveAttribute('data-selected-count', String(total + 1))
