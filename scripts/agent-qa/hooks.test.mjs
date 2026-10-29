@@ -757,6 +757,30 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     assert.equal(stop(project, "lead"), null); // verified and reviewed: nothing left to judge either
   });
 
+  it("does not hold a subagent's stop to the lead's checkout: the lead's stop judges that work with its own", () => {
+    const project = makeRepo();
+    startSession(project, "lead");
+    agentEdit(project, project, "lead", "a1");
+    assert.equal(stop(project, "lead", subagentStop("a1", project)), null);
+    assert.equal(stop(project, "lead").decision, "block");
+  });
+
+  it("judges nothing on a SubagentStop without a valid agent_id, and leaves the lead's work to the lead's stop", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(project, "lead");
+    toolCall(project, "lead", () => writeCode(project, "pub fn gain() -> f32 { 0.25 }\n"), {
+      tool: "Edit",
+      toolInput: { file_path: join(project, ...LIB) },
+    });
+    for (const agent of [undefined, "bad id!"]) {
+      const result = stop(project, "lead", { ...subagentStop(agent, worktree), agent_id: agent });
+      assert.equal(result?.decision, undefined);
+      assert.match(result.systemMessage, /without a valid agent_id/);
+    }
+    assert.equal(stop(project, "lead").decision, "block");
+  });
+
   it("an ended subagent that wrote again is running again, and an unverified end is judged by the lead", () => {
     const project = makeRepo();
     const worktree = agentWorktree(project);

@@ -95,7 +95,10 @@ function judgeRef(root, session, marker, current, ctx) {
 
 /**
  * The markers of a checkout this stop answers for. A subagent's stop (an
- * input with `agent_id`) answers for that agent's markers only, none exempt.
+ * input with `agent_id`) answers for that agent's markers in an agent worktree
+ * of this repository only, none exempt; its markers in any other checkout (the
+ * lead's) are judged by the lead's stop with the lead's own work, which the
+ * subagent could neither verify nor review.
  * The lead's stop answers for its own and for the subagents' markers, except
  * those of a subagent still running in its own worktree (`exemptAgentMarker`):
  * that work is not finished, and the agent is judged on its own stop.
@@ -103,7 +106,8 @@ function judgeRef(root, session, marker, current, ctx) {
 function markersFor(root, session, ctx) {
   const markers = session.writers().filter((marker) => marker.root === root);
   if (ctx.agent) {
-    return markers.filter((marker) => marker.agent === ctx.agent);
+    const own = isAgentWorktreePath(root) && sameRepository(root, ctx.state) && !ctx.leadRoots.some((dir) => samePath(dir, root));
+    return own ? markers.filter((marker) => marker.agent === ctx.agent) : [];
   }
   return markers.filter(
     (marker) =>
@@ -175,7 +179,15 @@ try {
   }
   // `agent`: this is a subagent's own stop. Only a `SubagentStop` counts (Claude Code
   // turns a subagent's `Stop` into one): a `Stop` that carried an `agent_id` anyway is the main thread's.
-  const ctx = { agent: input.hook_event_name === "SubagentStop" ? agentKey(input) : undefined, here, state };
+  const subagentStop = input.hook_event_name === "SubagentStop";
+  // `leadRoots`: the project's own checkout, never a subagent's to answer for.
+  const ctx = { agent: subagentStop ? agentKey(input) : undefined, here, state, leadRoots: hookRoots({}) };
+  if (subagentStop && !ctx.agent) {
+    // A subagent's stop that names no valid agent cannot be told apart from the
+    // others: judging it as the main thread's would block it on the lead's work and
+    // touch the lead's baselines and snapshots. Judge nothing; the lead's stop will.
+    warnings.push("Faulk's end-of-turn guard got a SubagentStop without a valid agent_id: this subagent's stop was not checked, the lead's stop judges its work.");
+  } else {
   if (session && !ctx.agent) {
     ensureBaselines(session, here, changeFingerprint, "stop");
     // Calls that never got their PostToolUse (denied, interrupted, failed)
@@ -192,6 +204,7 @@ try {
   if (reasons.length > 0) {
     output.decision = "block";
     output.reason = reasons.join("\n\n");
+  }
   }
   // Changing the guardrails is trusted only after a human reviews the pull
   // request: the agent that edits them can also run them. Say so.
