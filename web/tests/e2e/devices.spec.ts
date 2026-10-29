@@ -144,6 +144,31 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(reverb).toHaveCount(0)
 
+    // Filter (DV-2): inserted from the browser, one control per parameter, the mode is a choice of
+    // three, the cutoff shows hertz and the resonance a percentage, removed, then undone.
+    await panel.getByRole('button', { name: x.add('Filter'), exact: true }).click()
+    const filter = card(page, 'Filter')
+    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(4)
+    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(3)
+    const lowpass = filter.getByRole('radio', { name: lang === 'en' ? 'Low-pass' : 'Passe-bas', exact: true })
+    await expect(lowpass).toHaveAttribute('aria-checked', 'true')
+    const bandpass = filter.getByRole('radio', { name: lang === 'en' ? 'Band-pass' : 'Passe-bande', exact: true })
+    await bandpass.click()
+    await expect(bandpass).toHaveAttribute('aria-checked', 'true')
+    const cutoff = filter.getByTestId('param-cutoff').getByRole('slider')
+    await expect(cutoff).toHaveAttribute('aria-valuetext', /kHz|Hz/)
+    const cutoffBefore = await cutoff.getAttribute('aria-valuetext')
+    await cutoff.press('End')
+    await expect.poll(() => cutoff.getAttribute('aria-valuetext')).not.toBe(cutoffBefore)
+    await expect(filter.getByTestId('param-resonance').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
+    await filter.getByRole('button', { name: x.remove('Filter'), exact: true }).click()
+    await expect(filter).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(filter).toHaveCount(1)
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(filter).toHaveCount(0)
+
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)
