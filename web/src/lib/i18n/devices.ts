@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts` and `compressor.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts` and `compressor.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -66,6 +66,10 @@ export const devices = defineFeature(
     'reverb.time_change.hint':
       'What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.',
     'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
+    'filter.mode.hint': 'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass).',
+    'filter.cutoff.hint': 'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.',
+    'filter.resonance.hint': 'Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).',
+    'filter.mix.hint': 'Balance between the dry sound (0) and the filtered sound (1).',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -131,6 +135,10 @@ export const devices = defineFeature(
     'reverb.time_change.hint':
       'Ce que fait un nouveau pré-délai pendant que la réverbération sonne. Glissé : glisse comme une bande, la hauteur de la queue se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat, peut claquer.',
     'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
+    'filter.mode.hint': 'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut) ou autour (passe-bande).',
+    'filter.cutoff.hint': 'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz.',
+    'filter.resonance.hint': 'Renforcement du son autour de la fréquence de coupure, de 0 (aucun) à 1 (un pic net qui reste stable).',
+    'filter.mix.hint': 'Équilibre entre le son direct (0) et le son filtré (1).',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

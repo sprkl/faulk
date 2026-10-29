@@ -39,7 +39,7 @@
 //!
 //! `cutoff` is smoothed in **octaves** (the ramp runs on `log2(cutoff)`, so a sweep is
 //! even to the ear), `resonance` and `mix` linearly, each over the 20 ms the descriptor
-//! declares; a change of `mode` crossfades the three outputs over 10 ms, so it does not
+//! declares; a change of `mode` (a choice, which declares no smoothing) crossfades the three outputs over 10 ms, so it does not
 //! click. The coefficients are recomputed per sample while a ramp runs and kept when it does
 //! not, so the render does not depend on how the host cuts blocks. [`Device::reset`] zeroes
 //! the states and snaps the ramps; the parameter values are kept. Every value goes through
@@ -73,7 +73,8 @@ const CUTOFF_NYQUIST_SHARE: f32 = 0.45;
 /// is the highest peak gain, so the output is bounded.
 pub const K_FLAT: f32 = core::f32::consts::SQRT_2;
 pub const K_MIN: f32 = 0.04;
-/// Time the three outputs take to crossfade when `mode` changes, in seconds.
+/// Time the three outputs take to crossfade when `mode` changes, in seconds (a choice
+/// declares no smoothing: the crossfade is the device's own).
 const MODE_SECONDS: f64 = 0.01;
 
 /// The input is clamped to this magnitude; below [`DENORMAL_FLOOR`] it is flushed.
@@ -103,7 +104,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             default: 0.0,
             scale: Scale::Linear,
             step: 1.0,
-            smoothing_seconds: MODE_SECONDS,
+            smoothing_seconds: 0.0,
             values: &["lowpass", "highpass", "bandpass"],
         },
         ParamDescriptor {
@@ -269,6 +270,7 @@ impl Filter {
                 .param(ParamId(id))
                 .map_or(0, |d| d.smoothing_frames(sample_rate))
         };
+        let mode_frames = (MODE_SECONDS * f64::from(sample_rate)).round() as u32;
         let w = weights(default(MODE) as u32);
         let cutoff = (default(CUTOFF) as f32).log2();
         let resonance = default(RESONANCE) as f32;
@@ -282,7 +284,7 @@ impl Filter {
                 Smoother::new(w[1]),
                 Smoother::new(w[2]),
             ],
-            ramp_frames: [ramp(MODE), ramp(CUTOFF), ramp(RESONANCE), ramp(MIX)],
+            ramp_frames: [mode_frames, ramp(CUTOFF), ramp(RESONANCE), ramp(MIX)],
             coefficients: Coefficients::new(cutoff.exp2(), resonance, sample_rate),
             stale: false,
             left: Channel::default(),
