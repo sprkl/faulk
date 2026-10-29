@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -769,15 +769,42 @@ describe("Stop hook: the worktree of a running subagent (#392)", () => {
     const project = makeRepo();
     const worktree = agentWorktree(project);
     startSession(project, "lead");
+    // The lead's call in progress (it has its snapshot: the lead has not written there yet), then its edit.
+    toolCall(project, "lead", () => {}, { post: false });
     toolCall(project, "lead", () => writeCode(project, "pub fn gain() -> f32 { 0.25 }\n"), {
       tool: "Edit",
       toolInput: { file_path: join(project, ...LIB) },
     });
+    const pending = () => readdirSync(qa(project, "sessions", "lead")).filter((name) => name.startsWith("pre-"));
+    assert.equal(pending().length, 1);
     for (const agent of [undefined, "bad id!"]) {
       const result = stop(project, "lead", { ...subagentStop(agent, worktree), agent_id: agent });
       assert.equal(result?.decision, undefined);
       assert.match(result.systemMessage, /without a valid agent_id/);
     }
+    // No side effect on the lead's session: its call in progress keeps its snapshot, no baseline for the worktree.
+    assert.equal(pending().length, 1);
+    assert.equal(sessionOf(project, "lead").baseline(toplevel(worktree)), null);
+    assert.equal(stop(project, "lead").decision, "block");
+  });
+
+  it("a subagent's stop judges nothing in an agent worktree that is the project's own checkout", () => {
+    const project = makeRepo();
+    const worktree = agentWorktree(project);
+    startSession(worktree, "lead");
+    agentEdit(worktree, worktree, "lead", "a1");
+    // Run with CLAUDE_PROJECT_DIR set to the worktree itself: it is the lead's checkout, not the agent's own.
+    assert.equal(stop(worktree, "lead", subagentStop("a1", worktree)), null);
+    assert.equal(stop(worktree, "lead").decision, "block");
+  });
+
+  it("a subagent's stop judges nothing in a lookalike agent folder of another repository", () => {
+    const project = makeRepo();
+    const other = makeRepo();
+    const lookalike = agentWorktree(other);
+    startSession(project, "lead");
+    agentEdit(project, lookalike, "lead", "a1");
+    assert.equal(stop(project, "lead", subagentStop("a1", lookalike)), null);
     assert.equal(stop(project, "lead").decision, "block");
   });
 
