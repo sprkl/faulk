@@ -226,6 +226,14 @@ describe('the mark of a control that a lane drives (#388)', () => {
     expect(s.automated.mixerMark(s.track, 'gain')).not.toBe(volume)
   })
 
+  it('does not mark a parameter whose lane has no point yet: such a lane does nothing', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeUndefined()
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -12, shape: 'linear' }]))
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeDefined()
+  })
+
   it('keeps the mark while a change holds the lane, and shows the lane value on the track list and the mixer, silence included', () => {
     const s = session()
     s.run(createLane(s.track, { mixer: { param: 'gain' } }))

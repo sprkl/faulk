@@ -83,6 +83,8 @@ export class AutomatedValues {
     for (const [trackId, track] of Object.entries(view.project.tracks)) {
       if (!track) continue
       for (const info of lanesOf(track, labels)) {
+        // A lane with no point does nothing (AM-1): its parameter is not driven.
+        if (pointsOf(info.lane).length === 0) continue
         const where = whereOf(trackId, info.lane)
         if (!out.has(where)) out.set(where, info.title)
       }
