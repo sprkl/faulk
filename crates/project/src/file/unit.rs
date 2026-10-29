@@ -41,6 +41,11 @@ pub fn lane_file(t: &TrackId, l: &LaneId) -> String {
     format!("tracks/{t}/automation/{l}.tsv")
 }
 
+/// A lane of the master (#378): `master/automation/<lane>.tsv`.
+pub fn master_lane_file(l: &LaneId) -> String {
+    format!("master/automation/{l}.tsv")
+}
+
 pub fn blob_file(h: &Hash) -> String {
     format!("blobs/{h}")
 }
@@ -63,6 +68,8 @@ pub enum Unit {
     Notes(TrackId, ClipId),
     Arrangement(TrackId),
     Lane(TrackId, LaneId),
+    /// A lane of the master (#378).
+    MasterLane(LaneId),
 }
 
 impl Unit {
@@ -80,6 +87,7 @@ impl Unit {
             Unit::Notes(t, c) => path == notes_file(t, c),
             Unit::Arrangement(t) => path == arrangement_file(t),
             Unit::Lane(t, l) => path == lane_file(t, l),
+            Unit::MasterLane(l) => path == master_lane_file(l),
         }
     }
 }
@@ -145,7 +153,7 @@ impl Out {
 pub struct EmitCtx<'a> {
     pub layout: Layout,
     /// The lanes written as blobs: read for the hysteresis and kept up to date.
-    pub blob_lanes: &'a mut BTreeMap<(TrackId, LaneId), Hash>,
+    pub blob_lanes: &'a mut BTreeMap<(Option<TrackId>, LaneId), Hash>,
     pub with_payload: bool,
 }
 
@@ -317,63 +325,85 @@ pub fn emit(
             }
         }
         Unit::Lane(t, l) => {
-            let Some(lane) = project.tracks.get(t).and_then(|t| t.automation.get(l)) else {
-                ctx.blob_lanes.remove(&(t.clone(), l.clone()));
-                return Ok(());
-            };
-            let path = lane_file(t, l);
-            let unwritable = |message: String| FileError::Unwritable {
-                path: path.clone(),
-                message,
-            };
-            let key = (t.clone(), l.clone());
-            let blob_mode = ctx
-                .layout
-                .wants_blob(lane.points.len(), ctx.blob_lanes.contains_key(&key));
-            if blob_mode {
-                let bytes = text::lane_blob(&lane.points);
-                let hash = sha256(&bytes);
-                sink(Out {
-                    path: blob_file(&hash),
-                    bytes,
-                    blob: true,
-                    payload: None,
-                })?;
-                let mut out = Out::text(
-                    path.clone(),
-                    text::lane_blob_header(&lane.target, &hash, lane.points.len())
-                        .map_err(unwritable)?,
-                );
-                if ctx.with_payload {
-                    out.payload = Some(
-                        lane_payload(&lane.target, Some(&hash), &lane.points).map_err(|m| {
-                            FileError::Unwritable {
-                                path: path.clone(),
-                                message: m,
-                            }
-                        })?,
-                    );
-                }
-                ctx.blob_lanes.insert(key, hash);
-                sink(out)?;
-            } else {
-                let mut out = Out::text(
-                    path.clone(),
-                    text::lane_tsv(&lane.target, &lane.points).map_err(unwritable)?,
-                );
-                if ctx.with_payload {
-                    out.payload =
-                        Some(lane_payload(&lane.target, None, &lane.points).map_err(|m| {
-                            FileError::Unwritable {
-                                path: path.clone(),
-                                message: m,
-                            }
-                        })?);
-                }
-                ctx.blob_lanes.remove(&key);
-                sink(out)?;
-            }
+            let lane = project.tracks.get(t).and_then(|t| t.automation.get(l));
+            emit_lane(lane, Some(t), l, lane_file(t, l), ctx, sink)?;
         }
+        Unit::MasterLane(l) => {
+            emit_lane(
+                project.master_automation.get(l),
+                None,
+                l,
+                master_lane_file(l),
+                ctx,
+                sink,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// The files of one lane of a track (`owner` is `Some`) or of the master: its text, and its
+/// blob when it is over the threshold. A lane that is gone forgets its blob.
+fn emit_lane(
+    lane: Option<&AutomationLane>,
+    owner: Option<&TrackId>,
+    l: &LaneId,
+    path: String,
+    ctx: &mut EmitCtx<'_>,
+    sink: &mut dyn FnMut(Out) -> Result<(), FileError>,
+) -> Result<(), FileError> {
+    let key = (owner.cloned(), l.clone());
+    let Some(lane) = lane else {
+        ctx.blob_lanes.remove(&key);
+        return Ok(());
+    };
+    let unwritable = |message: String| FileError::Unwritable {
+        path: path.clone(),
+        message,
+    };
+    let blob_mode = ctx
+        .layout
+        .wants_blob(lane.points.len(), ctx.blob_lanes.contains_key(&key));
+    if blob_mode {
+        let bytes = text::lane_blob(&lane.points);
+        let hash = sha256(&bytes);
+        sink(Out {
+            path: blob_file(&hash),
+            bytes,
+            blob: true,
+            payload: None,
+        })?;
+        let mut out = Out::text(
+            path.clone(),
+            text::lane_blob_header(&lane.target, &hash, lane.points.len()).map_err(unwritable)?,
+        );
+        if ctx.with_payload {
+            out.payload = Some(
+                lane_payload(&lane.target, Some(&hash), &lane.points).map_err(|m| {
+                    FileError::Unwritable {
+                        path: path.clone(),
+                        message: m,
+                    }
+                })?,
+            );
+        }
+        ctx.blob_lanes.insert(key, hash);
+        sink(out)?;
+    } else {
+        let mut out = Out::text(
+            path.clone(),
+            text::lane_tsv(&lane.target, &lane.points).map_err(unwritable)?,
+        );
+        if ctx.with_payload {
+            out.payload = Some(lane_payload(&lane.target, None, &lane.points).map_err(|m| {
+                FileError::Unwritable {
+                    path: path.clone(),
+                    message: m,
+                }
+            })?);
+        }
+        ctx.blob_lanes.remove(&key);
+        sink(out)?;
     }
     Ok(())
 }

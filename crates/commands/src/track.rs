@@ -607,7 +607,7 @@ fn lane_deletions(track: &TrackId, lanes: &BTreeMap<LaneId, AutomationLane>) -> 
     lanes
         .keys()
         .map(|lane| ProjectEvent::AutomationLaneDeleted {
-            track: track.clone(),
+            track: Some(track.clone()),
             lane: lane.clone(),
         })
         .collect()
@@ -683,7 +683,7 @@ fn restore_instrument(
         lanes
             .keys()
             .map(|lane| ProjectEvent::AutomationLaneCreated {
-                track: track_id.clone(),
+                track: Some(track_id.clone()),
                 lane: lane.clone(),
             }),
     );

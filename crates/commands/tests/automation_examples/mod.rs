@@ -69,7 +69,8 @@ pub fn create(
 ) -> LaneId {
     let out = commands::run(
         &a(automation::Command::LaneCreate {
-            track: track.clone(),
+            track: Some(track.clone()),
+            master: false,
             target,
         }),
         state,
@@ -165,12 +166,24 @@ pub fn examples() -> Vec<(Command, State)> {
     );
     vec![
         on(a(automation::Command::LaneCreate {
-            track: f.track.clone(),
+            track: Some(f.track.clone()),
+            master: false,
             target: pan_target(),
         })),
         on(a(automation::Command::LaneCreate {
-            track: f.track.clone(),
+            track: Some(f.track.clone()),
+            master: false,
             target: device_target(&f.chain.b, "mute"),
+        })),
+        on(a(automation::Command::LaneCreate {
+            track: None,
+            master: true,
+            target: pan_target(),
+        })),
+        on(a(automation::Command::LaneCreate {
+            track: None,
+            master: true,
+            target: device_target(&f.chain.ma, "gain"),
         })),
         on(a(automation::Command::LaneDelete {
             lane: f.gain_lane.clone(),

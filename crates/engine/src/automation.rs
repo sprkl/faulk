@@ -81,6 +81,17 @@
 //! gesture is not held (the list is the last block's). A device built again in its slot,
 //! or switched on or off, receives its lanes' values again.
 //!
+//! # The master's lanes (#378)
+//!
+//! The master plays lanes like a track: its gain and pan, and the parameters of the effects
+//! of its chain, addressed by [`TrackSlot::MASTER`]. A master lane is read by the same code
+//! ([`TrackLanes`]), through its own list head ([`MasterLanes`]), in the graph's master pass
+//! ([`crate::graph`]): the master's chain runs once per sub-block, as a track's, and the
+//! master's strip applies the lanes' gain and pan sub-block by sub-block. A manual gesture
+//! on the master (`SetMaster` that moves the gain or the pan, a `ParamSet` on its chain)
+//! holds the matching master lanes like it holds a track's. A master with no lane renders as
+//! it did before (one pass of the chain over the block).
+//!
 //! # Lanes of a track
 //!
 //! The lanes live in the engine's lane table, by slot. At the start of every block the
@@ -343,13 +354,27 @@ fn address(target: AutomationTarget, ramp: bool) -> (DeviceSlot, ParamId) {
 
 /// Links every lane to its track for this block (module doc), no allocation. The list
 /// runs from the highest slot to the lowest.
-pub(crate) fn link(tracks: &mut Slots<Box<Track>>, lanes: &mut Paged<Box<Lane>>) {
+pub(crate) fn link(
+    tracks: &mut Slots<Box<Track>>,
+    lanes: &mut Paged<Box<Lane>>,
+    master: &mut MasterLanes,
+) {
     for track in tracks.as_mut_slice().iter_mut().flatten() {
         track.graph.lanes = NO_LANE;
         track.graph.lane_count = 0;
     }
+    master.head = NO_LANE;
+    master.count = 0;
     lanes.for_each_mut(|slot, lane| {
         lane.run.next = NO_LANE;
+        if lane.track.is_master() {
+            if (master.count as usize) < LANES_PER_TRACK {
+                lane.run.next = master.head;
+                master.head = slot;
+                master.count += 1;
+            }
+            return;
+        }
         let Some(track) = tracks
             .as_mut_slice()
             .get_mut(lane.track.0 as usize)
@@ -363,6 +388,29 @@ pub(crate) fn link(tracks: &mut Slots<Box<Track>>, lanes: &mut Paged<Box<Lane>>)
             track.graph.lane_count += 1;
         }
     });
+}
+
+/// What the graph keeps of the master's lanes (#378), as [`crate::graph::TrackGraph`] does
+/// of a track's: the first of its lanes, linked at every block, and how many are linked; the
+/// tick the next clock segment starts at when the playhead moves on without a jump; the
+/// playhead and cue count the lanes were last applied at while the clock is stopped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MasterLanes {
+    pub(crate) head: u32,
+    pub(crate) count: u32,
+    pub(crate) expect: Option<crate::time::Tick>,
+    pub(crate) stopped_at: Option<(u64, u64)>,
+}
+
+impl MasterLanes {
+    pub(crate) const fn new() -> Self {
+        MasterLanes {
+            head: NO_LANE,
+            count: 0,
+            expect: None,
+            stopped_at: None,
+        }
+    }
 }
 
 /// The lanes of one track, through its list (module doc).

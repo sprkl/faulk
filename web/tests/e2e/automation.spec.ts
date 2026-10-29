@@ -275,6 +275,56 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   expect(seen.errors).toEqual([])
 })
 
+test('automation: a lane of the master (#378) is shown on the master fader and played by the engine', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  // A lane on the master's volume, by the command an agent would use: 0 dB for a bar, then -60 dB.
+  await run(page, { type: 'automation.lane.create', master: true, target: { mixer: { param: 'gain' } } })
+  const masterLanes = () =>
+    page.evaluate(() =>
+      Object.keys((window as unknown as { __faulkView(): { project: { master_automation?: object } } }).__faulkView().project.master_automation ?? {}),
+    )
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+  const [laneId] = await masterLanes()
+  await run(page, {
+    type: 'automation.points.add',
+    lane: laneId,
+    points: [
+      { tick: 0, value: 0, shape: 'step' },
+      { tick: BAR, value: -60, shape: 'step' },
+    ],
+  })
+  // The master strip of the mixer shows the lane's value at the playhead, marked as driven, and follows a seek.
+  await page.getByTestId('nav-mixer').click()
+  const strip = page.getByTestId('mixer-master')
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('0.0 dB')
+  await expect(page.getByTestId('mixer-master-fader')).toHaveAttribute('data-automated', 'true')
+  await run(page, { type: 'transport.seek', tick: BAR })
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('−60.0 dB')
+  // A track's fader is not driven by the master's lane.
+  await expect(page.getByTestId('mixer-fader').first()).not.toHaveAttribute('data-automated', /.*/)
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('0.0 dB')
+
+  // The engine really plays it: a note held on the track, the master's level falls at the second point (one bar is two seconds).
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  await page.getByTestId('transport-play').click()
+  await expect.poll(() => master(page), { timeout: 15_000 }).toBeLessThan(loud / 100)
+  await page.getByTestId('transport-stop').click()
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 69, 0]))
+
+  // One undo takes the points back, another the lane.
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await masterLanes()).length).toBe(0)
+  expect(seen.errors).toEqual([])
+})
+
 test('automation: changing the instrument takes its lanes with it, says so, and undo gives them back', async ({ page }) => {
   test.setTimeout(120_000)
   const seen = watch(page)

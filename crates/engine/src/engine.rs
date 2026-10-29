@@ -1163,7 +1163,10 @@ impl Preparer {
                 total,
                 points,
             } => {
-                self.existing_track(track)?;
+                // The master's row (#378) is not a track of the table.
+                if !track.is_master() {
+                    self.existing_track(track)?;
+                }
                 if !completes(&self.points, lane.0, first, total, points.len()) {
                     stage(
                         &mut self.points,
@@ -1922,7 +1925,15 @@ impl Engine {
                 None
             }
             RtMsg::SetMaster { gain, pan, mute } => {
+                // A gesture on the master's fader or pan holds the lane that drives it (#378),
+                // as one on a track's does; the mute holds neither.
+                let moved_gain = state.master.gain.to_bits() != gain.to_bits();
+                let moved_pan = state.master.pan.to_bits() != pan.to_bits();
                 state.master = Master { gain, pan, mute };
+                hold_lanes(state, &self.graph, TrackSlot::MASTER, |target| {
+                    (moved_gain && target == AutomationTarget::MixerGain)
+                        || (moved_pan && target == AutomationTarget::MixerPan)
+                });
                 None
             }
             RtMsg::TrackPut(put) => {
@@ -1974,7 +1985,7 @@ impl Engine {
                         t.gain = gain;
                         t.pan = pan;
                         t.mute = mute;
-                        hold_lanes(state, track, |target| {
+                        hold_lanes(state, &self.graph, track, |target| {
                             (moved_gain && target == AutomationTarget::MixerGain)
                                 || (moved_pan && target == AutomationTarget::MixerPan)
                         });
@@ -2019,7 +2030,7 @@ impl Engine {
                     {
                         t.graph.release_notes();
                     }
-                    resend_lanes(state, track, device);
+                    resend_lanes(state, &self.graph, track, device);
                     Some(Garbage::Devices(spare))
                 }
                 None => {
@@ -2070,7 +2081,7 @@ impl Engine {
                     }
                     None => skipped = true,
                 }
-                resend_lanes(state, track, device);
+                resend_lanes(state, &self.graph, track, device);
                 if release && let Some(t) = state.track_mut(track) {
                     t.graph.release_notes();
                 }
@@ -2087,7 +2098,7 @@ impl Engine {
                         entry.device.set_param(param, value);
                         // A gesture holds the lane that drives this parameter (AM-2).
                         let target = AutomationTarget::DeviceParam { device, param };
-                        hold_lanes(state, track, |t| t == target);
+                        hold_lanes(state, &self.graph, track, |t| t == target);
                     }
                     None => skipped = true,
                 }
@@ -2165,14 +2176,14 @@ impl Engine {
                 let (spare, out) = state.lanes.put(put);
                 skipped = out;
                 if !out && let Some((track, target)) = lost {
-                    forget_lane(state, track, target);
+                    forget_lane(state, &mut self.graph, track, target);
                 }
                 Some(Garbage::Lanes(spare))
             }
             RtMsg::LaneRemove(lane) => match state.lanes.take(lane.0) {
                 Ok(old) => {
                     if let Some(old) = &old {
-                        forget_lane(state, old.track, old.target);
+                        forget_lane(state, &mut self.graph, old.track, old.target);
                     }
                     Some(Garbage::Lanes(PagedSpare {
                         growth: None,
@@ -2277,8 +2288,12 @@ impl Engine {
 
 /// The lanes of `track`, through the list the last block linked (AM-2,
 /// [`crate::automation`]).
-fn lanes_of(state: &mut State, track: TrackSlot) -> Option<TrackLanes<'_>> {
-    let head = state.track(track).map(|t| t.graph.lanes)?;
+fn lanes_of<'a>(state: &'a mut State, graph: &Graph, track: TrackSlot) -> Option<TrackLanes<'a>> {
+    let head = if track.is_master() {
+        graph.master_lanes.head
+    } else {
+        state.track(track).map(|t| t.graph.lanes)?
+    };
     Some(TrackLanes {
         table: &mut state.lanes,
         head,
@@ -2286,23 +2301,36 @@ fn lanes_of(state: &mut State, track: TrackSlot) -> Option<TrackLanes<'_>> {
 }
 
 /// A manual gesture on `track` holds its lanes whose target `matches`.
-fn hold_lanes(state: &mut State, track: TrackSlot, matches: impl Fn(AutomationTarget) -> bool) {
-    if let Some(mut lanes) = lanes_of(state, track) {
+fn hold_lanes(
+    state: &mut State,
+    graph: &Graph,
+    track: TrackSlot,
+    matches: impl Fn(AutomationTarget) -> bool,
+) {
+    if let Some(mut lanes) = lanes_of(state, graph, track) {
         lanes.hold(track, matches);
     }
 }
 
 /// The device in slot `device` of `track` changed (replaced, switched on or off): its lanes
 /// send their value again.
-fn resend_lanes(state: &mut State, track: TrackSlot, device: DeviceSlot) {
-    if let Some(mut lanes) = lanes_of(state, track) {
+fn resend_lanes(state: &mut State, graph: &Graph, track: TrackSlot, device: DeviceSlot) {
+    if let Some(mut lanes) = lanes_of(state, graph, track) {
         lanes.resend(track, device);
     }
 }
 
 /// A lane of `track` on `target` is gone: a mixer lane gives the strip's field back to the
 /// fader (AM-2); a device keeps the lane's last value.
-fn forget_lane(state: &mut State, track: TrackSlot, target: AutomationTarget) {
+fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: AutomationTarget) {
+    if track.is_master() {
+        match target {
+            AutomationTarget::MixerGain => graph.forget_master_gain(),
+            AutomationTarget::MixerPan => graph.forget_master_pan(),
+            AutomationTarget::DeviceParam { .. } => {}
+        }
+        return;
+    }
     let Some(t) = state.track_mut(track) else {
         return;
     };

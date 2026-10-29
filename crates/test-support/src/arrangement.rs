@@ -237,7 +237,8 @@ fn neutral_lanes(s: &mut Session, track: &project::TrackId) {
     for (param, points) in lanes {
         let Output::Automation(automation::Output::LaneCreate { lane }) =
             s.exec(Command::Automation(automation::Command::LaneCreate {
-                track: track.clone(),
+                track: Some(track.clone()),
+                master: false,
                 target: AutomationTarget::Mixer { param },
             }))
         else {

@@ -18,7 +18,8 @@ fn point(tick: i64, value: f64, shape: Shape) -> automation::Point {
 fn lane(s: &mut Session, target: AutomationTarget, points: Vec<automation::Point>) {
     let track = s.state().project.tracks.keys().next().unwrap().clone();
     let out = s.exec(Command::Automation(automation::Command::LaneCreate {
-        track,
+        track: Some(track),
+        master: false,
         target,
     }));
     let commands::Output::Automation(automation::Output::LaneCreate { lane }) = out else {

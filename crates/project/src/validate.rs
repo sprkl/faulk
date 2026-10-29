@@ -7,7 +7,7 @@
 //! construction and are refused on read instead: ids are unique within a map, and a lane
 //! has at most one point per tick (maps refuse duplicate keys, `serde_util::unique_map`).
 
-use crate::ids::Id;
+use crate::ids::{DeviceId, Id, LaneId};
 use crate::limits::*;
 use crate::model::*;
 use engine::time::{Frame, Tick};
@@ -239,6 +239,14 @@ impl Project {
         self.validate_transport(&mut c);
         c.mixer(&self.master, "master");
         self.validate_master_chain(&mut c);
+        let (mut notes, mut points) = (0usize, 0usize);
+        self.validate_lanes(
+            &mut c,
+            &self.master_automation,
+            &self.master_devices,
+            "master",
+            &mut points,
+        );
 
         c.count(self.scenes.len(), c.limits.scenes, "scenes");
         for (id, scene) in &self.scenes {
@@ -248,7 +256,6 @@ impl Project {
         }
 
         c.count(self.tracks.len(), c.limits.tracks, "tracks");
-        let (mut notes, mut points) = (0usize, 0usize);
         for (id, track) in &self.tracks {
             let path = format!("tracks/{id}");
             c.id(&id.0, &path);
@@ -401,8 +408,21 @@ impl Project {
         }
 
         // Automation.
-        c.count(track.automation.len(), c.limits.lanes_per_track, path);
-        for (id, lane) in &track.automation {
+        self.validate_lanes(c, &track.automation, &track.devices, path, points);
+    }
+
+    /// The automation lanes of a track or of the master (`path` is `master` then): each
+    /// targets a device of `devices`, the chain they belong to, or the strip.
+    fn validate_lanes<'p>(
+        &'p self,
+        c: &mut Checker<'p>,
+        lanes: &'p BTreeMap<LaneId, AutomationLane>,
+        devices: &BTreeMap<DeviceId, Device>,
+        path: &str,
+        points: &mut usize,
+    ) {
+        c.count(lanes.len(), c.limits.lanes_per_track, path);
+        for (id, lane) in lanes {
             let path = format!("{path}/automation/{id}");
             c.id(&id.0, &path);
             let pan = lane.target
@@ -415,7 +435,7 @@ impl Project {
                 };
             if let AutomationTarget::Device { device, param } = &lane.target {
                 c.check(
-                    track.devices.contains_key(device),
+                    devices.contains_key(device),
                     &path,
                     ViolationKind::UnknownDevice,
                 );

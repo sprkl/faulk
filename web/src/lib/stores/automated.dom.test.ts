@@ -3,12 +3,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { flushSync } from 'svelte'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { addPoints, createLane } from '../automation-commands'
-import { setDeviceParam } from '../device-commands'
+import { addPoints, createLane, createMasterLane } from '../automation-commands'
+import { insertMasterEffect, setDeviceParam } from '../device-commands'
 import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
-import { setVolume } from '../track-commands'
+import { setMasterVolume, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
@@ -250,5 +250,51 @@ describe('the mark of a control that a lane drives (#388)', () => {
     expect(s.automated.shownGain(s.track, -10)).toBe(-10)
     expect(s.automated.mixerMark(s.track, 'gain')).toBeDefined()
     expect(s.automated.shownPan(s.track, 0.3)).toBe(0.3)
+  })
+})
+
+describe('the master (#378)', () => {
+  it('follows a volume lane of the master and marks the fader, apart from the tracks', () => {
+    const s = session()
+    s.run(createMasterLane({ mixer: { param: 'gain' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!)[0]!
+    expect(s.automated.mixerMark('master', 'gain')).toBeUndefined()
+    s.run(
+      addPoints(lane, [
+        { tick: 0, value: -96, shape: 'linear' },
+        { tick: 1000, value: 0, shape: 'linear' },
+      ]),
+    )
+    s.play(500)
+    expect(s.automated.mixer('master', 'gain')).toBeCloseTo(-21, 6)
+    expect(s.automated.shownGain('master', 0)).toBeCloseTo(-21, 6)
+    expect(s.automated.mixerMark('master', 'gain')).toContain('Mixer')
+    // The track's own volume is not driven by the master's lane.
+    expect(s.automated.mixer(s.track, 'gain')).toBeUndefined()
+    // A gesture on the master's fader holds the lane until its next point, as for a track.
+    s.run(setMasterVolume(-3))
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    s.play(700)
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    // A seek lets go of the hold.
+    s.stop(200)
+    expect(s.automated.mixer('master', 'gain')).toBeDefined()
+  })
+
+  it('follows a lane on a parameter of a master effect', () => {
+    const s = session()
+    s.run(insertMasterEffect('faulk.compressor', 0))
+    const effect = Object.keys(s.project.view!.project.master_devices!)[0]!
+    s.run(createMasterLane({ device: { device: effect, param: 'threshold' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!)[0]!
+    s.run(
+      addPoints(lane, [
+        { tick: 0, value: -40, shape: 'linear' },
+        { tick: 1000, value: 0, shape: 'linear' },
+      ]),
+    )
+    s.play(500)
+    expect(s.automated.device(effect, 'threshold')).toBeCloseTo(-20, 6)
+    expect(s.automated.deviceMark(effect, 'threshold')).toBeDefined()
   })
 })

@@ -160,6 +160,7 @@ impl WithoutTracks for Project {
             scenes: self.scenes.clone(),
             master: self.master,
             master_devices: self.master_devices.clone(),
+            master_automation: self.master_automation.clone(),
             tracks: BTreeMap::new(),
         }
     }

@@ -1300,3 +1300,44 @@ fn an_export_job_is_refused_on_an_empty_arrangement_and_ready_on_a_clip() {
     let (report, _) = h.call(r#"{"colour":1}"#, pw_export_job);
     assert_eq!(report["status"], "refused");
 }
+
+#[test]
+fn a_master_lane_is_saved_in_its_own_file_and_opens_again() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let lane = h.apply(json!({
+        "type": "automation.lane.create", "master": true, "target": {"mixer": {"param": "gain"}}
+    }))["lane"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    h.apply(json!({
+        "type": "automation.points.add", "lane": lane,
+        "points": [{"tick": 0, "value": 0.0}, {"tick": 3840, "value": -96.0}]
+    }));
+    let file = format!("master/automation/{lane}.tsv");
+    let mut fs = MemFs::new();
+    let (_, entries) = h.save(2);
+    let paths: Vec<String> = entries.iter().map(entry_path).collect();
+    assert!(paths.contains(&file), "{paths:?}");
+    apply_entries(&mut fs, &entries);
+    h.saved(true);
+    // The folder opens as the project, the master's lane in it.
+    let opened = project::file::open(&fs, &project::file::OpenOptions::default()).unwrap();
+    assert_eq!(opened.project.master_automation.len(), 1);
+    assert_eq!(
+        serde_json::to_value(&opened.project).unwrap(),
+        h.view()["project"]
+    );
+    // An edit of one point rewrites that file and no other; deleting the lane removes it.
+    h.apply(json!({
+        "type": "automation.points.update", "lane": lane,
+        "points": [{"tick": 3840, "value": -60.0}]
+    }));
+    assert_eq!(h.paths(0), std::slice::from_ref(&file));
+    h.saved(true);
+    h.apply(json!({"type": "automation.lane.delete", "lane": lane}));
+    let (_, entries) = h.save(0);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entry_path(&entries[0]), file);
+    h.saved(true);
+}

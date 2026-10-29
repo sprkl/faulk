@@ -60,6 +60,11 @@ pub struct Project {
     #[serde(default, deserialize_with = "unique_map")]
     #[schemars(required)]
     pub master_devices: BTreeMap<DeviceId, Device>,
+    // The master's automation lanes (#378): the master's gain and pan, and the parameters of
+    // the devices of `master_devices`. Not a doc comment, like `master_devices` above.
+    #[serde(default, deserialize_with = "unique_map")]
+    #[schemars(required)]
+    pub master_automation: BTreeMap<LaneId, AutomationLane>,
     /// The tracks.
     #[serde(deserialize_with = "unique_map")]
     pub tracks: BTreeMap<TrackId, Track>,
@@ -514,6 +519,7 @@ impl Project {
             scenes: BTreeMap::new(),
             master: Mixer::default(),
             master_devices: BTreeMap::new(),
+            master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
         }
     }
@@ -540,6 +546,7 @@ impl Project {
         self.id.0 == *id
             || self.scenes.keys().any(|k| k.0 == *id)
             || self.master_devices.keys().any(|k| k.0 == *id)
+            || self.master_automation.keys().any(|k| k.0 == *id)
             || self.tracks.iter().any(|(k, t)| {
                 k.0 == *id
                     || t.devices.keys().any(|k| k.0 == *id)
@@ -547,6 +554,37 @@ impl Project {
                     || t.placements.keys().any(|k| k.0 == *id)
                     || t.automation.keys().any(|k| k.0 == *id)
             })
+    }
+
+    /// The lanes of a track (`Some`) or of the master (`None`), if the track exists.
+    pub fn lanes(&self, owner: Option<&TrackId>) -> Option<&BTreeMap<LaneId, AutomationLane>> {
+        match owner {
+            None => Some(&self.master_automation),
+            Some(t) => self.tracks.get(t).map(|t| &t.automation),
+        }
+    }
+
+    /// [`Project::lanes`], to change them.
+    pub fn lanes_mut(
+        &mut self,
+        owner: Option<&TrackId>,
+    ) -> Option<&mut BTreeMap<LaneId, AutomationLane>> {
+        match owner {
+            None => Some(&mut self.master_automation),
+            Some(t) => self.tracks.get_mut(t).map(|t| &mut t.automation),
+        }
+    }
+
+    /// The owner of a lane: `Some(Some(track))` for a track's, `Some(None)` for the master's,
+    /// `None` when no lane has this id.
+    pub fn lane_owner(&self, lane: &LaneId) -> Option<Option<TrackId>> {
+        if self.master_automation.contains_key(lane) {
+            return Some(None);
+        }
+        self.tracks
+            .iter()
+            .find(|(_, t)| t.automation.contains_key(lane))
+            .map(|(id, _)| Some(id.clone()))
     }
 
     /// The master's chain in order (order key, then id).
@@ -578,7 +616,11 @@ impl Project {
     /// How many clips, placements and lanes the whole project has: the counts the
     /// engine's slot tables bound project-wide ([`crate::limits::MAX_CLIPS`]…).
     pub fn counts(&self) -> Counts {
-        self.tracks.values().fold(Counts::default(), |c, t| Counts {
+        let counts = Counts {
+            lanes: self.master_automation.len(),
+            ..Counts::default()
+        };
+        self.tracks.values().fold(counts, |c, t| Counts {
             clips: c.clips + t.clips.len(),
             placements: c.placements + t.placements.len(),
             lanes: c.lanes + t.automation.len(),

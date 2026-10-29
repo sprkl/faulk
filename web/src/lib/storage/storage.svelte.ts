@@ -348,11 +348,11 @@ export class ProjectStorage {
     }
     if (mode === 'rewrite') {
       // The folder's version is being replaced: what it holds of the tracks that this project no longer
-      // has (a track deleted since, a file an outside edit added) goes too, or it would come back on opening.
+      // has (a track deleted since, a master lane deleted since, a file an outside edit added) goes too, or it would come back on opening.
       try {
         const written = frame.entries.map((entry) => entry.path)
         for (const path of Object.keys(await current.store.scan())) {
-          if (path.startsWith('tracks/') && !written.includes(path)) frame.entries.push({ type: 'remove', path })
+          if ((path.startsWith('tracks/') || path.startsWith('master/')) && !written.includes(path)) frame.entries.push({ type: 'remove', path })
         }
       } catch (error) {
         this.host.saved(false)

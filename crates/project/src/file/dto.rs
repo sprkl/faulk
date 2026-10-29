@@ -58,6 +58,7 @@ impl ProjectDoc {
             scenes: self.scenes,
             master: self.master,
             master_devices: self.master_devices,
+            master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
         }
     }
