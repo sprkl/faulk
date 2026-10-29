@@ -296,8 +296,9 @@
   }
   $effect(() => {
     void shownTick
-    // Stop, Back to start and a seek bring the view to the position too (#395); a resize does only while it runs.
-    if (running) void stageW
+    // Stop, Back to start and a seek bring the view to the position too (#395); a resize does only while it runs,
+    // or until the stage has its first width (a view mounted while stopped).
+    if (running || untrack(() => stageW) === 0) void stageW
     if (follow) untrack(showPosition)
   })
   // A new Play follows again.

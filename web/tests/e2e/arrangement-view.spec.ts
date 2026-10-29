@@ -328,26 +328,32 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   expect(await scroll()).toBe(held)
   expect(await visible()).toBe(false)
 
-  // A seek far outside the window (the dispatcher hook of the dev server): with Follow on the view goes to the position,
-  // with Follow off it stays.
-  const seek = (tick: number) =>
-    page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
-  await seek(10 * BAR)
-  await page.waitForTimeout(500)
-  expect(await scroll()).toBe(held)
-  expect(await visible()).toBe(false)
+  // A seek far outside the window needs the dispatcher hook of the dev server: with Follow off the view stays,
+  // with Follow on it goes to the position.
+  const hooked = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun === 'function')
+  if (hooked) {
+    const seek = (tick: number) =>
+      page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
+    await seek(10 * BAR)
+    await page.waitForTimeout(500)
+    expect(await scroll()).toBe(held)
+    expect(await visible()).toBe(false)
+    await page.getByTestId('arr-follow').click()
+    await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+    await expect.poll(visible).toBe(true)
+    await seek(0)
+    await expect.poll(scroll).toBe(0)
+    await expect.poll(visible).toBe(true)
+    await seek(10 * BAR)
+    await expect.poll(scroll).toBeGreaterThan(0)
+    await expect.poll(visible).toBe(true)
+  }
+  // Follow brings the stopped position back too, and a click on the ruler still moves it.
   await page.getByTestId('arr-follow').click()
   await expect(arr(page)).toHaveAttribute('data-follow', 'true')
   await expect.poll(visible).toBe(true)
-  await seek(0)
-  await expect.poll(scroll).toBe(0)
-  await expect.poll(visible).toBe(true)
-  await seek(10 * BAR)
-  await expect.poll(scroll).toBeGreaterThan(0)
-  await expect.poll(visible).toBe(true)
-  // A click on the ruler, inside the window, still moves the position.
   const g = await spot(page)
-  await page.mouse.click(g.x(10 * BAR + BAR / 2), g.ruler)
+  await page.mouse.click(g.x(0) + 200, g.ruler)
   await expect.poll(visible).toBe(true)
   expect(seen.errors).toEqual([])
 })
