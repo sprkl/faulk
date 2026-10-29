@@ -175,6 +175,16 @@ pub fn examples() -> Vec<(Command, State)> {
             master: false,
             target: device_target(&f.chain.b, "mute"),
         })),
+        on(a(automation::Command::LaneCreate {
+            track: None,
+            master: true,
+            target: pan_target(),
+        })),
+        on(a(automation::Command::LaneCreate {
+            track: None,
+            master: true,
+            target: device_target(&f.chain.ma, "gain"),
+        })),
         on(a(automation::Command::LaneDelete {
             lane: f.gain_lane.clone(),
         })),

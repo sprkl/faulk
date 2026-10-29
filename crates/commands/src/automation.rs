@@ -96,9 +96,10 @@ domain! {
     /// bundle; the device must be in the owner's chain: a track's, or the master's effects)
     /// or `{"mixer": {"param": "gain"}}` / `{"mixer": {"param": "pan"}}` for the owner's
     /// volume or pan (there is no mute lane). Refused with `not_found` for an unknown track,
-    /// device or parameter, with `invalid` when both or neither of `track` and `master` are
-    /// given, when the owner already has a lane on that parameter or when the device is in
-    /// another chain than the owner's, and with `limit` at the safety limit of lanes.
+    /// for a device that is not in the owner's chain (another track's, or the master's for a
+    /// track's lane) or a parameter the device lacks, with `invalid` when both or neither of
+    /// `track` and `master` are given or when the owner already has a lane on that parameter,
+    /// and with `limit` at the safety limit of lanes.
     /// A lane has no point yet and does nothing; once it has points, it holds the first
     /// point's value from the start of the timeline until that point, and the engine applies
     /// its value at the playhead when the transport stops and at every seek, so a lane with a
@@ -428,22 +429,11 @@ fn rule_of(state: &State, owner: &Owner, target: &AutomationTarget) -> Result<Ru
             param: MixerParam::Pan,
         } => Ok(Rule::Pan),
         AutomationTarget::Device { device, param } => {
-            let Some(found) = chain_of(state, owner)?.get(device) else {
-                if state.project.device(device).is_some() {
-                    return Err(invalid(
-                        "target",
-                        match owner {
-                            None => {
-                                "the device is not in the master's chain: a lane targets a device of its owner's chain"
-                            }
-                            Some(_) => {
-                                "the device is not in this track's chain: a lane targets a device of its owner's chain"
-                            }
-                        },
-                    ));
-                }
-                return Err(not_found("device", device));
-            };
+            // A device of another chain (another track's, or the master's for a track's lane)
+            // is not in the owner's: not found there.
+            let found = chain_of(state, owner)?
+                .get(device)
+                .ok_or_else(|| not_found("device", device))?;
             let descriptor = descriptor_of(registry(), found);
             if let Some(d) = descriptor
                 && !d.params.iter().any(|p| p.key == param)

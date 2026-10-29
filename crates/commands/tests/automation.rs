@@ -157,17 +157,12 @@ fn a_target_is_checked_against_the_track_and_the_descriptor() {
         code_of(&c.audio_track, device_target(&c.b, "gain")),
         "not_found"
     );
-    // The clip player has no parameter; the master's devices are not automatable yet.
+    // The clip player has no parameter; a master device is not in a track's chain.
     assert_eq!(
         code_of(&c.audio_track, device_target(&c.player, "gain")),
         "not_found"
     );
-    let e = refused(
-        &create_cmd(&f.track, device_target(&c.ma, "gain")),
-        &f.state,
-    );
-    assert_eq!(e.code(), "invalid");
-    assert!(e.to_string().contains("master"), "{e}");
+    assert_eq!(code_of(&f.track, device_target(&c.ma, "gain")), "not_found");
     // One lane per parameter and track.
     assert_eq!(code_of(&f.track, gain_target()), "invalid");
     assert_eq!(code_of(&f.track, device_target(&c.a, "gain")), "invalid");
@@ -821,7 +816,7 @@ fn a_device_restore_checks_the_lanes_it_brings_and_takes_them_back_out_when_refu
         code(&restore(BTreeMap::from([(own, good.clone())])), &s),
         "invalid"
     );
-    // The master has no lanes.
+    // The same restore into the master's chain brings the lanes to the master (#378).
     let master_restore = d(device::Command::Restore {
         track: None,
         master: true,
@@ -829,7 +824,11 @@ fn a_device_restore_checks_the_lanes_it_brings_and_takes_them_back_out_when_refu
         snapshot: snapshot.clone(),
         lanes: lanes.clone(),
     });
-    assert_eq!(code(&master_restore, &s), "invalid");
+    let mut in_master = s.clone();
+    go(&mut in_master, &master_restore);
+    assert_eq!(in_master.project.master_automation.len(), 1);
+    assert!(in_master.project.master_devices.contains_key(&device));
+    in_master.project.validate().unwrap();
     // Without lanes the same restore is fine.
     check(&restore(BTreeMap::new()), &s, &context()).unwrap();
 }
@@ -1149,4 +1148,331 @@ fn the_schema_and_the_wire_form_of_the_commands() {
     ] {
         assert!(serde_json::from_str::<Command>(bad).is_err(), "{bad}");
     }
+}
+
+// ---------------------------------------------------------------- the master's lanes (#378)
+
+fn master_create(target: AutomationTarget) -> Command {
+    a(automation::Command::LaneCreate {
+        track: None,
+        master: true,
+        target,
+    })
+}
+
+fn master_lane<'a>(state: &'a State, id: &LaneId) -> &'a AutomationLane {
+    &state.project.master_automation[id]
+}
+
+#[test]
+fn a_lane_is_created_on_the_master_volume_pan_and_effects_and_names_its_owner() {
+    let f = fx();
+    let c = &f.chain;
+    let mut s = f.state.clone();
+    // Volume, pan, and a parameter of each effect of the master's chain, with the contract's
+    // checks (schema, undo, determinism).
+    for target in [
+        gain_target(),
+        pan_target(),
+        device_target(&c.ma, "gain"),
+        device_target(&c.mb, "mute"),
+    ] {
+        check(&master_create(target), &s, &context()).unwrap();
+    }
+    let out = go(&mut s, &master_create(gain_target()));
+    let Output::Automation(automation::Output::LaneCreate { lane: id }) = out.output.clone() else {
+        panic!()
+    };
+    assert!(master_lane(&s, &id).points.is_empty());
+    assert!(
+        s.project
+            .tracks
+            .values()
+            .all(|t| !t.automation.contains_key(&id))
+    );
+    assert_eq!(
+        events(&out),
+        [ProjectEvent::AutomationLaneCreated {
+            track: None,
+            lane: id.clone()
+        }]
+    );
+    s.project.validate().unwrap();
+    // One lane per parameter on the master, as on a track; another parameter is fine, and
+    // so is the track's own lane on the same parameter.
+    assert_eq!(code(&master_create(gain_target()), &s), "invalid");
+    check(&master_create(pan_target()), &s, &context()).unwrap();
+    check(&create_cmd(&f.track, pan_target()), &s, &context()).unwrap();
+    // Undo takes the lane back out, redo puts it back.
+    go(&mut s, &undo());
+    assert!(s.project.master_automation.is_empty());
+    go(&mut s, &redo());
+    assert!(s.project.master_automation.contains_key(&id));
+    // The owner is named, exactly once.
+    let neither = a(automation::Command::LaneCreate {
+        track: None,
+        master: false,
+        target: gain_target(),
+    });
+    assert_eq!(code(&neither, &s), "invalid");
+    let both = a(automation::Command::LaneCreate {
+        track: Some(f.track.clone()),
+        master: true,
+        target: gain_target(),
+    });
+    assert_eq!(code(&both, &s), "invalid");
+    // A device of a track is not in the master's chain, nor a master device in a track's.
+    assert_eq!(
+        code(&master_create(device_target(&c.a, "gain")), &s),
+        "not_found"
+    );
+    assert_eq!(
+        code(&master_create(device_target(&c.ma, "nope")), &s),
+        "not_found"
+    );
+    // The command round-trips through JSON without a `track` for the master.
+    let json = serde_json::to_value(master_create(gain_target())).unwrap();
+    assert_eq!(json["master"], true);
+    assert!(json.get("track").is_none());
+    assert_eq!(
+        serde_json::from_value::<Command>(json).unwrap(),
+        master_create(gain_target())
+    );
+}
+
+#[test]
+fn the_points_of_a_master_lane_are_edited_with_the_same_commands_and_undo_gives_them_back() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let out = go(&mut s, &master_create(gain_target()));
+    let Output::Automation(automation::Output::LaneCreate { lane }) = out.output else {
+        panic!()
+    };
+    let steps = [
+        add_cmd(
+            &lane,
+            vec![
+                linear(0, 0.0),
+                pt(3840, -96.0, Shape::Step),
+                linear(1000, -12.0),
+            ],
+        ),
+        a(automation::Command::PointsUpdate {
+            lane: lane.clone(),
+            points: vec![linear(1000, -20.0)],
+        }),
+        a(automation::Command::PointsRemove {
+            lane: lane.clone(),
+            ticks: vec![Tick(3840)],
+        }),
+        a(automation::Command::LaneClear { lane: lane.clone() }),
+    ];
+    let mut stack = vec![s.project.clone()];
+    for step in &steps {
+        let out = go(&mut s, step);
+        assert_eq!(
+            events(&out),
+            [ProjectEvent::AutomationPointsChanged {
+                track: None,
+                lane: lane.clone()
+            }]
+        );
+        stack.push(s.project.clone());
+    }
+    for want in stack.iter().rev().skip(1) {
+        go(&mut s, &undo());
+        assert_eq!(&s.project, want);
+    }
+    // A value out of the master's range is refused like a track's.
+    let high = add_cmd(&lane, vec![linear(5, 7.0)]);
+    assert_eq!(code(&high, &s), "invalid");
+    // Delete and restore bring back the lane under its identifier, in the master.
+    let deleted = go(
+        &mut s,
+        &a(automation::Command::LaneDelete { lane: lane.clone() }),
+    );
+    assert_eq!(
+        deleted.output,
+        Output::Automation(automation::Output::LaneDelete { track: None })
+    );
+    assert!(s.project.master_automation.is_empty());
+    go(&mut s, &undo());
+    assert!(s.project.master_automation.contains_key(&lane));
+    s.project.validate().unwrap();
+}
+
+#[test]
+fn removing_a_master_effect_takes_its_lanes_and_undo_brings_them_back() {
+    let f = fx();
+    let c = &f.chain;
+    let mut s = f.state.clone();
+    let gain = {
+        let out = go(&mut s, &master_create(gain_target()));
+        let Output::Automation(automation::Output::LaneCreate { lane }) = out.output else {
+            panic!()
+        };
+        lane
+    };
+    let out = go(&mut s, &master_create(device_target(&c.ma, "gain")));
+    let Output::Automation(automation::Output::LaneCreate { lane: effect }) = out.output else {
+        panic!()
+    };
+    go(
+        &mut s,
+        &add_cmd(&effect, vec![linear(0, 0.5), pt(960, 1.5, Shape::Step)]),
+    );
+    let with_lanes = s.project.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Remove {
+            device: c.ma.clone(),
+        }),
+    );
+    assert_eq!(
+        events(&out),
+        [
+            ProjectEvent::AutomationLaneDeleted {
+                track: None,
+                lane: effect.clone()
+            },
+            ProjectEvent::DeviceChainChanged { track: None }
+        ]
+    );
+    assert!(!s.project.master_automation.contains_key(&effect));
+    assert!(
+        s.project.master_automation.contains_key(&gain),
+        "the volume lane stays"
+    );
+    s.project.validate().unwrap();
+    // Undo brings the device and the lane back, points included, with the right events.
+    let out = go(&mut s, &undo());
+    assert_eq!(s.project, with_lanes);
+    assert!(events(&out).contains(&ProjectEvent::AutomationLaneCreated {
+        track: None,
+        lane: effect.clone()
+    }));
+    // Redo and undo again: stable.
+    go(&mut s, &redo());
+    go(&mut s, &undo());
+    assert_eq!(s.project, with_lanes);
+    // A restore of the lanes into a track's chain is refused: they name a master device.
+    let mut other = f.state.clone();
+    go(&mut other, &master_create(device_target(&c.ma, "gain")));
+    assert_eq!(master_lane_count(&other), 1);
+}
+
+fn master_lane_count(state: &State) -> usize {
+    state.project.master_automation.len()
+}
+
+#[test]
+fn the_engine_holds_the_master_lanes_through_every_lane_command_and_its_undo() {
+    let f = fx();
+    let c = &f.chain;
+    let mut state = f.state.clone();
+    // Two master lanes in the project that the snapshot uploads.
+    let mut ctx = more_context();
+    for target in [gain_target(), device_target(&c.mb, "mute")] {
+        commands::run(&master_create(target), &mut state, &mut ctx).unwrap();
+    }
+    let mut w = World::new(state.clone());
+    assert_eq!(
+        w.lanes.0.len(),
+        4,
+        "the snapshot uploads the track's lanes and the master's"
+    );
+    assert_eq!(w.s.ctx.engine.master_lanes.len(), 2);
+    let master_ids: Vec<LaneId> =
+        w.s.state
+            .project
+            .master_automation
+            .keys()
+            .cloned()
+            .collect();
+    let [gain, effect] = [master_ids[0].clone(), master_ids[1].clone()];
+    let effect = if matches!(
+        w.s.state.project.master_automation[&effect].target,
+        AutomationTarget::Device { .. }
+    ) {
+        effect
+    } else {
+        gain.clone()
+    };
+    let gain = master_ids
+        .iter()
+        .find(|id| **id != effect)
+        .cloned()
+        .unwrap();
+    let mut count = 0;
+    let mut step = |w: &mut World, command: Command| {
+        w.exec(&command);
+        count += 1;
+    };
+    step(&mut w, master_create(pan_target()));
+    let pan =
+        w.s.state
+            .project
+            .master_automation
+            .keys()
+            .find(|k| **k != gain && **k != effect)
+            .cloned()
+            .unwrap();
+    for command in [
+        add_cmd(&pan, vec![linear(0, 0.5), pt(480, -0.5, Shape::Step)]),
+        add_cmd(&gain, vec![linear(0, -6.0), linear(5000, -96.0)]),
+        add_cmd(&effect, vec![pt(0, 1.0, Shape::Step)]),
+        a(automation::Command::PointsUpdate {
+            lane: gain.clone(),
+            points: vec![pt(0, -3.0, Shape::Linear)],
+        }),
+        a(automation::Command::PointsRemove {
+            lane: gain.clone(),
+            ticks: vec![Tick(5000)],
+        }),
+        a(automation::Command::LaneClear {
+            lane: effect.clone(),
+        }),
+        a(automation::Command::LaneDelete { lane: pan.clone() }),
+        // A master effect ahead of the one a lane targets shifts it: the lane follows its slot.
+        d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: device_examples::EFFECT.into(),
+            index: 0,
+        }),
+        // The device a lane targets goes, with its lane, and comes back by undo.
+        d(device::Command::Remove {
+            device: c.mb.clone(),
+        }),
+        // A track lane next to them: the two rows stay apart.
+        create_cmd(&f.track, pan_target()),
+    ] {
+        step(&mut w, command);
+    }
+    // The track's lanes and the master's are in different rows of the engine.
+    let rows: Vec<bool> =
+        w.s.ctx
+            .engine
+            .master_lanes
+            .iter()
+            .map(|l| w.s.state.project.master_automation.contains_key(l))
+            .collect();
+    assert!(rows.iter().all(|r| *r));
+    // Undo everything, then redo everything: the engine follows each time.
+    for _ in 0..count {
+        w.exec(&undo());
+    }
+    assert_eq!(w.s.state.project, state.project);
+    for _ in 0..count {
+        w.exec(&redo());
+    }
+}
+
+#[test]
+fn the_master_lanes_count_in_the_safety_limits_of_lanes() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = s.project.counts().lanes;
+    go(&mut s, &master_create(gain_target()));
+    assert_eq!(s.project.counts().lanes, before + 1);
 }
