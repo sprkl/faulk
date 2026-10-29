@@ -335,7 +335,9 @@ domain! {
     /// Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in
     /// one batch (one history entry, all or nothing). Each source note is addressed by its
     /// whole value and must be in the clip. Without `offset`, the copies follow the whole
-    /// selection (shift of the span from the first start to the last end). An `offset` of 0
+    /// selection: the shift is the span from the start of the bar of the first note to the last
+    /// end, rounded up to whole bars (at least one bar), so a selection of one bar or less is
+    /// copied to the next bar and a selection of two bars two bars later. An `offset` of 0
     /// is refused, and so is a copy that would lie outside `[0, clip length]` (never
     /// truncated). A copy equal to a note already in the clip changes nothing. Undo: remove
     /// the notes actually added.
@@ -1800,6 +1802,7 @@ fn notes_duplicate(
     offset: Option<Tick>,
 ) -> Result<Out, CommandError> {
     let in_project = project_notes(&state.project);
+    let in_bar = state.project.time_signature().ticks_per_bar();
     let clip = clip_mut(&mut state.project, clip_id)?;
     let (length, _, notes) = midi_mut(clip)?;
     let sources = present_notes(notes, chosen, "notes")?;
@@ -1812,7 +1815,17 @@ fn notes_duplicate(
         .map(|n| n.start.get().saturating_add(n.length.get()))
         .max()
         .unwrap_or(0);
-    let shift = offset.map_or(last.saturating_sub(first), Tick::get);
+    let bar = in_bar.get().max(1);
+    let shift = offset.map_or_else(
+        || {
+            let from = first.saturating_sub(first.rem_euclid(bar));
+            let span = last.saturating_sub(from).max(1);
+            span.saturating_add(bar - 1)
+                .div_euclid(bar)
+                .saturating_mul(bar)
+        },
+        Tick::get,
+    );
     if shift == 0 {
         return Err(invalid(
             "offset",

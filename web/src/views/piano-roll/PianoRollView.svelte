@@ -64,6 +64,7 @@
     DEFAULT_QUANTIZE_STRENGTH,
     MAX_BARS,
     QUANTIZE_GRIDS,
+    drawStep,
     duplicateOffset,
     endOf,
     floorTick,
@@ -171,6 +172,7 @@
   /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
   let lastLength = $state<number | null>(null)
   let lastVelocity = $state(DEFAULT_VELOCITY)
+  let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'draw' | 'move' | 'resize'>('draw')
@@ -178,6 +180,8 @@
 
   const shown = $derived(clampView(view, stageW, totalBars * bar))
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
+  /** The step notes are drawn on: Auto never goes below a sixteenth. */
+  const drawing = $derived(drawStep(snap === 'auto', step))
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
@@ -365,7 +369,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -388,9 +392,9 @@
     if (g.kind === 'loop') {
       gesture = { ...g, to: Math.min(clipLength, snapTick(xToTick(x, shown), step)) }
     } else if (g.kind === 'draw') {
-      const end = snapTick(xToTick(x, shown), step)
+      const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, step, defaultLength(lastLength, step), clipLength) }
+      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -449,6 +453,35 @@
     picked = new Set()
   }
 
+  /**
+   * Select all, copy, cut, paste and duplicate (Ctrl or Cmd + A, C, X, V, D). Returns whether the key was one of them.
+   * Shared by the stage and the window, so that they work with the focus on the toolbar too.
+   */
+  function editShortcut(event: KeyboardEvent): boolean {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return false
+    const key = event.key.toLowerCase()
+    if (key === 'a') picked = new Set(notes.map(noteKey))
+    else if (key === 'c') copyChosen()
+    else if (key === 'x') {
+      if (copyChosen()) removeSelected()
+    } else if (key === 'v') pasteBoard()
+    else if (key === 'd') duplicateChosen()
+    else return false
+    return true
+  }
+
+  /**
+   * The editing shortcuts anywhere on the page while a clip is open (the stage may not hold the focus, for
+   * example after a click on the toolbar): Ctrl+A selects the notes, not the page's text. Only when the focus is in
+   * the roll or on the page itself (nothing focused): another screen keeps its own keys, and a text field its own.
+   */
+  function onWindowKeyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
+    const target = event.target as Node | null
+    if (target !== document.body && !(target && rollEl?.contains(target))) return
+    if (editShortcut(event)) event.preventDefault()
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
     if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -456,15 +489,8 @@
     } else if (event.key === 'Escape') {
       if (gesture) cancel()
       else picked = new Set()
-    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
-      picked = new Set(notes.map(noteKey))
-    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'x', 'v', 'd'].includes(event.key.toLowerCase())) {
-      const key = event.key.toLowerCase()
-      if (key === 'c') copyChosen()
-      else if (key === 'x') {
-        if (copyChosen()) removeSelected()
-      } else if (key === 'v') pasteBoard()
-      else duplicateChosen()
+    } else if (editShortcut(event)) {
+      // Handled by editShortcut; the key is consumed below.
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else return
@@ -673,7 +699,7 @@
   function duplicateChosen() {
     if (!edited || chosenNotes.length === 0) return
     const source = [...chosenNotes]
-    const offset = duplicateOffset(source)
+    const offset = duplicateOffset(source, bar)
     if (offset <= 0) return
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
@@ -696,7 +722,7 @@
   }
 </script>
 
-<svelte:window onblur={silence} />
+<svelte:window onblur={silence} onkeydown={onWindowKeyDown} />
 <svelte:document onvisibilitychange={silence} />
 
 {#if !track}
@@ -709,6 +735,7 @@
 {:else}
   <div
     class="roll"
+    bind:this={rollEl}
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}

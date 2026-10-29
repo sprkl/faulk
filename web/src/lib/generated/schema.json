@@ -1149,7 +1149,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+            "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
             "properties": {
               "clip": {
                 "$ref": "#/$defs/ClipId"
@@ -5397,7 +5397,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -11972,7 +11972,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -18568,7 +18568,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -25137,7 +25137,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -31699,7 +31699,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -38261,7 +38261,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -44823,7 +44823,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -51385,7 +51385,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -57965,7 +57965,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -64527,7 +64527,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -71089,7 +71089,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -77659,7 +77659,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -84229,7 +84229,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -90799,7 +90799,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -97361,7 +97361,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -103923,7 +103923,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -110485,7 +110485,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -117133,7 +117133,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -123735,7 +123735,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -130319,7 +130319,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -136891,7 +136891,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -143470,7 +143470,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -150056,7 +150056,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -156639,7 +156639,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -163211,7 +163211,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -169802,7 +169802,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -176392,7 +176392,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -182971,7 +182971,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -189550,7 +189550,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -196131,7 +196131,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -202727,7 +202727,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -209307,7 +209307,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -215904,7 +215904,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -222487,7 +222487,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -229059,7 +229059,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -235638,7 +235638,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -242229,7 +242229,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -248835,7 +248835,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -255412,7 +255412,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -261995,7 +261995,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -268590,7 +268590,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -275196,7 +275196,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -281775,7 +281775,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -288358,7 +288358,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -294948,7 +294948,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -301546,7 +301546,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -308130,7 +308130,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -314714,7 +314714,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -321298,7 +321298,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -327895,7 +327895,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -333332,7 +333332,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+        "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -334484,7 +334484,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -341078,7 +341078,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -347654,7 +347654,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -354231,7 +354231,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -360810,7 +360810,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -367389,7 +367389,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -373972,7 +373972,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -380544,7 +380544,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -387112,7 +387112,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -393680,7 +393680,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -400248,7 +400248,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -406810,7 +406810,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -413372,7 +413372,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -419940,7 +419940,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -426553,7 +426553,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -433144,7 +433144,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -439736,7 +439736,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -446315,7 +446315,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -452902,7 +452902,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -459519,7 +459519,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -466127,7 +466127,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -472735,7 +472735,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -479306,7 +479306,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -485885,7 +485885,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -492460,7 +492460,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -499036,7 +499036,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -505620,7 +505620,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -512204,7 +512204,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -518788,7 +518788,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -525365,7 +525365,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -531947,7 +531947,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -538509,7 +538509,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -545071,7 +545071,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -551639,7 +551639,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -558207,7 +558207,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -564786,7 +564786,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -571382,7 +571382,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -577957,7 +577957,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -584542,7 +584542,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -591111,7 +591111,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -597725,7 +597725,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -604315,7 +604315,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -610898,7 +610898,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -617477,7 +617477,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -624063,7 +624063,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -630642,7 +630642,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -637204,7 +637204,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -643781,7 +643781,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -650363,7 +650363,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -656938,7 +656938,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -663526,7 +663526,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -670107,7 +670107,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -676685,7 +676685,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -683247,7 +683247,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -689809,7 +689809,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -696390,7 +696390,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -702971,7 +702971,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -709540,7 +709540,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -716109,7 +716109,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+                  "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -722688,7 +722688,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection (shift of the span from the first start to the last end). An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+              "description": "Copy notes of a MIDI clip, shifted in time by `offset` ticks (negative: earlier), in\none batch (one history entry, all or nothing). Each source note is addressed by its\nwhole value and must be in the clip. Without `offset`, the copies follow the whole\nselection: the shift is the span from the start of the bar of the first note to the last\nend, rounded up to whole bars (at least one bar), so a selection of one bar or less is\ncopied to the next bar and a selection of two bars two bars later. An `offset` of 0\nis refused, and so is a copy that would lie outside `[0, clip length]` (never\ntruncated). A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
