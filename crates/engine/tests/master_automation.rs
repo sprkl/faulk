@@ -281,7 +281,7 @@ fn an_eight_bar_master_fade_goes_down_like_a_fader_pulled_at_constant_speed_what
             let got = measured_db(out, reference, i * bar);
             println!("block {block}, bar {i}: {got:.3} dB (law {want:.3} dB)");
             assert!(
-                (got - want).abs() < 0.05,
+                (got - want).abs() < 0.01,
                 "bar {i}: {got} dB instead of {want} dB"
             );
         }

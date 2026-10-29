@@ -389,3 +389,36 @@ fn the_project_refuses_a_master_lane_that_no_master_device_can_hold() {
     assert!(s.project.contains_id(&s.device.0));
     assert_eq!(s.project.counts().lanes, 3);
 }
+
+#[test]
+fn a_master_lane_whose_effect_is_gone_is_left_out_and_listed_instead_of_refusing_the_project() {
+    // A Faulk older than #378 removed the master's compressor and saved: the lane's file stayed.
+    let s = song(5);
+    let (mut fs, _) = save_all(&s.project, &SaveOptions::default());
+    let mut without = s.project.clone();
+    without.master_devices.remove(&s.device);
+    without.master_automation.remove(&s.threshold);
+    let (older_fs, _) = save_all(&without, &SaveOptions::default());
+    let file = format!("master/automation/{}.tsv", s.threshold);
+    fs.insert("project.json", older_fs.read("project.json").unwrap());
+    assert!(fs.exists(&file), "the lane's file stayed");
+    let opened = open_default(&fs);
+    assert_eq!(opened.project, without);
+    assert_eq!(opened.report.ignored, std::slice::from_ref(&file));
+    opened.project.validate().unwrap();
+    // The next full save removes the stale file.
+    let mut fs2 = fs.clone();
+    let mut state = opened.state;
+    let report = save(
+        &mut fs2,
+        &opened.project,
+        &mut state,
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(report.removed, std::slice::from_ref(&file));
+    assert!(!fs2.exists(&file));
+    // The other lanes are untouched.
+    assert!(opened.project.master_automation.contains_key(&s.volume));
+}

@@ -394,8 +394,14 @@ impl Reader<'_> {
     }
 
     /// The lanes of the master (#378): `master/automation/<lane>.tsv`. A folder without
-    /// them is a project without master automation (every project written before).
-    fn read_master_lanes(&mut self) -> Result<BTreeMap<LaneId, AutomationLane>, FileError> {
+    /// them is a project without master automation (every project written before). A lane
+    /// whose device the master's chain no longer holds (a Faulk older than #378 removed the
+    /// effect and left the lane's file) is left out and listed with the ignored files: it
+    /// drives nothing, and the project opens instead of being refused.
+    fn read_master_lanes(
+        &mut self,
+        devices: &BTreeMap<DeviceId, Device>,
+    ) -> Result<BTreeMap<LaneId, AutomationLane>, FileError> {
         let mut lanes = BTreeMap::new();
         let dir = "master/automation";
         for e in self.list(dir)? {
@@ -416,6 +422,12 @@ impl Reader<'_> {
                 ));
             }
             let lane = self.read_lane(None, &id, &path, &e)?;
+            if matches!(&lane.target, AutomationTarget::Device { device, .. } if !devices.contains_key(device))
+            {
+                self.blob_lanes.remove(&(None, id));
+                self.ignore(path);
+                continue;
+            }
             lanes.insert(id, lane);
         }
         Ok(lanes)
@@ -667,7 +679,7 @@ fn read_folder(
         project.tracks.insert(id, track);
     }
 
-    project.master_automation = reader.read_master_lanes()?;
+    project.master_automation = reader.read_master_lanes(&project.master_devices)?;
 
     project
         .validate()

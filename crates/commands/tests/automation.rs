@@ -1355,14 +1355,29 @@ fn removing_a_master_effect_takes_its_lanes_and_undo_brings_them_back() {
     go(&mut s, &redo());
     go(&mut s, &undo());
     assert_eq!(s.project, with_lanes);
-    // A restore of the lanes into a track's chain is refused: they name a master device.
-    let mut other = f.state.clone();
-    go(&mut other, &master_create(device_target(&c.ma, "gain")));
-    assert_eq!(master_lane_count(&other), 1);
-}
-
-fn master_lane_count(state: &State) -> usize {
-    state.project.master_automation.len()
+    // The inverse of the removal is a restore into the master's chain, with the lane in it.
+    let mut again = s.clone();
+    let Undo::Inverse(inverse) = go(
+        &mut again,
+        &d(device::Command::Remove {
+            device: c.ma.clone(),
+        }),
+    )
+    .undo
+    else {
+        panic!()
+    };
+    let Command::Device(device::Command::Restore {
+        track,
+        master,
+        lanes,
+        ..
+    }) = *inverse
+    else {
+        panic!()
+    };
+    assert_eq!((track, master), (None, true));
+    assert_eq!(lanes.keys().collect::<Vec<_>>(), [&effect]);
 }
 
 #[test]
