@@ -295,8 +295,11 @@
     view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
   }
   $effect(() => {
-    void [shownTick, stageW]
-    if (running && follow) untrack(showPosition)
+    void shownTick
+    // Stop, Back to start and a seek bring the view to the position too (#395); a resize does only while it runs,
+    // or until the stage has its first width (a view mounted while stopped).
+    if (running || untrack(() => stageW) === 0) void stageW
+    if (follow) untrack(showPosition)
   })
   // A new Play follows again.
   $effect(() => {
