@@ -285,25 +285,28 @@ fn every_format_and_rate_writes_a_valid_file_of_the_same_sound() {
 }
 
 #[test]
-fn a_signal_over_full_scale_is_clipped_in_integers_and_kept_in_floats() {
+fn a_signal_over_full_scale_is_limited_in_every_format_like_what_is_heard() {
     let mut state = demo_song(2, None);
     // Gain staging that overloads the output: the master 24 dB up.
     state.project.master.gain_db = 24.0;
-    let int = export_native(
-        &state,
-        settings(ExportRegion::Song, ExportBitDepth::Pcm24, 48_000),
-    );
-    assert!(int.clipped > 0, "peak {}", int.peak);
-    assert!(int.peak > 1.0);
-    let r = int.render();
-    assert!(r.peak() <= 1.0);
-    r.assert_finite();
-    let float = export_native(
-        &state,
-        settings(ExportRegion::Song, ExportBitDepth::Float32, 48_000),
-    );
-    assert_eq!(float.clipped, 0);
-    assert!(float.render().peak() > 1.0, "the floats are kept");
+    for depth in [
+        ExportBitDepth::Pcm16,
+        ExportBitDepth::Pcm24,
+        ExportBitDepth::Float32,
+    ] {
+        let file = export_native(&state, settings(ExportRegion::Song, depth, 48_000));
+        // The output protection (#402) holds every format under -0.3 dBFS: nothing clips,
+        // the floats included, and the file is as loud as the ceiling allows.
+        assert_eq!(file.clipped, 0, "{depth:?}");
+        assert!(
+            file.peak > 0.9 && file.peak <= engine::limiter::CEILING,
+            "{depth:?}: {}",
+            file.peak
+        );
+        let r = file.render();
+        assert!(r.peak() <= engine::limiter::CEILING, "{depth:?}");
+        r.assert_clean();
+    }
 }
 
 #[test]

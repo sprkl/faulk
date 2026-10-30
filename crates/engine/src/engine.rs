@@ -42,6 +42,7 @@ use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::launcher;
+use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
@@ -546,6 +547,7 @@ pub fn channel_with(
         skipped: 0,
         leaked: 0,
         cut: None,
+        limiter: Limiter::new(rate_of(&setup)),
     };
     Ok((preparer, engine))
 }
@@ -1548,6 +1550,8 @@ pub struct Engine {
     leaked: u32,
     /// The cut an `AllSoundOff` started, if one is running (see [`Cut`]).
     cut: Option<Cut>,
+    /// The output protection (#402): the last stage of every rendered slice.
+    limiter: Limiter,
 }
 
 /// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
@@ -1637,7 +1641,8 @@ impl Engine {
     /// block of the musical clock (TR-1): the orders `begin_block` applied take effect at
     /// the start of the first, the clock cuts the block in segments at its loop wraps, the
     /// graph renders the tracks over them (the timed events of MO-4, [`crate::events`]),
-    /// then the metronome (TR-2) is added to the output, after the master.
+    /// then the metronome (TR-2) is added to the output, after the master, and last the output
+    /// protection ([`crate::limiter`], #402), after the output's meter.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
         let total = left.len().min(right.len());
         let mut start = 0;
@@ -1684,6 +1689,10 @@ impl Engine {
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
                 .meter_output(&left[start..end], &right[start..end]);
+            // The output protection (#402), after the meter: the meter shows the level
+            // before it, the speakers and the export get the protected signal.
+            self.limiter
+                .process(&mut left[start..end], &mut right[start..end]);
             self.transport.end_block();
             if cut_done {
                 self.reset_devices();
@@ -1730,6 +1739,8 @@ impl Engine {
     /// Resets every device of every track: voices die, tails (delay lines) are hidden.
     /// Constant time per device ([`Device::reset`]), no allocation.
     fn reset_devices(&mut self) {
+        // The silence a cut leaves does not carry the gain of the overs before it.
+        self.limiter.reset();
         for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
             for entry in track.devices.as_mut_slice().iter_mut().flatten() {
                 entry.device.reset();
@@ -1788,6 +1799,7 @@ impl Engine {
     pub fn set_sample_rate(&mut self, rate: SampleRate) {
         self.transport.set_sample_rate(rate);
         self.clicker.set_sample_rate(rate);
+        self.limiter.set_sample_rate(rate);
         self.graph.set_sample_rate(rate.hz() as f32);
     }
 
@@ -1898,6 +1910,8 @@ impl Engine {
                 }
                 // The master's strip takes the new state's faders back.
                 self.graph.reset_master();
+                // The new project does not start under the gain the old one's overs left.
+                self.limiter.reset();
                 Some(Garbage::State(old))
             }
             RtMsg::SetTransport {
