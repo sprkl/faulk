@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: unblock-eight-bar-loop
+expected_outcome: |
+  In French, without asking questions first: the loop is turned into a pool of variations (each one a single named change),
+  then into a complete arrangement with bar numbers covering a full track at 126 bpm, with blurred section boundaries and
+  one-off events. New material stays in F minor or deviations are named. Patterns are precise enough to enter in a DAW,
+  ideally with a MIDI render.
