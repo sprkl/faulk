@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: start-melodic-house-from-brief
+expected_outcome: |
+  A complete, playable plan for a melodic house track: tempo in the house range, a key, two or three stated constraints,
+  drum, bass, chord and melody patterns written precisely enough to be entered in a DAW (ideally in the sheet notation
+  and rendered to a MIDI file), and a bar-by-bar arrangement covering five to six minutes, with transitions and
+  one-off events placed by bar. All pitched material stays in the chosen key unless a deviation is named.
