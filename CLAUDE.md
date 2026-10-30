@@ -124,8 +124,8 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created lazi
 
 ### Music producer
 
-`.claude/skills/music-producer/`: an agent produces music autonomously (brief → constraints → seed loop → variations → arrangement → finish) and delivers a production sheet in a checkable notation plus a MIDI render (`scripts/sheet_tool.py check | render`). Its references distil creative strategies, theory, a pattern library and arrangement rules in Faulk's own words, with no source named (repository rule). Test cases live in its `evals/`.
+`.claude/skills/music-producer/`: an agent produces music autonomously (brief → constraints → seed loop → variations → arrangement → finish) and delivers a production sheet in a checkable notation plus a MIDI render (`.claude/skills/music-producer/scripts/sheet_tool.py check | render`). Its references distil creative strategies, theory, a pattern library and arrangement rules in Faulk's own words, with no source named (repository rule). Test cases live in its `evals/`.
 
 ### Lead tools
 
-`.claude/tools/merge-queue.sh <pr> [<pr>...]`: the lead's merge of ready pull requests into `develop`, one at a time. If `develop` moved since the pull request's CI, it updates the branch and waits for that CI again; it merges with a merge commit and stops at the first conflict or failed check. Uses `gh` and `git` only, so it may run while an agent builds.
+`.claude/tools/merge-queue.sh <pr> [<pr>...]`: the lead's merge of ready pull requests into `develop`, one at a time. If `develop` moved since the pull request's CI, it updates the branch and waits for that CI again; it merges with a merge commit and stops at the first conflict or failed check. Uses `gh`, `git` and core shell tools, no build, so it may run while an agent builds. It refuses a pull request with no reported check.
