@@ -792,6 +792,9 @@ type: "mixer.set_mute"
 gain_db: (number | null)
 type: "mixer.set_master_volume"
 } | {
+pan: number
+type: "mixer.set_master_pan"
+} | {
 solo: boolean
 /**
  * Identifier of a track.
@@ -1501,6 +1504,12 @@ type: "mixer.set_mute"
  */
 previous: (number | null)
 type: "mixer.set_master_volume"
+} | {
+/**
+ * The pan before the command.
+ */
+previous: number
+type: "mixer.set_master_pan"
 } | {
 /**
  * Whether the track was soloed before the command.

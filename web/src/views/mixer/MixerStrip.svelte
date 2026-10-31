@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * One strip of the mixer: a track's (colour, name, devices, arm, mute, solo, pan, fader, meter)
-   * or the master's (its devices, fader and meter: no command changes the master's pan or mute). It holds
+   * or the master's (its devices, pan, fader and meter: no command changes the master's mute). It holds
    * no project state: it reads the stores and every control is a command through the dispatcher.
    * The name is read-only here; renaming stays in the track list.
    */
@@ -9,7 +9,7 @@
   import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
-  import { createMasterLane } from '../../lib/automation-commands'
+  import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
   import MixerFader from './MixerFader.svelte'
@@ -36,9 +36,9 @@
   const mixer = $derived(entry ? entry.track.mixer : project.view?.project.master)
   // A lane that drives the volume or the pan moves the control with the play position, and marks it (AM-4, #388).
   const shownGain = $derived(automated.shownGain(entry ? entry.id : MASTER, mixer?.gain_db))
-  const shownPan = $derived(entry ? automated.shownPan(entry.id, entry.track.mixer.pan) : 0)
+  const shownPan = $derived(automated.shownPan(entry ? entry.id : MASTER, mixer?.pan ?? 0))
   const gainMark = $derived(automated.mixerMark(entry ? entry.id : MASTER, 'gain'))
-  const panMark = $derived(entry ? automated.mixerMark(entry.id, 'pan') : undefined)
+  const panMark = $derived(automated.mixerMark(entry ? entry.id : MASTER, 'pan'))
   const chain = $derived(entry ? chainOf(entry.track) : masterChainOf(project.view?.project.master_devices))
   const chainText = $derived(chain.length === 0 ? t('mixer.noDevice') : chain.map((e) => e.descriptor?.name ?? t('mixer.unknownDevice')).join(' › '))
 
@@ -58,15 +58,16 @@
     if (entry) ui.masterSelection = null
   }
 
-  /** Whether the master already has a volume lane (the Automate button is then a navigate-only action). */
-  const masterHasGainLane = $derived(
-    !entry && Object.values(project.view?.project.master_automation ?? {}).some((lane) => lane && 'mixer' in lane.target && lane.target.mixer.param === 'gain'),
-  )
+  /** Whether the strip's owner (the track, or the master) already has a lane on `param` (Automate is then a navigate-only action). */
+  function hasLane(param: 'gain' | 'pan'): boolean {
+    const lanes = entry ? entry.track.automation : project.view?.project.master_automation
+    return Object.values(lanes ?? {}).some((lane) => lane && 'mixer' in lane.target && lane.target.mixer.param === param)
+  }
 
-  /** Automate the master's gain: create the lane if absent, then navigate to the arrangement and unfold the master. */
-  function automateMasterGain() {
-    if (!masterHasGainLane) dispatcher.run(createMasterLane({ mixer: { param: 'gain' } }))
-    ui.showMasterLanes()
+  /** Automate the volume or the pan: create the lane if absent, then navigate to the arrangement and unfold the owner's lanes. */
+  function automate(param: 'gain' | 'pan') {
+    if (!hasLane(param)) dispatcher.run(entry ? createLane(entry.id, { mixer: { param } }) : createMasterLane({ mixer: { param } }))
+    ui.showLanes(entry ? entry.id : MASTER)
   }
 </script>
 
@@ -108,32 +109,40 @@
       >
         {t('mixer.devices')} ({chain.length})
       </button>
-      <button
-        class="automate"
-        type="button"
-        title={t('automation.automateHint')}
-        aria-label={t('automation.automate')}
-        data-testid="mixer-master-automate-gain"
-        onclick={automateMasterGain}
-      >
-        {t('automation.automate')}
-      </button>
     {/if}
   </div>
 
+  <div class="pan">
+    <PanControl
+      bind:this={panControl}
+      track={entry ? entry.id : null}
+      pan={shownPan}
+      label={entry ? t('tracks.pan', { name }) : t('mixer.masterPan')}
+      automated={panMark}
+      testid={entry ? 'mixer-pan' : 'mixer-master-pan'}
+    />
+    <button
+      class="readout"
+      type="button"
+      tabindex="-1"
+      title={t('controls.type')}
+      data-testid={entry ? 'mixer-pan-readout' : 'mixer-master-pan-readout'}
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
+    >
+    <button
+      class="automate"
+      type="button"
+      title={t('automation.automateHint')}
+      aria-label={t('automation.automateParam', { param: entry ? t('tracks.pan', { name }) : t('mixer.masterPan') })}
+      data-testid={entry ? 'mixer-automate-pan' : 'mixer-master-automate-pan'}
+      onclick={() => automate('pan')}
+    >
+      {t('automation.automate')}
+    </button>
+  </div>
+
   {#if entry}
-    <div class="pan">
-      <PanControl bind:this={panControl} track={entry.id} pan={shownPan} label={t('tracks.pan', { name })} automated={panMark} testid="mixer-pan" />
-      <button
-        class="readout"
-        type="button"
-        tabindex="-1"
-        title={t('controls.type')}
-        data-testid="mixer-pan-readout"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
-      >
-    </div>
     <div class="toggles">
       <button
         class="toggle mute"
@@ -187,6 +196,16 @@
     onmousedown={(e) => e.preventDefault()}
     onclick={() => faderControl?.edit()}>{formatGain(shownGain)} dB</button
   >
+  <button
+    class="automate"
+    type="button"
+    title={t('automation.automateHint')}
+    aria-label={t('automation.automateParam', { param: entry ? t('tracks.volume', { name }) : t('mixer.masterVolume') })}
+    data-testid={entry ? 'mixer-automate-gain' : 'mixer-master-automate-gain'}
+    onclick={() => automate('gain')}
+  >
+    {t('automation.automate')}
+  </button>
 </li>
 
 <style>
@@ -266,6 +285,7 @@
     background: var(--fk-surface-2);
   }
   .automate {
+    align-self: stretch;
     height: var(--fk-row);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-work);

@@ -7,12 +7,12 @@
   import { onDestroy } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
-  import { createMasterLane } from '../../lib/automation-commands'
+  import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { useStores } from '../../lib/stores'
 
-  let { entry, chain, master = false }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean } = $props()
+  let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
   const { ui, dispatcher, automated, project } = useStores()
   const t = ui.t
@@ -27,17 +27,24 @@
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
 
-  /** Whether the master already has a lane on a device parameter (the Automate button is then a navigate-only action). */
-  function masterHasDeviceLane(paramKey: string): boolean {
-    return Object.values(project.view?.project.master_automation ?? {}).some(
+  /** Whether the owner (the master, or the track) already has a lane on a device parameter (the Automate button is then a navigate-only action). */
+  function hasDeviceLane(paramKey: string): boolean {
+    const lanes = master ? project.view?.project.master_automation : track ? project.tracks.find((e) => e.id === track)?.track.automation : undefined
+    return Object.values(lanes ?? {}).some(
       (lane) => lane && 'device' in lane.target && lane.target.device.device === entry.id && lane.target.device.param === paramKey,
     )
   }
 
-  /** Automate a master effect's parameter: create the lane if absent, then navigate to the arrangement and unfold the master. */
+  /** Automate a device parameter: create the lane if absent, then navigate to the arrangement and unfold the owner's lanes. */
   function automateParam(paramKey: string) {
-    if (!masterHasDeviceLane(paramKey)) dispatcher.run(createMasterLane({ device: { device: entry.id, param: paramKey } }))
-    ui.showMasterLanes()
+    const target = { device: { device: entry.id, param: paramKey } }
+    if (master) {
+      if (!hasDeviceLane(paramKey)) dispatcher.run(createMasterLane(target))
+      ui.showMasterLanes()
+    } else if (track) {
+      if (!hasDeviceLane(paramKey)) dispatcher.run(createLane(track, target))
+      ui.showLanes(track)
+    }
   }
 </script>
 
@@ -105,7 +112,7 @@
             onbegin={gesture.begin}
             onend={gesture.end}
           />
-          {#if master}
+          {#if master || track}
             <button
               class="param-automate"
               type="button"

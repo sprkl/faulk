@@ -38,6 +38,7 @@ export const automation = defineFeature(
     'automation.addLaneForMaster': 'Add an automation lane to Master',
     'automation.automate': 'Automate',
     'automation.automateHint': 'Create an automation lane for this parameter and open it in the arrangement.',
+    'automation.automateParam': 'Automate: {param}',
   },
   {
     'automation.show': 'Afficher les couloirs d’automation de {name}',
@@ -74,5 +75,6 @@ export const automation = defineFeature(
     'automation.addLaneForMaster': 'Ajouter un couloir d’automation au Master',
     'automation.automate': 'Automatiser',
     'automation.automateHint': 'Créer un couloir d’automation pour ce paramètre et l’ouvrir dans l’arrangement.',
+    'automation.automateParam': 'Automatiser : {param}',
   },
 )
