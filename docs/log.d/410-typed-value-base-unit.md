@@ -1,0 +1,2 @@
+2026-10-31
+* **Update** (#410): a bare number typed into a control's value field is read in the parameter's base unit (Hz, ms, dB, %, st, ct), never in the displayed unit ("450" on a cutoff shown in kHz is 450 Hz); a typed unit is taken as typed. A refused entry says "Value not recognised" (gone after about 2 s or on the next keystroke); an entry past the range applies the bound and says "Limited to <bound>" near the control for about 2 s; the knob tooltip states the rule. Described in `docs/specs/02-decoupage-mvp.md`, entry of a value.

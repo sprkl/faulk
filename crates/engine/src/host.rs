@@ -206,6 +206,12 @@ impl Host {
         &self.engine
     }
 
+    /// The audio side of the cycle, to mutate it: for tests that need to drive
+    /// `Engine::set_sample_rate` or inspect the limiter state.
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
     /// The start of a block: applies what arrived and takes the live events
     /// (`Engine::begin_block`). Returns how many rt messages were applied.
     pub fn pump(&mut self) -> u32 {

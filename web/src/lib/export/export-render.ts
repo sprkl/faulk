@@ -27,7 +27,16 @@ export type FromExport =
   /** Bytes of the file after the header, with how far the render is. */
   | { type: 'chunk'; bytes: ArrayBuffer; rendered: number; body: number; tail: boolean }
   /** The render is complete: the header to put at the start of the file, and what was measured. */
-  | { type: 'done'; header: ArrayBuffer; written: number; peak: number; clipped: number; tailCut: boolean }
+  | {
+      type: 'done'
+      header: ArrayBuffer
+      written: number
+      peak: number
+      clipped: number
+      /** The output protection's peak gain reduction (linear, 0 = never engaged; #402). */
+      reduction: number
+      tailCut: boolean
+    }
   | { type: 'error'; message: string; code: number | null }
 
 /** Frames per step: about a third of a second of audio, so progress moves and chunks stay small. */
@@ -106,6 +115,7 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       written: ex.fk_export_stat(handle, 1),
       peak: ex.fk_export_stat(handle, 3),
       clipped: ex.fk_export_stat(handle, 4),
+      reduction: ex.fk_export_stat(handle, 7),
       tailCut: ex.fk_export_stat(handle, 5) > 0.5,
     },
     [header],

@@ -91,8 +91,8 @@ export interface Axis {
   home: number
   /** The text of a value, with its unit. */
   format: (value: number) => string
-  /** The value a typed text means, or null when it is unreadable. `shown` is the value the field opened on. */
-  parse: (text: string, shown: number) => number | null
+  /** The value a typed text means, or null when it is unreadable. */
+  parse: (text: string) => number | null
 }
 
 function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels: Labels): Axis {
@@ -110,7 +110,7 @@ function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels
       }
       return formatValue(param, value)
     },
-    parse: (text, shown) => parseParam(param, text, shown),
+    parse: (text) => parseParam(param, text),
   }
 }
 

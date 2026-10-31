@@ -50,7 +50,8 @@ pub enum SampleFormat {
     Pcm16,
     /// 24-bit integers.
     Pcm24,
-    /// 32-bit floats: nothing is clipped.
+    /// 32-bit floats. No format clips: the output protection (#402) holds every sample under
+    /// [`crate::limiter::CEILING`] (−0.3 dBFS) before this encoding, floats included.
     Float32,
 }
 
@@ -200,7 +201,11 @@ impl Offline {
         if plan.body_frames == 0 || plan.body_frames as f64 > MAX_BODY_SECS * rate {
             return Err(OfflineError::Length);
         }
-        let (prepare, host) = channel(sample_rate as f32).map_err(OfflineError::Stream)?;
+        let (prepare, mut host) = channel(sample_rate as f32).map_err(OfflineError::Stream)?;
+        // The reduction and silenced counters cover this render only (the channel is fresh, so
+        // this is belt-and-braces): clear them before the first frame.
+        host.engine_mut().reset_limiter_reduction();
+        host.engine_mut().reset_limiter_silenced();
         let silence_frames = (SILENCE_SECS * sample_rate as f32) as u32;
         let reserve = |n: usize| -> Result<Vec<f32>, OfflineError> {
             let mut v = Vec::new();
@@ -344,12 +349,39 @@ impl Offline {
         self.tail_cut
     }
 
-    /// The largest sample written, before the clip of an integer format (linear).
+    /// The largest sample written, after the output protection (#402) and before the integer
+    /// rounding of the format (linear). Since the output protection holds every sample to
+    /// [`crate::limiter::CEILING`] (−0.3 dBFS), `peak` is always ≤ that value and `clipped`
+    /// is always 0. They remain because the WAV export result shows a "highest level" figure
+    /// to the user, and future formats may have a different ceiling. The overload the user
+    /// cares about (a mix pushed into the limiter) is [`Offline::reduction`], not `peak`.
     pub fn peak(&self) -> f32 {
         self.peak
     }
 
-    /// Samples an integer format clipped to full scale.
+    /// The peak gain reduction the output protection applied over this render, in `[0, 1]`
+    /// (`0.0` = never engaged). This is a gain-reduction ratio, not a level: `-20·log10(1 -
+    /// reduction)` is the deepest attenuation in dB. The export shows a warning when it is above
+    /// a small threshold: the file does not clip (the limiter holds it under the ceiling), but
+    /// the mix was pushed into the limiter, so it was audibly attenuated. It measures the same
+    /// over-the-ceiling condition the master meter shows live before the limiter, but as the
+    /// reduction the limiter applied, not as the pre-limiter level (#402, 2026-10-31).
+    pub fn reduction(&self) -> f32 {
+        self.host.engine().limiter_reduction()
+    }
+
+    /// How many stereo frames the protection turned to silence because a sample was non-finite
+    /// (NaN or infinity) over this render (frames, not samples). `0` on a clean render. The
+    /// limiter is the last stage, so a device or a non-device path (master strip, automation,
+    /// summing) that blew up leaves the engine as silence that the output `assert_finite` can no
+    /// longer catch; this counter is how an offline render still catches it (#402).
+    pub fn silenced(&self) -> u64 {
+        self.host.engine().limiter_silenced()
+    }
+
+    /// Samples an integer format clipped to full scale. Always 0 since the output protection
+    /// (#402) holds every sample below the integer range of any standard format. Use
+    /// [`Offline::reduction`] to warn the user about an overloaded mix.
     pub fn clipped(&self) -> u64 {
         self.clipped
     }

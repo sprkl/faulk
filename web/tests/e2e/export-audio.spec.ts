@@ -161,7 +161,8 @@ test('exports the song as a 24-bit WAV file while the song plays: header, length
   await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
   await expect(page.getByTestId('export-status')).toContainText('Saved')
   await expect(page.getByTestId('export-status')).toContainText('.wav')
-  await expect(page.getByTestId('export-clipped')).toHaveCount(0)
+  // A normal mix does not push the output limiter, so no "pushed into the limiter" warning (#402).
+  await expect(page.getByTestId('export-limited')).toHaveCount(0)
 
   expect(await page.evaluate(() => (window as unknown as { __picks: unknown[] }).__picks)).toMatchObject([{ suggestedName: expect.stringMatching(/\.wav$/) }])
   const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
@@ -416,6 +417,55 @@ test.describe('with the dispatcher hook (dev server)', () => {
     expect(wav.peak).toBeGreaterThan(0.05)
     // Much faster than real time (180 s): a gross regression only, the figure is printed.
     expect(ms).toBeLessThan(90_000)
+    expect(seen.errors).toEqual([])
+  })
+
+  test('a mix pushed into the output limiter is warned, and the file still does not clip (#402)', async ({ page }) => {
+    test.setTimeout(120_000)
+    const seen = watch(page)
+    await simulateSavePicker(page)
+    await makeSong(page)
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
+    // Push the mix hard into the output limiter. The faders cap at +6 dB, so stack three more
+    // copies of the chord on top of the master and the track both at +6 dB: the sum slams the
+    // ceiling well past a dB of gain reduction.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __faulkRun: (c: unknown) => void
+        __faulkView: () => { project: { tracks: Record<string, { clips: Record<string, unknown> }> } }
+      }
+      const track = Object.keys(w.__faulkView().project.tracks)[0]
+      w.__faulkRun({ type: 'mixer.set_master_volume', gain_db: 6 })
+      w.__faulkRun({ type: 'mixer.set_volume', track, gain_db: 6 })
+      const clip = Object.keys(w.__faulkView().project.tracks[track].clips)[0]
+      const notes = []
+      for (let copy = 0; copy < 3; copy++)
+        for (const [start, pitch] of [
+          [20, 57],
+          [980, 60],
+          [1940, 64],
+          [2900, 69],
+        ])
+          notes.push({ start, pitch, length: 720, velocity: 127, cents: 0, chance: 100, repeat: 1 })
+      w.__faulkRun({ type: 'clip.notes.add', clip, notes })
+    })
+    await openDialog(page)
+    await page.getByTestId('export-start').click()
+    await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+    // The warning shows and names a real gain reduction; the file stays under full scale.
+    await expect(page.getByTestId('export-limited')).toBeVisible()
+    await expect(page.getByTestId('export-limited')).toContainText('limiter')
+    const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
+    const wav = (await readWav(page, name))!
+    // The shipped module's limiter holds the file at the -0.3 dBFS ceiling (0.9661 linear), not
+    // merely under full scale: a 24-bit sample is <= 1 by format, so that alone would prove
+    // nothing. Allow one quantisation step above the ceiling.
+    const CEILING = 0.966_050_8
+    expect(wav.peak).toBeGreaterThan(0.9)
+    expect(wav.peak).toBeLessThanOrEqual(CEILING + 1 / 8_388_608)
     expect(seen.errors).toEqual([])
   })
 })

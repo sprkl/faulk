@@ -104,6 +104,13 @@ impl Rig {
         }
         check_samples(&left);
         check_samples(&right);
+        // check_samples' is_finite is vacuous since the output protection (#402) silences
+        // non-finite samples; this is the real no-NaN guard for the graph path.
+        assert_eq!(
+            self.e.limiter_silenced(),
+            0,
+            "the graph produced a non-finite sample"
+        );
         (left, right)
     }
 }
