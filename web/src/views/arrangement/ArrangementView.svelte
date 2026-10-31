@@ -725,7 +725,7 @@
     const ref = e ? laneRefs.get(e.lane) : undefined
     const point = ref && e ? pointAtTick(pointsOf(ref.info.lane), e.tick) : null
     if (!e || !ref || !point) return true
-    const parsed = ref.info.axis.parse(text, point.value)
+    const parsed = ref.info.axis.parse(text)
     if (parsed === null) return false
     const value = ref.info.axis.clamp(parsed)
     if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))

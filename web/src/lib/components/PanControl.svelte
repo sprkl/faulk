@@ -9,12 +9,12 @@
   import { formatPan } from '../project/tracks'
   import { useStores } from '../stores'
   import { setMasterPan, setPan } from '../track-commands'
-  import { parsePan } from '../value-entry'
+  import { parsePanEntry } from '../value-entry'
   import Slider from './Slider.svelte'
 
   let { track, pan, label, automated, testid }: { track: string | null; pan: number; label: string; automated?: string; testid?: string } = $props()
 
-  const { dispatcher } = useStores()
+  const { dispatcher, ui } = useStores()
   /** The command that sets the pan: a track's, or the master's when `track` is null. */
   const panCommand = (pan: number) => (track === null ? setMasterPan(pan) : setPan(track, pan))
   const gesture = createGesture((command) => dispatcher.run(command))
@@ -36,11 +36,11 @@
   // Typing a pan: one command, or none when the text is unreadable or the pan is the one it has.
   const entry = {
     text: () => formatPan(pan),
-    commit(text: string): boolean {
-      const next = parsePan(text)
-      if (next === undefined) return false
-      if (next !== pan) dispatcher.run(panCommand(next))
-      return true
+    commit(text: string): boolean | string {
+      const next = parsePanEntry(text)
+      if (!next) return false
+      if (next.pan !== pan) dispatcher.run(panCommand(next.pan))
+      return next.limited ? ui.t('controls.limited', { value: formatPan(next.pan) }) : true
     },
   }
 
