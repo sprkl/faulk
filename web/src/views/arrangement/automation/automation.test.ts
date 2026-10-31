@@ -271,15 +271,24 @@ describe('the gestures of a lane', () => {
 })
 
 describe('the lane drawn before its first point (#388, #394)', () => {
-  /** A context that records the path of the lane's value line: the `moveTo`/`lineTo` calls after the row's own lines. */
+  /** A context that records the path of the lane's value line: the `moveTo`/`lineTo` calls made after the row's two own strokes (its bottom line and its default value). */
   function recorder() {
-    const path: [string, number, number][] = []
+    let strokes = 0
+    const line: [string, number, number][] = []
+    const mark = (op: string) => (x: number, y: number) => {
+      if (strokes === 2) line.push([op, x, y])
+    }
     const noop = () => undefined
     const ctx = new Proxy(
-      { moveTo: (x: number, y: number) => path.push(['M', x, y]), lineTo: (x: number, y: number) => path.push(['L', x, y]), measureText: () => ({ width: 0 }) },
+      {
+        moveTo: mark('M'),
+        lineTo: mark('L'),
+        stroke: () => strokes++,
+        measureText: () => ({ width: 0 }),
+      },
       { get: (target, key) => (key in target ? (target as Record<string, unknown>)[key as string] : noop), set: () => true },
     ) as unknown as CanvasRenderingContext2D
-    return { ctx, path }
+    return { ctx, line }
   }
   const frame = (scrollTick: number) =>
     ({
@@ -301,21 +310,30 @@ describe('the lane drawn before its first point (#388, #394)', () => {
   })
 
   it('starts the solid line at bar 1 (the start of the timeline) at the first value, when the first point is later', () => {
-    const { ctx, path } = recorder()
+    const { ctx, line } = recorder()
     drawLane(ctx, frame(0), scene(pts([1000, -12], [2000, 0])))
-    // The row's own lines are 2 segments (the bottom line and the default value); the value line follows.
-    const line = path.slice(4)
-    // Held from x = 0 (bar 1) to the first point (1000 ticks at 0.1 px per tick = 100 px) at one height.
+    // Held from the left edge (bar 1) to the first point (1000 ticks at 0.1 px per tick = 100 px) at one height.
     expect(line[0]![0]).toBe('M')
     expect(line[0]![1]).toBeLessThanOrEqual(0)
     expect(line[1]).toEqual(['L', 100, line[0]![2]])
   })
 
-  it('draws nothing before a first point that is at tick 0', () => {
-    const { ctx, path } = recorder()
-    drawLane(ctx, frame(0), scene(pts([0, -12], [2000, 0])))
-    const line = path.slice(4)
-    expect(line[0]![1]).toBe(0)
-    expect(line[1]![1]).toBe(200)
+  it('starts at bar 1, not at the edge, when the view shows space before it', () => {
+    const { ctx, line } = recorder()
+    // Scrolled 500 ticks before bar 1: bar 1 is at x = 50, the first point at x = 150.
+    drawLane(ctx, frame(-500), scene(pts([1000, -12], [2000, 0])))
+    expect(line[0]).toEqual(['M', 50, line[0]![2]])
+    expect(line[1]).toEqual(['L', 150, line[0]![2]])
+  })
+
+  it('draws nothing before a first point that is at tick 0, with space before bar 1 in view too', () => {
+    for (const scroll of [0, -500]) {
+      const { ctx, line } = recorder()
+      drawLane(ctx, frame(scroll), scene(pts([0, -12], [2000, 0])))
+      const start = Math.abs(scroll) * 0.1
+      // The line begins on the first point and never goes left of it.
+      expect(line[0]![1]).toBe(start)
+      expect(line.every(([, x]) => x >= start)).toBe(true)
+    }
   })
 })

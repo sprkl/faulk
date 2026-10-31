@@ -217,4 +217,5 @@ fn a_cleared_cutoff_lane_goes_back_to_the_stored_cutoff_and_its_points_play_agai
         reopened > 3.0 * closed,
         "the undone lane plays again: {closed} -> {reopened}"
     );
+    r.write_wav("filter-lane-clear");
 }
