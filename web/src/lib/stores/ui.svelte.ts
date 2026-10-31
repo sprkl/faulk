@@ -74,6 +74,27 @@ export class UiStore {
     this.panel = 'devices'
   }
 
+  /**
+   * A one-shot request from the mixer or the devices panel to unfold the master's automation lanes
+   * in the arrangement view. `ArrangementView` consumes it with `takeMasterLanesRequest()` and adds
+   * `MASTER` to its `open` set once; it is not a sticky flag, so folding the master and navigating
+   * back does not reopen it.
+   */
+  openMasterLanes = $state(false)
+
+  /** Navigates to the arrangement and requests, once, that the master's lanes be unfolded. */
+  showMasterLanes() {
+    this.openMasterLanes = true
+    this.view = 'arrangement'
+  }
+
+  /** Reads and clears the pending master-lanes request. Returns true if one was pending. */
+  takeMasterLanesRequest(): boolean {
+    if (!this.openMasterLanes) return false
+    this.openMasterLanes = false
+    return true
+  }
+
   setPanelHeight(panel: PanelViewId, height: number) {
     this.panelHeights = { ...this.panelHeights, [panel]: height }
     write(HEIGHTS_KEY, JSON.stringify(this.panelHeights))

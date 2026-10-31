@@ -23,7 +23,7 @@
     <DeviceBrowser track="" midi={false} {chain} master />
     <div class="chain" role="group" aria-label={t('devices.chain', { name: t('mixer.master') })} data-testid="device-chain">
       {#each chain as entry (entry.id)}
-        <DeviceCard {entry} {chain} />
+        <DeviceCard {entry} {chain} master />
       {/each}
     </div>
   </div>
