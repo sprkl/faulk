@@ -156,7 +156,25 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
 
-    // A UI-shortcut key (Delete, Backspace, arrows, etc.) on a focused slider reasserts keyboard origin.
+    // A UI-shortcut key (Delete, Backspace, arrows, Escape, Tab, Enter, F2, etc.) on a focused slider
+    // reasserts keyboard origin. Restore pointer origin with a click between each check.
+    for (const [key, code] of [
+      ['Delete', 'Delete'],
+      ['Escape', 'Escape'],
+      ['Tab', 'Tab'],
+      ['Enter', 'Enter'],
+      ['F2', 'F2'],
+    ] as const) {
+      k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      k.focus()
+      expect(spaceTogglesTransport(k), `${code} before`).toBe(true) // pointer-focused
+      k.dispatchEvent(new KeyboardEvent('keydown', { key, code, bubbles: true }))
+      expect(spaceTogglesTransport(k), `${code} after`).toBe(false) // keyboard origin now
+    }
+
+    // Restore pointer origin for subsequent assertions.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(false) // keyboard origin now
 
@@ -217,6 +235,18 @@ describe('space bar and the transport', () => {
     // Unmapped letters (KeyC) and digits do not change the origin either.
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyC is not a shortcut
+
+    // Other allowlist keys (Escape, Tab, Enter, F2) also switch to keyboard origin.
+    for (const [key, code] of [
+      ['Escape', 'Escape'],
+      ['Tab', 'Tab'],
+    ] as const) {
+      k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      k.focus()
+      expect(playsNote({ ...base, target: k }), `${code} before`).toBe(true) // pointer origin
+      k.dispatchEvent(new KeyboardEvent('keydown', { key, code, bubbles: true }))
+      expect(playsNote({ ...base, target: k }), `${code} after`).toBe(false) // keyboard origin: slider keeps letters
+    }
 
     stop()
   })
