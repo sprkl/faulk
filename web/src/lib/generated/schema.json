@@ -149816,7 +149816,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -153836,7 +153836,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -259536,7 +259536,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -263575,7 +263575,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -267982,7 +267982,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -272027,7 +272027,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -335509,7 +335509,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -339548,7 +339548,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -470588,7 +470588,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -474633,7 +474633,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -479066,7 +479066,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -483111,7 +483111,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -538084,7 +538084,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -542123,7 +542123,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -740510,7 +740510,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -744564,7 +744564,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -748971,7 +748971,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -753016,7 +753016,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -841706,7 +841706,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -845726,7 +845726,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
