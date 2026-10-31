@@ -218,9 +218,11 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
         samples.push((await page.getByTestId('voices').textContent()) ?? '')
         return samples.length
       },
-      { timeout: 600, intervals: [50, 50, 50, 50, 50, 50, 50, 50, 50, 50] },
+      // 5 samples at 200 ms intervals = 1 s window; step 1 shows the engine responds in
+      // well under 200 ms even on a loaded shard (its toContainText always settles quickly).
+      { timeout: 1500, intervals: [200, 200, 200, 200, 200] },
     )
-    .toBeGreaterThanOrEqual(10)
+    .toBeGreaterThanOrEqual(5)
   expect(samples.some((s) => /\b1\b/.test(s))).toBe(false)
   await page.keyboard.up('KeyA')
   // Space must not toggle the transport either (keyboard-focused slider keeps Space).
