@@ -404,9 +404,6 @@ export class Dispatcher {
       return
     }
     this.mirror(step.events)
-    // The engine gives the lanes their hand back at a stop and at every seek, including one to where the playhead
-    // already stands, which the position alone does not tell the page from no seek (#394).
-    if (command.type === 'transport.stop' || command.type === 'transport.seek' || command.type === 'transport.pause') this.project.cued?.()
     if ('streamError' in step) {
       // No report (it was lost): the command may have applied, read the project again.
       if (step.events.length === 0) this.refresh()
@@ -438,6 +435,7 @@ export class Dispatcher {
       loadFolderVersion: () => void this.storage?.loadDisk(),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
+      cued: () => this.project.cued?.(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
