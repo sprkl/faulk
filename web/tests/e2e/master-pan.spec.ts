@@ -29,6 +29,10 @@ test('master pan: set, dragged, undone, automated; the tracks have the same Auto
     .getByRole('button', { name: /Start audio|Démarrer/ })
     .click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkView?: unknown }).__faulkView)) !== 'function',
+    'the project view hook exists in the dev server only',
+  )
   await page.getByTestId('nav-arrangement').click()
   const arr = page.getByTestId('arrangement')
   await expect(arr).toBeVisible()
