@@ -1093,6 +1093,129 @@ fn the_engine_holds_the_lanes_of_the_project_through_every_lane_command_and_its_
     }
 }
 
+/// The `ParamSet` messages of a command's engine messages, as (device slot, value).
+fn param_sets(outcome: &commands::Outcome) -> Vec<(u16, f32)> {
+    outcome
+        .control
+        .iter()
+        .filter_map(|m| match m {
+            ControlMsg::ParamSet { device, value, .. } => Some((device.0, *value)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value() {
+    // The engine keeps the last value a lane sent (AM-2): when the lane stops driving the
+    // parameter, the project's value is sent again (#394).
+    let f = fx();
+    let c = &f.chain;
+    let mut w = World::new(f.state.clone());
+    // The stored value differs from what the lane sent last.
+    w.exec(&d(device::Command::SetParam {
+        device: c.a.clone(),
+        param: "gain".into(),
+        value: 0.75,
+    }));
+    // Clear: the lane goes up empty, then the stored value follows.
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.effect_lane.clone(),
+    }));
+    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    // Undo brings the points back and the lane plays again: no ParamSet is needed.
+    let out = w.exec(&undo());
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    // Delete: the slot is released, then the stored value follows.
+    let out = w.exec(&a(automation::Command::LaneDelete {
+        lane: f.effect_lane.clone(),
+    }));
+    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    assert!(
+        !w.s.ctx.engine.lane_targets.contains_key(&f.effect_lane),
+        "the cached target is dropped with the lane"
+    );
+    // A mixer lane is given back by the engine itself: no ParamSet is sent for it.
+    let out = w.exec(&a(automation::Command::LaneDelete {
+        lane: f.gain_lane.clone(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+}
+
+#[test]
+fn the_stored_value_sent_back_follows_the_slot_of_a_device_that_shifted() {
+    let f = fx();
+    let c = &f.chain;
+    let mut w = World::new(f.state.clone());
+    // A device inserted ahead of `a` shifts it by one slot: the lane follows.
+    w.exec(&d(device::Command::Insert {
+        track: Some(f.track.clone()),
+        master: false,
+        kind: device_examples::EFFECT.into(),
+        index: 0,
+    }));
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.effect_lane.clone(),
+    }));
+    let sets = param_sets(&out);
+    assert_eq!(sets.len(), 1, "{:?}", out.control);
+    let slot_of_a = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
+    assert!(slot_of_a > 0);
+    assert_eq!(sets[0].0, slot_of_a);
+}
+
+#[test]
+fn a_parameter_the_project_does_not_hold_goes_back_to_its_default() {
+    let f = fx();
+    let c = &f.chain;
+    let mut state = f.state.clone();
+    // The key is absent from the project: the engine built the device at its default.
+    state
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .devices
+        .get_mut(&c.a)
+        .unwrap()
+        .params
+        .remove("gain");
+    let mut w = World::new(state);
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.effect_lane.clone(),
+    }));
+    let default = commands::device::registry()
+        .iter()
+        .filter(|b| b.descriptor.kind == device_examples::EFFECT)
+        .flat_map(|b| b.descriptor.params.iter())
+        .find(|p| p.key == "gain")
+        .map(|p| p.default as f32)
+        .unwrap();
+    assert_eq!(param_sets(&out), vec![(1, default)], "{:?}", out.control);
+}
+
+#[test]
+fn removing_a_device_or_a_track_sends_no_stored_value_for_the_lanes_it_takes() {
+    // The device is gone from the project and from the engine: there is nothing to restore.
+    let f = fx();
+    let c = &f.chain;
+    let mut w = World::new(f.state.clone());
+    let out = w.exec(&d(device::Command::Remove {
+        device: c.a.clone(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    assert!(!w.s.ctx.engine.lane_targets.contains_key(&f.effect_lane));
+    let out = w.exec(&Command::Track(track::Command::Delete {
+        track: f.track.clone(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    assert!(
+        w.s.ctx.engine.lane_targets.is_empty(),
+        "{:?}",
+        w.s.ctx.engine.lane_targets
+    );
+}
+
 #[test]
 fn a_lane_the_engine_cannot_place_is_not_uploaded_and_a_track_it_does_not_know_gets_nothing() {
     let f = fx();

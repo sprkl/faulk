@@ -1002,8 +1002,12 @@ fn restore_device_param(
     let Some(device) = devices.get(device_id) else {
         return; // device was removed from the project (e.g. device.remove before lane delete)
     };
-    // Reverse-resolve the ParamId to the key string, then read the stored value.
+    // Reverse-resolve the ParamId to its descriptor, then read the stored value; a key the
+    // project does not hold is at the descriptor's default, as the engine built the device.
     let DeviceSource::Builtin { id, .. } = &device.source else {
+        // Only built-in devices have lanes in the engine today (`lane_msgs` uploads none for a
+        // module: no descriptor yet, MO), so no `lane_targets` entry reaches this point for
+        // another source. When modules get lanes, they need their own default lookup here.
         return;
     };
     let Some(descriptor) = crate::device::registry()
@@ -1013,15 +1017,10 @@ fn restore_device_param(
     else {
         return;
     };
-    let Some(key) = descriptor
-        .params
-        .iter()
-        .find(|p| p.id == param)
-        .map(|p| p.key)
-    else {
+    let Some(p) = descriptor.params.iter().find(|p| p.id == param) else {
         return;
     };
-    let value = device.params.get(key).copied().unwrap_or(0.0);
+    let value = device.params.get(p.key).copied().unwrap_or(p.default);
     out.push(ControlMsg::ParamSet {
         track: track_slot,
         device: device_slot,
