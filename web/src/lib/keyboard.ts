@@ -146,15 +146,20 @@ export function trackFocusOrigin(doc: Document = document): () => void {
   const key = (event: KeyboardEvent) => {
     if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) {
       lastInput = 'keyboard'
-      // A UI-shortcut key on the already-focused element reasserts the keyboard origin even when no
+      // A UI-shortcut key on an already-focused slider reasserts the keyboard origin even when no
       // focusin fires (e.g. after Slider.closeMenu() → root.focus() while pointer was the last input).
       // Without this, pointerFocused stays stale and Space incorrectly toggles the transport.
-      // Playing keys (bare letters, Semicolon) and octave steps (Z/X) are excluded: they are musical
-      // input and must not change the focus-origin model (a mouse-used knob still plays notes).
+      // Scoped to sliders (role="slider"): other controls (buttons, links) may receive shortcut keys
+      // whose side effect focuses them back (e.g. Escape on a menu returning focus to its trigger)
+      // without meaning that the user switched to keyboard navigation.
+      // Playing keys (bare letters, Semicolon) and octave steps (Z/X) are also excluded: they are
+      // musical input and must not affect the focus model (a mouse-used knob still plays notes).
       const isMusicalKey = event.code in KEY_OFFSETS || octaveStep(event.code) !== 0
       if (!isMusicalKey) {
         const active = doc.activeElement
-        if (active && active !== doc.body && pointerFocused === active) pointerFocused = null
+        if (active && active !== doc.body && pointerFocused === active && active.getAttribute('role') === 'slider') {
+          pointerFocused = null
+        }
       }
     }
   }

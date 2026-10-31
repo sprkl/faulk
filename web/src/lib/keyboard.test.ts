@@ -120,44 +120,56 @@ describe('space bar and the transport', () => {
     expect(spaceTogglesTransport(b)).toBe(false)
   })
 
-  it('a UI-shortcut key on the already-focused element reasserts keyboard origin (#415)', () => {
+  it('a UI-shortcut key on an already-focused slider reasserts keyboard origin (#415)', () => {
     // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. If the element
     // is already focused a subsequent focus() is a no-op (no focusin), leaving pointerFocused stale.
-    // A non-playing UI key on that element must clear it so Space does not incorrectly toggle.
+    // A non-playing UI key on that slider must clear pointerFocused so Space does not toggle.
+    // Scoped to sliders (role="slider"): other controls (buttons etc.) are left alone so that e.g.
+    // pressing Escape on a menu that returns focus to its trigger does not change the focus model.
     const stop = trackFocusOrigin()
-    const b = el('b') as HTMLElement
-    // Press (pointer) and focus: b becomes pointer-focused.
-    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    b.focus()
-    expect(spaceTogglesTransport(b)).toBe(true) // pointer-focused: space toggles
+    const k = el('k') as HTMLElement // k has role="slider"
+
+    // Press (pointer) and focus the slider: it becomes pointer-focused.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
+    expect(spaceTogglesTransport(k)).toBe(true) // pointer-focused: space toggles
 
     // Space and modifiers must NOT reassert keyboard origin.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(true)
+    expect(spaceTogglesTransport(k)).toBe(true)
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(true)
+    expect(spaceTogglesTransport(k)).toBe(true)
 
     // Playing keys (bare letters, octave steps Z/X) do NOT reassert keyboard origin:
     // a mouse-used knob must keep playing notes when the musician presses a key.
-    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(true) // still pointer-focused
-    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(true) // octave step, still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // octave step, still pointer-focused
 
-    // A UI-shortcut key (Delete, Backspace, arrows, etc.) reasserts keyboard origin.
-    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(false) // keyboard origin now
+    // A UI-shortcut key (Delete, Backspace, arrows, etc.) on a focused slider reasserts keyboard origin.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(false) // keyboard origin now
 
-    // b.focus() while already focused is a no-op: keyboard origin is preserved.
-    b.focus()
-    expect(spaceTogglesTransport(b)).toBe(false)
+    // k.focus() while already focused is a no-op: keyboard origin is preserved.
+    k.focus()
+    expect(spaceTogglesTransport(k)).toBe(false)
     // Space does not toggle (keyboard-focused).
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(false)
+    expect(spaceTogglesTransport(k)).toBe(false)
 
     // A pointer press restores pointer origin.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true)
+
+    // Non-slider controls (buttons, links) are NOT affected: pressing a shortcut key on a button
+    // does not change its focus model (e.g. Escape on a menu trigger should not make it keyboard-focused).
+    const b = el('b') as HTMLElement
     b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    expect(spaceTogglesTransport(b)).toBe(true)
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(true) // pointer-focused
+    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true) // still pointer-focused (button, not slider)
     stop()
   })
 })
