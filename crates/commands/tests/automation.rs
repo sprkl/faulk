@@ -1118,7 +1118,7 @@ fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value
         param: "gain".into(),
         value: 0.75,
     }));
-    // Clear: the lane goes up empty, then the stored value follows.
+    // Clear: the lane leaves the engine (it does nothing without a point), then the stored value follows.
     let out = w.exec(&a(automation::Command::LaneClear {
         lane: f.effect_lane.clone(),
     }));
@@ -1308,7 +1308,7 @@ fn a_master_device_lane_is_restored_on_the_master() {
 }
 
 #[test]
-fn clearing_one_of_two_lanes_on_a_parameter_restores_nothing_while_the_other_plays() {
+fn deleting_or_clearing_one_of_two_lanes_on_a_parameter_restores_nothing_while_the_other_plays() {
     // A merged project may hold two lanes on one parameter: both play. The stored value sent
     // back for one would hold the other, so it is not sent.
     let f = fx();
@@ -1333,6 +1333,52 @@ fn clearing_one_of_two_lanes_on_a_parameter_restores_nothing_while_the_other_pla
     // The last one standing, once deleted, restores the stored value.
     let out = w.exec(&a(automation::Command::LaneDelete { lane: twin }));
     assert_eq!(param_sets(&out).len(), 1, "{:?}", out.control);
+    // The same by a clear: the lane that is cleared leaves the engine, the twin keeps playing.
+    let mut state = f.state.clone();
+    let copy = state.project.tracks[&f.track].automation[&f.effect_lane].clone();
+    state
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .automation
+        .insert(
+            ::project::LaneId::generate(&mut ::project::IdGenerator::new(
+                1_680_000_000_000,
+                0x00CC_0000_0000_0000_0000,
+            )),
+            copy,
+        );
+    let mut w = World::new(state);
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.effect_lane.clone(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    assert_eq!(lane_traffic(&out), (1, 0), "{:?}", out.control);
+}
+
+#[test]
+fn replacing_the_instrument_sends_no_stored_value_for_the_lanes_it_takes() {
+    // The new instrument takes the old one's slot: the lanes' deletion is compiled before the
+    // chain change, when the slot still names a device that is no longer in the project.
+    let f = fx();
+    let c = &f.chain;
+    let mut state = f.state.clone();
+    let mut ctx = more_context();
+    let lane = create(
+        &mut state,
+        &mut ctx,
+        &f.track,
+        device_target(&c.synth, "gain"),
+    );
+    add(&mut state, &mut ctx, &lane, vec![pt(7, 0.5, Shape::Linear)]);
+    let mut w = World::new(state);
+    let out = w.exec(&Command::Track(track::Command::SetInstrument {
+        track: f.track.clone(),
+        instrument: "faulk.drums".into(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    assert!(!w.s.ctx.engine.lane_targets.contains_key(&lane));
 }
 
 #[test]
