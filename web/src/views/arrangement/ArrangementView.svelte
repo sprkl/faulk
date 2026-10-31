@@ -838,6 +838,17 @@
     else run(createLane(trackId, option.target))
   }
 
+  // The mixer or the devices panel requests, once, that the master's lanes be unfolded (`ui.showMasterLanes()`).
+  // The request is a one-shot flag: this effect reads and clears it, adding MASTER to `open` exactly once.
+  // It fires both when the request arrives while the view is alive and when the view mounts with a pending
+  // request (Automate clicked elsewhere, then navigation brought the user here). Because the flag is consumed,
+  // a user who folds the master and comes back is not overridden.
+  $effect(() => {
+    if (ui.openMasterLanes && untrack(() => ui.takeMasterLanesRequest())) {
+      if (!open.has(MASTER)) open = new Set([...open, MASTER])
+    }
+  })
+
   // The window loses the pointer: nothing may stay half done.
   const silence = () => cancel()
 
@@ -864,7 +875,7 @@
 />
 <svelte:document onvisibilitychange={silence} />
 
-{#if entries.length === 0}
+{#if allEntries.length <= 1 && Object.keys(masterEntry.track.automation).length === 0}
   <p class="empty" data-testid="arrangement-empty">{t('arrangement.empty')}</p>
 {:else}
   <div

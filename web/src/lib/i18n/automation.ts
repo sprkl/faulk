@@ -42,7 +42,7 @@ export const automation = defineFeature(
   {
     'automation.show': 'Afficher les couloirs d’automation de {name}',
     'automation.hide': 'Masquer les couloirs d’automation de {name}',
-    'automation.lanes': 'Couloirs : {n}',
+    'automation.lanes': 'Couloirs : {n}',
     'automation.mixer': 'Mixeur',
     'automation.volume': 'Volume',
     'automation.pan': 'Panoramique',
@@ -52,7 +52,7 @@ export const automation = defineFeature(
     'automation.addLaneFor': 'Ajouter un couloir d’automation à {name}',
     'automation.valueNow': 'Valeur à la position de lecture',
     'automation.mark':
-      'Automatisé : le couloir {lane} impose cette valeur. Un changement fait ici dure jusqu’au prochain point du couloir pendant la lecture, ou jusqu’à la prochaine lecture ou au prochain déplacement de la tête à l’arrêt.',
+      'Automatisé : le couloir {lane} impose cette valeur. Un changement fait ici dure jusqu’au prochain point du couloir pendant la lecture, ou jusqu’à la prochaine lecture ou au prochain déplacement de la tête à l’arrêt.',
     'automation.laneHint':
       'Clique pour ajouter un point, glisse un point pour le déplacer, glisse sur une partie vide pour en sélectionner plusieurs. Suppr efface les points sélectionnés. Maintiens Ctrl ou Cmd pour ignorer l’aimantation. Double-clique un point pour taper sa valeur.',
     'automation.curves': 'Courbe des points sélectionnés',

@@ -14,7 +14,7 @@
 
   let { entry, chain, master = false }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean } = $props()
 
-  const { ui, dispatcher, automated } = useStores()
+  const { ui, dispatcher, automated, project } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -27,11 +27,17 @@
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
 
-  /** Automate a master effect's parameter: create the lane if absent, then navigate to the arrangement. */
+  /** Whether the master already has a lane on a device parameter (the Automate button is then a navigate-only action). */
+  function masterHasDeviceLane(paramKey: string): boolean {
+    return Object.values(project.view?.project.master_automation ?? {}).some(
+      (lane) => lane && 'device' in lane.target && lane.target.device.device === entry.id && lane.target.device.param === paramKey,
+    )
+  }
+
+  /** Automate a master effect's parameter: create the lane if absent, then navigate to the arrangement and unfold the master. */
   function automateParam(paramKey: string) {
-    const target = { device: { device: entry.id, param: paramKey } }
-    dispatcher.run(createMasterLane(target))
-    ui.show('arrangement')
+    if (!masterHasDeviceLane(paramKey)) dispatcher.run(createMasterLane({ device: { device: entry.id, param: paramKey } }))
+    ui.showMasterLanes()
   }
 </script>
 

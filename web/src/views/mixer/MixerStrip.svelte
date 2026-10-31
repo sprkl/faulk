@@ -66,7 +66,7 @@
   /** Automate the master's gain: create the lane if absent, then navigate to the arrangement and unfold the master. */
   function automateMasterGain() {
     if (!masterHasGainLane) dispatcher.run(createMasterLane({ mixer: { param: 'gain' } }))
-    ui.show('arrangement')
+    ui.showMasterLanes()
   }
 </script>
 
