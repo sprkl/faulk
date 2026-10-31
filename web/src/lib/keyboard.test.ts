@@ -121,9 +121,11 @@ describe('space bar and the transport', () => {
   })
 
   it('a UI-shortcut key on an already-focused slider reasserts keyboard origin (#415)', () => {
-    // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. If the element
-    // is already focused a subsequent focus() is a no-op (no focusin), leaving pointerFocused stale.
-    // A non-playing UI key on that slider must clear pointerFocused so Space does not toggle.
+    // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. The
+    // real path of reassertion is the pointerdown handler 'down' on the already-focused control
+    // (e.g. the right-click that opens the menu): it sets pointerFocused = active. A subsequent
+    // focus() call on the already-focused element is a no-op (no focusin fires), so pointerFocused
+    // stays stale. A non-musical UI-shortcut key on the focused slider must clear pointerFocused.
     // Scoped to sliders (role="slider"): other controls (buttons etc.) are left alone so that e.g.
     // pressing Escape on a menu that returns focus to its trigger does not change the focus model.
     const stop = trackFocusOrigin()
@@ -170,6 +172,41 @@ describe('space bar and the transport', () => {
     expect(spaceTogglesTransport(b)).toBe(true) // pointer-focused
     b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
     expect(spaceTogglesTransport(b)).toBe(true) // still pointer-focused (button, not slider)
+    stop()
+  })
+
+  it('after a non-musical key on a mouse-focused slider, letters no longer play notes (#415 option A)', () => {
+    // Option A (lead decision): focus origin follows the last input modality. A non-musical key
+    // (Delete, arrows…) on a slider that the mouse focused switches it to keyboard origin: letters
+    // no longer play a note on that slider until the next click restores pointer origin.
+    // This is the visible consequence of the fix: not just Space, but playsNote changes too.
+    const stop = trackFocusOrigin()
+    const k = el('k') as HTMLElement // role="slider"
+    const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false }
+
+    // Pointer-focused: letter on the slider plays (mouse-used knob does not capture keys).
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
+    expect(playsNote({ ...base, target: k })).toBe(true) // pointer origin: plays
+
+    // Non-musical key → keyboard origin → letters no longer play on that slider.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(false) // keyboard origin: slider keeps letters
+
+    // Arrow key confirms: still keyboard origin.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', code: 'ArrowUp', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(false)
+
+    // A click (pointer press) restores pointer origin: letters play again.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // pointer origin restored
+
+    // Playing keys (KeyA, KeyZ octave step) never change the origin: a mouse-used knob stays pointer-focused.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true)
+
     stop()
   })
 })

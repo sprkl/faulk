@@ -192,33 +192,45 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   await page.keyboard.press('Control+z')
   await expect(attack).toHaveAttribute('aria-valuetext', end)
 
-  // Space on a focused knob keeps its old meaning (nothing): it does not start the transport behind it.
-  // Regression for #415: after a context-menu click (pointer), closeMenu() restores focus via script while
-  // lastInput === 'pointer'. A subsequent attack.focus() is a no-op (already focused) so no focusin fires.
-  // Before the fix, pointerFocused stayed stale and Space incorrectly toggled the transport.
-  await attack.focus()
+  // #415 option A: non-musical key (Delete/arrows) on a mouse-focused slider switches it to keyboard
+  // origin. Consequence: letters no longer play a note on that slider until the next click restores
+  // pointer origin. Explicit test of the behavior change (not hidden by replacing focus() with click()).
+  //
+  // Step 1 — mouse-focused slider: letter plays.
+  await attack.click() // explicit pointer press: pointer origin
+  await page.keyboard.down('KeyA')
+  await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+  await page.keyboard.up('KeyA')
+  //
+  // Step 2 — non-musical key → keyboard origin → letter no longer plays.
+  await page.keyboard.press('Delete') // non-musical key on already-pointer-focused slider
+  await page.keyboard.down('KeyA')
+  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/) // slider is keyboard-focused: no note
+  await page.keyboard.up('KeyA')
+  // Space must not toggle the transport either (keyboard-focused slider keeps Space).
   await page.keyboard.press('Space')
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
-
-  // A letter on a mouse-clicked knob still plays a note: the keyboard rule is not broken by the controls.
-  // Re-click to restore pointer origin (the Backspace above reasserted keyboard origin via #415 fix).
+  //
+  // Step 3 — click restores pointer origin: letter plays again.
   await attack.click()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
   await page.keyboard.up('KeyA')
 
   // Regression #415: context-menu click then key — Space must not toggle the transport.
-  // Sequence: right-click → menu item click (closeMenu restores focus by script with pointer as last input) →
-  // attack.focus() is a no-op (already focused, no focusin) → without the fix pointerFocused stays stale.
-  // With the fix: the menu item click fired a focusin (new focus) that set pointerFocused = attack;
-  // then the first real key on the already-focused attack clears pointerFocused → Space does not toggle.
-  await attack.focus()
+  // The real path: right-click on attack (already focused) fires pointerdown → the 'down' handler sets
+  // pointerFocused = attack (the already-active element). The menu item click then closes the menu;
+  // closeMenu() calls root.focus() with lastInput === 'pointer', firing a focusin that confirms
+  // pointerFocused = attack. A subsequent attack.focus() is a no-op (no focusin). Without the fix,
+  // pointerFocused stays stale and Space toggles the transport; the fix clears it on the first
+  // non-musical UI key on the focused slider.
+  await attack.click()
   await page.keyboard.press('End')
   await attack.click({ button: 'right' })
   await page.getByTestId('value-menu-default').click()
-  // After closeMenu, attack is focused with pointer origin. attack.focus() below is a no-op.
+  // After closeMenu, attack is focused with pointer origin. attack.focus() is a no-op.
   await attack.focus()
-  await page.keyboard.press('Backspace') // first real key: clears stale pointerFocused
+  await page.keyboard.press('Backspace') // first non-musical key: clears stale pointerFocused
   await attack.focus()
   await page.keyboard.press('Space') // Space must not toggle the transport (#415)
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
