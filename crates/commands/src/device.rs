@@ -184,6 +184,8 @@ domain! {
         device: Option<Box<DeviceSummary>>,
         /// The track that holds the device; `null` for the master's chain and for a kind.
         track: Option<TrackId>,
+        /// Whether the device is in the master's chain (then `track` is `null`).
+        in_master: bool,
         /// The device's parameter values, by parameter key, in the unit the device declares.
         params: BTreeMap<String, f64>,
         /// The kind's descriptor; `null` for a module and for the clip player.
@@ -234,6 +236,7 @@ pub(crate) fn apply_in(
             Ok(crate::query::answer(Output::Describe {
                 device: d.device.map(Box::new),
                 track: d.track,
+                in_master: d.in_master,
                 params: d.params,
                 descriptor: d.descriptor,
             }))

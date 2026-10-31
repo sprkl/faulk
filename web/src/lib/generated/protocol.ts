@@ -1302,6 +1302,10 @@ descriptor?: (DeviceKindInfo | null)
  */
 device?: (DeviceSummary | null)
 /**
+ * Whether the device is in the master's chain (then `track` is `null`).
+ */
+in_master: boolean
+/**
  * The device's parameter values, by parameter key, in the unit the device declares.
  */
 params: {
@@ -1313,18 +1317,6 @@ params: {
 track?: (string | null)
 type: "device.describe"
 })
-/**
- * How a control maps its travel to a parameter's value.
- */
-export type ParamScale = ("linear" | "log")
-/**
- * The unit of a device parameter.
- */
-export type ParamUnit = (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | "none" | "gain")
-/**
- * What a device kind does in a chain.
- */
-export type KindRoleInfo = ("instrument" | "effect" | "midi_effect")
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -1456,8 +1448,11 @@ frames: number
  */
 gain_db?: (number | null)
 kind: "audio"
+/**
+ * The loop `[start, end)` in frames of the file, if one is set.
+ */
 looping?: (FrameLoop | null)
-media: AudioMedia
+media: AudioMedia1
 /**
  * First frame of the file played.
  */
@@ -2903,7 +2898,10 @@ id: string
  * The device's English name; `null` for a module and for the clip player.
  */
 name?: (string | null)
-role: DeviceRole
+/**
+ * What a device does in the chain.
+ */
+role: ("instrument" | "effect")
 /**
  * Where a device comes from. Third-party plugins come after the MVP.
  */
@@ -2966,6 +2964,9 @@ id: string
  */
 kind: ("midi" | "audio")
 mixer: Mixer2
+/**
+ * The track's name.
+ */
 name: string
 /**
  * Whether the track is soloed (session state).
@@ -2991,6 +2992,9 @@ pan: number
  * A clip in a list.
  */
 export interface ClipSummary {
+/**
+ * The clip's colour, `#rrggbb`, or `null`.
+ */
 color?: (Rgb | null)
 /**
  * Identifier of a clip.
@@ -3005,6 +3009,9 @@ kind: ("midi" | "audio")
  * (its length depends on the tempo).
  */
 length?: (Tick | null)
+/**
+ * The clip's name.
+ */
 name: string
 /**
  * How many notes a MIDI clip holds; `null` for an audio clip.
@@ -3063,6 +3070,9 @@ id: string
  */
 kind: ("midi" | "audio")
 mixer: Mixer2
+/**
+ * The track's name.
+ */
 name: string
 /**
  * Whether the track is soloed (session state).
@@ -3086,8 +3096,17 @@ name: string
  * instrument and for effects.
  */
 named_keys: KeyName[]
+/**
+ * The kind's parameters, in declaration order.
+ */
 params: ParamSpec[]
-role: KindRoleInfo
+/**
+ * What the kind does in a chain.
+ */
+role: ("instrument" | "effect" | "midi_effect")
+/**
+ * The kind's version, raised when its parameters change meaning.
+ */
 version: number
 }
 /**
@@ -3098,12 +3117,18 @@ export interface KeyName {
  * The MIDI key, 0 to 127.
  */
 key: number
+/**
+ * The name of the sound on that key.
+ */
 name: string
 }
 /**
  * One parameter a device kind declares.
  */
 export interface ParamSpec {
+/**
+ * The value a new device starts with.
+ */
 default: number
 /**
  * What the parameter does and what its range means.
@@ -3113,19 +3138,48 @@ description: string
  * The key of the parameter: what `device.set_param` and the automation targets name.
  */
 key: string
+/**
+ * The highest value.
+ */
 max: number
+/**
+ * The lowest value.
+ */
 min: number
-scale: ParamScale
+/**
+ * `linear` or `log` (logarithmic travel, for frequencies and times).
+ */
+scale: ("linear" | "log")
 /**
  * The smallest change of the value; 0 for a continuous parameter.
  */
 step: number
-unit: ParamUnit
+/**
+ * The unit of the value.
+ */
+unit: (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | "none" | "gain")
 /**
  * For an enumerated parameter, the key of each value from `min` to `max`; empty
  * otherwise.
  */
 values: string[]
+}
+/**
+ * An audio file referenced by its blob, with its metadata in clear so the project reads,
+ * validates and merges without decoding the audio (§ 2.2).
+ */
+export interface AudioMedia1 {
+channels: number
+/**
+ * Length of the whole file in frames.
+ */
+frames: number
+hash: Hash
+/**
+ * The file's original name.
+ */
+name: string
+sample_rate: number
 }
 /**
  * Where this page sits in the clip's placement list.
@@ -3153,12 +3207,26 @@ export interface PlacementInfo {
  * Identifier of a placement in a track's arrangement.
  */
 id: string
-placement: Placement
+placement: Placement1
+}
+/**
+ * A clip set in the arrangement.
+ */
+export interface Placement1 {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+span: Span
+start: Tick
 }
 /**
  * A clip in a list.
  */
 export interface ClipSummary1 {
+/**
+ * The clip's colour, `#rrggbb`, or `null`.
+ */
 color?: (Rgb | null)
 /**
  * Identifier of a clip.
@@ -3173,6 +3241,9 @@ kind: ("midi" | "audio")
  * (its length depends on the tempo).
  */
 length?: (Tick | null)
+/**
+ * The clip's name.
+ */
 name: string
 /**
  * How many notes a MIDI clip holds; `null` for an audio clip.
@@ -3232,6 +3303,9 @@ clips: SceneSlot[]
  * Identifier of a scene.
  */
 id: string
+/**
+ * The scene's name.
+ */
 name: string
 }
 /**

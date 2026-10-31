@@ -103,7 +103,9 @@ fn not_found(entity: &str, id: impl ToString) -> CommandError {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TrackSummary {
+    /// The track's identifier.
     pub id: TrackId,
+    /// The track's name.
     pub name: String,
     /// `#rrggbb`, or `null` for the default colour.
     pub color: Option<Rgb>,
@@ -125,7 +127,9 @@ pub struct TrackSummary {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceSummary {
+    /// The device's identifier.
     pub id: DeviceId,
+    /// `instrument` or `effect`.
     pub role: DeviceRole,
     /// `false` when the device is bypassed.
     pub enabled: bool,
@@ -139,8 +143,11 @@ pub struct DeviceSummary {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClipSummary {
+    /// The clip's identifier.
     pub id: ClipId,
+    /// The clip's name.
     pub name: String,
+    /// The clip's colour, `#rrggbb`, or `null`.
     pub color: Option<Rgb>,
     /// The scene of the launch-grid slot the clip sits in, or `null` when it only lives
     /// in the arrangement.
@@ -169,6 +176,7 @@ pub enum ClipContentInfo {
     },
     /// An audio clip: a range of a file.
     Audio {
+        /// The audio file the clip plays.
         media: AudioMedia,
         /// First frame of the file played.
         start: u64,
@@ -176,6 +184,7 @@ pub enum ClipContentInfo {
         frames: u64,
         /// Clip gain in dB; `null` is silence.
         gain_db: Option<f64>,
+        /// The loop `[start, end)` in frames of the file, if one is set.
         looping: Option<FrameLoop>,
     },
 }
@@ -184,7 +193,9 @@ pub enum ClipContentInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlacementInfo {
+    /// The placement's identifier.
     pub id: PlacementId,
+    /// The placement: clip, start and span.
     pub placement: Placement,
 }
 
@@ -192,7 +203,9 @@ pub struct PlacementInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SceneInfo {
+    /// The scene's identifier.
     pub id: SceneId,
+    /// The scene's name.
     pub name: String,
     /// The clips in this scene's slots, one per track at most, in the tracks' display order.
     pub clips: Vec<SceneSlot>,
@@ -202,7 +215,9 @@ pub struct SceneInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SceneSlot {
+    /// The track whose slot it is.
     pub track: TrackId,
+    /// The clip in the slot.
     pub clip: ClipId,
 }
 
@@ -210,9 +225,11 @@ pub struct SceneSlot {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LaneSummary {
+    /// The lane's identifier.
     pub id: LaneId,
     /// The track that owns the lane; `null` for a lane of the master.
     pub track: Option<TrackId>,
+    /// The parameter the lane automates.
     /// The parameter the lane automates.
     pub target: AutomationTarget,
     /// How many points the lane holds.
@@ -260,10 +277,15 @@ pub struct ParamSpec {
     pub key: String,
     /// What the parameter does and what its range means.
     pub description: String,
+    /// The unit of the value.
     pub unit: ParamUnit,
+    /// The lowest value.
     pub min: f64,
+    /// The highest value.
     pub max: f64,
+    /// The value a new device starts with.
     pub default: f64,
+    /// `linear` or `log` (logarithmic travel, for frequencies and times).
     pub scale: ParamScale,
     /// The smallest change of the value; 0 for a continuous parameter.
     pub step: f64,
@@ -278,6 +300,7 @@ pub struct ParamSpec {
 pub struct KeyName {
     /// The MIDI key, 0 to 127.
     pub key: u8,
+    /// The name of the sound on that key.
     pub name: String,
 }
 
@@ -287,10 +310,13 @@ pub struct KeyName {
 pub struct DeviceKindInfo {
     /// The kind, `faulk.<name>`: the `id` of a `builtin` device source.
     pub kind: String,
+    /// The kind's version, raised when its parameters change meaning.
     pub version: u32,
     /// The device's one English name.
     pub name: String,
+    /// What the kind does in a chain.
     pub role: KindRoleInfo,
+    /// The kind's parameters, in declaration order.
     pub params: Vec<ParamSpec>,
     /// The notes an instrument answers to, with their names; empty for a pitched
     /// instrument and for effects.
@@ -683,6 +709,7 @@ fn kind_info(d: &DeviceDescriptor) -> DeviceKindInfo {
 
 pub(crate) struct DeviceData {
     pub track: Option<TrackId>,
+    pub in_master: bool,
     pub device: Option<DeviceSummary>,
     pub params: BTreeMap<String, f64>,
     pub descriptor: Option<DeviceKindInfo>,
@@ -703,6 +730,7 @@ pub(crate) fn device_describe(
                 .map(|(tid, _)| tid.clone());
             Ok(DeviceData {
                 track,
+                in_master: project.master_devices.contains_key(id),
                 device: Some(device_summary(id, found)),
                 params: found.params.clone(),
                 descriptor: descriptor_of(registry(), found).map(kind_info),
@@ -716,6 +744,7 @@ pub(crate) fn device_describe(
                 .ok_or_else(|| not_found("device_kind", kind))?;
             Ok(DeviceData {
                 track: None,
+                in_master: false,
                 device: None,
                 params: BTreeMap::new(),
                 descriptor: Some(descriptor),

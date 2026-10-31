@@ -398,6 +398,7 @@ fn a_device_is_described_with_its_parameters_and_its_kind() {
     let Output::Device(device::Output::Describe {
         device,
         track,
+        in_master,
         params,
         descriptor,
     }) = q(
@@ -421,17 +422,22 @@ fn a_device_is_described_with_its_parameters_and_its_kind() {
         assert!(params.contains_key(&p.key), "{}", p.key);
     }
     // A master device has no track; the clip player has no descriptor.
-    let Output::Device(device::Output::Describe { track, .. }) = q(
+    assert!(!in_master);
+    let Output::Device(device::Output::Describe {
+        track, in_master, ..
+    }) = q(
         Command::Device(device::Command::Describe {
             device: Some(f.chain.ma.clone()),
             kind: None,
         }),
         &f.state,
     )
-    .unwrap() else {
+    .unwrap()
+    else {
         panic!()
     };
     assert_eq!(track, None);
+    assert!(in_master);
     let Output::Device(device::Output::Describe {
         descriptor, device, ..
     }) = q(
@@ -492,4 +498,50 @@ fn every_field_of_every_query_answer_is_documented() {
             }
         }
     }
+}
+
+/// The types the query answers are made of (those of `crates/commands/src/query.rs` that a
+/// schema names): every field of each is documented, nested ones included.
+#[test]
+fn every_field_of_the_types_of_the_answers_is_documented() {
+    let defs = &catalog()
+        .into_iter()
+        .find(|t| t.name == "track.get")
+        .unwrap()
+        .output_schema["$defs"];
+    let mut checked = 0;
+    for name in [
+        "PageInfo",
+        "TrackSummary",
+        "DeviceSummary",
+        "ClipSummary",
+        "ClipContentInfo",
+        "PlacementInfo",
+        "SceneInfo",
+        "SceneSlot",
+        "LaneSummary",
+        "ParamSpec",
+        "KeyName",
+        "DeviceKindInfo",
+    ] {
+        let def = defs
+            .get(name)
+            .unwrap_or_else(|| panic!("{name} is not in the schema"));
+        // A struct has `properties`; the tagged enum has them in each `oneOf` variant.
+        let mut objects = vec![def];
+        objects.extend(def["oneOf"].as_array().into_iter().flatten());
+        for object in objects {
+            for (field, d) in object["properties"].as_object().into_iter().flatten() {
+                if field == "kind" && d.get("const").is_some() {
+                    continue; // the tag of an enum variant
+                }
+                assert!(
+                    d.get("description").is_some_and(|x| x.is_string()),
+                    "{name}.{field} has no description"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 40, "{checked}");
 }
