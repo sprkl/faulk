@@ -50,7 +50,7 @@ export const RULES = [
   [/^web\/src\/lib\/export\//, ['export-audio']],
   [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access']],
   [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input']],
-  [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['keyboard', 'keyboard-all-views', 'space-bar']],
+  [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['continuous', 'keyboard', 'keyboard-all-views', 'space-bar']],
   [/^web\/src\/lib\/(landing\/|i18n\/landing\.ts)/, ['navigation', 'isolation']],
   [/^web\/src\/routes\/\[lang=lang\]\//, ['navigation', 'isolation']],
   [/^web\/src\/routes\/dev\//, ['timegrid']],
