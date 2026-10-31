@@ -10,6 +10,7 @@
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
+  import { deviceText, labelKey } from '../../lib/devices'
   import { useStores } from '../../lib/stores'
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
@@ -117,7 +118,7 @@
               class="param-automate"
               type="button"
               title={t('automation.automateHint')}
-              aria-label={t('automation.automate')}
+              aria-label={t('automation.automateParam', { param: deviceText(ui.lang, labelKey(descriptor, param.key)) ?? param.key })}
               data-testid="device-param-automate"
               onclick={() => automateParam(param.key)}
             >
