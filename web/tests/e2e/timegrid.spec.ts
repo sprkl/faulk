@@ -119,7 +119,7 @@ test.describe('time grid', () => {
     const width = (await grid(page).boundingBox())!.width
     await expect.poll(async () => (await zoom(page)) * TOTAL).toBeCloseTo(Math.floor(width), -1)
     await page.keyboard.up('Control')
-    expect(await scrollTick(page)).toBe(0)
+    await expect.poll(() => scrollTick(page)).toBe(0)
     expect(seen.errors).toEqual([])
   })
 
@@ -148,6 +148,8 @@ test.describe('time grid', () => {
     await page.keyboard.press('Home')
     await expect.poll(() => scrollTick(page)).toBe(0)
     await page.keyboard.press('ArrowLeft')
+    // Nothing to see when a key changes nothing: let two frames pass, so that a key handled late would have shown.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     expect(await scrollTick(page)).toBe(0)
     await page.keyboard.down('Shift')
     await page.mouse.wheel(0, 10_000_000)
