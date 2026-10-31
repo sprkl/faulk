@@ -601,6 +601,9 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_setup(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
+        assert_eq!(pw_history(core::ptr::null_mut()), ERR_NO_CORE);
+        assert_eq!(pw_set_author(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_set_clock(core::ptr::null_mut(), 1.0), ERR_NO_CORE);
         assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_stage_stored(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_save(core::ptr::null_mut(), 0), ERR_NO_CORE);
@@ -1340,4 +1343,50 @@ fn a_master_lane_is_saved_in_its_own_file_and_opens_again() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entry_path(&entries[0]), file);
     h.saved(true);
+}
+
+#[test]
+fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothing() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_set_clock(h.0, 1234.0) }, 0);
+    h.apply(json!({"type": "track.create", "kind": "midi"}));
+    h.call("agent:claude", pw_set_author);
+    h.apply(json!({"type": "project.rename", "name": "By agent"}));
+    for bad in ["", "robot", "agent:"] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(
+            unsafe { pw_set_author(h.0, bad.len() as u32) },
+            ERR_BAD_INPUT
+        );
+    }
+    h.apply(json!({"type": "project.rename", "name": "Again"}));
+    h.call("user", pw_set_author);
+    h.apply(json!({"type": "project.rename", "name": "By user"}));
+    let view = h.call0(pw_history).0;
+    let authors: Vec<_> = view["undo"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["author"].clone())
+        .collect();
+    assert_eq!(
+        authors,
+        [
+            json!("user"),
+            json!("agent:claude"),
+            json!("agent:claude"),
+            json!("user")
+        ]
+    );
+    assert_eq!(view["undo"][1]["name"], "project.rename");
+    assert_eq!(view["undo"][0]["at"], 1234);
+    assert_eq!(view["redo"], json!([]));
+    h.apply(json!({"type": "history.undo"}));
+    let view = h.call0(pw_history).0;
+    assert_eq!(view["undo"].as_array().unwrap().len(), 3);
+    assert_eq!(view["redo"][0]["name"], "project.rename");
+    assert_eq!(view["redo"][0]["at"], 1234);
 }
