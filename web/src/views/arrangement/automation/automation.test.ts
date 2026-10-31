@@ -4,6 +4,7 @@ import { RULER_HEIGHT } from '../../../lib/components/timegrid/render'
 import { MAX_TICK } from '../arrangement'
 import { asPoint, dragDelta, hitPoint, moveSelection, newPoint, planMove, pointsInBox, posOfY, previewPoints, yOfPos, POINT_RADIUS } from './gestures'
 import { ADD_ROW, CLIP_ROW, LANE_ROW, layoutOf, rowAtY, rowsBetween } from './layout'
+import { drawLane } from './draw'
 import { axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type Labels, type LanePoint } from './model'
 
 const labels: Labels = {
@@ -266,5 +267,55 @@ describe('the gestures of a lane', () => {
     for (let i = 0; i < 1000; i++) hitPoint(many, axis, 5000, y, { pxPerTick: 0.1, scrollTick: 0 }, geo)
     expect(performance.now() - started).toBeLessThan(500)
     expect(hitPoint(many, axis, 5000, yOfPos(axis.pos(0), geo), { pxPerTick: 0.1, scrollTick: 0 }, geo)?.tick).toBe(50_000)
+  })
+})
+
+describe('the lane drawn before its first point (#388, #394)', () => {
+  /** A context that records the path of the lane's value line: the `moveTo`/`lineTo` calls after the row's own lines. */
+  function recorder() {
+    const path: [string, number, number][] = []
+    const noop = () => undefined
+    const ctx = new Proxy(
+      { moveTo: (x: number, y: number) => path.push(['M', x, y]), lineTo: (x: number, y: number) => path.push(['L', x, y]), measureText: () => ({ width: 0 }) },
+      { get: (target, key) => (key in target ? (target as Record<string, unknown>)[key as string] : noop), set: () => true },
+    ) as unknown as CanvasRenderingContext2D
+    return { ctx, path }
+  }
+  const frame = (scrollTick: number) =>
+    ({
+      width: 400,
+      height: 200,
+      view: { pxPerTick: 0.1, scrollTick },
+      totalTicks: 10_000,
+      colors: { bg: '', ruler: '', line: '', barLine: '', text: '' },
+      dpr: 1,
+    }) as unknown as Parameters<typeof drawLane>[1]
+  const scene = (points: LanePoint[]) => ({
+    top: 0,
+    height: 100,
+    axis: axisOf(synthTrack(), volume, labels)!,
+    points,
+    selected: new Set<number>(),
+    color: '#fff',
+    readout: null,
+  })
+
+  it('starts the solid line at bar 1 (the start of the timeline) at the first value, when the first point is later', () => {
+    const { ctx, path } = recorder()
+    drawLane(ctx, frame(0), scene(pts([1000, -12], [2000, 0])))
+    // The row's own lines are 2 segments (the bottom line and the default value); the value line follows.
+    const line = path.slice(4)
+    // Held from x = 0 (bar 1) to the first point (1000 ticks at 0.1 px per tick = 100 px) at one height.
+    expect(line[0]![0]).toBe('M')
+    expect(line[0]![1]).toBeLessThanOrEqual(0)
+    expect(line[1]).toEqual(['L', 100, line[0]![2]])
+  })
+
+  it('draws nothing before a first point that is at tick 0', () => {
+    const { ctx, path } = recorder()
+    drawLane(ctx, frame(0), scene(pts([0, -12], [2000, 0])))
+    const line = path.slice(4)
+    expect(line[0]![1]).toBe(0)
+    expect(line[1]![1]).toBe(200)
   })
 })

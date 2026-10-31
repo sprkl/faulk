@@ -16,7 +16,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
-use project::{AutomationLane, AutomationTarget, LaneId, Mixer, MixerParam, TrackId};
+use project::{Mixer, TrackId};
 
 /// The gain bounds, defined by the project document and shared with the commands (#226).
 pub use project::{MAX_GAIN_DB, MIN_GAIN_DB};
@@ -101,48 +101,33 @@ pub fn apply(
     match command {
         Command::SetVolume { track, gain_db } => {
             let db = to_db(*gain_db)?;
-            // Check for an active gain lane before borrowing the mixer mutably.
-            let has_lane = has_active_lane(
-                state.project.lanes(Some(track)),
-                &AutomationTarget::Mixer {
-                    param: MixerParam::Gain,
-                },
-            );
             let mixer = &mut track_mut(state, track)?.mixer;
             check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
-            let event = mixer_changed(Some(track.clone()), mixer);
             Ok(gain_outcome(
                 previous,
                 db,
-                has_lane,
                 |previous| Output::SetVolume { previous },
                 |gain_db| Command::SetVolume {
                     track: track.clone(),
                     gain_db,
                 },
-                event,
+                Some(track.clone()),
+                mixer,
             ))
         }
         Command::SetMasterVolume { gain_db } => {
             let db = to_db(*gain_db)?;
-            let has_lane = has_active_lane(
-                state.project.lanes(None),
-                &AutomationTarget::Mixer {
-                    param: MixerParam::Gain,
-                },
-            );
             let mixer = &mut state.project.master;
             check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
-            let event = mixer_changed(None, mixer);
             Ok(gain_outcome(
                 previous,
                 db,
-                has_lane,
                 |previous| Output::SetMasterVolume { previous },
                 |gain_db| Command::SetMasterVolume { gain_db },
-                event,
+                None,
+                mixer,
             ))
         }
         Command::SetPan { track, pan } => {
@@ -152,23 +137,11 @@ pub fn apply(
                     message: format!("a pan is from -1 to 1, not {pan}"),
                 });
             }
-            let has_lane = has_active_lane(
-                state.project.lanes(Some(track)),
-                &AutomationTarget::Mixer {
-                    param: MixerParam::Pan,
-                },
-            );
             let mixer = &mut track_mut(state, track)?.mixer;
             let previous = mixer.pan;
             let output = Output::SetPan { previous };
             if previous == *pan {
-                // The fader may have been showing a lane's value, not the stored one:
-                // even an unchanged gesture must tell the engine to hold the lane (#394).
-                return Ok(if has_lane {
-                    unchanged_gesture(output, mixer_changed(Some(track.clone()), mixer))
-                } else {
-                    unchanged(output)
-                });
+                return Ok(unchanged(output));
             }
             mixer.pan = *pan;
             Ok(edited(
@@ -274,28 +247,6 @@ fn unchanged(output: Output) -> Outcome<Command, Output> {
     }
 }
 
-/// An unchanged gesture on a lane-driven parameter: no project edit, no undo entry, but
-/// the event reaches the engine so it holds the lane (#394 point 2).
-fn unchanged_gesture(output: Output, event: ProjectEvent) -> Outcome<Command, Output> {
-    Outcome {
-        output,
-        undo: Undo::None,
-        events: vec![event],
-        control: vec![],
-    }
-}
-
-/// Whether any lane with at least one point targets `target` among `lanes`.
-fn has_active_lane(
-    lanes: Option<&std::collections::BTreeMap<LaneId, AutomationLane>>,
-    target: &AutomationTarget,
-) -> bool {
-    lanes
-        .into_iter()
-        .flat_map(|m| m.values())
-        .any(|l| &l.target == target && !l.points.is_empty())
-}
-
 fn edited(
     output: Output,
     inverse: Command,
@@ -322,30 +273,23 @@ fn mixer_changed(track: Option<TrackId>, mixer: &Mixer) -> ProjectEvent {
 /// The outcome of a gain edit. An inverse must restore the state exactly and a command
 /// cannot write a gain outside the range, so [`check_current`] has refused the edit
 /// when the current gain is outside it: here the previous gain is always restorable.
-///
-/// When `has_lane` is true and the value is unchanged, still emits `event` without an undo
-/// entry so the engine holds the lane (#394 point 2).
 fn gain_outcome(
     previous: f64,
     db: f64,
-    has_lane: bool,
     output: impl FnOnce(Option<f64>) -> Output,
     inverse: impl FnOnce(Option<f64>) -> Command,
-    event: ProjectEvent,
+    track: Option<TrackId>,
+    mixer: &Mixer,
 ) -> Outcome<Command, Output> {
     let before = from_db(previous);
     let output = output(before);
     if previous == db {
-        return if has_lane {
-            unchanged_gesture(output, event)
-        } else {
-            unchanged(output)
-        };
+        return unchanged(output);
     }
     Outcome {
         output,
         undo: Undo::Inverse(Box::new(inverse(before))),
-        events: vec![event],
+        events: vec![mixer_changed(track, mixer)],
         control: vec![],
     }
 }

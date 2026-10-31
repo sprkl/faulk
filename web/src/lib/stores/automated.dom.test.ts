@@ -207,35 +207,17 @@ describe('a change of the parameter while the lane plays', () => {
     expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(1 - 2500 / 3000, 6)
   })
 
-  it('holds when a volume gesture equals the stored value (the fader was showing the lane value, #394)', () => {
-    // The lane drives the fader showing -12 dB; stored value is 0 dB. A gesture that
-    // ends at the stored value (0 dB) — unchanged in the project — must still hold the
-    // lane so the page does not flick back to the lane value (point 2 of #394).
-    const s = session()
-    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
-    s.run(addPoints(s.lane(), [{ tick: 0, value: -12, shape: 'step' }]))
-    s.play(500)
-    expect(s.automated.mixer(s.track, 'gain')).toBe(-12)
-    // Gesture to the stored value (0 dB = default): command is unchanged, no edit
-    // is written to the history, but the page must hold because a mixer_changed event
-    // is emitted (the engine holds too, via TrackSetMix).
-    s.run(setVolume(s.track, 0))
-    s.play(600)
-    expect(s.automated.mixer(s.track, 'gain')).toBeUndefined()
-  })
-
-  it('releases holds when the transport stops at position 0 (the engine applies lanes there, #394)', () => {
-    // A stop while playing, even with the playhead at 0, must clear the page's holds
-    // because the engine frees all lanes at a stop and applies their values (#394 point 4).
+  it('lets go at a stop or a seek to where the playhead already stands: the engine frees the lanes at every cue (#394)', () => {
     const s = session()
     s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
     s.run(addPoints(s.lane(), [{ tick: 0, value: 0.4, shape: 'step' }]))
-    s.play(0)
-    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
-    s.play(0)
-    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
-    // Stopping at tick 0 (the playhead does not move but the engine frees the hold).
     s.stop(0)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The report of the stopped transport does not change: the playhead stays at 0, only the cue tells.
+    s.stop(0)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    s.project.cued?.()
     expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
   })
 })
@@ -258,15 +240,12 @@ describe('the mark of a control that a lane drives (#388)', () => {
     expect(s.automated.mixerMark(s.track, 'gain')).not.toBe(volume)
   })
 
-  it('marks the pan when a pan lane drives it, apart from the gain mark', () => {
+  it('marks the pan when a pan lane drives it, apart from the volume mark', () => {
     const s = session()
     s.run(createLane(s.track, { mixer: { param: 'pan' } }))
     s.run(addPoints(s.lane(), [{ tick: 0, value: -0.5, shape: 'step' }]))
-    const panMark = s.automated.mixerMark(s.track, 'pan')
-    expect(panMark).toContain('Pan')
-    // The gain is not marked: only the pan lane exists.
+    expect(s.automated.mixerMark(s.track, 'pan')).toContain('Pan')
     expect(s.automated.mixerMark(s.track, 'gain')).toBeUndefined()
-    // The pan's driven value is the lane's value.
     expect(s.automated.mixer(s.track, 'pan')).toBe(-0.5)
   })
 

@@ -291,7 +291,7 @@ impl TrackSlot {
 }
 
 /// Position of a device in a track's chain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceSlot(pub u16);
 
 /// Index of a clip in the engine.
@@ -315,7 +315,7 @@ pub struct LaneSlot(pub u32);
 pub struct SourceSlot(pub u32);
 
 /// Identifier of a parameter inside a device (`Param::id` for the synth).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct ParamId(pub u32);
 
@@ -395,7 +395,7 @@ pub struct AutomationPoint {
 }
 
 /// What an automation lane drives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationTarget {
     DeviceParam {
         device: DeviceSlot,

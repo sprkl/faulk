@@ -1926,17 +1926,13 @@ impl Engine {
             }
             RtMsg::SetMaster { gain, pan, mute } => {
                 // A gesture on the master's fader or pan holds the lane that drives it (#378),
-                // as one on a track's does; the mute holds neither. When neither the gain nor
-                // the pan changed this is an unchanged gesture on a lane-driven parameter
-                // (#394 point 2): the compiler emits SetMaster only when a lane is active, so
-                // hold both (the gesture is on the active one, and both are safe to hold).
+                // as one on a track's does; the mute holds neither.
                 let moved_gain = state.master.gain.to_bits() != gain.to_bits();
                 let moved_pan = state.master.pan.to_bits() != pan.to_bits();
-                let neither = !moved_gain && !moved_pan;
                 state.master = Master { gain, pan, mute };
                 hold_lanes(state, &self.graph, TrackSlot::MASTER, |target| {
-                    (moved_gain || neither) && target == AutomationTarget::MixerGain
-                        || (moved_pan || neither) && target == AutomationTarget::MixerPan
+                    (moved_gain && target == AutomationTarget::MixerGain)
+                        || (moved_pan && target == AutomationTarget::MixerPan)
                 });
                 None
             }
@@ -1983,17 +1979,15 @@ impl Engine {
                 match state.track_mut(track) {
                     Some(t) => {
                         // A gesture on the fader or the pan holds the lane that drives it
-                        // (AM-2); one on the mute holds neither. When neither changed, this is
-                        // an unchanged gesture on a lane-driven parameter (#394 point 2).
+                        // (AM-2); one on the mute holds neither.
                         let moved_gain = t.gain.to_bits() != gain.to_bits();
                         let moved_pan = t.pan.to_bits() != pan.to_bits();
-                        let neither = !moved_gain && !moved_pan;
                         t.gain = gain;
                         t.pan = pan;
                         t.mute = mute;
                         hold_lanes(state, &self.graph, track, |target| {
-                            (moved_gain || neither) && target == AutomationTarget::MixerGain
-                                || (moved_pan || neither) && target == AutomationTarget::MixerPan
+                            (moved_gain && target == AutomationTarget::MixerGain)
+                                || (moved_pan && target == AutomationTarget::MixerPan)
                         });
                     }
                     None => skipped = true,
