@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   BARE_SHORTCUT_CODES,
   clampOctave,
@@ -14,6 +14,12 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
+
+// Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
+const trackers: Array<() => void> = []
+afterEach(() => {
+  for (const stop of trackers.splice(0)) stop()
+})
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -86,6 +92,7 @@ describe('space bar and the transport', () => {
 
   it('follows where the focus came from: a pressed control is pointer-focused, a Tab or script focus is keyboard-focused', () => {
     const stop = trackFocusOrigin()
+    trackers.push(stop)
     const press = (target: Element) => {
       target.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
       ;(target as HTMLElement).focus()
@@ -129,6 +136,7 @@ describe('space bar and the transport', () => {
     // Scoped to sliders (role="slider"): other controls (buttons etc.) are left alone so that e.g.
     // pressing Escape on a menu that returns focus to its trigger does not change the focus model.
     const stop = trackFocusOrigin()
+    trackers.push(stop)
     const k = el('k') as HTMLElement // k has role="slider"
 
     // Press (pointer) and focus the slider: it becomes pointer-focused.
@@ -140,6 +148,11 @@ describe('space bar and the transport', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true)
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    // A chord (Alt+ArrowLeft, Ctrl+Delete, Cmd+Backspace) is not a bare shortcut: the origin stays pointer.
+    for (const mod of ['altKey', 'ctrlKey', 'metaKey'] as const) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', [mod]: true, bubbles: true }))
+      expect(spaceTogglesTransport(k)).toBe(true)
+    }
     expect(spaceTogglesTransport(k)).toBe(true)
 
     // Playing keys (bare letters, octave steps Z/X) do NOT reassert keyboard origin:
@@ -219,6 +232,7 @@ describe('space bar and the transport', () => {
     // no longer play a note on that slider until the next click restores pointer origin.
     // This is the visible consequence of the fix: not just Space, but playsNote changes too.
     const stop = trackFocusOrigin()
+    trackers.push(stop)
     const k = el('k') as HTMLElement // role="slider"
     const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false }
 
