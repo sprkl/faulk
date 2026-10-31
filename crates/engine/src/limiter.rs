@@ -32,7 +32,8 @@
 //! The immediate attack trades some distortion on an over for zero latency: this is a safety
 //! net that works on rare overs, not a mastering tool.
 //!
-//! Nothing here allocates, locks, logs or panics: two floats of state and one coefficient.
+//! Nothing here allocates, locks, logs or panics: three `f32` fields (the gain deficit, the
+//! release coefficient and the peak gain reduction for the export's report) and no heap.
 //!
 //! # Effect on downstream signal assertions
 //!
@@ -71,10 +72,11 @@ pub struct Limiter {
     /// Fraction of the deficit kept after one sample of release.
     keep: f32,
     /// The largest deficit (`1 - gain`) applied since [`Limiter::reset_max_reduction`], i.e.
-    /// the peak gain reduction, in `[0, 1]`. It only grows here and is read, not written, on
-    /// the audio path; an offline export reads it once to tell the user the mix was pushed
-    /// into the limiter (#402). It is **not** cleared by [`Limiter::reset`] or a sample-rate
-    /// change: a render reads a whole pass, and the export resets it before the pass.
+    /// the peak gain reduction, in `[0, 1]`. It is updated by one monotonic `max` on the audio
+    /// thread and read off that thread (by `Offline` after a render) to tell the user the mix
+    /// was pushed into the limiter (#402); the field is plain `f32`, owned by the audio thread,
+    /// so there is no cross-thread sharing. It is **not** cleared by [`Limiter::reset`] or a
+    /// sample-rate change: a render reads a whole pass, and the export resets it before the pass.
     max_reduction: f32,
 }
 
@@ -144,7 +146,8 @@ impl Limiter {
         }
         self.deficit = deficit;
         // The deepest attenuation of this pass, for the export's "pushed into the limiter"
-        // report (#402). One `max`, read-only on the audio path.
+        // report (#402). One monotonic `max` on an audio-thread-owned field (read off-thread
+        // by the export after the render).
         self.max_reduction = self.max_reduction.max(deficit);
         let gain = 1.0 - deficit;
         *l = shape(*l, gain);

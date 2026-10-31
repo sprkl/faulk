@@ -359,11 +359,12 @@ impl Offline {
     }
 
     /// The peak gain reduction the output protection applied over this render, in `[0, 1]`
-    /// (`0.0` = never engaged). The export shows a warning when it is above a small threshold:
-    /// the file does not clip (the limiter holds it under the ceiling), but the mix was pushed
-    /// into the limiter, so it was audibly attenuated. `20·log10(1 - reduction)` is the deepest
-    /// attenuation in dB (#402, founder's decision of 2026-10-31). This is the pre-protection
-    /// signal the master meter also shows live (the meter runs before the limiter).
+    /// (`0.0` = never engaged). This is a gain-reduction ratio, not a level: `-20·log10(1 -
+    /// reduction)` is the deepest attenuation in dB. The export shows a warning when it is above
+    /// a small threshold: the file does not clip (the limiter holds it under the ceiling), but
+    /// the mix was pushed into the limiter, so it was audibly attenuated. It measures the same
+    /// over-the-ceiling condition the master meter shows live before the limiter, but as the
+    /// reduction the limiter applied, not as the pre-limiter level (#402, 2026-10-31).
     pub fn reduction(&self) -> f32 {
         self.host.engine().limiter_reduction()
     }
