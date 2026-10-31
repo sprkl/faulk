@@ -33,7 +33,8 @@
 //! net that works on rare overs, not a mastering tool.
 //!
 //! Nothing here allocates, locks, logs or panics: three `f32` fields (the gain deficit, the
-//! release coefficient and the peak gain reduction for the export's report) and no heap.
+//! release coefficient and the peak gain reduction for the export's report) and one `u64` counter
+//! of the non-finite samples it silenced (for the no-NaN guard below), all on the stack, no heap.
 //!
 //! # Effect on downstream signal assertions
 //!
