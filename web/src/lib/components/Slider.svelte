@@ -9,7 +9,7 @@
    * and groups a drag as one history entry with `onbegin` and `onend` (`gesture.ts`). It holds no
    * project state.
    */
-  import type { Snippet } from 'svelte'
+  import { onDestroy, type Snippet } from 'svelte'
   import { createDrag, DRAG_SLOP_PX, fineKey, keyAction, type Drag } from '../continuous'
   import { useStores } from '../stores'
   import ValueField from './ValueField.svelte'
@@ -61,7 +61,7 @@
     /** Puts the default value back, as one command. */
     onreset: () => void
     /** Typing a value: the text the field opens with (the displayed value) and what applies a text (true when accepted). Without it the control has no field. */
-    entry?: { text: () => string; commit: (text: string) => boolean }
+    entry?: { text: () => string; commit: (text: string) => boolean | string }
     /** A drag starts and ends: the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
@@ -75,10 +75,28 @@
   let menu = $state<{ x: number; y: number } | null>(null)
   // The text the value field opened with; null while it is closed.
   let typing = $state<string | null>(null)
+  // What an entry that went past the range says once the field has closed (#410): where the field was, for about two seconds.
+  let note = $state<{ text: string; left: number; top: number } | null>(null)
+  let noteTimer: ReturnType<typeof setTimeout> | undefined
+  const NOTE_MS = 2000
+
+  function say(text: string) {
+    if (!root) return
+    const rect = root.getBoundingClientRect()
+    note = {
+      text,
+      left: Math.max(4, Math.min(rect.left + rect.width / 2 - 60, window.innerWidth - 124)),
+      top: Math.max(4, Math.min(rect.bottom + 4, window.innerHeight - 32)),
+    }
+    clearTimeout(noteTimer)
+    noteTimer = setTimeout(() => (note = null), NOTE_MS)
+  }
+  onDestroy(() => clearTimeout(noteTimer))
 
   /** Opens the field to type a value: Enter on the focused control, and the readouts next to it, call it. */
   export function edit() {
     if (!entry || pointer || menu || typing !== null) return
+    note = null
     typing = entry.text()
   }
 
@@ -244,12 +262,20 @@
     anchor={root}
     initial={typing}
     {label}
-    commit={(text) => entry?.commit(text) ?? false}
+    commit={(text) => {
+      const result = entry?.commit(text) ?? false
+      if (typeof result === 'string') say(result)
+      return result !== false
+    }}
     onclose={(refocus) => {
       typing = null
       if (refocus) root?.focus()
     }}
   />
+{/if}
+
+{#if note}
+  <p class="note" role="status" data-testid="value-note" style:left="{note.left}px" style:top="{note.top}px">{note.text}</p>
 {/if}
 
 {#if menu}
@@ -266,6 +292,18 @@
 {/if}
 
 <style>
+  .note {
+    position: fixed;
+    z-index: 20;
+    margin: 0;
+    padding: var(--fk-space-1) var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
+    box-shadow: var(--fk-shadow-float);
+    font-size: 11px;
+    pointer-events: none;
+  }
   .slider {
     position: relative;
     flex: none;

@@ -12,6 +12,7 @@ const TEXTS = {
     add: (n: string) => `Add ${n} to the track`,
     remove: (n: string) => `Remove ${n}`,
     hint: 'Output level of the synth, from 0 to 1 (linear gain).',
+    bare: (u: string) => `A bare number is read in ${u}.`,
   },
   fr: {
     bypass: (n: string) => `Contourner ${n}`,
@@ -19,6 +20,7 @@ const TEXTS = {
     add: (n: string) => `Ajouter ${n} à la piste`,
     remove: (n: string) => `Retirer ${n}`,
     hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).',
+    bare: (u: string) => `Un nombre seul = ${u}.`,
   },
 } as const
 
@@ -49,7 +51,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(osc.getByTestId('device-left')).toHaveCount(0)
     await expect(panel.getByTestId('browse-no-effects')).toHaveCount(0)
     // The tooltip of a parameter is its description, in the page's language.
-    await expect(osc.getByTestId('param-gain').locator('.knob').first()).toHaveAttribute('title', x.hint)
+    await expect(osc.getByTestId('param-gain').locator('.knob').first()).toHaveAttribute('title', `${x.hint} ${x.bare('dB')}`)
 
     // A choice and a knob reach the project.
     await osc.getByRole('radio', { name: lang === 'en' ? 'Square' : 'Carré' }).click()
