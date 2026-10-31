@@ -678,7 +678,15 @@ test('automation: the master row is visible in an empty project, below the welco
   test.setTimeout(120_000)
   const seen = watch(page)
   await open(page)
-  // A fresh project has no track: the welcome message shows, and it no longer hides the master row.
+  // With a track, the master row is there and the welcome message is not.
+  await expect(page.getByTestId('arr-master-row')).toBeVisible()
+  await expect(page.getByTestId('arrangement-empty')).toHaveCount(0)
+  // Delete every track: the project is empty, the welcome message shows, and it no longer hides the master row.
+  while ((await page.getByTestId('track-header').count()) > 0) {
+    const header = page.getByTestId('track-header').first()
+    await header.getByTestId('track-more').click()
+    await header.getByTestId('track-delete').click()
+  }
   const welcome = page.getByTestId('arrangement-empty')
   const masterRow = page.getByTestId('arr-master-row')
   await expect(welcome).toBeVisible()
