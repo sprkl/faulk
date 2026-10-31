@@ -725,7 +725,7 @@
     const ref = e ? laneRefs.get(e.lane) : undefined
     const point = ref && e ? pointAtTick(pointsOf(ref.info.lane), e.tick) : null
     if (!e || !ref || !point) return true
-    const parsed = ref.info.axis.parse(text, point.value)
+    const parsed = ref.info.axis.parse(text)
     if (parsed === null) return false
     const value = ref.info.axis.clamp(parsed)
     if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))
@@ -875,338 +875,342 @@
 />
 <svelte:document onvisibilitychange={silence} />
 
-{#if allEntries.length <= 1 && Object.keys(masterEntry.track.automation).length === 0}
-  <p class="empty" data-testid="arrangement-empty">{t('arrangement.empty')}</p>
-{:else}
-  <div
-    class="arr"
-    data-testid="arrangement"
-    data-block-count={blocks.length}
-    data-selected-count={selection.length}
-    data-blocks={blocks.length <= 48
-      ? JSON.stringify(blocks.map(({ id, track, row, clip, start, length, offset }) => ({ id, track, row, clip, start, length, offset })))
-      : undefined}
-    data-selection={JSON.stringify(selection.map((b) => b.id))}
-    data-loop={transport?.loop_region ? `${transport.loop_region.start}-${transport.loop_region.end}` : ''}
-    data-loop-on={loopOn}
-    data-position={position ?? ''}
-    data-follow={follow}
-  >
-    <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
-      <label class="field">
-        <span>{t('pianoRoll.snap')}</span>
-        <select data-testid="arr-snap" bind:value={snap}>
-          {#each SNAP_SETTINGS as setting (setting)}
-            <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
-          {/each}
-        </select>
-      </label>
-      <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
-      <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
-        >{t('arrangement.duplicate')}</button
+<div
+  class="arr"
+  data-testid="arrangement"
+  data-block-count={blocks.length}
+  data-selected-count={selection.length}
+  data-blocks={blocks.length <= 48
+    ? JSON.stringify(blocks.map(({ id, track, row, clip, start, length, offset }) => ({ id, track, row, clip, start, length, offset })))
+    : undefined}
+  data-selection={JSON.stringify(selection.map((b) => b.id))}
+  data-loop={transport?.loop_region ? `${transport.loop_region.start}-${transport.loop_region.end}` : ''}
+  data-loop-on={loopOn}
+  data-position={position ?? ''}
+  data-follow={follow}
+>
+  <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
+    <label class="field">
+      <span>{t('pianoRoll.snap')}</span>
+      <select data-testid="arr-snap" bind:value={snap}>
+        {#each SNAP_SETTINGS as setting (setting)}
+          <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
+        {/each}
+      </select>
+    </label>
+    <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
+    <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
+      >{t('arrangement.duplicate')}</button
+    >
+    <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
+      >{t('arrangement.duplicateLinked')}</button
+    >
+    <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
+      >{t('arrangement.delete')}</button
+    >
+    <span class="curves" role="group" aria-label={t('automation.curves')}>
+      <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
+        >{t('automation.linear')}</button
       >
-      <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
-        >{t('arrangement.duplicateLinked')}</button
+      <button title={t('automation.stepHint')} disabled={!autoSel} data-testid="arr-curve-step" onclick={() => setCurve('step')}>{t('automation.step')}</button>
+    </span>
+    <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
+      <button
+        title={t('arrangement.zoomOut')}
+        aria-label={t('arrangement.zoomOut')}
+        disabled={!canZoomOut}
+        data-testid="arr-zoom-out"
+        onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button
       >
-      <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
-        >{t('arrangement.delete')}</button
+      <button
+        title={t('arrangement.zoomIn')}
+        aria-label={t('arrangement.zoomIn')}
+        disabled={!canZoomIn}
+        data-testid="arr-zoom-in"
+        onclick={() => zoomBy(ZOOM_STEP)}>+</button
       >
-      <span class="curves" role="group" aria-label={t('automation.curves')}>
-        <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
-          >{t('automation.linear')}</button
-        >
-        <button title={t('automation.stepHint')} disabled={!autoSel} data-testid="arr-curve-step" onclick={() => setCurve('step')}
-          >{t('automation.step')}</button
-        >
-      </span>
-      <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
-        <button
-          title={t('arrangement.zoomOut')}
-          aria-label={t('arrangement.zoomOut')}
-          disabled={!canZoomOut}
-          data-testid="arr-zoom-out"
-          onclick={() => zoomBy(1 / ZOOM_STEP)}>−</button
-        >
-        <button
-          title={t('arrangement.zoomIn')}
-          aria-label={t('arrangement.zoomIn')}
-          disabled={!canZoomIn}
-          data-testid="arr-zoom-in"
-          onclick={() => zoomBy(ZOOM_STEP)}>+</button
-        >
-      </span>
-      <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
-        >{t('arrangement.follow')}</button
-      >
-      <span class="help" title={t('arrangement.help')}>?</span>
-      <span class="count" data-testid="arr-count"
-        >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
-          · {t('arrangement.selected', { n: selection.length })}{/if}{#if autoSel}
-          · {t('automation.selectedPoints', { n: autoSel.points.length })}{/if}</span
-      >
-    </div>
+    </span>
+    <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
+      >{t('arrangement.follow')}</button
+    >
+    <span class="help" title={t('arrangement.help')}>?</span>
+    <span class="count" data-testid="arr-count"
+      >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
+        · {t('arrangement.selected', { n: selection.length })}{/if}{#if autoSel}
+        · {t('automation.selectedPoints', { n: autoSel.points.length })}{/if}</span
+    >
+  </div>
 
-    <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
-      <div class="heads" data-testid="arr-heads">
-        <div class="slide" style:transform="translateY({-y0}px)">
-          {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
-            {#if row.kind === 'track'}
-              {@const entry = allEntries[row.track]!}
-              {@const isMaster = entry.id === MASTER}
-              {@const lanes = Object.keys(entry.track.automation).length}
-              {#if isMaster}
-                <!-- The master row: pinned at the bottom, no back-track button, no colour swatch, cannot be deleted or moved. -->
-                <div class="row master-row" style:height="{row.height}px" data-testid="arr-master-row">
-                  <div class="head master-head">
-                    <span class="swatch" style:background="var(--fk-text-muted)"></span>
-                    <span class="label">{t('mixer.master')}</span>
-                  </div>
-                  <button
-                    class="fold"
-                    class:has={lanes > 0}
-                    aria-expanded={open.has(MASTER)}
-                    aria-label={t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')}
-                    title={lanes > 0
-                      ? `${t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')} · ${t('automation.lanes', { n: lanes })}`
-                      : undefined}
-                    data-testid="arr-automation-toggle"
-                    onclick={() => toggleOpen(MASTER)}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                      ><path
-                        d={open.has(MASTER) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      /></svg
-                    >
-                    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                  </button>
+  <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
+    {#if entries.length === 0}
+      <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
+      <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
+        {t('arrangement.empty')}
+      </p>
+    {/if}
+    <div class="heads" data-testid="arr-heads">
+      <div class="slide" style:transform="translateY({-y0}px)">
+        {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
+          {#if row.kind === 'track'}
+            {@const entry = allEntries[row.track]!}
+            {@const isMaster = entry.id === MASTER}
+            {@const lanes = Object.keys(entry.track.automation).length}
+            {#if isMaster}
+              <!-- The master row: pinned at the bottom, no back-track button, no colour swatch, cannot be deleted or moved. -->
+              <div class="row master-row" style:height="{row.height}px" data-testid="arr-master-row">
+                <div class="head master-head">
+                  <span class="swatch" style:background="var(--fk-text-muted)"></span>
+                  <span class="label">{t('mixer.master')}</span>
                 </div>
-              {:else}
-                {@const trackEntry = entries[row.track]!}
-                <div
-                  class="row"
-                  title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
-                  style:height="{row.height}px"
-                  class:off={detached.has(trackEntry.id)}
-                  data-detached={detached.has(trackEntry.id) ? 'true' : undefined}
+                <button
+                  class="fold"
+                  class:has={lanes > 0}
+                  aria-expanded={open.has(MASTER)}
+                  aria-label={t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')}
+                  title={lanes > 0
+                    ? `${t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')} · ${t('automation.lanes', { n: lanes })}`
+                    : undefined}
+                  data-testid="arr-automation-toggle"
+                  onclick={() => toggleOpen(MASTER)}
                 >
-                  <button
-                    class="head"
-                    class:on={project.selected?.id === trackEntry.id}
-                    style:--swatch={trackEntry.track.color ?? 'var(--fk-text-muted)'}
-                    aria-pressed={project.selected?.id === trackEntry.id}
-                    aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
-                    data-testid="arr-track"
-                    onclick={() => select(trackEntry.id)}
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                    ><path
+                      d={open.has(MASTER) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
                   >
-                    <span class="swatch"></span>
-                    <span class="label">{trackLabel(trackEntry, t)}</span>
-                  </button>
-                  {#if detached.has(trackEntry.id)}
-                    <button
-                      class="back"
-                      title={t('arrangement.backTrackHint', { name: trackLabel(trackEntry, t) })}
-                      aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(trackEntry, t)}
-                      data-testid="arr-back-track"
-                      onclick={() => run(backTrackToArrangement(trackEntry.id))}
-                    >
-                      <span aria-hidden="true">↩</span>
-                    </button>
-                  {/if}
-                  <button
-                    class="fold"
-                    class:has={lanes > 0}
-                    aria-expanded={open.has(trackEntry.id)}
-                    aria-label={t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })}
-                    title={lanes > 0
-                      ? `${t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })} · ${t('automation.lanes', { n: lanes })}`
-                      : undefined}
-                    data-testid="arr-automation-toggle"
-                    onclick={() => toggleOpen(trackEntry.id)}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                      ><path
-                        d={open.has(trackEntry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      /></svg
-                    >
-                    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                  </button>
-                </div>
-              {/if}
-            {:else if row.kind === 'lane'}
-              {@const ref = laneRefs.get(row.lane ?? '')}
-              {#if ref}
-                {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
-                <div
-                  class="lane-head"
-                  style:height="{row.height}px"
-                  style:--swatch={ref.color}
-                  role="group"
-                  aria-label={t('automation.lane', { title: ref.info.title })}
-                  title={t('automation.laneHint')}
-                  data-testid="arr-lane"
-                  data-lane={row.lane}
-                  data-target={ref.info.title}
-                  data-points={Object.keys(ref.info.lane.points).length}
+                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
+                </button>
+              </div>
+            {:else}
+              {@const trackEntry = entries[row.track]!}
+              <div
+                class="row"
+                title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
+                style:height="{row.height}px"
+                class:off={detached.has(trackEntry.id)}
+                data-detached={detached.has(trackEntry.id) ? 'true' : undefined}
+              >
+                <button
+                  class="head"
+                  class:on={project.selected?.id === trackEntry.id}
+                  style:--swatch={trackEntry.track.color ?? 'var(--fk-text-muted)'}
+                  aria-pressed={project.selected?.id === trackEntry.id}
+                  aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
+                  data-testid="arr-track"
+                  onclick={() => select(trackEntry.id)}
                 >
                   <span class="swatch"></span>
-                  <span class="lane-name"><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span></span>
-                  <span class="lane-value" title={t('automation.valueNow')} data-testid="arr-lane-value">{live === null ? '' : ref.info.axis.format(live)}</span
-                  >
+                  <span class="label">{trackLabel(trackEntry, t)}</span>
+                </button>
+                {#if detached.has(trackEntry.id)}
                   <button
-                    class="lane-delete"
-                    aria-label={t('automation.deleteLane', { title: ref.info.title })}
-                    title={t('automation.deleteLane', { title: ref.info.title })}
-                    data-testid="arr-lane-delete"
-                    onclick={() => run(deleteLane(row.lane!))}
+                    class="back"
+                    title={t('arrangement.backTrackHint', { name: trackLabel(trackEntry, t) })}
+                    aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(trackEntry, t)}
+                    data-testid="arr-back-track"
+                    onclick={() => run(backTrackToArrangement(trackEntry.id))}
                   >
-                    <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
-                      ><path d="M3 3 L 11 11 M11 3 L 3 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
-                    >
+                    <span aria-hidden="true">↩</span>
                   </button>
-                </div>
-              {/if}
-            {:else}
-              {@const entry = allEntries[row.track]!}
-              {@const realEntry = entries[row.track]}
-              {@const free = freeOptions(entry.id)}
-              <div class="add-head" style:height="{row.height}px">
-                <select
-                  aria-label={entry.id === MASTER
-                    ? t('automation.addLaneForMaster')
-                    : t('automation.addLaneFor', { name: realEntry ? trackLabel(realEntry, t) : '' })}
-                  disabled={free.length === 0}
-                  data-testid="arr-add-lane"
-                  value=""
-                  onchange={(e) => {
-                    addLane(entry.id, e.currentTarget.value)
-                    e.currentTarget.value = ''
-                  }}
+                {/if}
+                <button
+                  class="fold"
+                  class:has={lanes > 0}
+                  aria-expanded={open.has(trackEntry.id)}
+                  aria-label={t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })}
+                  title={lanes > 0
+                    ? `${t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })} · ${t('automation.lanes', { n: lanes })}`
+                    : undefined}
+                  data-testid="arr-automation-toggle"
+                  onclick={() => toggleOpen(trackEntry.id)}
                 >
-                  <option value="" disabled selected>{t('automation.addLane')}</option>
-                  {#each [...new Set(free.map((o) => o.group))] as group (group)}
-                    <optgroup label={group}>
-                      {#each free.filter((o) => o.group === group) as option (option.key)}
-                        <option value={option.key}>{option.label}</option>
-                      {/each}
-                    </optgroup>
-                  {/each}
-                </select>
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                    ><path
+                      d={open.has(trackEntry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                  >
+                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
+                </button>
               </div>
             {/if}
-          {/each}
-        </div>
-      </div>
-      <div
-        class="stage"
-        bind:this={stage}
-        bind:clientWidth={stageW}
-        bind:clientHeight={stageH}
-        role="presentation"
-        data-testid="arr-stage"
-        id="arr-stage-grid"
-        data-scroll-y={y0}
-        data-cursor={gesture ? undefined : cursor}
-        data-gesture={gesture ? gesture.kind + (gesture.moved ? ' moved' : '') : undefined}
-        onpointerdown={onPointerDown}
-        onpointermove={onPointerMove}
-        onpointerup={onPointerUp}
-        onpointercancel={() => finish(false)}
-        onlostpointercapture={() => gesture && finish(false)}
-        ondblclick={onDoubleClick}
-        oncontextmenu={onContextMenu}
-        onkeydown={onKeyDown}
-        onkeydowncapture={handScroll}
-        onwheelcapture={handScroll}
-      >
-        <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
-        {#if editing}
-          <div class="anchor" bind:this={editAnchor} style:left="{editing.x}px" style:top="{editing.y}px"></div>
-          {#if editAnchor}
-            <ValueField
-              anchor={editAnchor}
-              initial={(() => {
-                const ref = laneRefs.get(editing.lane)
-                const point = ref ? pointAtTick(pointsOf(ref.info.lane), editing.tick) : null
-                return ref && point ? ref.info.axis.format(point.value) : ''
-              })()}
-              label={t('automation.pointField')}
-              commit={commitValue}
-              onclose={(refocus) => {
-                editing = null
-                editAnchor = undefined
-                if (refocus) focusGrid()
-              }}
-            />
+          {:else if row.kind === 'lane'}
+            {@const ref = laneRefs.get(row.lane ?? '')}
+            {#if ref}
+              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
+              <div
+                class="lane-head"
+                style:height="{row.height}px"
+                style:--swatch={ref.color}
+                role="group"
+                aria-label={t('automation.lane', { title: ref.info.title })}
+                title={t('automation.laneHint')}
+                data-testid="arr-lane"
+                data-lane={row.lane}
+                data-target={ref.info.title}
+                data-points={Object.keys(ref.info.lane.points).length}
+              >
+                <span class="swatch"></span>
+                <span class="lane-name"><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span></span>
+                <span class="lane-value" title={t('automation.valueNow')} data-testid="arr-lane-value">{live === null ? '' : ref.info.axis.format(live)}</span>
+                <button
+                  class="lane-delete"
+                  aria-label={t('automation.deleteLane', { title: ref.info.title })}
+                  title={t('automation.deleteLane', { title: ref.info.title })}
+                  data-testid="arr-lane-delete"
+                  onclick={() => run(deleteLane(row.lane!))}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
+                    ><path d="M3 3 L 11 11 M11 3 L 3 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
+                  >
+                </button>
+              </div>
+            {/if}
+          {:else}
+            {@const entry = allEntries[row.track]!}
+            {@const realEntry = entries[row.track]}
+            {@const free = freeOptions(entry.id)}
+            <div class="add-head" style:height="{row.height}px">
+              <select
+                aria-label={entry.id === MASTER
+                  ? t('automation.addLaneForMaster')
+                  : t('automation.addLaneFor', { name: realEntry ? trackLabel(realEntry, t) : '' })}
+                disabled={free.length === 0}
+                data-testid="arr-add-lane"
+                value=""
+                onchange={(e) => {
+                  addLane(entry.id, e.currentTarget.value)
+                  e.currentTarget.value = ''
+                }}
+              >
+                <option value="" disabled selected>{t('automation.addLane')}</option>
+                {#each [...new Set(free.map((o) => o.group))] as group (group)}
+                  <optgroup label={group}>
+                    {#each free.filter((o) => o.group === group) as option (option.key)}
+                      <option value={option.key}>{option.label}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              </select>
+            </div>
           {/if}
-        {/if}
-      </div>
-      <div class="corner"></div>
-      <div
-        class="hbar"
-        bind:this={scrollbar}
-        onscroll={onBarScroll}
-        data-testid="arr-scrollbar"
-        role="scrollbar"
-        aria-controls="arr-stage-grid"
-        aria-orientation="horizontal"
-        aria-valuemin="0"
-        aria-valuemax={totalTicks}
-        aria-valuenow={Math.round(shown.scrollTick)}
-        tabindex="0"
-        aria-label={t('arrangement.scroll')}
-      >
-        <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
+        {/each}
       </div>
     </div>
-    {#if menu}
-      <div class="menu" role="menu" aria-label={t('automation.menu')} style:left="{menu.x}px" style:top="{menu.y}px" data-point-menu data-testid="point-menu">
-        <button
-          role="menuitem"
-          data-testid="point-menu-linear"
-          onclick={() => {
-            setCurve('linear')
-            menu = null
-            focusGrid()
-          }}>{t('automation.menuLinear')}</button
-        >
-        <button
-          role="menuitem"
-          data-testid="point-menu-step"
-          onclick={() => {
-            setCurve('step')
-            menu = null
-            focusGrid()
-          }}>{t('automation.menuStep')}</button
-        >
-        <button
-          role="menuitem"
-          data-testid="point-menu-delete"
-          onclick={() => {
-            removePicked()
-            menu = null
-            focusGrid()
-          }}>{t('automation.menuDelete')}</button
-        >
-      </div>
-    {/if}
+    <div
+      class="stage"
+      bind:this={stage}
+      bind:clientWidth={stageW}
+      bind:clientHeight={stageH}
+      role="presentation"
+      data-testid="arr-stage"
+      id="arr-stage-grid"
+      data-scroll-y={y0}
+      data-cursor={gesture ? undefined : cursor}
+      data-gesture={gesture ? gesture.kind + (gesture.moved ? ' moved' : '') : undefined}
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+      onpointercancel={() => finish(false)}
+      onlostpointercapture={() => gesture && finish(false)}
+      ondblclick={onDoubleClick}
+      oncontextmenu={onContextMenu}
+      onkeydown={onKeyDown}
+      onkeydowncapture={handScroll}
+      onwheelcapture={handScroll}
+    >
+      <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      {#if editing}
+        <div class="anchor" bind:this={editAnchor} style:left="{editing.x}px" style:top="{editing.y}px"></div>
+        {#if editAnchor}
+          <ValueField
+            anchor={editAnchor}
+            initial={(() => {
+              const ref = laneRefs.get(editing.lane)
+              const point = ref ? pointAtTick(pointsOf(ref.info.lane), editing.tick) : null
+              return ref && point ? ref.info.axis.format(point.value) : ''
+            })()}
+            label={t('automation.pointField')}
+            commit={commitValue}
+            onclose={(refocus) => {
+              editing = null
+              editAnchor = undefined
+              if (refocus) focusGrid()
+            }}
+          />
+        {/if}
+      {/if}
+    </div>
+    <div class="corner"></div>
+    <div
+      class="hbar"
+      bind:this={scrollbar}
+      onscroll={onBarScroll}
+      data-testid="arr-scrollbar"
+      role="scrollbar"
+      aria-controls="arr-stage-grid"
+      aria-orientation="horizontal"
+      aria-valuemin="0"
+      aria-valuemax={totalTicks}
+      aria-valuenow={Math.round(shown.scrollTick)}
+      tabindex="0"
+      aria-label={t('arrangement.scroll')}
+    >
+      <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
+    </div>
   </div>
-{/if}
+  {#if menu}
+    <div class="menu" role="menu" aria-label={t('automation.menu')} style:left="{menu.x}px" style:top="{menu.y}px" data-point-menu data-testid="point-menu">
+      <button
+        role="menuitem"
+        data-testid="point-menu-linear"
+        onclick={() => {
+          setCurve('linear')
+          menu = null
+          focusGrid()
+        }}>{t('automation.menuLinear')}</button
+      >
+      <button
+        role="menuitem"
+        data-testid="point-menu-step"
+        onclick={() => {
+          setCurve('step')
+          menu = null
+          focusGrid()
+        }}>{t('automation.menuStep')}</button
+      >
+      <button
+        role="menuitem"
+        data-testid="point-menu-delete"
+        onclick={() => {
+          removePicked()
+          menu = null
+          focusGrid()
+        }}>{t('automation.menuDelete')}</button
+      >
+    </div>
+  {/if}
+</div>
 
 <style>
   .empty {
+    position: absolute;
+    left: var(--head);
+    right: 0;
+    z-index: 1;
     margin: 0;
     padding: var(--fk-space-4);
     color: var(--fk-text-muted);
+    pointer-events: none;
   }
   .arr {
     display: flex;
@@ -1265,6 +1269,7 @@
     display: grid;
     grid-template-columns: var(--head) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
+    position: relative;
     flex: 1;
     min-height: 0;
   }
