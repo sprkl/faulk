@@ -149,6 +149,35 @@ domain! {
         /// The count-in before the command, in bars.
         previous_count_in_bars: u8,
     };
+
+    /// Read the transport settings saved with the project: the tempo in BPM, the time
+    /// signature, the launch quantization, the loop region (`null` when none) and whether
+    /// the loop is on, and the metronome (on or off, level in dB with `null` for silence,
+    /// count-in bars). Playback state (playing or not, the playhead) is not part of the
+    /// project: it belongs to the engine and is not answered here. A query: changes nothing
+    /// and never enters the history.
+    "transport.get" (kind = "query", undo = "none", destructive = false)
+    Get {} => {
+        /// The tempo in BPM.
+        tempo_bpm: f64,
+        /// The time signature's numerator.
+        numerator: u8,
+        /// The time signature's denominator.
+        denominator: u8,
+        /// The launch quantization.
+        launch_quantize: Quantize,
+        /// The loop region in ticks; `null` when none is set.
+        loop_region: Option<TickLoop>,
+        /// Whether the transport loops over the loop region.
+        loop_enabled: bool,
+        /// Whether the metronome is on.
+        metronome_enabled: bool,
+        /// The metronome's level in dB; `null` is silence.
+        #[schemars(required, schema_with = "nullable_number")]
+        metronome_gain_db: Option<f64>,
+        /// Bars counted in before recording.
+        count_in_bars: u8,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -197,6 +226,26 @@ pub fn apply(
             Ok(unchanged(match command {
                 Command::Pause { .. } => Output::Pause {},
                 _ => Output::Seek {},
+            }))
+        }
+        Command::Get {} => {
+            let p = &state.project;
+            let signature = p.time_signature();
+            let t = &p.transport;
+            Ok(crate::query::answer(Output::Get {
+                tempo_bpm: p.tempo().bpm(),
+                numerator: signature.numerator(),
+                denominator: signature.denominator(),
+                launch_quantize: t.launch_quantize,
+                loop_region: as_tick_loop(t.loop_region),
+                loop_enabled: t.loop_enabled,
+                metronome_enabled: t.metronome.enabled,
+                metronome_gain_db: t
+                    .metronome
+                    .gain_db
+                    .is_finite()
+                    .then_some(t.metronome.gain_db),
+                count_in_bars: t.metronome.count_in_bars,
             }))
         }
         Command::SetTempo { bpm } => set_tempo(state, *bpm),
