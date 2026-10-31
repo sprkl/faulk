@@ -33,6 +33,7 @@ export CARGO_INCREMENTAL=${CARGO_INCREMENTAL:-0}
 wt=$(mktemp -d)
 cleanup() { git -C "$root" worktree remove --force "$wt" >/dev/null 2>&1 || true; rm -rf "$wt"; git -C "$root" worktree prune; }
 trap cleanup EXIT
+trap 'echo "STOP $pr: a step failed (line $LINENO: $BASH_COMMAND); the branch was not pushed"' ERR
 git worktree add -q --detach "$wt" "origin/$head"
 cd "$wt"
 if ! git merge --no-ff --no-commit origin/develop >/dev/null; then

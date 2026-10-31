@@ -159,6 +159,40 @@ test('merge-queue leaves a branch that already contains develop alone, whatever 
     const r = w.run('merge-queue.sh', '7')
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.doesNotMatch(w.logText(), /update-branch/)
+    assert.match(w.logText(), /gh run list --commit/, 'waits for a run on the current head, as after a regen push')
+  } finally {
+    w.done()
+  }
+})
+
+test('regen-generated also regenerates when git merges the generated files cleanly', () => {
+  const w = world()
+  try {
+    w.commit('pr', `${GEN}/schema.json`, schema('PR', 'b', 'c', 'd', 'e'))
+    w.commit('develop', `${GEN}/schema.json`, schema('a', 'b', 'c', 'd', 'DEV'))
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    git(w.work, 'fetch', '-q', 'origin')
+    assert.equal(git(w.work, 'show', `origin/pr:${GEN}/schema.json`), 'regenerated')
+    assert.equal(git(w.work, 'rev-list', '--parents', '-n', '1', 'origin/pr').split(' ').length, 3)
+  } finally {
+    w.done()
+  }
+})
+
+test('regen-generated stops when a conflict mixes generated and other files, pushing nothing', () => {
+  const w = world()
+  try {
+    w.commit('pr', `${GEN}/schema.json`, schema('a', 'b', 'PR', 'd', 'e'))
+    w.commit('pr', 'web/src/other/x.txt', 'pr\n')
+    w.commit('develop', `${GEN}/schema.json`, schema('a', 'b', 'DEV', 'd', 'e'))
+    w.commit('develop', 'web/src/other/x.txt', 'dev\n')
+    const before = git(w.work, 'rev-parse', 'origin/pr')
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 1)
+    assert.match(r.stdout, /conflicts outside/)
+    git(w.work, 'fetch', '-q', 'origin')
+    assert.equal(git(w.work, 'rev-parse', 'origin/pr'), before)
   } finally {
     w.done()
   }

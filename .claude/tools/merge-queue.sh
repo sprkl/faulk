@@ -37,12 +37,14 @@ for pr in "$@"; do
       [ "$sha" != "$old" ] && break; sleep 10
     done
     [ "$sha" != "$old" ] || { echo "STOP $pr: head did not move after update-branch"; exit 1; }
-    for i in $(seq 1 30); do
-      runs=$(gh run list --commit "$sha" --json databaseId -q 'length')
-      [ "${runs:-0}" -gt 0 ] && break; sleep 10
-    done
-    [ "${runs:-0}" -gt 0 ] || { echo "STOP $pr: no CI run started on $sha"; exit 1; }
   fi
+  # A workflow run on the current head, whether the branch was just updated here or pushed by regen-generated.sh a moment ago.
+  sha=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
+  for i in $(seq 1 30); do
+    runs=$(gh run list --commit "$sha" --json databaseId -q 'length')
+    [ "${runs:-0}" -gt 0 ] && break; sleep 10
+  done
+  [ "${runs:-0}" -gt 0 ] || { echo "STOP $pr: no CI run started on $sha"; exit 1; }
   gh pr checks "$pr" --watch >/dev/null 2>&1
   buckets=$(gh pr checks "$pr" --json bucket -q '.[].bucket') || { echo "STOP $pr: could not read checks"; exit 1; }
   if [ -z "$buckets" ] || echo "$buckets" | grep -qvE '^(pass|skipping)$'; then
