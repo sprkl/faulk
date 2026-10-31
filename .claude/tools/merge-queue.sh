@@ -3,16 +3,29 @@
 # Merge PRs one at a time. A PR is merged only once its CI ran on the current develop:
 # if develop moved since, update the branch and wait for the PR's CI on the new head. No wait on
 # develop's CI after the merge (founder, 2026-10-24: no test rerun after a push). Stop on conflict,
-# on a failed check, and when no check is reported at all.
+# on a failed check, and when no check is reported at all. When develop and the PR both changed the
+# generated files (web/src/lib/generated/), a branch update would leave them stale or in conflict
+# (#426): stop before updating, whatever the merge state, and name regen-generated.sh, the one tool
+# of this folder that builds. This script itself never builds.
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)" || exit 1
+gen=web/src/lib/generated
 for pr in "$@"; do
   for i in $(seq 1 20); do
     st=$(gh pr view "$pr" --json mergeable,mergeStateStatus -q '.mergeable+" "+.mergeStateStatus')
     [ "$st" != "UNKNOWN UNKNOWN" ] && break; sleep 10
   done
-  case "$st" in "MERGEABLE CLEAN"|"MERGEABLE BEHIND"|"MERGEABLE UNSTABLE") ;; *) echo "STOP $pr: $st"; exit 1;; esac
   git fetch -q origin
   head=$(gh pr view "$pr" --json headRefName -q .headRefName)
+  if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
+    base=$(git merge-base origin/develop "origin/$head")
+    if [ -n "$(git diff --name-only "$base" origin/develop -- "$gen")" ] && [ -n "$(git diff --name-only "$base" "origin/$head" -- "$gen")" ]; then
+      echo "STOP $pr: $st; develop and the PR both changed $gen, a branch update would leave it stale or in conflict."
+      echo "Regenerate (this builds Rust): bash .claude/tools/regen-generated.sh $pr"
+      echo "then run this script again."
+      exit 1
+    fi
+  fi
+  case "$st" in "MERGEABLE CLEAN"|"MERGEABLE BEHIND"|"MERGEABLE UNSTABLE") ;; *) echo "STOP $pr: $st"; exit 1;; esac
   if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
     echo "$pr: behind develop, updating the branch"
     old=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
