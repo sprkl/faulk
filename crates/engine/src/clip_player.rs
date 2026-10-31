@@ -102,6 +102,16 @@ use crate::msg::{ClipSlot, MsgError, Note, Placement, SceneSlot, Slots, TrackSlo
 use crate::time::{LoopRegion, Quantize, Tick, TimeSignature};
 use crate::transport::Segment;
 
+/// What a clip replaced or removed while it plays did to the notes it held
+/// ([`ClipPlayer::clip_changed`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Swap {
+    /// The held notes go on in the new table: the caller copies the held bits.
+    pub kept: bool,
+    /// Notes of the old table were held and their note-offs are gone: release the track.
+    pub release: bool,
+}
+
 // ---------------------------------------------------------------- the note table
 
 /// A note of a clip in 16 bytes: start on 64 bits (two halves), length on 32 bits
@@ -302,6 +312,35 @@ impl ClipNotes {
     }
 }
 
+/// Whether every note `old` has delivered and not ended is, in `new`, the same note at the
+/// same index (same voice id): same start, length and pitch (velocity and fine tuning only
+/// matter at the note-on). The notes of an edit that keeps them sound on across the swap.
+/// No allocation.
+pub fn held_notes_unchanged(old: &ClipNotes, new: &ClipNotes) -> bool {
+    let bits = old.held_bits();
+    bits.iter().enumerate().all(|(w, &word)| {
+        (0..32).filter(|b| word >> b & 1 == 1).all(|b| {
+            let i = w * 32 + b;
+            match (old.note(i), new.note(i)) {
+                (Some(a), Some(b)) => {
+                    a.start() == b.start() && a.length() == b.length() && a.pitch() == b.pitch()
+                }
+                _ => false,
+            }
+        })
+    })
+}
+
+impl ClipNotes {
+    /// Takes the held bits of `old` (CL-3, [`held_notes_unchanged`] checked first).
+    pub fn take_held_from(&mut self, old: &ClipNotes) {
+        let from = old.held_bits();
+        for (to, &w) in self.held_bits_mut().iter_mut().zip(from) {
+            *to = w;
+        }
+    }
+}
+
 /// Note `index` of a run of packed words.
 fn note_at(packed: &[u32], index: usize) -> Option<PackedNote> {
     let at = index.checked_mul(NOTE_WORDS)?;
@@ -479,24 +518,43 @@ impl ClipPlayer {
 
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When this
     /// player plays it (from the grid or from the arrangement), its cursor starts over (the
-    /// next read is a jump into the new table) and, when removed, the clip stops. Returns
-    /// whether notes of the old table were held: their note-offs are gone with it, the
-    /// caller releases the track.
-    pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool) -> bool {
-        let mut held = false;
-        if self.playing.is_some_and(|p| p.clip == slot) {
-            held = self.cursor.held() > 0;
-            self.cursor = Cursor::default();
+    /// next read is a jump into the new table) and, when removed, the clip stops.
+    ///
+    /// `keep` (CL-3): the new table holds, at the same indices, the notes the old one has
+    /// delivered and not ended ([`held_notes_unchanged`]). When exactly one cursor holds
+    /// notes of the clip and can go on in the new table ([`Cursor::keep_through_swap`]),
+    /// those notes go on sounding and are ended by the new table's note-offs: the result
+    /// says `kept`, and the caller copies the held bits into the new table. Otherwise
+    /// the notes of the old table are gone with its note-offs: the result says `release`,
+    /// and the caller releases the track.
+    pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool, keep: bool) -> Swap {
+        let grid = self.playing.is_some_and(|p| p.clip == slot);
+        let grid_held = grid && self.cursor.held() > 0;
+        let arr_held = self.arrangement.holds(slot) && self.arrangement.held() > 0;
+        // One cursor at most carries the notes over: the held bits are shared.
+        let carry = keep && !removed && grid_held != arr_held;
+        let mut swap = Swap::default();
+        if grid {
+            if carry && grid_held && self.cursor.keep_through_swap() {
+                swap.kept = true;
+            } else {
+                swap.release |= grid_held;
+                self.cursor = Cursor::default();
+            }
             self.cut = None;
             if removed {
                 self.playing = None;
             }
         }
-        if self.arrangement.clip_changed(slot, removed) {
-            held = true;
+        let arr = self
+            .arrangement
+            .clip_changed(slot, removed, carry && arr_held);
+        swap.kept |= arr.kept;
+        swap.release |= arr.release;
+        if arr.kept || arr.release {
             self.cut = None;
         }
-        held
+        swap
     }
 
     /// The clip this player holds, as `on_track` must say: the one it plays from the grid,
