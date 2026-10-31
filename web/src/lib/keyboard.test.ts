@@ -119,6 +119,40 @@ describe('space bar and the transport', () => {
     b.focus()
     expect(spaceTogglesTransport(b)).toBe(false)
   })
+
+  it('a non-Space key on the already-focused element reasserts keyboard origin (#415)', () => {
+    // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. If the element
+    // is already focused a subsequent focus() is a no-op (no focusin), leaving pointerFocused stale.
+    // A real key on that element must clear it so Space does not incorrectly toggle the transport.
+    const stop = trackFocusOrigin()
+    const b = el('b') as HTMLElement
+    // Press (pointer) and focus: b becomes pointer-focused.
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(true) // pointer-focused: space toggles
+
+    // Space and modifiers must NOT reassert keyboard origin.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true)
+
+    // Any other key on the already-focused element reasserts keyboard origin.
+    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(false) // keyboard origin now
+
+    // b.focus() while already focused is a no-op: keyboard origin is preserved.
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(false)
+    // Space does not toggle (keyboard-focused).
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(false)
+
+    // A pointer press restores pointer origin.
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true)
+    stop()
+  })
 })
 
 describe('history shortcuts', () => {

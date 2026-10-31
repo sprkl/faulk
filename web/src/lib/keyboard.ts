@@ -144,7 +144,14 @@ export function trackFocusOrigin(doc: Document = document): () => void {
     pointerFocused = active && active !== doc.body && active.contains(event.target as Node | null) ? active : null
   }
   const key = (event: KeyboardEvent) => {
-    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) lastInput = 'keyboard'
+    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) {
+      lastInput = 'keyboard'
+      // A key on the already-focused element reasserts the keyboard origin even when no focusin fires
+      // (e.g. after Slider.closeMenu() → root.focus() while pointer was the last input). Without this,
+      // pointerFocused stays stale and Space incorrectly toggles the transport on the next press.
+      const active = doc.activeElement
+      if (active && active !== doc.body && pointerFocused === active) pointerFocused = null
+    }
   }
   const focus = (event: Event) => {
     pointerFocused = lastInput === 'pointer' ? (event.target as Element) : null

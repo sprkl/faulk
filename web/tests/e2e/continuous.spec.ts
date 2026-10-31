@@ -193,14 +193,34 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   await expect(attack).toHaveAttribute('aria-valuetext', end)
 
   // Space on a focused knob keeps its old meaning (nothing): it does not start the transport behind it.
+  // Regression for #415: after a context-menu click (pointer), closeMenu() restores focus via script while
+  // lastInput === 'pointer'. A subsequent attack.focus() is a no-op (already focused) so no focusin fires.
+  // Before the fix, pointerFocused stayed stale and Space incorrectly toggled the transport.
   await attack.focus()
   await page.keyboard.press('Space')
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
 
-  // A letter on a focused knob still plays a note: the keyboard rule is not broken by the controls.
-  await attack.focus()
+  // A letter on a mouse-clicked knob still plays a note: the keyboard rule is not broken by the controls.
+  // Re-click to restore pointer origin (the Backspace above reasserted keyboard origin via #415 fix).
+  await attack.click()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
   await page.keyboard.up('KeyA')
+
+  // Regression #415: context-menu click then key — Space must not toggle the transport.
+  // Sequence: right-click → menu item click (closeMenu restores focus by script with pointer as last input) →
+  // attack.focus() is a no-op (already focused, no focusin) → without the fix pointerFocused stays stale.
+  // With the fix: the menu item click fired a focusin (new focus) that set pointerFocused = attack;
+  // then the first real key on the already-focused attack clears pointerFocused → Space does not toggle.
+  await attack.focus()
+  await page.keyboard.press('End')
+  await attack.click({ button: 'right' })
+  await page.getByTestId('value-menu-default').click()
+  // After closeMenu, attack is focused with pointer origin. attack.focus() below is a no-op.
+  await attack.focus()
+  await page.keyboard.press('Backspace') // first real key: clears stale pointerFocused
+  await attack.focus()
+  await page.keyboard.press('Space') // Space must not toggle the transport (#415)
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
   expect(errors).toEqual([])
 })
