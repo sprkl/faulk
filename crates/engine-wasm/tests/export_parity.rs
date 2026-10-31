@@ -23,6 +23,9 @@ fn same(native: &Exported, wasm: &Exported) {
     let (n, w) = (native.render(), wasm.render());
     n.assert_close(&w, PARITY_TOLERANCE);
     assert!((native.peak - wasm.peak).abs() < PARITY_TOLERANCE);
+    // The output protection's reported gain reduction (`fk_export_stat(…, 7)`, #402) is the
+    // same in both targets.
+    assert!((native.reduction - wasm.reduction).abs() < PARITY_TOLERANCE);
 }
 
 #[test]

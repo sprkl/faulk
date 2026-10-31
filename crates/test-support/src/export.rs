@@ -25,6 +25,9 @@ pub struct Exported {
     pub written: u64,
     pub peak: f32,
     pub clipped: u64,
+    /// The output protection's peak gain reduction over the render, linear in `[0, 1]`
+    /// (`0.0` = never engaged; #402).
+    pub reduction: f32,
     pub tail_cut: bool,
     /// Times the engine was full while the setup went in.
     pub busy: u32,
@@ -60,6 +63,7 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
         written: offline.written(),
         peak: offline.peak(),
         clipped: offline.clipped(),
+        reduction: offline.reduction(),
         tail_cut: offline.tail_cut(),
         busy: offline.busy(),
     }
@@ -167,6 +171,7 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
         written: stat(&mut store, 1) as u64,
         peak: stat(&mut store, 3) as f32,
         clipped: stat(&mut store, 4) as u64,
+        reduction: stat(&mut store, 7) as f32,
         tail_cut: stat(&mut store, 5) > 0.5,
         busy: 0,
     }

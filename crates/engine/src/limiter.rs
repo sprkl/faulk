@@ -70,6 +70,12 @@ pub struct Limiter {
     deficit: f32,
     /// Fraction of the deficit kept after one sample of release.
     keep: f32,
+    /// The largest deficit (`1 - gain`) applied since [`Limiter::reset_max_reduction`], i.e.
+    /// the peak gain reduction, in `[0, 1]`. It only grows here and is read, not written, on
+    /// the audio path; an offline export reads it once to tell the user the mix was pushed
+    /// into the limiter (#402). It is **not** cleared by [`Limiter::reset`] or a sample-rate
+    /// change: a render reads a whole pass, and the export resets it before the pass.
+    max_reduction: f32,
 }
 
 impl Limiter {
@@ -78,6 +84,7 @@ impl Limiter {
         Limiter {
             deficit: 0.0,
             keep: keep_per_sample(rate),
+            max_reduction: 0.0,
         }
     }
 
@@ -86,12 +93,25 @@ impl Limiter {
         1.0 - self.deficit
     }
 
+    /// The peak gain reduction since the last [`Limiter::reset_max_reduction`], in `[0, 1]`
+    /// (`0.0` means the limiter never engaged). `20·log10(1 - reduction)` is the deepest
+    /// attenuation in dB.
+    pub fn max_reduction(&self) -> f32 {
+        self.max_reduction
+    }
+
+    /// Clears the peak gain reduction back to `0.0`. An offline render calls it before a pass.
+    pub fn reset_max_reduction(&mut self) {
+        self.max_reduction = 0.0;
+    }
+
     /// Follows a new sample rate: the release keeps its duration. No allocation.
     pub fn set_sample_rate(&mut self, rate: SampleRate) {
         self.keep = keep_per_sample(rate);
     }
 
-    /// Back to rest: gain `1.0`.
+    /// Back to rest: gain `1.0`. The peak gain reduction is kept (`reset_max_reduction`
+    /// clears it): a reset follows an all-sound-off fade, not the end of a render pass.
     pub fn reset(&mut self) {
         self.deficit = 0.0;
     }
@@ -123,6 +143,9 @@ impl Limiter {
             deficit = 1.0 - CEILING / peak;
         }
         self.deficit = deficit;
+        // The deepest attenuation of this pass, for the export's "pushed into the limiter"
+        // report (#402). One `max`, read-only on the audio path.
+        self.max_reduction = self.max_reduction.max(deficit);
         let gain = 1.0 - deficit;
         *l = shape(*l, gain);
         *r = shape(*r, gain);
@@ -320,5 +343,45 @@ mod tests {
         lim.process(&mut [0.0f32], &mut [0.0f32]);
         let d1 = 1.0 - lim.gain();
         assert!(d1 < d0, "release stalled at u32::MAX Hz: {d0} → {d1}");
+    }
+
+    #[test]
+    fn the_peak_gain_reduction_is_tracked_and_resettable() {
+        let mut lim = Limiter::new(rate());
+        // At rest: no reduction.
+        assert_eq!(lim.max_reduction(), 0.0);
+        lim.process(&mut [0.5f32; 16], &mut [0.5f32; 16]);
+        assert_eq!(
+            lim.max_reduction(),
+            0.0,
+            "a signal under the ceiling never engages"
+        );
+
+        // A 2x over brings the gain to CEILING/2; the reduction is that deficit, and it holds
+        // at the deepest value even as the gain releases back up.
+        lim.process(&mut [2.0f32], &mut [0.0f32]);
+        let deepest = lim.max_reduction();
+        assert!((deepest - (1.0 - CEILING / 2.0)).abs() < 1e-5, "{deepest}");
+        // Release: the current gain climbs, but the tracked peak reduction does not shrink.
+        lim.process(&mut vec![0.0f32; 480], &mut vec![0.0f32; 480]);
+        assert!(lim.gain() > 1.0 - deepest, "the gain released");
+        assert_eq!(lim.max_reduction(), deepest, "the peak reduction is held");
+
+        // A deeper over raises it; a shallower one does not lower it.
+        lim.process(&mut [100.0f32], &mut [0.0f32]);
+        assert!(lim.max_reduction() > deepest);
+        let after = lim.max_reduction();
+        lim.process(&mut [1.2f32], &mut [0.0f32]);
+        assert_eq!(
+            lim.max_reduction(),
+            after,
+            "a shallower over does not lower the peak"
+        );
+
+        // reset() (after an all-sound-off) keeps the reduction; reset_max_reduction() clears it.
+        lim.reset();
+        assert_eq!(lim.max_reduction(), after, "reset keeps the reduction");
+        lim.reset_max_reduction();
+        assert_eq!(lim.max_reduction(), 0.0, "reset_max_reduction clears it");
     }
 }

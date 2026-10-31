@@ -303,10 +303,26 @@ fn a_signal_over_full_scale_is_limited_in_every_format_like_what_is_heard() {
             "{depth:?}: {}",
             file.peak
         );
+        // The mix was pushed hard into the limiter: the export reports a real gain reduction
+        // (the dialog warns the user). 24 dB over the ceiling is well past a dB of reduction.
+        let reduction_db = -20.0 * (1.0 - file.reduction).log10();
+        assert!(
+            reduction_db > 1.0,
+            "{depth:?}: only {reduction_db:.2} dB of gain reduction reported for a +24 dB mix"
+        );
         let r = file.render();
         assert!(r.peak() <= engine::limiter::CEILING, "{depth:?}");
         r.assert_clean();
     }
+
+    // A mix that stays under the ceiling never engages the limiter, so the reported reduction
+    // is exactly 0: the dialog shows no warning.
+    let quiet = demo_song(2, None);
+    let file = export_native(
+        &quiet,
+        settings(ExportRegion::Song, ExportBitDepth::Pcm24, 48_000),
+    );
+    assert_eq!(file.reduction, 0.0, "a quiet mix must report no reduction");
 }
 
 #[test]

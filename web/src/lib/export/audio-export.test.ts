@@ -121,6 +121,7 @@ const done = (over: Partial<Extract<FromExport, { type: 'done' }>> = {}): FromEx
   written: 240_000,
   peak: 0.5,
   clipped: 0,
+  reduction: 0,
   tailCut: false,
   ...over,
 })
@@ -189,19 +190,32 @@ describe('an export', () => {
       seconds: 5,
       peakDb: expect.closeTo(-6.02, 1),
       clipped: 0,
+      reductionDb: 0,
       tailCut: false,
     })
     expect(exporter.result!.renderMs).toBeGreaterThan(0)
   })
 
-  it('says when the level clipped, when the tail was cut, and when the file is silent', async () => {
+  it('turns the limiter gain reduction into dB, with the tail cut and the silent file', async () => {
     const { exporter, worker } = setup()
     exporter.show()
     exporter.start()
     await flush()
-    worker.say(done({ clipped: 12, tailCut: true, peak: 0 }))
+    // reduction 0.5 linear is 20·log10(1/0.5) = about 6.02 dB of attenuation.
+    worker.say(done({ reduction: 0.5, tailCut: true, peak: 0 }))
     await flush()
-    expect(exporter.result).toMatchObject({ clipped: 12, tailCut: true, peakDb: -Infinity })
+    expect(exporter.result).toMatchObject({ tailCut: true, peakDb: -Infinity })
+    expect(exporter.result!.reductionDb).toBeCloseTo(6.02, 1)
+  })
+
+  it('reports no gain reduction as 0 dB, not -Infinity', async () => {
+    const { exporter, worker } = setup()
+    exporter.show()
+    exporter.start()
+    await flush()
+    worker.say(done({ reduction: 0 }))
+    await flush()
+    expect(exporter.result!.reductionDb).toBe(0)
   })
 
   it('stays in the options when the user leaves the file dialog', async () => {

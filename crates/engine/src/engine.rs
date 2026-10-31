@@ -1765,6 +1765,19 @@ impl Engine {
         self.limiter.gain()
     }
 
+    /// The peak gain reduction of the output protection since [`Engine::reset_limiter_reduction`],
+    /// in `[0, 1]` (`0.0` = never engaged). An offline export reads it to tell the user the mix
+    /// was pushed into the limiter (#402).
+    pub fn limiter_reduction(&self) -> f32 {
+        self.limiter.max_reduction()
+    }
+
+    /// Clears the output protection's peak gain reduction. An offline render calls it before a
+    /// pass so the reported reduction covers that pass only.
+    pub fn reset_limiter_reduction(&mut self) {
+        self.limiter.reset_max_reduction();
+    }
+
     /// The musical clock (TR-1), as of the start of the next block.
     pub fn clock(&self) -> &Transport {
         &self.transport

@@ -161,7 +161,8 @@ test('exports the song as a 24-bit WAV file while the song plays: header, length
   await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
   await expect(page.getByTestId('export-status')).toContainText('Saved')
   await expect(page.getByTestId('export-status')).toContainText('.wav')
-  await expect(page.getByTestId('export-clipped')).toHaveCount(0)
+  // A normal mix does not push the output limiter, so no "pushed into the limiter" warning (#402).
+  await expect(page.getByTestId('export-limited')).toHaveCount(0)
 
   expect(await page.evaluate(() => (window as unknown as { __picks: unknown[] }).__picks)).toMatchObject([{ suggestedName: expect.stringMatching(/\.wav$/) }])
   const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
