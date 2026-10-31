@@ -42,8 +42,11 @@
 //! the limiter turns NaN and Inf into 0.0 and bounds every sample to the ceiling. Concretely,
 //! `assert_finite` and the `peak() <= 1.0` part of `assert_clean` are vacuous on the engine's
 //! output, so a test that wants to catch a device blowing up to NaN or running away must render
-//! through that device directly (as the device tests of `test-support` do), not through the
-//! engine's render output. The denormal check is **not** affected: a subnormal magnitude is
+//! through that device directly (as the device tests in `crates/engine/tests/{filter,echo,
+//! compressor,reverb,osc_synth}.rs` do, driving `device.process` and asserting `is_finite`), not
+//! through `Engine::render` (the `test-support` device tests use `parity`/`render_native`, which
+//! go through the engine, so their checks are among the vacuous ones). The denormal check is
+//! **not** affected: a subnormal magnitude is
 //! below any ceiling, so the limiter passes it untouched (`subnormals_pass_untouched`), and
 //! `assert_no_denormals` on the render output keeps all its power.
 
