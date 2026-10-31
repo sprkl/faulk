@@ -49,7 +49,10 @@ export interface ExportExports extends EngineExports {
   fk_export_pcm_len(ex: number): number
   fk_export_header(ex: number): number
   fk_export_header_len(ex: number): number
-  /** 0 rendered, 1 written, 2 content frames, 3 peak (linear), 4 clipped, 5 tail cut, 6 header bytes. */
+  /**
+   * 0 rendered, 1 written, 2 content frames, 3 peak (linear), 4 clipped, 5 tail cut,
+   * 6 header bytes, 7 the output protection's peak gain reduction (linear, 0 = never engaged; #402).
+   */
   fk_export_stat(ex: number, which: number): number
 }
 

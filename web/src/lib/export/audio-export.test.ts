@@ -8,6 +8,7 @@ import {
   AudioExport,
   fileNameOf,
   headerLength,
+  LIMITER_PUSHED_DB,
   type ExportDeps,
   type ExportHost,
   type ExportSink,
@@ -216,6 +217,23 @@ describe('an export', () => {
     worker.say(done({ reduction: 0 }))
     await flush()
     expect(exporter.result!.reductionDb).toBe(0)
+  })
+
+  it('places the warning threshold around LIMITER_PUSHED_DB of gain reduction', async () => {
+    // reductionDb = -20·log10(1 - reduction). The dialog warns at reductionDb >= LIMITER_PUSHED_DB.
+    const linearFor = (db: number) => 1 - 10 ** (-db / 20)
+    const reductionDbFor = async (reduction: number) => {
+      const { exporter, worker } = setup()
+      exporter.show()
+      exporter.start()
+      await flush()
+      worker.say(done({ reduction }))
+      await flush()
+      return exporter.result!.reductionDb
+    }
+    // Just under the threshold: no warning. Just over: warning.
+    expect(await reductionDbFor(linearFor(LIMITER_PUSHED_DB - 0.1))).toBeLessThan(LIMITER_PUSHED_DB)
+    expect(await reductionDbFor(linearFor(LIMITER_PUSHED_DB + 0.1))).toBeGreaterThanOrEqual(LIMITER_PUSHED_DB)
   })
 
   it('stays in the options when the user leaves the file dialog', async () => {

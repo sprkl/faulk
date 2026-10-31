@@ -59,7 +59,8 @@ pub enum ExportBitDepth {
     /// 24-bit integers.
     #[default]
     Pcm24,
-    /// 32-bit floats: nothing is clipped.
+    /// 32-bit floats. The output protection (#402) holds every format, floats included, under
+    /// −0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.
     Float32,
 }
 
