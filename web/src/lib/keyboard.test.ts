@@ -120,10 +120,10 @@ describe('space bar and the transport', () => {
     expect(spaceTogglesTransport(b)).toBe(false)
   })
 
-  it('a non-Space key on the already-focused element reasserts keyboard origin (#415)', () => {
+  it('a UI-shortcut key on the already-focused element reasserts keyboard origin (#415)', () => {
     // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. If the element
     // is already focused a subsequent focus() is a no-op (no focusin), leaving pointerFocused stale.
-    // A real key on that element must clear it so Space does not incorrectly toggle the transport.
+    // A non-playing UI key on that element must clear it so Space does not incorrectly toggle.
     const stop = trackFocusOrigin()
     const b = el('b') as HTMLElement
     // Press (pointer) and focus: b becomes pointer-focused.
@@ -137,7 +137,14 @@ describe('space bar and the transport', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
     expect(spaceTogglesTransport(b)).toBe(true)
 
-    // Any other key on the already-focused element reasserts keyboard origin.
+    // Playing keys (bare letters, octave steps Z/X) do NOT reassert keyboard origin:
+    // a mouse-used knob must keep playing notes when the musician presses a key.
+    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true) // still pointer-focused
+    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true) // octave step, still pointer-focused
+
+    // A UI-shortcut key (Delete, Backspace, arrows, etc.) reasserts keyboard origin.
     b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
     expect(spaceTogglesTransport(b)).toBe(false) // keyboard origin now
 
