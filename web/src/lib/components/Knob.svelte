@@ -33,7 +33,7 @@
     /** Puts the default value back, as one command. */
     onreset: () => void
     /** Typing a value (`Slider`): Enter on the knob and a click on the value readout open the field. */
-    entry?: { text: () => string; commit: (text: string) => boolean }
+    entry?: { text: () => string; commit: (text: string) => boolean | string }
     /** Tooltip: what the knob does. */
     hint?: string
     /** The tooltip of a knob that an automation lane drives (#388): it marks the knob. */
