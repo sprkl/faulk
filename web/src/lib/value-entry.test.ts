@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEVICES } from './generated/protocol'
 import { formatValue, type ParamDescriptor } from './devices'
 import { formatGain, formatPan } from './project/tracks'
-import { parseGain, parsePan, parseParam, parseQuantity } from './value-entry'
+import { baseUnit, parseGain, parseGainEntry, parsePan, parsePanEntry, parseParam, parseParamEntry, parseQuantity } from './value-entry'
 
 const param = (over: Record<string, unknown>) =>
   ({
@@ -41,40 +41,45 @@ describe('parseQuantity', () => {
 })
 
 describe('parseParam', () => {
-  it('seconds: ms and s, a bare number in the unit shown', () => {
-    expect(parseParam(seconds, '300 ms', 0.005)).toBe(0.3)
-    expect(parseParam(seconds, '300', 0.005)).toBe(0.3)
-    expect(parseParam(seconds, '1.5 s', 0.005)).toBe(1.5)
-    expect(parseParam(seconds, '2', 1.5)).toBe(2)
-    expect(parseParam(seconds, '2.5 hz', 0.5)).toBeNull()
+  it('seconds: ms and s, a bare number in ms whatever the readout shows', () => {
+    expect(parseParam(seconds, '300 ms')).toBe(0.3)
+    expect(parseParam(seconds, '300')).toBe(0.3)
+    expect(parseParam(seconds, '1.5 s')).toBe(1.5)
+    expect(parseParam(seconds, '2')).toBe(0.002)
+    expect(parseParam(seconds, '1200')).toBe(1.2)
+    expect(parseParam(seconds, '1,2 s')).toBe(1.2)
+    expect(parseParam(seconds, '2.5 hz')).toBeNull()
   })
   it('hertz: Hz, kHz and k', () => {
-    expect(parseParam(hertz, '440 Hz', 52)).toBe(440)
-    expect(parseParam(hertz, '1.2k', 52)).toBe(1200)
-    expect(parseParam(hertz, '1,5 kHz', 52)).toBe(1500)
-    expect(parseParam(hertz, '2', 5000)).toBe(2000)
-    expect(parseParam(hertz, '2 ms', 52)).toBeNull()
+    expect(parseParam(hertz, '440 Hz')).toBe(440)
+    expect(parseParam(hertz, '1.2k')).toBe(1200)
+    expect(parseParam(hertz, '1,5 kHz')).toBe(1500)
+    expect(parseParam(hertz, '450')).toBe(450)
+    expect(parseParam(hertz, '0.5 kHz')).toBe(500)
+    expect(parseParam(hertz, '0,5 khz')).toBe(500)
+    expect(parseParam(hertz, '15')).toBe(30)
+    expect(parseParam(hertz, '2 ms')).toBeNull()
   })
   it('gain: dB, silence and the bound', () => {
-    expect(parseParam(gain, '-6 dB', 0.8)).toBeCloseTo(0.501187, 5)
-    expect(parseParam(gain, '−∞ dB', 0.8)).toBe(0)
-    expect(parseParam(gain, '-inf', 0.8)).toBe(0)
-    expect(parseParam(gain, '12 dB', 0.8)).toBe(1)
+    expect(parseParam(gain, '-6 dB')).toBeCloseTo(0.501187, 5)
+    expect(parseParam(gain, '−∞ dB')).toBe(0)
+    expect(parseParam(gain, '-inf')).toBe(0)
+    expect(parseParam(gain, '12 dB')).toBe(1)
   })
   it('a level from 0 to 1 is a percentage; another plain number is a number', () => {
-    expect(parseParam(level, '35', 0.3)).toBe(0.35)
-    expect(parseParam(level, '35 %', 0.3)).toBe(0.35)
-    expect(parseParam(level, '250 %', 0.3)).toBe(1)
-    expect(parseParam(level, '3 ms', 0.3)).toBeNull()
-    expect(parseParam(ratio, '4', 2)).toBe(4)
-    expect(parseParam(ratio, '40', 2)).toBe(20)
-    expect(parseParam(ratio, '4 %', 2)).toBeNull()
+    expect(parseParam(level, '35')).toBe(0.35)
+    expect(parseParam(level, '35 %')).toBe(0.35)
+    expect(parseParam(level, '250 %')).toBe(1)
+    expect(parseParam(level, '3 ms')).toBeNull()
+    expect(parseParam(ratio, '4')).toBe(4)
+    expect(parseParam(ratio, '40')).toBe(20)
+    expect(parseParam(ratio, '4 %')).toBeNull()
   })
   it('clamps to the bounds and rounds to the step', () => {
-    expect(parseParam(seconds, '1 ms', 0.1)).toBe(0.002)
-    expect(parseParam(seconds, '99 s', 0.1)).toBe(30)
-    expect(parseParam(steps, '3.4 st', 0)).toBe(3)
-    expect(parseParam(steps, '-40', 0)).toBe(-12)
+    expect(parseParam(seconds, '1 ms')).toBe(0.002)
+    expect(parseParam(seconds, '99 s')).toBe(30)
+    expect(parseParam(steps, '3.4 st')).toBe(3)
+    expect(parseParam(steps, '-40')).toBe(-12)
   })
   it('takes back every readout of every parameter of the catalogue', () => {
     for (const device of DEVICES) {
@@ -82,7 +87,7 @@ describe('parseParam', () => {
         if (p.values.length > 0) continue
         for (const value of [p.min, p.default, p.max]) {
           const shown = formatValue(p, value)
-          const back = parseParam(p, shown, value)
+          const back = parseParam(p, shown)
           expect(back, `${device.kind}.${p.key} ${shown}`).not.toBeNull()
           // The readout is rounded; reading it back lands within what it shows, inside the bounds.
           expect(back!).toBeGreaterThanOrEqual(p.min)
@@ -90,6 +95,51 @@ describe('parseParam', () => {
         }
       }
     }
+  })
+})
+
+describe('parseParamEntry (#410)', () => {
+  it('reads a bare number in the base unit, whether the readout shows Hz or kHz', () => {
+    // The readout does not enter the reading: the same text gives the same value at 52 Hz and at 5 kHz.
+    expect(formatValue(hertz, 5000)).toBe('5.00 kHz')
+    expect(formatValue(hertz, 52)).toBe('52 Hz')
+    expect(parseParamEntry(hertz, '450')).toEqual({ value: 450 })
+    expect(parseParamEntry(hertz, '450,5')).toEqual({ value: 450.5 })
+    expect(parseParamEntry(seconds, '450')).toEqual({ value: 0.45 })
+  })
+  it('takes a typed unit as typed', () => {
+    expect(parseParamEntry(hertz, '0.5 kHz')).toEqual({ value: 500 })
+    expect(parseParamEntry(hertz, '2k')).toEqual({ value: 2000 })
+    expect(parseParamEntry(seconds, '1,2 s')).toEqual({ value: 1.2 })
+    expect(parseParamEntry(seconds, '1200 ms')).toEqual({ value: 1.2 })
+  })
+  it('refuses unreadable text and a foreign unit, with no retry', () => {
+    for (const bad of ['', 'abc', '1 2', '450 ms', '1e']) expect(parseParamEntry(hertz, bad), bad).toBeNull()
+    expect(parseParamEntry(hertz, '15')).toEqual({ value: 30, limit: 30 })
+  })
+  it('says the bound it limited to, and nothing when only the step rounded', () => {
+    expect(parseParamEntry(hertz, '99 kHz')).toEqual({ value: 12000, limit: 12000 })
+    expect(parseParamEntry(hertz, '1')).toEqual({ value: 30, limit: 30 })
+    expect(parseParamEntry(seconds, '99 s')).toEqual({ value: 30, limit: 30 })
+    expect(parseParamEntry(steps, '3.4 st')).toEqual({ value: 3 })
+    expect(parseParamEntry(steps, '-40')).toEqual({ value: -12, limit: -12 })
+    expect(parseParamEntry(hertz, '12000')).toEqual({ value: 12000 })
+  })
+  it('names the unit a bare number is read in', () => {
+    expect(baseUnit(hertz)).toBe('Hz')
+    expect(baseUnit(seconds)).toBe('ms')
+    expect(baseUnit(gain)).toBe('dB')
+    expect(baseUnit(level)).toBe('%')
+    expect(baseUnit(steps)).toBe('st')
+    expect(baseUnit(ratio)).toBe('')
+  })
+  it('gain and pan report a limit', () => {
+    expect(parseGainEntry('+20')).toEqual({ gain: 6, limited: true })
+    expect(parseGainEntry('3')).toEqual({ gain: 3, limited: false })
+    expect(parseGainEntry('x')).toBeNull()
+    expect(parsePanEntry('250')).toEqual({ pan: 1, limited: true })
+    expect(parsePanEntry('R30')).toEqual({ pan: 0.3, limited: false })
+    expect(parsePanEntry('z')).toBeNull()
   })
 })
 

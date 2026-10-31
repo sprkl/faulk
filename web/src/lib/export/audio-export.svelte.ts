@@ -93,13 +93,33 @@ export interface ExportResult {
   seconds: number
   /** The highest sample, in dBFS (`-Infinity` for silence). */
   peakDb: number
-  /** Samples an integer format clipped. */
+  /** Samples an integer format clipped. Always 0 now the output protection holds the ceiling (#402). */
   clipped: number
+  /**
+   * How deep the output protection attenuated the mix at its worst, in dB (0 when it never
+   * engaged; #402). Above {@link LIMITER_PUSHED_DB} the dialog warns the mix was pushed into
+   * the limiter: the file does not clip, but it was audibly limited, so the mix should be turned
+   * down.
+   */
+  reductionDb: number
   /** An effect still rang after the longest tail: the file stops there. */
   tailCut: boolean
   /** How long the render took, in ms. */
   renderMs: number
 }
+
+/**
+ * The gain reduction, in dB, above which the export warns the mix was pushed into the limiter.
+ * Below it the limiter only catches the odd peak, which is inaudible and not worth a warning.
+ */
+export const LIMITER_PUSHED_DB = 1
+
+/**
+ * The most gain reduction the warning reports, in dB. A finite runaway (a device blowing up to a
+ * large but finite level) can bring the deficit to ~1.0, i.e. an unbounded dB figure; past this
+ * the exact number means nothing to the user, so the text caps at "≥ {MAX_REPORTED_REDUCTION_DB}".
+ */
+export const MAX_REPORTED_REDUCTION_DB = 60
 
 export type ExportPhase = 'options' | 'picking' | 'rendering' | 'done' | 'failed'
 
@@ -356,6 +376,10 @@ export class AudioExport {
               seconds: message.written / rate,
               peakDb: message.peak > 0 ? 20 * Math.log10(message.peak) : -Infinity,
               clipped: message.clipped,
+              // 20·log10(1 - reduction): the deepest attenuation. reduction is in [0, 1); near 1
+              // (a finite runaway) the log diverges, so cap the reported figure at a value past
+              // which the exact number is meaningless to the user.
+              reductionDb: message.reduction > 0 ? Math.min(-20 * Math.log10(Math.max(1 - message.reduction, 1e-9)), MAX_REPORTED_REDUCTION_DB) : 0,
               tailCut: message.tailCut,
               renderMs: this.deps.now() - started,
             }

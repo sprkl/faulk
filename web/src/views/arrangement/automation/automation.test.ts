@@ -73,9 +73,9 @@ describe('the axes', () => {
     expect(axis.clamp(-200)).toBe(-96)
     expect(axis.clamp(0.004)).toBe(0)
     expect(axis.format(-6)).toBe('−6.0 dB')
-    expect(axis.parse('-12', 0)).toBe(-12)
-    expect(axis.parse('-inf', 0)).toBe(-96)
-    expect(axis.parse('nonsense', 0)).toBeNull()
+    expect(axis.parse('-12')).toBe(-12)
+    expect(axis.parse('-inf')).toBe(-96)
+    expect(axis.parse('nonsense')).toBeNull()
   })
   it('map the pan linearly and read it as the pan control does', () => {
     const axis = axisOf(track, pan, labels)!
@@ -83,7 +83,7 @@ describe('the axes', () => {
     expect(axis.at(0.5)).toBe(0)
     expect(Object.is(axis.at(0.5), -0)).toBe(false)
     expect(axis.format(-0.3)).toBe('L30')
-    expect(axis.parse('R25', 0)).toBe(0.25)
+    expect(axis.parse('R25')).toBe(0.25)
   })
   it('follow the descriptor of a device parameter: scale, range, unit', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'attack' } }, labels)!
@@ -91,7 +91,7 @@ describe('the axes', () => {
     expect(axis.max).toBe(30)
     expect(axis.pos(axis.at(0.5))).toBeCloseTo(0.5, 3)
     expect(axis.format(0.25)).toBe('250 ms')
-    expect(axis.parse('120 ms', 0.25)).toBeCloseTo(0.12, 6)
+    expect(axis.parse('120 ms')).toBeCloseTo(0.12, 6)
   })
   it('name the values of a choice parameter', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'waveform' } }, labels)!
