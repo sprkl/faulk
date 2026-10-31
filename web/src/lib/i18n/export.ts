@@ -35,7 +35,8 @@ export const audioExport = defineFeature(
     'export.downloaded': 'Downloaded “{name}” ({size} MB, {duration}).',
     'export.peak': 'Highest level: {db} dBFS.',
     'export.silent': 'The file is silent.',
-    'export.clipped': 'The level went over 0 dBFS and {n} samples were clipped. Lower the master volume and export again, or choose the 32-bit float format.',
+    'export.limited':
+      'Your mix was pushed into the output limiter (up to {db} dB of gain reduction). The file does not clip, but it was audibly limited. Lower the master volume and export again for a cleaner sound.',
     'export.tailCut': 'An effect was still ringing after 30 seconds, so the file stops there.',
 
     'export.failed': 'The export failed. Nothing was saved.',
@@ -79,8 +80,8 @@ export const audioExport = defineFeature(
     'export.downloaded': '« {name} » est téléchargé ({size} Mo, {duration}).',
     'export.peak': 'Niveau le plus haut : {db} dBFS.',
     'export.silent': 'Le fichier est muet.',
-    'export.clipped':
-      'Le niveau a dépassé 0 dBFS et {n} échantillons ont été écrêtés. Baisse le volume général et exporte à nouveau, ou choisis le format 32 bits flottants.',
+    'export.limited':
+      'Ton mix a été poussé dans le limiteur de sortie (jusqu’à {db} dB de réduction de gain). Le fichier n’écrête pas, mais il a été limité de façon audible. Baisse le volume général et exporte à nouveau pour un son plus propre.',
     'export.tailCut': 'Un effet résonnait encore après 30 secondes, le fichier s’arrête donc là.',
 
     'export.failed': 'L’export a échoué. Rien n’a été enregistré.',

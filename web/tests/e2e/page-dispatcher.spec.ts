@@ -23,6 +23,9 @@ test('a played key makes sound and a synth change reaches the project store', as
   const before = await knob.getAttribute('aria-valuetext')
   await knob.press('End')
   await expect.poll(() => knob.getAttribute('aria-valuetext')).not.toBe(before)
+  // #415 option A: End on the slider switches it to keyboard origin; a click restores pointer origin
+  // so that KeyA plays a note (playsNote is true only when the slider has pointer origin).
+  await knob.click()
 
   // A key: the engine renders it, the meter reads a non-zero level.
   await page.keyboard.down('KeyA')

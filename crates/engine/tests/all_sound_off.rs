@@ -176,6 +176,13 @@ fn the_cut_is_silent_within_10_ms_and_stays_so_without_a_click() {
         );
     }
     assert_eq!(rig.host.engine().skipped(), 0);
+    // The is_finite checks above are vacuous since the output protection (#402) silences
+    // non-finite samples; this is the real no-NaN guard across the all-sound-off cut.
+    assert_eq!(
+        rig.host.engine().limiter_silenced(),
+        0,
+        "the all-sound-off cut produced a non-finite sample"
+    );
 }
 
 #[test]

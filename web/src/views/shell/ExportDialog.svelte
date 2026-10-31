@@ -3,9 +3,10 @@
    * Exporting the song as a WAV file (issue #297). The project menu (or an agent's
    * `project.export_audio`) opens it with the settings to check; Export asks where the file goes,
    * then shows the render's progress with a way to cancel it; the end says what was written, how
-   * loud, and whether the level clipped.
+   * loud, and whether the mix was pushed into the output limiter (#402).
    */
   import type { ExportChoices } from '../../lib/export/audio-export.svelte'
+  import { LIMITER_PUSHED_DB } from '../../lib/export/audio-export.svelte'
   import { useStores } from '../../lib/stores'
 
   const { ui, audioExport: exporter } = useStores()
@@ -157,7 +158,9 @@
         <p class="note" data-testid="export-peak">
           {result.peakDb === -Infinity ? t('export.silent') : t('export.peak', { db: result.peakDb.toFixed(1) })}
         </p>
-        {#if result.clipped > 0}<p class="warn" role="alert" data-testid="export-clipped">{t('export.clipped', { n: result.clipped })}</p>{/if}
+        {#if result.reductionDb >= LIMITER_PUSHED_DB}<p class="warn" role="alert" data-testid="export-limited">
+            {t('export.limited', { db: result.reductionDb.toFixed(1) })}
+          </p>{/if}
         {#if result.tailCut}<p class="warn" role="status" data-testid="export-tail-cut">{t('export.tailCut')}</p>{/if}
         <div class="actions">
           <button bind:this={primary} class="primary" onclick={() => exporter.close()} data-testid="export-close">{t('export.close')}</button>

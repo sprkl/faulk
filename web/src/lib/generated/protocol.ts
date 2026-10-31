@@ -63,6 +63,8 @@ region?: (ExportRegion | null)
 sample_rate?: (number | null)
 to_bar?: (number | null)
 type: "project.export_audio"
+} | {
+type: "project.get"
 })
 /**
  * How the samples are written.
@@ -174,6 +176,30 @@ name?: (string | null)
  */
 track: string
 type: "track.duplicate"
+} | {
+/**
+ * Tracks to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Tracks to skip, 0 by default.
+ */
+offset?: (number | null)
+type: "track.list"
+} | {
+/**
+ * Clips to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Clips to skip, 0 by default.
+ */
+offset?: (number | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "track.get"
 })
 /**
  * A colour, written #rrggbb.
@@ -359,6 +385,16 @@ device: string
 param: string
 type: "device.set_param"
 value: number
+} | {
+/**
+ * A device to describe; leave out when giving `kind`.
+ */
+device?: (string | null)
+/**
+ * A built-in kind to describe; leave out when giving `device`.
+ */
+kind?: (string | null)
+type: "device.describe"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -483,6 +519,34 @@ clip: string
 notes: Note[]
 offset?: (Tick | null)
 type: "clip.notes.duplicate"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Placements to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Placements to skip, 0 by default.
+ */
+offset?: (number | null)
+type: "clip.get"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Notes to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Notes to skip, 0 by default.
+ */
+offset?: (number | null)
+type: "clip.notes.list"
 })
 /**
  * Where `clip.create` puts the new clip.
@@ -542,6 +606,16 @@ order: OrderKey
  */
 scene: string
 type: "scene.restore_order"
+} | {
+/**
+ * Scenes to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Scenes to skip, 0 by default.
+ */
+offset?: (number | null)
+type: "scene.list"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -720,6 +794,38 @@ points: Point[]
  */
 remove?: Tick[]
 type: "automation.points.restore"
+} | {
+/**
+ * Lanes to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * `true` for only the master's lanes.
+ */
+master?: boolean
+/**
+ * Lanes to skip, 0 by default.
+ */
+offset?: (number | null)
+/**
+ * Only this track's lanes.
+ */
+track?: (string | null)
+type: "automation.lane.list"
+} | {
+/**
+ * Identifier of an automation lane.
+ */
+lane: string
+/**
+ * Points to return, 1 to 1000, 100 by default.
+ */
+limit?: (number | null)
+/**
+ * Points to skip, 0 by default.
+ */
+offset?: (number | null)
+type: "automation.lane.points"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -757,6 +863,8 @@ enabled?: (boolean | null)
  */
 gain_db?: (number | null)
 type: "transport.set_metronome"
+} | {
+type: "transport.get"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -975,6 +1083,69 @@ sample_rate: number
  */
 start_tick: number
 type: "project.export_audio"
+} | {
+/**
+ * Whether `history.redo` has an entry to redo.
+ */
+can_redo: boolean
+/**
+ * Whether `history.undo` has an entry to undo.
+ */
+can_undo: boolean
+/**
+ * How many clips, all tracks together.
+ */
+clip_count: number
+/**
+ * The time signature's denominator.
+ */
+denominator: number
+/**
+ * The on-disk format version.
+ */
+format: number
+/**
+ * The project's stable identity.
+ */
+id: string
+/**
+ * How many automation lanes, the master's included.
+ */
+lane_count: number
+master: Mixer1
+/**
+ * The master's effect chain, in order (`device.describe` reads one).
+ */
+master_devices: DeviceSummary[]
+/**
+ * The project's name.
+ */
+name: string
+/**
+ * The time signature's numerator.
+ */
+numerator: number
+/**
+ * How many arrangement placements, all tracks together.
+ */
+placement_count: number
+/**
+ * How many scenes.
+ */
+scene_count: number
+/**
+ * The selected track (session state); `null` when none.
+ */
+selected_track?: (string | null)
+/**
+ * The tempo in BPM.
+ */
+tempo_bpm: number
+/**
+ * How many tracks.
+ */
+track_count: number
+type: "project.get"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1055,6 +1226,33 @@ type: "track.set_monitor"
  */
 track: string
 type: "track.duplicate"
+} | {
+page: PageInfo
+/**
+ * The tracks of this page, in display order.
+ */
+tracks: TrackSummary[]
+type: "track.list"
+} | {
+/**
+ * The clips of this page.
+ */
+clips: ClipSummary[]
+/**
+ * Its device chain, in order.
+ */
+devices: DeviceSummary[]
+/**
+ * How many automation lanes the track has.
+ */
+lane_count: number
+page: PageInfo1
+/**
+ * How many arrangement placements the track has.
+ */
+placement_count: number
+track: TrackSummary1
+type: "track.get"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1097,6 +1295,30 @@ type: "device.set_param"
  * The value now: the one asked for, clamped and rounded.
  */
 value: number
+} | {
+/**
+ * The kind's descriptor; `null` for a module and for the clip player.
+ */
+descriptor?: (DeviceKindInfo | null)
+/**
+ * The device's summary; `null` when a kind was asked for.
+ */
+device?: (DeviceSummary | null)
+/**
+ * Whether the device is in the master's chain (then `track` is `null`).
+ */
+in_master: boolean
+/**
+ * The device's parameter values, by parameter key, in the unit the device declares.
+ */
+params: {
+[k: string]: number | undefined
+}
+/**
+ * The track that holds the device; `null` for the master's chain and for a kind.
+ */
+track?: (string | null)
+type: "device.describe"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1198,6 +1420,69 @@ type: "clip.notes.transpose"
  */
 added: number
 type: "clip.notes.duplicate"
+} | {
+/**
+ * What the clip holds, without the notes.
+ */
+content: ({
+kind: "midi"
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+length: number
+/**
+ * The loop `[start, end)` in ticks inside the clip, if one is set.
+ */
+looping?: (TickLoop | null)
+/**
+ * How many notes it holds.
+ */
+note_count: number
+} | {
+/**
+ * Frames played.
+ */
+frames: number
+/**
+ * Clip gain in dB; `null` is silence.
+ */
+gain_db?: (number | null)
+kind: "audio"
+/**
+ * The loop `[start, end)` in frames of the file, if one is set.
+ */
+looping?: (FrameLoop | null)
+media: AudioMedia1
+/**
+ * First frame of the file played.
+ */
+start: number
+})
+/**
+ * Its own launch quantization; `null` follows the project's.
+ */
+launch_quantize?: (Quantize | null)
+page: PageInfo2
+/**
+ * The placements of this page, in the order of their identifiers.
+ */
+placements: PlacementInfo[]
+summary: ClipSummary1
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.get"
+} | {
+/**
+ * The notes of this page, in time order.
+ */
+notes: Note[]
+page: PageInfo3
+type: "clip.notes.list"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1234,6 +1519,13 @@ previous_index: number
 type: "scene.move"
 } | {
 type: "scene.restore_order"
+} | {
+page: PageInfo4
+/**
+ * The scenes of this page, in display order.
+ */
+scenes: SceneInfo[]
+type: "scene.list"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1412,6 +1704,21 @@ removed: number
 type: "automation.lane.clear"
 } | {
 type: "automation.points.restore"
+} | {
+/**
+ * The lanes of this page.
+ */
+lanes: LaneSummary[]
+page: PageInfo5
+type: "automation.lane.list"
+} | {
+lane: LaneSummary1
+page: PageInfo6
+/**
+ * The points of this page, in tick order.
+ */
+points: Point[]
+type: "automation.lane.points"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -1476,6 +1783,48 @@ previous_enabled: boolean
  */
 previous_gain_db: (number | null)
 type: "transport.set_metronome"
+} | {
+/**
+ * Bars counted in before recording.
+ */
+count_in_bars: number
+/**
+ * The time signature's denominator.
+ */
+denominator: number
+/**
+ * The launch quantization: the grid a launch snaps to. Global to the project at the MVP,
+ * one bar by default (founder's decision 8).
+ * 
+ * The grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever
+ * the signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].
+ */
+launch_quantize: ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars_4" | "bars_8")
+/**
+ * Whether the transport loops over the loop region.
+ */
+loop_enabled: boolean
+/**
+ * The loop region in ticks; `null` when none is set.
+ */
+loop_region?: (TickLoop | null)
+/**
+ * Whether the metronome is on.
+ */
+metronome_enabled: boolean
+/**
+ * The metronome's level in dB; `null` is silence.
+ */
+metronome_gain_db: (number | null)
+/**
+ * The time signature's numerator.
+ */
+numerator: number
+/**
+ * The tempo in BPM.
+ */
+tempo_bpm: number
+type: "transport.get"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -2526,6 +2875,562 @@ id: string
  * The folder's name.
  */
 name: string
+}
+/**
+ * Gain, pan and mute of a track or of the master. Solo is not here: it is session state
+ * (founder's decision 10). Sends come after the MVP.
+ */
+export interface Mixer1 {
+/**
+ * Gain in dB; `-inf` (silence) is written `null`.
+ */
+gain_db?: (number | null)
+mute: boolean
+/**
+ * Pan from -1 (left) to 1 (right).
+ */
+pan: number
+}
+/**
+ * A device of a chain.
+ */
+export interface DeviceSummary {
+/**
+ * `false` when the device is bypassed.
+ */
+enabled: boolean
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+id: string
+/**
+ * The device's English name; `null` for a module and for the clip player.
+ */
+name?: (string | null)
+/**
+ * What a device does in the chain.
+ */
+role: ("instrument" | "effect")
+/**
+ * Where a device comes from. Third-party plugins come after the MVP.
+ */
+source: ({
+builtin: {
+id: string
+version: number
+}
+} | {
+module: {
+hash: Hash
+name: string
+}
+})
+}
+/**
+ * Where this page sits in the list.
+ */
+export interface PageInfo {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * A track in a list.
+ */
+export interface TrackSummary {
+/**
+ * Whether the track is armed for recording (session state).
+ */
+armed: boolean
+/**
+ * How many clips it holds.
+ */
+clip_count: number
+/**
+ * `#rrggbb`, or `null` for the default colour.
+ */
+color?: (Rgb | null)
+/**
+ * How many devices its chain holds.
+ */
+device_count: number
+/**
+ * Identifier of a track.
+ */
+id: string
+/**
+ * What a track's clips hold.
+ */
+kind: ("midi" | "audio")
+mixer: Mixer2
+/**
+ * The track's name.
+ */
+name: string
+/**
+ * Whether the track is soloed (session state).
+ */
+solo: boolean
+}
+/**
+ * Gain, pan and mute of a track or of the master. Solo is not here: it is session state
+ * (founder's decision 10). Sends come after the MVP.
+ */
+export interface Mixer2 {
+/**
+ * Gain in dB; `-inf` (silence) is written `null`.
+ */
+gain_db?: (number | null)
+mute: boolean
+/**
+ * Pan from -1 (left) to 1 (right).
+ */
+pan: number
+}
+/**
+ * A clip in a list.
+ */
+export interface ClipSummary {
+/**
+ * The clip's colour, `#rrggbb`, or `null`.
+ */
+color?: (Rgb | null)
+/**
+ * Identifier of a clip.
+ */
+id: string
+/**
+ * What a track's clips hold.
+ */
+kind: ("midi" | "audio")
+/**
+ * The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip
+ * (its length depends on the tempo).
+ */
+length?: (Tick | null)
+/**
+ * The clip's name.
+ */
+name: string
+/**
+ * How many notes a MIDI clip holds; `null` for an audio clip.
+ */
+note_count?: (number | null)
+/**
+ * The scene of the launch-grid slot the clip sits in, or `null` when it only lives
+ * in the arrangement.
+ */
+slot?: (string | null)
+}
+/**
+ * Where this page of clips sits in the track's clip list.
+ */
+export interface PageInfo1 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * A track in a list.
+ */
+export interface TrackSummary1 {
+/**
+ * Whether the track is armed for recording (session state).
+ */
+armed: boolean
+/**
+ * How many clips it holds.
+ */
+clip_count: number
+/**
+ * `#rrggbb`, or `null` for the default colour.
+ */
+color?: (Rgb | null)
+/**
+ * How many devices its chain holds.
+ */
+device_count: number
+/**
+ * Identifier of a track.
+ */
+id: string
+/**
+ * What a track's clips hold.
+ */
+kind: ("midi" | "audio")
+mixer: Mixer2
+/**
+ * The track's name.
+ */
+name: string
+/**
+ * Whether the track is soloed (session state).
+ */
+solo: boolean
+}
+/**
+ * The static description of a built-in device kind.
+ */
+export interface DeviceKindInfo {
+/**
+ * The kind, `faulk.<name>`: the `id` of a `builtin` device source.
+ */
+kind: string
+/**
+ * The device's one English name.
+ */
+name: string
+/**
+ * The notes an instrument answers to, with their names; empty for a pitched
+ * instrument and for effects.
+ */
+named_keys: KeyName[]
+/**
+ * The kind's parameters, in declaration order.
+ */
+params: ParamSpec[]
+/**
+ * What the kind does in a chain.
+ */
+role: ("instrument" | "effect" | "midi_effect")
+/**
+ * The kind's version, raised when its parameters change meaning.
+ */
+version: number
+}
+/**
+ * A MIDI key an instrument gives a name to (a drum kit's sounds).
+ */
+export interface KeyName {
+/**
+ * The MIDI key, 0 to 127.
+ */
+key: number
+/**
+ * The name of the sound on that key.
+ */
+name: string
+}
+/**
+ * One parameter a device kind declares.
+ */
+export interface ParamSpec {
+/**
+ * The value a new device starts with.
+ */
+default: number
+/**
+ * What the parameter does and what its range means.
+ */
+description: string
+/**
+ * The key of the parameter: what `device.set_param` and the automation targets name.
+ */
+key: string
+/**
+ * The highest value.
+ */
+max: number
+/**
+ * The lowest value.
+ */
+min: number
+/**
+ * `linear` or `log` (logarithmic travel, for frequencies and times).
+ */
+scale: ("linear" | "log")
+/**
+ * The smallest change of the value; 0 for a continuous parameter.
+ */
+step: number
+/**
+ * The unit of the value.
+ */
+unit: (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | "none" | "gain")
+/**
+ * For an enumerated parameter, the key of each value from `min` to `max`; empty
+ * otherwise.
+ */
+values: string[]
+}
+/**
+ * An audio file referenced by its blob, with its metadata in clear so the project reads,
+ * validates and merges without decoding the audio (§ 2.2).
+ */
+export interface AudioMedia1 {
+channels: number
+/**
+ * Length of the whole file in frames.
+ */
+frames: number
+hash: Hash
+/**
+ * The file's original name.
+ */
+name: string
+sample_rate: number
+}
+/**
+ * Where this page sits in the clip's placement list.
+ */
+export interface PageInfo2 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * A clip set in a track's arrangement.
+ */
+export interface PlacementInfo {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+placement: Placement1
+}
+/**
+ * A clip set in the arrangement.
+ */
+export interface Placement1 {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+span: Span
+start: Tick
+}
+/**
+ * A clip in a list.
+ */
+export interface ClipSummary1 {
+/**
+ * The clip's colour, `#rrggbb`, or `null`.
+ */
+color?: (Rgb | null)
+/**
+ * Identifier of a clip.
+ */
+id: string
+/**
+ * What a track's clips hold.
+ */
+kind: ("midi" | "audio")
+/**
+ * The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip
+ * (its length depends on the tempo).
+ */
+length?: (Tick | null)
+/**
+ * The clip's name.
+ */
+name: string
+/**
+ * How many notes a MIDI clip holds; `null` for an audio clip.
+ */
+note_count?: (number | null)
+/**
+ * The scene of the launch-grid slot the clip sits in, or `null` when it only lives
+ * in the arrangement.
+ */
+slot?: (string | null)
+}
+/**
+ * Where this page sits in the clip's note list.
+ */
+export interface PageInfo3 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * Where this page sits in the list.
+ */
+export interface PageInfo4 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * A scene of the launch grid with the clips of its slots.
+ */
+export interface SceneInfo {
+/**
+ * The clips in this scene's slots, one per track at most, in the tracks' display order.
+ */
+clips: SceneSlot[]
+/**
+ * Identifier of a scene.
+ */
+id: string
+/**
+ * The scene's name.
+ */
+name: string
+}
+/**
+ * A filled slot of a scene.
+ */
+export interface SceneSlot {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+/**
+ * Identifier of a track.
+ */
+track: string
+}
+/**
+ * An automation lane without its points (`automation.lane.points` pages them).
+ */
+export interface LaneSummary {
+/**
+ * Identifier of an automation lane.
+ */
+id: string
+/**
+ * How many points the lane holds.
+ */
+point_count: number
+/**
+ * What a lane automates.
+ */
+target: ({
+device: {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+param: string
+}
+} | {
+mixer: {
+param: MixerParam
+}
+})
+/**
+ * The track that owns the lane; `null` for a lane of the master.
+ */
+track?: (string | null)
+}
+/**
+ * Where this page sits in the list.
+ */
+export interface PageInfo5 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
+}
+/**
+ * An automation lane without its points (`automation.lane.points` pages them).
+ */
+export interface LaneSummary1 {
+/**
+ * Identifier of an automation lane.
+ */
+id: string
+/**
+ * How many points the lane holds.
+ */
+point_count: number
+/**
+ * What a lane automates.
+ */
+target: ({
+device: {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+param: string
+}
+} | {
+mixer: {
+param: MixerParam
+}
+})
+/**
+ * The track that owns the lane; `null` for a lane of the master.
+ */
+track?: (string | null)
+}
+/**
+ * Where this page sits in the lane's point list.
+ */
+export interface PageInfo6 {
+/**
+ * The `offset` to ask for the next page; `null` when this page reaches the end of the
+ * list.
+ */
+next_offset?: (number | null)
+/**
+ * The index of the first item of the page (the `offset` asked for, 0 by default).
+ */
+offset: number
+/**
+ * How many items the whole list holds.
+ */
+total: number
 }
 /**
  * A MIDI input as the helper sees it.

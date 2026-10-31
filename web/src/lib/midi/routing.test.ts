@@ -35,8 +35,8 @@ function session() {
 }
 
 const tracksOf = (output: CommandOutput): string[] => {
-  if (!('tracks' in output)) throw new Error(`no tracks in ${JSON.stringify(output)}`)
-  return [...output.tracks].sort()
+  if (!('tracks' in output) || !output.tracks.every((t) => typeof t === 'string')) throw new Error(`no track ids in ${JSON.stringify(output)}`)
+  return [...(output.tracks as string[])].sort()
 }
 
 describe('the live input from MIDI bytes', () => {

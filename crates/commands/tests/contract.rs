@@ -17,6 +17,7 @@ mod automation_examples;
 mod clip_examples;
 mod device_examples;
 mod grid_examples;
+mod query_examples;
 mod track_examples;
 mod transport_examples;
 
@@ -181,6 +182,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(track_examples::examples())
     .chain(device_examples::examples())
     .chain(automation_examples::examples())
+    .chain(query_examples::examples())
     .collect()
 }
 

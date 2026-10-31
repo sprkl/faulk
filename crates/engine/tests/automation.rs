@@ -180,6 +180,13 @@ impl Rig {
     }
 
     fn check(&self) {
+        // The is_finite check below is vacuous since the output protection (#402) silences
+        // non-finite samples; limiter_silenced is the real no-NaN guard for the automation path.
+        assert_eq!(
+            self.e.limiter_silenced(),
+            0,
+            "an automation lane produced a non-finite sample"
+        );
         for (i, s) in self.left.iter().chain(&self.right).enumerate() {
             assert!(s.is_finite(), "sample {i} is {s}");
             assert!(*s == 0.0 || s.abs() >= f32::MIN_POSITIVE, "denormal at {i}");
