@@ -64,7 +64,7 @@ domain! {
 pub struct Entry {
     /// Identifies the entry for the history panel: unique within the [`History`], kept when
     /// the entry moves between the undo and the redo stack and when a later edit of its
-    /// group joins it. The page stamps the time it first sees an id.
+    /// group joins it. The history panel keys its rows by it.
     pub id: u64,
     /// When the entry was recorded, in the host's milliseconds (`Context::now_ms`); an undo
     /// and a redo keep it, a later edit of the group that joins it does not change it.

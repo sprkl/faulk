@@ -1345,6 +1345,12 @@ fn a_master_lane_is_saved_in_its_own_file_and_opens_again() {
     h.saved(true);
 }
 
+fn set_author(h: &Handle, author: &str) -> i32 {
+    write_inbox(author);
+    // SAFETY: a live core.
+    unsafe { pw_set_author(h.0, author.len() as u32) }
+}
+
 #[test]
 fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothing() {
     let h = Handle::new(KIND_EMPTY);
@@ -1352,7 +1358,7 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
     // SAFETY: a live core.
     assert_eq!(unsafe { pw_set_clock(h.0, 1234.0) }, 0);
     h.apply(json!({"type": "track.create", "kind": "midi"}));
-    h.call("agent:claude", pw_set_author);
+    assert_eq!(set_author(&h, "agent:claude"), 0);
     h.apply(json!({"type": "project.rename", "name": "By agent"}));
     for bad in ["", "robot", "agent:"] {
         write_inbox(bad);
@@ -1363,7 +1369,7 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
         );
     }
     h.apply(json!({"type": "project.rename", "name": "Again"}));
-    h.call("user", pw_set_author);
+    assert_eq!(set_author(&h, "user"), 0);
     h.apply(json!({"type": "project.rename", "name": "By user"}));
     let view = h.call0(pw_history).0;
     let authors: Vec<_> = view["undo"]
