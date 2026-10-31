@@ -13,6 +13,7 @@ fn same(native: &Exported, wasm: &Exported) {
     assert_eq!(native.written, wasm.written, "the files differ in length");
     assert_eq!(native.rendered, wasm.rendered);
     assert_eq!(native.tail_cut, wasm.tail_cut);
+    assert_eq!(native.silenced, wasm.silenced, "the silenced counts differ");
     assert_eq!(native.wav.len(), wasm.wav.len());
     let header = native.settings.bit_depth.format().header_bytes();
     assert_eq!(
@@ -23,6 +24,9 @@ fn same(native: &Exported, wasm: &Exported) {
     let (n, w) = (native.render(), wasm.render());
     n.assert_close(&w, PARITY_TOLERANCE);
     assert!((native.peak - wasm.peak).abs() < PARITY_TOLERANCE);
+    // The output protection's reported gain reduction (`fk_export_stat(…, 7)`, #402) is the
+    // same in both targets.
+    assert!((native.reduction - wasm.reduction).abs() < PARITY_TOLERANCE);
 }
 
 #[test]
@@ -42,6 +46,31 @@ fn a_song_with_an_echo_exports_alike_natively_and_in_wasm() {
     // The tail is there in both: the file is longer than the content.
     assert!(native.written > native.body_frames + 48_000);
     native.render().assert_clean();
+}
+
+#[test]
+fn a_mix_pushed_into_the_limiter_reports_the_same_reduction_natively_and_in_wasm() {
+    // demo_song clamps the master to +6 dB, so push it past the command layer here to slam the
+    // limiter: the reported gain reduction (fk_export_stat(…, 7)) must be real and identical in
+    // both targets, not 0 == 0 as in the quiet cases.
+    let mut state = demo_song(1, None);
+    state.project.master.gain_db = 24.0;
+    let settings = ExportSettings {
+        region: ExportRegion::Song,
+        bit_depth: ExportBitDepth::Float32,
+        sample_rate: 48_000,
+        ..ExportSettings::default()
+    };
+    let (native, wasm) = (
+        export_native(&state, settings),
+        export_wasm(&state, settings),
+    );
+    same(&native, &wasm);
+    assert!(
+        native.reduction > 0.1,
+        "the mix did not engage the limiter: reduction {}",
+        native.reduction
+    );
 }
 
 #[test]

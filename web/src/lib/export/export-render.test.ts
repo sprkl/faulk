@@ -94,6 +94,8 @@ describe('the export render', () => {
     expect(done.peak).toBeGreaterThan(0.01)
     expect(done.peak).toBeLessThanOrEqual(1)
     expect(done.clipped).toBe(0)
+    // A mix under the ceiling never engages the output limiter, so the gain reduction is 0 (#402).
+    expect(done.reduction).toBe(0)
   })
 
   it('reports its progress up to the end of the song, then the tail', async () => {

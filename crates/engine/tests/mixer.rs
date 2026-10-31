@@ -116,6 +116,13 @@ impl Rig {
         }
         check(&left);
         check(&right);
+        // `check`'s is_finite is vacuous since the output protection (#402) silences non-finite
+        // samples; this is the real no-NaN guard for the track summing and mixer paths.
+        assert_eq!(
+            self.e.limiter_silenced(),
+            0,
+            "the mix produced a non-finite sample"
+        );
         (left, right)
     }
 
