@@ -75,6 +75,23 @@
 //! this). A clip removed or replaced while it plays is handled by `apply`
 //! ([`ClipPlayer::clip_changed`]).
 //!
+//! # Editing a clip while it plays (CL-3)
+//!
+//! An edit is a whole new table (`ClipNotesUpload`), prepared off the audio path, swapped
+//! in by `apply` (`RtMsg::ClipPut`); the old table goes to the garbage ring. No allocation,
+//! no free. The cursor keeps its place in clip time. A note sounding at the swap is kept
+//! (no note-off, no second note-on) when the new table has, **at the same index** (so the
+//! same voice id), a note with the same start, length and pitch
+//! ([`held_notes_unchanged`]): the held bits move to the new table and its own note-off ends
+//! the note. Velocity and fine tuning only matter at the note-on. Otherwise (a sounding
+//! note changed, vanished or changed index, more than [`MAX_CARRIED_NOTES`] held, a read in
+//! progress cut by a full sink, or no longer a MIDI clip) the track releases everything at
+//! the first frame of the next block (`AllNotesOff`, the live notes of the track included)
+//! and the cursor starts over. The table is ranked by start, then pitch: a note added or
+//! removed before a sounding one moves its index, which is the second case. The added cost
+//! in `apply` is a scan of the held bits and a copy of them (20 µs and 6 µs at a million
+//! notes, `msg_cost`).
+//!
 //! # The grid and the arrangement (AR-2)
 //!
 //! A track plays its arrangement ([`crate::arrangement`]) until the grid takes it. A launch
@@ -312,22 +329,33 @@ impl ClipNotes {
     }
 }
 
+/// Held notes carried over a swap at most: beyond, the track releases them (bounds the
+/// comparison done in `apply`, about 2 ms for a million notes held at once otherwise).
+pub const MAX_CARRIED_NOTES: usize = 4096;
+
 /// Whether every note `old` has delivered and not ended is, in `new`, the same note at the
 /// same index (same voice id): same start, length and pitch (velocity and fine tuning only
 /// matter at the note-on). The notes of an edit that keeps them sound on across the swap.
 /// No allocation.
 pub fn held_notes_unchanged(old: &ClipNotes, new: &ClipNotes) -> bool {
-    let bits = old.held_bits();
-    bits.iter().enumerate().all(|(w, &word)| {
-        (0..32).filter(|b| word >> b & 1 == 1).all(|b| {
-            let i = w * 32 + b;
-            match (old.note(i), new.note(i)) {
+    let mut checked = 0usize;
+    old.held_bits().iter().enumerate().all(|(w, &word)| {
+        let mut rest = word;
+        while rest != 0 {
+            let i = w * 32 + rest.trailing_zeros() as usize;
+            rest &= rest - 1;
+            let same = match (old.note(i), new.note(i)) {
                 (Some(a), Some(b)) => {
                     a.start() == b.start() && a.length() == b.length() && a.pitch() == b.pitch()
                 }
                 _ => false,
+            };
+            checked += 1;
+            if !same || checked > MAX_CARRIED_NOTES {
+                return false;
             }
-        })
+        }
+        true
     })
 }
 

@@ -603,6 +603,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 **CL-3 — Édition d'un clip pendant sa lecture**
 - But : remplacer atomiquement la version d'un clip en lecture (nouvelle table préparée, échange dans `apply`, ancienne table aux déchets).
 - Critères : 1 000 éditions pendant la lecture : aucune allocation sur le chemin audio, aucune note coincée, pas de trou audible.
+- Réalisé (#73) : l'échange de table existait (CL-2, MO-2). Ajouts : une note qui sonne et que l'édition ne change pas (même indice, donc même identifiant de voix, même début, même longueur, même hauteur) continue sans être coupée ni relancée ; sinon la piste relâche tout (`AllNotesOff`). Limite connue : une note ajoutée ou retirée avant une note qui sonne (la table est classée par début) change son indice et la coupe. Épreuves : `crates/engine/tests/clip_edit.rs` (1 000 éditions, détecteur d'allocation) et `crates/test-support/tests/clip_edit_playback.rs` (1 000 commandes, synthé réel, parité natif/WASM).
 - Touche : `crates/engine`, `crates/commands`.
 - Dépend de : CL-1, CL-2, PR-3.
 - Phase : 3.

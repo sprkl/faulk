@@ -11,10 +11,9 @@ use std::collections::BTreeSet;
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use engine::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, Factory,
-    ParamDescriptor, VoiceId,
+    ParamDescriptor,
 };
 use engine::engine::{Engine, Preparer, channel};
-use engine::events::{SCHEDULE_CHUNK, SCHEDULE_FIRST_VOICE};
 use engine::msg::{
     ClipSlot, ControlMsg as M, DeviceKind, DeviceSlot, MsgError, Note, ParamId, SceneSlot,
     TrackKind, TrackSlot, try_box,
@@ -108,7 +107,6 @@ const BPM: i128 = 120;
 struct Rig {
     p: Preparer,
     e: Engine,
-    rate: u32,
     /// Frames rendered so far.
     frames: u64,
     out: Vec<f32>,
@@ -127,7 +125,6 @@ impl Rig {
         let mut rig = Rig {
             p,
             e,
-            rate,
             frames: 0,
             out: Vec::new(),
         };
@@ -178,13 +175,6 @@ impl Rig {
     fn run_to(&mut self, to: u64, size: usize) {
         let n = to.saturating_sub(self.frames);
         self.run(n, size);
-    }
-
-    /// The frame of `tick` when the clock started at tick `from` at frame `s0`: exact,
-    /// floored.
-    fn frame(&self, s0: u64, from: i64, tick: i64) -> u64 {
-        let num = i128::from(tick - from) * 60 * i128::from(self.rate);
-        s0 + num.div_euclid(BPM * 960) as u64
     }
 }
 
@@ -562,4 +552,19 @@ fn a_thousand_random_edits_leave_no_stuck_note_and_no_double_start() {
         r.run(512, 128);
         assert_nothing_held(0);
     }
+}
+
+#[test]
+fn more_held_notes_than_the_carry_limit_are_released_by_the_track() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    let crowd: Vec<Note> = (0..5000).map(|i| note(0, 3000, (i % 128) as u8)).collect();
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    r.run(500 * F, 128);
+    r.send(&[upload(0, 3840, Some((0, 3840)), crowd)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "released at the swap");
+    r.send(&[M::Stop]);
+    r.run(512, 128);
+    assert_nothing_held(0);
 }
