@@ -196,34 +196,37 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   // origin. Consequence: letters no longer play a note on that slider until the next click restores
   // pointer origin. Explicit test of the behavior change (not hidden by replacing focus() with click()).
   //
-  // Step 1 — mouse-focused slider: letter plays.
+  // Step 1 — mouse-focused slider: a held letter plays, and keeps a voice alive while held.
+  // This also measures, on this shard, how long the engine takes to show the voice: we time it
+  // and reuse that measured bound in step 2 instead of guessing a latency (CLAUDE.md: never state
+  // an unmeasured figure).
   await attack.click() // explicit pointer press: pointer origin
+  const t0 = Date.now()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+  const startMs = Date.now() - t0 // measured time for a held KeyA to raise the voice count on this shard
   await page.keyboard.up('KeyA')
   // Wait for the voice to fully release before step 2, so that step 2's assertion
   // is only about whether KeyA starts a new voice, not a releasing one from step 1.
   await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/)
   //
-  // Step 2 — non-musical key → keyboard origin → letter no longer plays.
+  // Step 2 — non-musical key → keyboard origin → a held letter no longer plays.
+  // KeyA is held down for the whole window: if playsNote had regressed to true, the voice would be
+  // present for the entire hold (a held key sustains its voice), so at least one sample would catch
+  // it. The window is a generous multiple (>=10x, floored at 1 s) of the start time measured in
+  // step 1 on this same shard, so a slow shard widens it rather than racing it.
   await page.keyboard.press('Delete') // non-musical key on already-pointer-focused slider
   await page.keyboard.down('KeyA')
-  // No voice is started: slider is keyboard-focused, playsNote returns false (option A).
-  // Sample the voice counter for 500 ms: if playsNote were true, a voice would appear
-  // within the first 200 ms (step 1 confirms the engine responds that quickly).
+  const windowMs = Math.max(1000, startMs * 10)
+  const step = Math.max(100, Math.round(windowMs / 8))
   const samples: string[] = []
-  await expect
-    .poll(
-      async () => {
-        samples.push((await page.getByTestId('voices').textContent()) ?? '')
-        return samples.length
-      },
-      // 5 samples at 200 ms intervals = 1 s window; step 1 shows the engine responds in
-      // well under 200 ms even on a loaded shard (its toContainText always settles quickly).
-      { timeout: 1500, intervals: [200, 200, 200, 200, 200] },
-    )
-    .toBeGreaterThanOrEqual(5)
-  expect(samples.some((s) => /\b1\b/.test(s))).toBe(false)
+  const deadline = Date.now() + windowMs
+  while (Date.now() < deadline) {
+    samples.push((await page.getByTestId('voices').textContent()) ?? '')
+    await page.waitForTimeout(step)
+  }
+  expect(samples.length).toBeGreaterThanOrEqual(5) // enough samples to span the hold
+  expect(samples.some((s) => /\b1\b/.test(s))).toBe(false) // no voice ever appeared: playsNote stayed false
   await page.keyboard.up('KeyA')
   // Space must not toggle the transport either (keyboard-focused slider keeps Space).
   await page.keyboard.press('Space')
