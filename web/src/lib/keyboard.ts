@@ -152,8 +152,11 @@ export function trackFocusOrigin(doc: Document = document): () => void {
       // Scoped to sliders (role="slider"): other controls (buttons, links) may receive shortcut keys
       // whose side effect focuses them back (e.g. Escape on a menu returning focus to its trigger)
       // without meaning that the user switched to keyboard navigation.
-      // Checked against BARE_SHORTCUT_CODES (not "!isMusicalKey"): unmapped letters (KeyC, KeyB…),
-      // digits and Ctrl+C are neither playing keys nor UI shortcuts and must not switch the origin.
+      // Checked against BARE_SHORTCUT_CODES (not "!isMusicalKey"): unmapped letters (KeyC, KeyB…)
+      // and digits are neither playing keys nor UI shortcuts and must not switch the origin.
+      // Note: BARE_SHORTCUT_CODES is compared against event.code; '+', '=', '-', '_' in the list
+      // are key values (Equal/Minus are the codes) and will never match, which is correct.
+      // Modifiers (Ctrl, Alt…) are already excluded above so Ctrl+Delete counts as Delete here.
       // Playing keys (KEY_OFFSETS, Z/X) are absent from BARE_SHORTCUT_CODES: a mouse-used knob
       // keeps playing notes even when a musical key is pressed on it.
       if ((BARE_SHORTCUT_CODES as readonly string[]).includes(event.code)) {
