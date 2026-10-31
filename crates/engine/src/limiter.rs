@@ -125,8 +125,17 @@ impl Limiter {
 }
 
 /// The fraction of the deficit left after one sample of release at `rate`.
+///
+/// The minimum is chosen so that the release decrement is at least one `f32` ULP away from
+/// zero at a deficit of 1.0 (i.e. `keep < 1.0` in `f32`). This guards against a pathological
+/// sample rate so high that the release would never advance: at any rate accepted by
+/// [`SampleRate`] the release reaches `SNAP` in at most `1.0 / (1.0 - MAX_KEEP) / SNAP` samples,
+/// a finite number.
+const MAX_KEEP: f32 = 1.0 - f32::EPSILON;
+
 fn keep_per_sample(rate: SampleRate) -> f32 {
-    (-1.0 / (RELEASE_SECONDS * f64::from(rate.hz()))).exp() as f32
+    let k = (-1.0 / (RELEASE_SECONDS * f64::from(rate.hz()))).exp() as f32;
+    k.min(MAX_KEEP)
 }
 
 /// One sample times the gain, clamped to the ceiling (a non-finite sample is silence).
@@ -271,9 +280,33 @@ mod tests {
 
     #[test]
     fn every_rate_has_a_usable_release() {
-        for hz in [8_000, 22_050, 44_100, 48_000, 96_000, 192_000, 384_000] {
+        // Standard and extreme rates: keep is strictly under 1.0, so the release always makes
+        // progress. u32::MAX is the highest rate SampleRate accepts; MAX_KEEP caps it below 1.0.
+        for hz in [
+            8_000u32,
+            22_050,
+            44_100,
+            48_000,
+            96_000,
+            192_000,
+            384_000,
+            u32::MAX,
+        ] {
             let lim = Limiter::new(SampleRate::new(hz).unwrap());
-            assert!(lim.keep > 0.0 && lim.keep < 1.0, "{hz}");
+            assert!(
+                lim.keep > 0.0 && lim.keep < 1.0,
+                "{hz}: keep = {}",
+                lim.keep
+            );
         }
+        // At any rate, an over must release to gain 1.0 (SNAP kicks in before infinite samples).
+        let mut lim = Limiter::new(SampleRate::new(u32::MAX).unwrap());
+        lim.process(&mut [8.0f32], &mut [0.0f32]);
+        assert!(lim.gain() < 1.0, "no limiting at u32::MAX Hz");
+        // The release makes progress: the deficit drops each sample.
+        let d0 = 1.0 - lim.gain();
+        lim.process(&mut [0.0f32], &mut [0.0f32]);
+        let d1 = 1.0 - lim.gain();
+        assert!(d1 < d0, "release stalled at u32::MAX Hz: {d0} → {d1}");
     }
 }

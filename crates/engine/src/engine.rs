@@ -1910,8 +1910,10 @@ impl Engine {
                 }
                 // The master's strip takes the new state's faders back.
                 self.graph.reset_master();
-                // The new project does not start under the gain the old one's overs left.
-                self.limiter.reset();
+                // The limiter is not reset on a project swap: the retiring tracks keep
+                // fading through the same limiter, so a project opened while the previous
+                // one was hot does not produce a gain jump. The release (80 ms) decays the
+                // deficit naturally; the new project's overs are caught on the first sample.
                 Some(Garbage::State(old))
             }
             RtMsg::SetTransport {

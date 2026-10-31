@@ -77,7 +77,7 @@ fn a_hot_resonant_mix_never_leaves_above_the_ceiling_and_native_equals_wasm() {
     hot.assert_no_denormals();
     assert!(hot.peak() <= CEILING, "peak {}", hot.peak());
     assert!(hot.peak() > 0.95, "it works at the ceiling: {}", hot.peak());
-    // What follows the note (the release) is silence, not a buzz.
+    // The note is held for one second; the mix is loud throughout, not just at the attack.
     assert!(hot.rms_in(0.5..1.0) > 0.1);
     let path = hot.write_wav("output-limiter-hot");
     println!(

@@ -167,8 +167,7 @@ fn a_mix_under_the_ceiling_passes_untouched_and_the_meter_agrees() {
 
 #[test]
 fn the_protection_adds_no_latency() {
-    // A first sample over the ceiling is caught on that very sample (the attack has no
-    // look-ahead), and a quiet sample is not delayed by the stage.
+    // (a) Stage level: the attack has no look-ahead, and a quiet sample is not delayed.
     let mut lim = Limiter::new(SampleRate::HZ_48000);
     assert_eq!(Limiter::latency_frames(), 0);
     let mut l = vec![0.0f32; 64];
@@ -181,6 +180,33 @@ fn the_protection_adds_no_latency() {
     // The gain is still down 23 samples later (the release is tens of milliseconds): the
     // quiet sample is at its own position, scaled, not moved.
     assert!(l[40] > 0.05 && l[40] < 0.25, "{}", l[40]);
+
+    // (b) Engine level: the limiter does not delay audio in the engine's render path.
+    // The first non-zero output frame is the same with the limiter at rest and with it
+    // engaged: no sample is buffered or moved.
+    let onset_frame = |l: &[f32], r: &[f32]| {
+        l.iter()
+            .zip(r)
+            .position(|(a, b)| a.abs() > 1e-9 || b.abs() > 1e-9)
+    };
+    // Under the ceiling: onset at some frame F.
+    let (l_under, r_under) = {
+        let mut rig = Rig::new(1, 0.3);
+        rig.render(0.05)
+    };
+    // Far over the ceiling: onset at the same frame F (the attack does not insert a buffer).
+    let (l_over, r_over) = {
+        let mut rig = Rig::new(1, 5.0);
+        rig.render(0.05)
+    };
+    assert!(peak(&l_over, &r_over) <= CEILING);
+    assert!(peak(&l_under, &r_under) < CEILING);
+    let f_under = onset_frame(&l_under, &r_under);
+    let f_over = onset_frame(&l_over, &r_over);
+    assert_eq!(
+        f_under, f_over,
+        "onset at frame {f_under:?} (quiet) vs {f_over:?} (hot): limiter delayed audio"
+    );
 }
 
 #[test]
