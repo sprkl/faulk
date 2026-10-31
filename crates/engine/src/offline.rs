@@ -202,9 +202,10 @@ impl Offline {
             return Err(OfflineError::Length);
         }
         let (prepare, mut host) = channel(sample_rate as f32).map_err(OfflineError::Stream)?;
-        // The reduction counter covers this render only (the channel is fresh, so this is
-        // belt-and-braces): clear it before the first frame.
+        // The reduction and silenced counters cover this render only (the channel is fresh, so
+        // this is belt-and-braces): clear them before the first frame.
         host.engine_mut().reset_limiter_reduction();
+        host.engine_mut().reset_limiter_silenced();
         let silence_frames = (SILENCE_SECS * sample_rate as f32) as u32;
         let reserve = |n: usize| -> Result<Vec<f32>, OfflineError> {
             let mut v = Vec::new();
@@ -367,6 +368,15 @@ impl Offline {
     /// reduction the limiter applied, not as the pre-limiter level (#402, 2026-10-31).
     pub fn reduction(&self) -> f32 {
         self.host.engine().limiter_reduction()
+    }
+
+    /// How many output samples the protection turned to silence because they were non-finite
+    /// (NaN or infinity) over this render. `0` on a clean render. The limiter is the last stage,
+    /// so a device or a non-device path (master strip, automation, summing) that blew up leaves
+    /// the engine as silence that the output `assert_finite` can no longer catch; this counter
+    /// is how an offline render still catches it (#402).
+    pub fn silenced(&self) -> u64 {
+        self.host.engine().limiter_silenced()
     }
 
     /// Samples an integer format clipped to full scale. Always 0 since the output protection

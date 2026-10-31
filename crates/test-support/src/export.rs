@@ -28,6 +28,9 @@ pub struct Exported {
     /// The output protection's peak gain reduction over the render, linear in `[0, 1]`
     /// (`0.0` = never engaged; #402).
     pub reduction: f32,
+    /// Non-finite samples the output protection silenced over the render (`0` on a clean render;
+    /// #402). A test asserts `0` to catch a NaN on a path the engine-level `assert_finite` cannot.
+    pub silenced: u64,
     pub tail_cut: bool,
     /// Times the engine was full while the setup went in.
     pub busy: u32,
@@ -64,6 +67,7 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
         peak: offline.peak(),
         clipped: offline.clipped(),
         reduction: offline.reduction(),
+        silenced: offline.silenced(),
         tail_cut: offline.tail_cut(),
         busy: offline.busy(),
     }
@@ -172,6 +176,7 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
         peak: stat(&mut store, 3) as f32,
         clipped: stat(&mut store, 4) as u64,
         reduction: stat(&mut store, 7) as f32,
+        silenced: stat(&mut store, 8) as u64,
         tail_cut: stat(&mut store, 5) > 0.5,
         busy: 0,
     }

@@ -13,6 +13,7 @@ fn same(native: &Exported, wasm: &Exported) {
     assert_eq!(native.written, wasm.written, "the files differ in length");
     assert_eq!(native.rendered, wasm.rendered);
     assert_eq!(native.tail_cut, wasm.tail_cut);
+    assert_eq!(native.silenced, wasm.silenced, "the silenced counts differ");
     assert_eq!(native.wav.len(), wasm.wav.len());
     let header = native.settings.bit_depth.format().header_bytes();
     assert_eq!(

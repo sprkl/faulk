@@ -148,6 +148,8 @@ fn a_hot_mix_never_leaves_above_the_ceiling_and_the_meter_shows_the_overload() {
         "the meter shows {metered}, the level before the protection"
     );
     assert_eq!(rig.host.engine().skipped(), 0);
+    // The synths are finite, however hot: the limiter clamps, it silences nothing.
+    assert_eq!(rig.host.engine().limiter_silenced(), 0);
 }
 
 #[test]

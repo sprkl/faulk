@@ -46,6 +46,10 @@ fn the_song_is_rendered_from_bar_one_to_the_end_of_its_last_placement() {
         "{}",
         exported.peak
     );
+    // The whole render path (synth, track and master strips, summing) is finite: the output
+    // protection silenced nothing. This is the engine-level "no NaN" check the DoD asks for,
+    // through the one seam the limiter leaves (its own assert_finite on the output is vacuous).
+    assert_eq!(exported.silenced, 0, "the render had a non-finite sample");
 }
 
 #[test]
@@ -310,6 +314,8 @@ fn a_signal_over_full_scale_is_limited_in_every_format_like_what_is_heard() {
             reduction_db > 1.0,
             "{depth:?}: only {reduction_db:.2} dB of gain reduction reported for a +24 dB mix"
         );
+        // A hot but finite mix is clamped, never silenced: the counter stays 0.
+        assert_eq!(file.silenced, 0, "{depth:?}: a finite mix was silenced");
         let r = file.render();
         assert!(r.peak() <= engine::limiter::CEILING, "{depth:?}");
         r.assert_clean();

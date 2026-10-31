@@ -49,6 +49,11 @@
 //! **not** affected: a subnormal magnitude is
 //! below any ceiling, so the limiter passes it untouched (`subnormals_pass_untouched`), and
 //! `assert_no_denormals` on the render output keeps all its power.
+//!
+//! For the non-device paths (master strip, master chain, automation, summing) that have no direct
+//! device test, the limiter counts the non-finite samples it silences ([`Limiter::silenced`]): an
+//! offline render asserts that count is `0`, which catches a blow-up the vacuous `assert_finite`
+//! would miss.
 
 use crate::time::SampleRate;
 
@@ -75,12 +80,19 @@ pub struct Limiter {
     /// Fraction of the deficit kept after one sample of release.
     keep: f32,
     /// The largest deficit (`1 - gain`) applied since [`Limiter::reset_max_reduction`], i.e.
-    /// the peak gain reduction, in `[0, 1]`. It is updated by one monotonic `max` on the audio
-    /// thread and read off that thread (by `Offline` after a render) to tell the user the mix
-    /// was pushed into the limiter (#402); the field is plain `f32`, owned by the audio thread,
-    /// so there is no cross-thread sharing. It is **not** cleared by [`Limiter::reset`] or a
-    /// sample-rate change: a render reads a whole pass, and the export resets it before the pass.
+    /// the peak gain reduction, in `[0, 1]`. One monotonic `max` on this audio-thread-owned field;
+    /// nothing reads it from another thread. An offline export reads it, on the thread that just
+    /// ran the render, to tell the user the mix was pushed into the limiter (#402). It is **not**
+    /// cleared by [`Limiter::reset`] or a sample-rate change: a render reads a whole pass, and the
+    /// export resets it before the pass.
     max_reduction: f32,
+    /// How many input samples were non-finite (NaN or infinity) and turned to silence since the
+    /// last [`Limiter::reset_silenced`]. The limiter is the last line against a device or a
+    /// non-device path (master strip, automation, summing) that blows up; because it clamps and
+    /// silences, an engine-level `assert_finite` on the render output passes by construction, so
+    /// this counter is the seam that lets an offline render still catch a blow-up (#402). Same
+    /// ownership as `max_reduction`: one audio thread writes, the render's thread reads it after.
+    silenced: u64,
 }
 
 impl Limiter {
@@ -90,6 +102,7 @@ impl Limiter {
             deficit: 0.0,
             keep: keep_per_sample(rate),
             max_reduction: 0.0,
+            silenced: 0,
         }
     }
 
@@ -108,6 +121,18 @@ impl Limiter {
     /// Clears the peak gain reduction back to `0.0`. An offline render calls it before a pass.
     pub fn reset_max_reduction(&mut self) {
         self.max_reduction = 0.0;
+    }
+
+    /// How many non-finite input samples were turned to silence since the last
+    /// [`Limiter::reset_silenced`]. `0` on a clean render; an offline test asserts it is `0` for
+    /// the paths the engine-level `assert_finite` can no longer police (master strip, automation).
+    pub fn silenced(&self) -> u64 {
+        self.silenced
+    }
+
+    /// Clears the silenced-sample counter. An offline render calls it before a pass.
+    pub fn reset_silenced(&mut self) {
+        self.silenced = 0;
     }
 
     /// Follows a new sample rate: the release keeps its duration. No allocation.
@@ -129,11 +154,17 @@ impl Limiter {
     /// Protects one stereo frame in place.
     #[inline]
     pub fn process_frame(&mut self, l: &mut f32, r: &mut f32) {
-        // A NaN or an infinity is silence; this also keeps the gain finite.
+        // A NaN or an infinity is silence; this also keeps the gain finite. Count the blow-up so
+        // an offline render can still catch it (the engine-level assert_finite cannot, since the
+        // limiter has already silenced it): saturating, so it never panics.
+        let finite = l.is_finite() && r.is_finite();
+        if !finite {
+            self.silenced = self.silenced.saturating_add(1);
+        }
         let a = if l.is_finite() { l.abs() } else { 0.0 };
         let b = if r.is_finite() { r.abs() } else { 0.0 };
         let peak = a.max(b);
-        if self.deficit == 0.0 && peak <= CEILING && l.is_finite() && r.is_finite() {
+        if self.deficit == 0.0 && peak <= CEILING && finite {
             // At rest, below the ceiling: untouched.
             return;
         }
@@ -283,6 +314,25 @@ mod tests {
         assert_eq!(l, [0.0, 0.0, 0.5, 0.0]);
         assert_eq!(r, [0.5; 4]);
         assert_eq!(lim.gain(), 1.0);
+        // Three frames had a non-finite sample (NaN, +Inf, -Inf); the finite frame did not.
+        assert_eq!(lim.silenced(), 3);
+    }
+
+    #[test]
+    fn the_silenced_counter_only_grows_on_non_finite_input_and_resets() {
+        let mut lim = Limiter::new(rate());
+        // A clean, even hot, signal silences nothing.
+        lim.process(&mut [0.5f32, 4.0, -0.2], &mut [0.5f32, 4.0, 0.1]);
+        assert_eq!(lim.silenced(), 0);
+        // A NaN in either channel counts the frame once.
+        lim.process(&mut [f32::NAN], &mut [0.0f32]);
+        lim.process(&mut [0.0f32], &mut [f32::INFINITY]);
+        assert_eq!(lim.silenced(), 2);
+        // reset() (after an all-sound-off) keeps the counter; reset_silenced() clears it.
+        lim.reset();
+        assert_eq!(lim.silenced(), 2);
+        lim.reset_silenced();
+        assert_eq!(lim.silenced(), 0);
     }
 
     #[test]
