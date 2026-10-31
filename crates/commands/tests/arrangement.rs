@@ -131,22 +131,21 @@ fn with_lanes(from: &State) -> State {
     state
 }
 
-/// The lanes of the whole project, by owner.
-fn all_lanes(
-    state: &State,
-) -> (
-    Vec<(TrackId, std::collections::BTreeMap<::project::LaneId, ::project::AutomationLane>)>,
+/// The lanes of the whole project, by owner (`None` is the master).
+type OwnedLanes = Vec<(
+    Option<TrackId>,
     std::collections::BTreeMap<::project::LaneId, ::project::AutomationLane>,
-) {
-    (
-        state
-            .project
-            .tracks
-            .iter()
-            .map(|(id, t)| (id.clone(), t.automation.clone()))
-            .collect(),
-        state.project.master_automation.clone(),
-    )
+)>;
+
+fn all_lanes(state: &State) -> OwnedLanes {
+    let mut all: OwnedLanes = state
+        .project
+        .tracks
+        .iter()
+        .map(|(id, t)| (Some(id.clone()), t.automation.clone()))
+        .collect();
+    all.push((None, state.project.master_automation.clone()));
+    all
 }
 
 #[test]
