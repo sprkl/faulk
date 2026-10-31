@@ -50,7 +50,8 @@ pub enum SampleFormat {
     Pcm16,
     /// 24-bit integers.
     Pcm24,
-    /// 32-bit floats: nothing is clipped.
+    /// 32-bit floats. No format clips: the output protection (#402) holds every sample under
+    /// [`crate::limiter::CEILING`] (−0.3 dBFS) before this encoding, floats included.
     Float32,
 }
 
