@@ -31,6 +31,7 @@ esac
 `
 const PNPM = `#!/usr/bin/env bash
 echo "$(basename "$PWD")|$*" >> "$MQ_LOG"
+[ "$1" = gen:protocol ] && echo "target|$CARGO_TARGET_DIR" >> "$MQ_LOG"
 [ "$1" = gen:protocol ] && printf 'regenerated\\n' > src/lib/generated/schema.json
 exit 0
 `
@@ -61,6 +62,9 @@ function world() {
   mkdirSync(join(work, GEN), { recursive: true })
   mkdirSync(join(work, 'web', 'src', 'other'), { recursive: true })
   for (const f of ['merge-queue.sh', 'regen-generated.sh']) copyFileSync(join(tools, f), join(work, '.claude', 'tools', f))
+  mkdirSync(join(work, 'scripts', 'agent'), { recursive: true })
+  mkdirSync(join(work, 'scripts', 'ci'), { recursive: true })
+  for (const f of ['agent/verify-core.mjs', 'ci/e2e-plan.mjs']) copyFileSync(join(tools, '..', '..', 'scripts', f), join(work, 'scripts', f))
   writeFileSync(join(work, GEN, 'schema.json'), ['a', 'b', 'c', 'd', 'e'].join('\n') + '\n')
   writeFileSync(join(work, 'web', 'src', 'other', 'x.txt'), 'x\n')
   git(work, 'add', '-A')
@@ -216,6 +220,79 @@ test('regen-generated does nothing when the branch already contains develop', ()
     assert.match(r.stdout, /nothing to do/)
     assert.equal(git(w.work, 'rev-parse', 'origin/pr'), before)
     assert.equal(existsSync(join(w.work, 'web', 'node_modules')), false)
+  } finally {
+    w.done()
+  }
+})
+
+/** The two branches edit the generated file; `develop` moves ahead of `pr`. */
+function diverged(w) {
+  w.commit('pr', `${GEN}/schema.json`, schema('a', 'b', 'PR', 'd', 'e'))
+  w.commit('develop', `${GEN}/schema.json`, schema('a', 'b', 'DEV', 'd', 'e'))
+}
+
+test('regen-generated builds into the shared target directory when CARGO_TARGET_DIR is unset', () => {
+  const w = world()
+  try {
+    diverged(w)
+    delete w.env.CARGO_TARGET_DIR
+    w.env.XDG_CACHE_HOME = join(w.dir, 'cache')
+    w.env.LOCALAPPDATA = join(w.dir, 'cache')
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const line = w.logText().split('\n').find((l) => l.startsWith('target|'))
+    assert.match(line, /faulk-build[\\/]target$/)
+    assert.ok(line.includes('cache'), line)
+  } finally {
+    w.done()
+  }
+})
+
+test('regen-generated leaves cargo to its own target directory when FAULK_SHARED_TARGET=0', () => {
+  const w = world()
+  try {
+    diverged(w)
+    delete w.env.CARGO_TARGET_DIR
+    w.env.FAULK_SHARED_TARGET = '0'
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.ok(w.logText().split('\n').includes('target|'))
+  } finally {
+    w.done()
+  }
+})
+
+test('regen-generated stops with a message when the branch deleted a generated file develop edited', () => {
+  const w = world()
+  try {
+    w.commit('develop', `${GEN}/schema.json`, schema('a', 'b', 'DEV', 'd', 'e'))
+    git(w.work, 'checkout', '-q', 'pr')
+    git(w.work, 'rm', '-q', `${GEN}/schema.json`)
+    git(w.work, 'commit', '-q', '-m', 'pr: delete')
+    git(w.work, 'push', '-q', 'origin', 'pr')
+    const before = git(w.work, 'rev-parse', 'origin/pr')
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /STOP 7: cannot take the branch's copy/)
+    git(w.work, 'fetch', '-q', 'origin')
+    assert.equal(git(w.work, 'rev-parse', 'origin/pr'), before)
+    assert.equal(git(w.work, 'worktree', 'list').split('\n').length, 1)
+  } finally {
+    w.done()
+  }
+})
+
+test('both scripts refuse a head branch that is not on origin (a fork)', () => {
+  const w = world()
+  try {
+    w.env.MQ_HEAD = 'someone:forked'
+    const q = w.run('merge-queue.sh', '7')
+    assert.equal(q.status, 1)
+    assert.match(q.stdout, /origin\/someone:forked not found/)
+    const r = w.run('regen-generated.sh', '7')
+    assert.equal(r.status, 1)
+    assert.match(r.stdout, /origin\/someone:forked not found/)
+    assert.doesNotMatch(w.logText(), /update-branch/)
   } finally {
     w.done()
   }

@@ -17,12 +17,17 @@ git fetch -q origin
 if git merge-base --is-ancestor origin/develop "origin/$head"; then
   echo "$pr: $head already contains develop, nothing to do"; exit 0
 fi
-if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+if ! git rev-parse --verify -q "origin/$head" >/dev/null; then
+  echo "STOP $pr: origin/$head not found (a fork branch? only same-repository branches are supported)"; exit 1
+fi
+if [ -z "${CARGO_TARGET_DIR:-}" ] && [ "${FAULK_SHARED_TARGET:-}" != 0 ]; then
+  # The module path is passed as an argument and turned into a URL: a raw `C:/...` path is not an ES module specifier.
   CARGO_TARGET_DIR=$(node --input-type=module -e "
     import { homedir } from 'node:os'
-    import { sharedTargetDir } from '$root/scripts/agent/verify-core.mjs'
-    console.log(sharedTargetDir(process.env, process.platform, homedir()) ?? '')")
-  [ -n "$CARGO_TARGET_DIR" ] && export CARGO_TARGET_DIR || unset CARGO_TARGET_DIR
+    import { pathToFileURL } from 'node:url'
+    const { sharedTargetDir } = await import(pathToFileURL(process.argv[1]).href)
+    console.log(sharedTargetDir(process.env, process.platform, homedir()) ?? '')" "$root/scripts/agent/verify-core.mjs")
+  if [ -n "$CARGO_TARGET_DIR" ]; then export CARGO_TARGET_DIR; else unset CARGO_TARGET_DIR; fi
 fi
 export CARGO_INCREMENTAL=${CARGO_INCREMENTAL:-0}
 wt=$(mktemp -d)
@@ -36,7 +41,12 @@ if ! git merge --no-ff --no-commit origin/develop >/dev/null; then
     echo "STOP $pr: conflicts outside $gen, resolve them by hand:"; echo "$conflicts"
     git merge --abort || true; exit 1
   fi
-  echo "$conflicts" | while read -r f; do git checkout --ours -- "$f" && git add -- "$f"; done
+  for f in $conflicts; do
+    git checkout --ours -- "$f" && git add -- "$f" || {
+      echo "STOP $pr: cannot take the branch's copy of $f (deleted or renamed on one side?), resolve by hand"
+      git merge --abort || true; exit 1
+    }
+  done
 fi
 (cd web && pnpm install --frozen-lockfile && pnpm gen:protocol)
 git add -A -- "$gen"

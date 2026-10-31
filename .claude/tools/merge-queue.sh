@@ -16,6 +16,7 @@ for pr in "$@"; do
   done
   git fetch -q origin
   head=$(gh pr view "$pr" --json headRefName -q .headRefName)
+  git rev-parse --verify -q "origin/$head" >/dev/null || { echo "STOP $pr: origin/$head not found (a fork branch?)"; exit 1; }
   if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
     base=$(git merge-base origin/develop "origin/$head")
     if [ -n "$(git diff --name-only "$base" origin/develop -- "$gen")" ] && [ -n "$(git diff --name-only "$base" "origin/$head" -- "$gen")" ]; then
