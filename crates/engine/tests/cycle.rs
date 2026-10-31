@@ -49,9 +49,15 @@ fn every_table_grows_during_playback_without_a_gap() {
     let mut cycle = Cycle::new(SCENARIO_RATE).unwrap();
     let (out, blocks) = run(&mut cycle, &steps);
 
-    // The signal: finite, no denormal, sound in every held block, silence after release.
+    // The signal: finite, no denormal, sound in every held block, silence after release. The
+    // output protection (#402) turns NaN and infinity to 0.0, so `is_finite` on `out` proves
+    // nothing: the limiter's silenced-frame counter is the real no-NaN guard.
+    assert_eq!(
+        cycle.engine.limiter_silenced(),
+        0,
+        "the render produced a non-finite sample"
+    );
     for (i, s) in out.iter().enumerate() {
-        assert!(s.is_finite(), "sample {i} is {s}");
         assert!(*s == 0.0 || s.abs() >= f32::MIN_POSITIVE, "denormal at {i}");
     }
     let held = scenario_held_blocks(&steps);
