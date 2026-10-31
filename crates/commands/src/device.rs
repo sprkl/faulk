@@ -181,7 +181,7 @@ domain! {
         kind: Option<String>,
     } => {
         /// The device's summary; `null` when a kind was asked for.
-        device: Option<DeviceSummary>,
+        device: Option<Box<DeviceSummary>>,
         /// The track that holds the device; `null` for the master's chain and for a kind.
         track: Option<TrackId>,
         /// The device's parameter values, by parameter key, in the unit the device declares.
@@ -232,7 +232,7 @@ pub(crate) fn apply_in(
             let d =
                 crate::query::device_describe(&state.project, device.as_ref(), kind.as_deref())?;
             Ok(crate::query::answer(Output::Describe {
-                device: d.device,
+                device: d.device.map(Box::new),
                 track: d.track,
                 params: d.params,
                 descriptor: d.descriptor,

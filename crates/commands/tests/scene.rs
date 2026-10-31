@@ -72,7 +72,7 @@ fn launch_commands_are_live_and_scenes_are_undoable_edits_none_destructive() {
         .collect();
     let scenes: Vec<_> = metas
         .iter()
-        .filter(|m| m.name.starts_with("scene."))
+        .filter(|m| m.name.starts_with("scene.") && m.kind != Kind::Query)
         .collect();
     assert_eq!(
         launch.iter().map(|m| m.name).collect::<Vec<_>>(),

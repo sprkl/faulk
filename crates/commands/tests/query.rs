@@ -466,7 +466,10 @@ fn a_device_is_described_with_its_parameters_and_its_kind() {
 fn every_field_of_every_query_answer_is_documented() {
     let tools: Vec<_> = catalog()
         .into_iter()
-        .filter(|t| t.kind == Kind::Query && !["midi.list_inputs", "project.list_stored"].contains(&t.name.as_str()))
+        .filter(|t| {
+            t.kind == Kind::Query
+                && !["midi.list_inputs", "project.list_stored"].contains(&t.name.as_str())
+        })
         .collect();
     assert_eq!(tools.len(), 10);
     for tool in tools {

@@ -364,6 +364,13 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Phase : 3.
 - Étiquettes : hardware: non, founder: non.
 
+**Mise en œuvre PR-6 (#51, 2026-10-31) : `crates/commands/src/query.rs`.** Ce que le code fait :
+
+- **Dix requêtes**, déclarées dans le domaine de leur sujet (`x-kind: query`, `x-undo: none`) : `project.get` (résumé, chaîne d'effets du master, indicateurs annuler/rétablir), `track.list`, `track.get` (chaîne de devices, page de clips), `clip.get` (contenu sans les notes, page de placements), `clip.notes.list`, `scene.list` (avec les clips des emplacements), `device.describe` (par `device` ou par `kind` : un seul des deux), `automation.lane.list` (couloirs sans points), `automation.lane.points` (**ajoutée à la liste du ticket** : c'est la seule façon de paginer les points d'un couloir) et `transport.get` (réglages enregistrés ; l'état de lecture et la tête appartiennent au moteur, pas au projet).
+- **Une règle de pagination** : `offset` (0 par défaut) et `limit` (100 par défaut, de 1 à 1 000 ; toute autre valeur est refusée en `invalid`, jamais ramenée dans les bornes) ; la réponse porte `page { total, offset, next_offset }`, `next_offset` vaut `null` après la dernière page, un `offset` au-delà de la fin donne une page vide. Chaque liste a un ordre fixe (ordre d'affichage des pistes et des scènes, ordre des notes, ordre des ticks).
+- **Une requête ne change rien** : les lecteurs reçoivent `&State`, la réponse n'a ni inverse, ni événement, ni message moteur ; l'historique ignore `Kind::Query` et la page ne marque le projet à enregistrer que pour un `edit` qui rapporte un événement. Testé : état, contexte et historique égaux avant et après pour chaque exemple (`tests/query.rs`), et le cœur de la page reste propre après des requêtes (`project-wasm`).
+- **Pas encore** : aucun chemin générique de l'interface ne rend la sortie d'une requête (le dispatcher ne traite que `project.list_stored`) ; ces sorties servent les agents (AG-1).
+
 **PR-7 — Annuler, rétablir et historique dans l'interface**
 - But : boutons et raccourcis annuler/rétablir, panneau d'historique (libellé, auteur, heure).
 - Critères : un glisser de note = une entrée ; l'historique affiche l'auteur ; test Playwright.

@@ -379,7 +379,7 @@ domain! {
         /// Its own launch quantization; `null` follows the project's.
         launch_quantize: Option<Quantize>,
         /// What the clip holds, without the notes.
-        content: ClipContentInfo,
+        content: Box<ClipContentInfo>,
         /// The placements of this page, in the order of their identifiers.
         placements: Vec<PlacementInfo>,
         /// Where this page sits in the clip's placement list.
@@ -913,7 +913,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 track: d.track,
                 summary: d.summary,
                 launch_quantize: d.launch_quantize,
-                content: d.content,
+                content: Box::new(d.content),
                 placements: d.placements,
                 page: d.page,
             }))
