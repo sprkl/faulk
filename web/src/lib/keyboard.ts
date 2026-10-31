@@ -152,10 +152,11 @@ export function trackFocusOrigin(doc: Document = document): () => void {
       // Scoped to sliders (role="slider"): other controls (buttons, links) may receive shortcut keys
       // whose side effect focuses them back (e.g. Escape on a menu returning focus to its trigger)
       // without meaning that the user switched to keyboard navigation.
-      // Playing keys (bare letters, Semicolon) and octave steps (Z/X) are also excluded: they are
-      // musical input and must not affect the focus model (a mouse-used knob still plays notes).
-      const isMusicalKey = event.code in KEY_OFFSETS || octaveStep(event.code) !== 0
-      if (!isMusicalKey) {
+      // Checked against BARE_SHORTCUT_CODES (not "!isMusicalKey"): unmapped letters (KeyC, KeyB…),
+      // digits and Ctrl+C are neither playing keys nor UI shortcuts and must not switch the origin.
+      // Playing keys (KEY_OFFSETS, Z/X) are absent from BARE_SHORTCUT_CODES: a mouse-used knob
+      // keeps playing notes even when a musical key is pressed on it.
+      if ((BARE_SHORTCUT_CODES as readonly string[]).includes(event.code)) {
         const active = doc.activeElement
         if (active && active !== doc.body && pointerFocused === active && active.getAttribute('role') === 'slider') {
           pointerFocused = null
@@ -214,6 +215,9 @@ const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [ar
  * 4. a control the keyboard focused (Tab, arrows: a button, link, checkbox, knob or slider) keeps its own keys, the rule of
  *    Space (`spaceTogglesTransport`); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
  *    notes are played. A control focused by a script after a key (a menu giving the focus back) counts as keyboard-focused.
+ *    Exception (#415, option A): a UI-shortcut key (`BARE_SHORTCUT_CODES`: arrows, Delete, Backspace…) pressed on a
+ *    mouse-focused slider reasserts keyboard origin (`trackFocusOrigin`), after which letters no longer play on that
+ *    slider until the next pointer press. Musical keys (`KEY_OFFSETS`, Z/X) and unmapped letters never change the origin.
  * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
  */
 export function playsNote(

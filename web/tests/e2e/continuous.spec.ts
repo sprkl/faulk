@@ -209,8 +209,9 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   await page.keyboard.press('Delete') // non-musical key on already-pointer-focused slider
   await page.keyboard.down('KeyA')
   // No voice is started: slider is keyboard-focused, playsNote returns false (option A).
-  // This assertion passes immediately since no note was triggered.
-  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/)
+  // Wait the same interval a real note would take to appear (step 1 took well under 1 s).
+  // If playsNote were true, a voice would appear within this window.
+  await expect.poll(() => page.getByTestId('voices').textContent(), { timeout: 600 }).not.toMatch(/\b1\b/)
   await page.keyboard.up('KeyA')
   // Space must not toggle the transport either (keyboard-focused slider keeps Space).
   await page.keyboard.press('Space')

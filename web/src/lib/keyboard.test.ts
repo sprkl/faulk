@@ -149,6 +149,13 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // octave step, still pointer-focused
 
+    // Unmapped letters (KeyC, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
+    // they must not reassert keyboard origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+
     // A UI-shortcut key (Delete, Backspace, arrows, etc.) on a focused slider reasserts keyboard origin.
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(false) // keyboard origin now
@@ -206,6 +213,10 @@ describe('space bar and the transport', () => {
     expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true)
+
+    // Unmapped letters (KeyC) and digits do not change the origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyC is not a shortcut
 
     stop()
   })
