@@ -344,12 +344,21 @@ impl Offline {
         self.tail_cut
     }
 
-    /// The largest sample written, before the clip of an integer format (linear).
+    /// The largest sample written, after the output protection (#402) and before the integer
+    /// rounding of the format (linear). Since the output protection (#402) holds every sample
+    /// to [`engine::limiter::CEILING`] (−0.3 dBFS), `peak` is always ≤ that value and `clipped`
+    /// is always 0. They remain because the WAV export result shows a "highest level" figure
+    /// to the user, and future formats may have a different ceiling.
+    ///
+    /// A pre-protection overload is visible on the master meter (the meter runs before the
+    /// limiter) but not in this result. Whether the dialog should also show a pre-protection
+    /// peak or a warning for an overloaded export is a founder's decision (issue #402).
     pub fn peak(&self) -> f32 {
         self.peak
     }
 
-    /// Samples an integer format clipped to full scale.
+    /// Samples an integer format clipped to full scale. Always 0 since the output protection
+    /// (#402) holds every sample below the integer range of any standard format.
     pub fn clipped(&self) -> u64 {
         self.clipped
     }

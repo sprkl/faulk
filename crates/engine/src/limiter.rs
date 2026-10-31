@@ -33,6 +33,14 @@
 //! net that works on rare overs, not a mastering tool.
 //!
 //! Nothing here allocates, locks, logs or panics: two floats of state and one coefficient.
+//!
+//! # Effect on downstream signal assertions
+//!
+//! Because the limiter is the last stage of `Engine::render`, every signal assertion that runs
+//! on the render output (assert_finite, assert_clean, assert_no_denormals, …) passes regardless
+//! of what the devices produced: the limiter turns NaN and Inf into 0.0 and bounds every sample
+//! to the ceiling. A device-level test that wants to check for NaN must render through that
+//! device directly, not through the engine's render output.
 
 use crate::time::SampleRate;
 

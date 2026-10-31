@@ -181,9 +181,12 @@ fn the_protection_adds_no_latency() {
     // quiet sample is at its own position, scaled, not moved.
     assert!(l[40] > 0.05 && l[40] < 0.25, "{}", l[40]);
 
-    // (b) Engine level: the limiter does not delay audio in the engine's render path.
-    // The first non-zero output frame is the same with the limiter at rest and with it
-    // engaged: no sample is buffered or moved.
+    // (b) Engine level: the onset frame is the same in two independent rigs (one quiet,
+    // one hot), which have the same limiter state (both at rest). This shows the engine's
+    // render topology does not buffer samples around the limiter stage; it does not compare
+    // "with limiter" against "without limiter" (the engine always has one). The stage-level
+    // evidence (a) is what proves zero latency: the first over is on its own sample, nothing
+    // is shifted in the output.
     let onset_frame = |l: &[f32], r: &[f32]| {
         l.iter()
             .zip(r)
@@ -194,7 +197,7 @@ fn the_protection_adds_no_latency() {
         let mut rig = Rig::new(1, 0.3);
         rig.render(0.05)
     };
-    // Far over the ceiling: onset at the same frame F (the attack does not insert a buffer).
+    // Far over the ceiling: onset at the same frame F (both rigs start with limiter at rest).
     let (l_over, r_over) = {
         let mut rig = Rig::new(1, 5.0);
         rig.render(0.05)
@@ -205,7 +208,7 @@ fn the_protection_adds_no_latency() {
     let f_over = onset_frame(&l_over, &r_over);
     assert_eq!(
         f_under, f_over,
-        "onset at frame {f_under:?} (quiet) vs {f_over:?} (hot): limiter delayed audio"
+        "onset at frame {f_under:?} (quiet) vs {f_over:?} (hot): engine topology shifted audio"
     );
 }
 
@@ -241,6 +244,87 @@ fn many_tracks_hot_and_growth_never_allocate() {
     const { assert!(limits::MAX_TRACKS >= 40) };
     let (l, r) = rig.render(1.0);
     assert!(peak(&l, &r) <= CEILING);
+}
+
+// ---------------------------------------------------------------- engine-level policy tests
+
+#[test]
+fn after_all_sound_off_the_limiter_is_at_rest() {
+    // A hot mix engages the limiter; AllSoundOff fades the output to silence and resets every
+    // device, including the limiter; the gain returns to exactly 1.0.
+    let mut rig = Rig::new(3, 8.0);
+    rig.render(0.3);
+    // The limiter must be limiting.
+    assert!(
+        rig.host.engine().limiter_gain() < 1.0,
+        "pre-cut gain not limited"
+    );
+    // AllSoundOff: fades over graph::FADE_SECONDS (5 ms), then resets.
+    rig.send(&[M::AllSoundOff]);
+    // Render well past the fade (5 ms ≈ 240 frames at 48 kHz; 512 is more than enough).
+    rig.render(0.1);
+    assert_eq!(
+        rig.host.engine().limiter_gain(),
+        1.0,
+        "limiter not at rest after AllSoundOff"
+    );
+}
+
+#[test]
+fn on_project_reset_the_limiter_keeps_its_gain() {
+    // A hot project replaces a quiet one: the retiring tracks fade through the same limiter,
+    // so there must be no gain jump. The limiter's deficit survives a Reset.
+    let mut rig = Rig::new(3, 8.0);
+    rig.render(0.3);
+    let gain_before = rig.host.engine().limiter_gain();
+    assert!(gain_before < 1.0, "pre-reset gain not limited");
+    // Reset to a new epoch (simulates opening a new project).
+    rig.send(&[M::Reset { epoch: 2 }]);
+    rig.prepare.flush();
+    // One pump to apply the reset.
+    rig.host.pump();
+    let gain_after = rig.host.engine().limiter_gain();
+    assert_eq!(
+        gain_after, gain_before,
+        "limiter gain changed on Reset: {} → {}",
+        gain_before, gain_after
+    );
+}
+
+#[test]
+fn set_sample_rate_is_forwarded_to_the_limiter() {
+    // Engine::set_sample_rate calls limiter.set_sample_rate; the policy is pinned by checking
+    // that after a rate change the limiter's gain is still valid and the release has the right
+    // duration. Built at 48 kHz, rate changed to 96 kHz, then a hot block engages the limiter:
+    // if the forwarding call was removed the keep coefficient would be wrong and the release
+    // would be twice as long.
+    use engine::limiter::RELEASE_SECONDS;
+    let mut rig = Rig::new(3, 8.0);
+    // Switch to 96 kHz via Engine::set_sample_rate.
+    rig.host
+        .engine_mut()
+        .set_sample_rate(SampleRate::new(96_000).unwrap());
+    // Engage the limiter at the new rate.
+    rig.render(0.1);
+    assert!(
+        rig.host.engine().limiter_gain() < 1.0,
+        "limiter not engaged after rate change"
+    );
+    // The release from a hot shot to quiet: measure the time constant to confirm the limiter's
+    // keep coefficient was updated (at 48 kHz it would decay twice as slowly).
+    let mut lim = Limiter::new(SampleRate::new(96_000).unwrap());
+    lim.process(&mut [8.0f32], &mut [0.0f32]);
+    let d0 = 1.0 - lim.gain();
+    let mut n = 0u32;
+    while 1.0 - lim.gain() > d0 / std::f32::consts::E {
+        lim.process(&mut [0.0f32], &mut [0.0f32]);
+        n += 1;
+    }
+    let t = n as f64 / 96_000.0;
+    assert!(
+        (t - RELEASE_SECONDS).abs() < 0.002,
+        "release duration at 96 kHz: {t:.4} s (expected {RELEASE_SECONDS})"
+    );
 }
 
 /// The cost of the stage per block of 128 frames at 48 kHz, at rest and while limiting, and

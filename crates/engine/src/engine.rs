@@ -1758,6 +1758,13 @@ impl Engine {
         }
     }
 
+    /// The current gain of the output protection ([`crate::limiter`], #402): `1.0` at rest,
+    /// less than `1.0` while limiting. For tests only: the limiter has no observable effect
+    /// beyond the output samples it shapes.
+    pub fn limiter_gain(&self) -> f32 {
+        self.limiter.gain()
+    }
+
     /// The musical clock (TR-1), as of the start of the next block.
     pub fn clock(&self) -> &Transport {
         &self.transport
