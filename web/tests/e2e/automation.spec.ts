@@ -673,3 +673,25 @@ test('automation: master row in the timeline, a fade drawn, level confirmed', as
 
   expect(seen.errors).toEqual([])
 })
+
+test('automation: the master row is visible in an empty project, below the welcome message', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await open(page)
+  // A fresh project has no track: the welcome message shows, and it no longer hides the master row.
+  const welcome = page.getByTestId('arrangement-empty')
+  const masterRow = page.getByTestId('arr-master-row')
+  await expect(welcome).toBeVisible()
+  await expect(masterRow).toBeVisible()
+  await expect(masterRow.getByTestId('arr-automation-toggle')).toHaveAttribute('aria-expanded', 'false')
+  // The message sits in the tracks area, below the master row, and does not overlap it.
+  const masterBox = (await masterRow.boundingBox())!
+  const welcomeBox = (await welcome.boundingBox())!
+  expect(welcomeBox.y).toBeGreaterThanOrEqual(masterBox.y + masterBox.height - 1)
+  // The master row works with no track: its lane menu adds a lane, and the message stays.
+  await masterRow.getByTestId('arr-automation-toggle').click()
+  await page.getByTestId('arr-add-lane').last().selectOption({ label: 'Volume' })
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
+  await expect(welcome).toBeVisible()
+  expect(seen.errors).toEqual([])
+})
