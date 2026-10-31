@@ -7,7 +7,7 @@
    */
   import { untrack } from 'svelte'
   import { createClipAt, deletePlacements, duplicatePlacements, movePlacements, resizePlacement, splitPlacement } from '../../lib/arrangement-commands'
-  import { addPoints, createLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
+  import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
@@ -34,6 +34,7 @@
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
+  import { MASTER } from '../../lib/stores/automated.svelte'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
@@ -124,6 +125,16 @@
       }
 
   const entries = $derived(project.tracks)
+  /** The master as a pseudo-entry at the bottom of the layout, with the sentinel id `MASTER`. */
+  const masterEntry = $derived({
+    id: MASTER,
+    track: {
+      devices: project.view?.project.master_devices ?? {},
+      automation: project.view?.project.master_automation ?? {},
+    },
+  })
+  /** All entries for the layout: the real tracks, then the master row pinned at the bottom. */
+  const allEntries = $derived([...entries, masterEntry])
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
@@ -132,7 +143,7 @@
   /** The tick of the last point of any lane: a lane may reach further than the clips (an agent, a fade-out), and must stay in reach. */
   const lastPoint = $derived.by(() => {
     let last = 0
-    for (const e of entries) {
+    for (const e of allEntries) {
       for (const lane of Object.values(e.track.automation)) {
         if (lane) for (const tick in lane.points) last = Math.max(last, Number(tick))
       }
@@ -175,15 +186,18 @@
     param: (d, p) => deviceText(ui.lang, labelKey(d, p.key)) ?? p.key,
     choice: (d, key) => deviceText(ui.lang, labelKey(d, key)) ?? key,
   })
-  /** The lanes each unfolded track shows. */
-  const shownLanes = $derived(new Map(entries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
-  const layout = $derived(layoutOf(entries, open, (id) => (shownLanes.get(id) ?? []).map((l) => l.id)))
-  /** A lane shown, by its id, with its track. */
+  /** The lanes each unfolded track (and the master) shows. */
+  const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
+  const layout = $derived(layoutOf(allEntries, open, (id) => (shownLanes.get(id) ?? []).map((l) => l.id)))
+  /** A lane shown, by its id, with its track (or the master). */
   const laneRefs = $derived.by(() => {
     // A new map each time the lanes change: the derived value is what is reactive.
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const refs = new Map<string, { trackId: string; info: LaneInfo; color: string }>()
-    for (const e of entries) for (const info of shownLanes.get(e.id) ?? []) refs.set(info.id, { trackId: e.id, info, color: e.track.color ?? NO_COLOR })
+    for (const e of allEntries) {
+      const color = e.id === MASTER ? NO_COLOR : (('color' in e.track ? (e.track.color as string | null | undefined) : null) ?? NO_COLOR)
+      for (const info of shownLanes.get(e.id) ?? []) refs.set(info.id, { trackId: e.id, info, color })
+    }
     return refs
   })
 
@@ -441,13 +455,13 @@
     const where = rowAt(layout, y, y0)
     if (where && where.kind === 'lane') return laneDown(event, where, x, y)
     if (where?.kind === 'add') {
-      select(where.trackId)
+      if (where.trackId !== MASTER) select(where.trackId)
       return
     }
     autoPick = null
     const hit = hitBlock(blocks, layout, x, y, shown, y0)
     if (!hit) {
-      if (where) select(where.trackId)
+      if (where && where.trackId !== MASTER) select(where.trackId)
       if (!event.shiftKey) picked = new Set()
       return
     }
@@ -581,7 +595,7 @@
   function laneDown(event: PointerEvent, row: Row, x: number, y: number) {
     const ref = row.lane ? laneRefs.get(row.lane) : undefined
     if (!ref || !row.lane) return
-    select(row.trackId)
+    if (row.trackId !== MASTER) select(row.trackId)
     picked = new Set()
     const points = pointsOf(ref.info.lane)
     const geo = geoOf(row)
@@ -762,6 +776,7 @@
       return
     }
     const row = where ? where.track : null
+    // The master row has no clips and is not a real track: skip it.
     const entry = row === null ? null : entries[row]
     if (!entry || row === null || !isMidi(entry.track)) return
     const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
@@ -809,16 +824,18 @@
     if (autoPick && !next.has(laneRefs.get(autoPick.lane)?.trackId ?? '')) autoPick = null
   }
 
-  /** The parameters of a track that have no lane yet, for the menu that adds one. */
+  /** The parameters of a track (or the master) that have no lane yet, for the menu that adds one. */
   function freeOptions(trackId: string) {
-    const entry = entries.find((e) => e.id === trackId)
+    const entry = allEntries.find((e) => e.id === trackId)
     if (!entry) return []
     const taken = new Set(shownLanes.get(trackId)?.map((l) => targetKey(l.lane.target)) ?? [])
     return optionsOf(entry.track, labels).filter((o) => !taken.has(o.key))
   }
   function addLane(trackId: string, key: string) {
     const option = freeOptions(trackId).find((o) => o.key === key)
-    if (option) run(createLane(trackId, option.target))
+    if (!option) return
+    if (trackId === MASTER) run(createMasterLane(option.target))
+    else run(createLane(trackId, option.target))
   }
 
   // The window loses the pointer: nothing may stay half done.
@@ -923,62 +940,97 @@
         <div class="slide" style:transform="translateY({-y0}px)">
           {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
             {#if row.kind === 'track'}
-              {@const entry = entries[row.track]!}
+              {@const entry = allEntries[row.track]!}
+              {@const isMaster = entry.id === MASTER}
               {@const lanes = Object.keys(entry.track.automation).length}
-              <div
-                class="row"
-                title={detached.has(entry.id) ? t('arrangement.offTimeline') : undefined}
-                style:height="{row.height}px"
-                class:off={detached.has(entry.id)}
-                data-detached={detached.has(entry.id) ? 'true' : undefined}
-              >
-                <button
-                  class="head"
-                  class:on={project.selected?.id === entry.id}
-                  style:--swatch={entry.track.color ?? 'var(--fk-text-muted)'}
-                  aria-pressed={project.selected?.id === entry.id}
-                  aria-label={t('arrangement.lane', { name: trackLabel(entry, t) })}
-                  data-testid="arr-track"
-                  onclick={() => select(entry.id)}
-                >
-                  <span class="swatch"></span>
-                  <span class="label">{trackLabel(entry, t)}</span>
-                </button>
-                {#if detached.has(entry.id)}
+              {#if isMaster}
+                <!-- The master row: pinned at the bottom, no back-track button, no colour swatch, cannot be deleted or moved. -->
+                <div class="row master-row" style:height="{row.height}px" data-testid="arr-master-row">
+                  <div class="head master-head">
+                    <span class="swatch" style:background="var(--fk-text-muted)"></span>
+                    <span class="label">{t('mixer.master')}</span>
+                  </div>
                   <button
-                    class="back"
-                    title={t('arrangement.backTrackHint', { name: trackLabel(entry, t) })}
-                    aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(entry, t)}
-                    data-testid="arr-back-track"
-                    onclick={() => run(backTrackToArrangement(entry.id))}
+                    class="fold"
+                    class:has={lanes > 0}
+                    aria-expanded={open.has(MASTER)}
+                    aria-label={t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')}
+                    title={lanes > 0
+                      ? `${t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')} · ${t('automation.lanes', { n: lanes })}`
+                      : undefined}
+                    data-testid="arr-automation-toggle"
+                    onclick={() => toggleOpen(MASTER)}
                   >
-                    <span aria-hidden="true">↩</span>
+                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                      ><path
+                        d={open.has(MASTER) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      /></svg
+                    >
+                    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
                   </button>
-                {/if}
-                <button
-                  class="fold"
-                  class:has={lanes > 0}
-                  aria-expanded={open.has(entry.id)}
-                  aria-label={t(open.has(entry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(entry, t) })}
-                  title={lanes > 0
-                    ? `${t(open.has(entry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(entry, t) })} · ${t('automation.lanes', { n: lanes })}`
-                    : undefined}
-                  data-testid="arr-automation-toggle"
-                  onclick={() => toggleOpen(entry.id)}
+                </div>
+              {:else}
+                {@const trackEntry = entries[row.track]!}
+                <div
+                  class="row"
+                  title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
+                  style:height="{row.height}px"
+                  class:off={detached.has(trackEntry.id)}
+                  data-detached={detached.has(trackEntry.id) ? 'true' : undefined}
                 >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                    ><path
-                      d={open.has(entry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    /></svg
+                  <button
+                    class="head"
+                    class:on={project.selected?.id === trackEntry.id}
+                    style:--swatch={trackEntry.track.color ?? 'var(--fk-text-muted)'}
+                    aria-pressed={project.selected?.id === trackEntry.id}
+                    aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
+                    data-testid="arr-track"
+                    onclick={() => select(trackEntry.id)}
                   >
-                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                </button>
-              </div>
+                    <span class="swatch"></span>
+                    <span class="label">{trackLabel(trackEntry, t)}</span>
+                  </button>
+                  {#if detached.has(trackEntry.id)}
+                    <button
+                      class="back"
+                      title={t('arrangement.backTrackHint', { name: trackLabel(trackEntry, t) })}
+                      aria-label={t('arrangement.backTrack') + ' · ' + trackLabel(trackEntry, t)}
+                      data-testid="arr-back-track"
+                      onclick={() => run(backTrackToArrangement(trackEntry.id))}
+                    >
+                      <span aria-hidden="true">↩</span>
+                    </button>
+                  {/if}
+                  <button
+                    class="fold"
+                    class:has={lanes > 0}
+                    aria-expanded={open.has(trackEntry.id)}
+                    aria-label={t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })}
+                    title={lanes > 0
+                      ? `${t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })} · ${t('automation.lanes', { n: lanes })}`
+                      : undefined}
+                    data-testid="arr-automation-toggle"
+                    onclick={() => toggleOpen(trackEntry.id)}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                      ><path
+                        d={open.has(trackEntry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      /></svg
+                    >
+                    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
+                  </button>
+                </div>
+              {/if}
             {:else if row.kind === 'lane'}
               {@const ref = laneRefs.get(row.lane ?? '')}
               {#if ref}
@@ -1013,11 +1065,14 @@
                 </div>
               {/if}
             {:else}
-              {@const entry = entries[row.track]!}
+              {@const entry = allEntries[row.track]!}
+              {@const realEntry = entries[row.track]}
               {@const free = freeOptions(entry.id)}
               <div class="add-head" style:height="{row.height}px">
                 <select
-                  aria-label={t('automation.addLaneFor', { name: trackLabel(entry, t) })}
+                  aria-label={entry.id === MASTER
+                    ? t('automation.addLaneForMaster')
+                    : t('automation.addLaneFor', { name: realEntry ? trackLabel(realEntry, t) : '' })}
                   disabled={free.length === 0}
                   data-testid="arr-add-lane"
                   value=""
@@ -1220,6 +1275,21 @@
   /* A track the grid holds: the lane label is dimmed and a return button sits beside it (never the dimming alone). */
   .row.off .head {
     opacity: 0.6;
+  }
+  /* The master row: same layout as a track row but without a clickable button head, and with a distinct top border. */
+  .master-row {
+    border-top: 1px solid var(--fk-accent-fg);
+  }
+  .master-head {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 var(--fk-space-3);
+    font-weight: 600;
+    color: var(--fk-text-muted);
   }
   .back {
     flex: none;

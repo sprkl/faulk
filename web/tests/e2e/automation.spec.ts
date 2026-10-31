@@ -507,3 +507,73 @@ test('automation: stays fluid with 10 000 points in sight', async ({ page }) => 
   expect(pointsOf((await lanes(page))[0]![1])[0]!.tick).toBe(0)
   expect(seen.errors).toEqual([])
 })
+
+test('automation: master row in the timeline, a fade drawn, level confirmed', async ({ page }) => {
+  // #407: the master row is pinned at the bottom of the arrangement timeline; its lanes are added
+  // from the arrangement's add row or from the mixer's "Automate" button; a drawn lane is played
+  // by the engine (the master's level falls at the second point, one bar in).
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await page.getByTestId('arr-snap').selectOption('beat')
+
+  // The master row is always visible at the bottom of the arrangement.
+  const masterRow = page.getByTestId('arr-master-row')
+  await expect(masterRow).toBeVisible()
+
+  // The master's fold toggle is there but its lanes are collapsed by default.
+  const masterToggle = masterRow.getByTestId('arr-automation-toggle')
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'false')
+  await masterToggle.click()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'true')
+
+  // Add a Volume lane from the master's add-lane row.
+  const masterAddLane = page.getByTestId('arr-add-lane').last()
+  await masterAddLane.selectOption({ label: 'Volume' })
+  // The master's lane appears.
+  const masterLanes = () =>
+    page.evaluate(() =>
+      Object.keys((window as unknown as { __faulkView(): { project: { master_automation?: object } } }).__faulkView().project.master_automation ?? {}),
+    )
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+  await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-target', 'Mixer › Volume')
+
+  // Draw two points: 0 dB at tick 0, -60 dB at tick BAR (a step fade).
+  const [laneId] = await masterLanes()
+  await run(page, {
+    type: 'automation.points.add',
+    lane: laneId,
+    points: [
+      { tick: 0, value: 0, shape: 'step' },
+      { tick: BAR, value: -60, shape: 'step' },
+    ],
+  })
+  await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-points', '2')
+
+  // Delete the lane using the lane-delete button, then undo to bring it back.
+  await page.getByTestId('arr-lane-delete').last().click()
+  await expect.poll(async () => (await masterLanes()).length).toBe(0)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+
+  // The mixer's "Automate" button navigates to the arrangement (the lane already exists; the command is idempotent from the user's perspective).
+  await page.getByTestId('nav-mixer').click()
+  const automateBtn = page.getByTestId('mixer-master-automate-gain')
+  await expect(automateBtn).toBeVisible()
+  await automateBtn.click()
+  // We are now in the arrangement view.
+  await expect(arr(page)).toBeVisible()
+
+  // The engine plays the lane: a note held on the track, the master's level falls at BAR (one bar is two seconds at 120 BPM).
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  await page.getByTestId('transport-play').click()
+  await expect.poll(() => master(page), { timeout: 15_000 }).toBeLessThan(loud / 100)
+  await page.getByTestId('transport-stop').click()
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 69, 0]))
+
+  expect(seen.errors).toEqual([])
+})
