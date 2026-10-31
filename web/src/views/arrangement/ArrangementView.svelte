@@ -944,7 +944,9 @@
   <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
     {#if entries.length === 0}
       <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
-      <p class="empty" data-testid="arrangement-empty" style:top="{RULER_HEIGHT + layout.total - y0}px">{t('arrangement.empty')}</p>
+      <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
+        {t('arrangement.empty')}
+      </p>
     {/if}
     <div class="heads" data-testid="arr-heads">
       <div class="slide" style:transform="translateY({-y0}px)">

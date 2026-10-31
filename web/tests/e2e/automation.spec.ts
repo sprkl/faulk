@@ -674,7 +674,7 @@ test('automation: master row in the timeline, a fade drawn, level confirmed', as
   expect(seen.errors).toEqual([])
 })
 
-test('automation: the master row is visible in an empty project, below the welcome message', async ({ page }) => {
+test('automation: the master row is visible in an empty project, above the welcome message', async ({ page }) => {
   test.setTimeout(120_000)
   const seen = watch(page)
   await open(page)
@@ -701,5 +701,9 @@ test('automation: the master row is visible in an empty project, below the welco
   await page.getByTestId('arr-add-lane').last().selectOption({ label: 'Volume' })
   await expect(page.getByTestId('arr-lane')).toHaveCount(1)
   await expect(welcome).toBeVisible()
+  // The message stays inside the stage once the master is unfolded, and the ruler stays above the master row.
+  const stageBox = (await stage(page).boundingBox())!
+  expect((await welcome.boundingBox())!.y).toBeLessThan(stageBox.y + stageBox.height)
+  expect((await masterRow.boundingBox())!.y).toBeGreaterThanOrEqual(stageBox.y + 28)
   expect(seen.errors).toEqual([])
 })
