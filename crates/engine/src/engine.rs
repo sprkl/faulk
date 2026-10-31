@@ -1778,10 +1778,10 @@ impl Engine {
         self.limiter.reset_max_reduction();
     }
 
-    /// How many non-finite output samples the protection turned to silence since
-    /// [`Engine::reset_limiter_silenced`]. `0` on a clean render; an offline render asserts it is
-    /// `0` to still catch a NaN/blow-up on a path the engine-level `assert_finite` can no longer
-    /// see (the limiter is last, so it has already silenced it; #402).
+    /// How many stereo frames the protection turned to silence because a sample was non-finite,
+    /// since [`Engine::reset_limiter_silenced`] (frames, not samples). `0` on a clean render; a
+    /// render asserts it is `0` to still catch a NaN/blow-up on a path the engine-level
+    /// `assert_finite` can no longer see (the limiter is last, so it has already silenced it; #402).
     pub fn limiter_silenced(&self) -> u64 {
         self.limiter.silenced()
     }

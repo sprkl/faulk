@@ -9,6 +9,7 @@ import {
   fileNameOf,
   headerLength,
   LIMITER_PUSHED_DB,
+  MAX_REPORTED_REDUCTION_DB,
   type ExportDeps,
   type ExportHost,
   type ExportSink,
@@ -234,6 +235,10 @@ describe('an export', () => {
     // Just under the threshold: no warning. Just over: warning.
     expect(await reductionDbFor(linearFor(LIMITER_PUSHED_DB - 0.1))).toBeLessThan(LIMITER_PUSHED_DB)
     expect(await reductionDbFor(linearFor(LIMITER_PUSHED_DB + 0.1))).toBeGreaterThanOrEqual(LIMITER_PUSHED_DB)
+    // A finite runaway can bring the reduction to ~1.0 (−Infinity dB): the reported figure is
+    // capped so the text never shows a meaningless number.
+    expect(await reductionDbFor(1)).toBe(MAX_REPORTED_REDUCTION_DB)
+    expect(await reductionDbFor(0.9999999)).toBeLessThanOrEqual(MAX_REPORTED_REDUCTION_DB)
   })
 
   it('stays in the options when the user leaves the file dialog', async () => {

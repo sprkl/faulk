@@ -114,6 +114,13 @@ export interface ExportResult {
  */
 export const LIMITER_PUSHED_DB = 1
 
+/**
+ * The most gain reduction the warning reports, in dB. A finite runaway (a device blowing up to a
+ * large but finite level) can bring the deficit to ~1.0, i.e. an unbounded dB figure; past this
+ * the exact number means nothing to the user, so the text caps at "≥ {MAX_REPORTED_REDUCTION_DB}".
+ */
+export const MAX_REPORTED_REDUCTION_DB = 60
+
 export type ExportPhase = 'options' | 'picking' | 'rendering' | 'done' | 'failed'
 
 /** A file name for the project: nothing a file system refuses. */
@@ -369,9 +376,10 @@ export class AudioExport {
               seconds: message.written / rate,
               peakDb: message.peak > 0 ? 20 * Math.log10(message.peak) : -Infinity,
               clipped: message.clipped,
-              // 20·log10(1 - reduction): the deepest attenuation. reduction is in [0, 1); at 1
-              // (silence, an absurd input) the log is -Infinity, so clamp the argument above 0.
-              reductionDb: message.reduction > 0 ? -20 * Math.log10(Math.max(1 - message.reduction, 1e-9)) : 0,
+              // 20·log10(1 - reduction): the deepest attenuation. reduction is in [0, 1); near 1
+              // (a finite runaway) the log diverges, so cap the reported figure at a value past
+              // which the exact number is meaningless to the user.
+              reductionDb: message.reduction > 0 ? Math.min(-20 * Math.log10(Math.max(1 - message.reduction, 1e-9)), MAX_REPORTED_REDUCTION_DB) : 0,
               tailCut: message.tailCut,
               renderMs: this.deps.now() - started,
             }

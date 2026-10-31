@@ -370,11 +370,11 @@ impl Offline {
         self.host.engine().limiter_reduction()
     }
 
-    /// How many output samples the protection turned to silence because they were non-finite
-    /// (NaN or infinity) over this render. `0` on a clean render. The limiter is the last stage,
-    /// so a device or a non-device path (master strip, automation, summing) that blew up leaves
-    /// the engine as silence that the output `assert_finite` can no longer catch; this counter
-    /// is how an offline render still catches it (#402).
+    /// How many stereo frames the protection turned to silence because a sample was non-finite
+    /// (NaN or infinity) over this render (frames, not samples). `0` on a clean render. The
+    /// limiter is the last stage, so a device or a non-device path (master strip, automation,
+    /// summing) that blew up leaves the engine as silence that the output `assert_finite` can no
+    /// longer catch; this counter is how an offline render still catches it (#402).
     pub fn silenced(&self) -> u64 {
         self.host.engine().limiter_silenced()
     }

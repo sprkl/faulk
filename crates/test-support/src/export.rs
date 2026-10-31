@@ -28,8 +28,8 @@ pub struct Exported {
     /// The output protection's peak gain reduction over the render, linear in `[0, 1]`
     /// (`0.0` = never engaged; #402).
     pub reduction: f32,
-    /// Non-finite samples the output protection silenced over the render (`0` on a clean render;
-    /// #402). A test asserts `0` to catch a NaN on a path the engine-level `assert_finite` cannot.
+    /// Frames the output protection silenced for a non-finite sample over the render (`0` on a
+    /// clean render; #402). A test asserts `0` to catch a NaN on a path `assert_finite` cannot.
     pub silenced: u64,
     pub tail_cut: bool,
     /// Times the engine was full while the setup went in.

@@ -87,12 +87,13 @@ pub struct Limiter {
     /// cleared by [`Limiter::reset`] or a sample-rate change: a render reads a whole pass, and the
     /// export resets it before the pass.
     max_reduction: f32,
-    /// How many input samples were non-finite (NaN or infinity) and turned to silence since the
-    /// last [`Limiter::reset_silenced`]. The limiter is the last line against a device or a
-    /// non-device path (master strip, automation, summing) that blows up; because it clamps and
-    /// silences, an engine-level `assert_finite` on the render output passes by construction, so
-    /// this counter is the seam that lets an offline render still catch a blow-up (#402). Same
-    /// ownership as `max_reduction`: one audio thread writes, the render's thread reads it after.
+    /// How many stereo frames had a non-finite (NaN or infinity) sample on either channel and were
+    /// turned to silence since the last [`Limiter::reset_silenced`] (a count of frames, not of
+    /// samples). The limiter is the last line against a device or a non-device path (master strip,
+    /// automation, summing) that blows up; because it clamps and silences, an engine-level
+    /// `assert_finite` on the render output passes by construction, so this counter is the seam
+    /// that lets an offline render still catch a blow-up (#402). Same ownership as `max_reduction`:
+    /// one audio thread writes, the thread that ran the render reads it after, never concurrently.
     silenced: u64,
 }
 
@@ -124,9 +125,10 @@ impl Limiter {
         self.max_reduction = 0.0;
     }
 
-    /// How many non-finite input samples were turned to silence since the last
-    /// [`Limiter::reset_silenced`]. `0` on a clean render; an offline test asserts it is `0` for
-    /// the paths the engine-level `assert_finite` can no longer police (master strip, automation).
+    /// How many stereo frames with a non-finite sample were turned to silence since the last
+    /// [`Limiter::reset_silenced`] (frames, not samples). `0` on a clean render; an offline test
+    /// asserts it is `0` for the paths the engine-level `assert_finite` can no longer police
+    /// (master strip, automation, summing).
     pub fn silenced(&self) -> u64 {
         self.silenced
     }

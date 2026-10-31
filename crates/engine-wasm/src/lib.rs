@@ -768,8 +768,8 @@ pub unsafe extern "C" fn fk_export_header_len(ex: *mut Export) -> u32 {
 /// A figure of the export, by number: 0 frames rendered, 1 frames written, 2 frames of
 /// content, 3 the peak (linear), 4 samples clipped, 5 the tail was cut (0 or 1), 6 the
 /// header's length, 7 the output protection's peak gain reduction (linear, 0 = never
-/// engaged; #402), 8 the count of non-finite samples the protection silenced (0 on a clean
-/// render; #402). -1 for a null export or an unknown number.
+/// engaged; #402), 8 the count of frames the protection silenced for a non-finite sample (0 on
+/// a clean render; #402). -1 for a null export or an unknown number.
 ///
 /// # Safety
 /// `ex` as in [`export`].
