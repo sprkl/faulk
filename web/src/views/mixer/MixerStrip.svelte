@@ -286,11 +286,11 @@
   }
   .automate {
     align-self: stretch;
-    height: var(--fk-row);
+    height: calc(var(--fk-row) - 6px);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-work);
     background: transparent;
-    font-size: 11px;
+    font-size: 10px;
     cursor: pointer;
   }
   .pan {
