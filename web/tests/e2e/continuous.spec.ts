@@ -201,11 +201,16 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
   await page.keyboard.up('KeyA')
+  // Wait for the voice to fully release before step 2, so that step 2's assertion
+  // is only about whether KeyA starts a new voice, not a releasing one from step 1.
+  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/)
   //
   // Step 2 — non-musical key → keyboard origin → letter no longer plays.
   await page.keyboard.press('Delete') // non-musical key on already-pointer-focused slider
   await page.keyboard.down('KeyA')
-  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/) // slider is keyboard-focused: no note
+  // No voice is started: slider is keyboard-focused, playsNote returns false (option A).
+  // This assertion passes immediately since no note was triggered.
+  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/)
   await page.keyboard.up('KeyA')
   // Space must not toggle the transport either (keyboard-focused slider keeps Space).
   await page.keyboard.press('Space')
