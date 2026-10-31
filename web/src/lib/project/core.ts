@@ -3,7 +3,7 @@
 // both modes (spec § 2.1): every command runs here and comes back as a report (output,
 // events) with the engine bytes it produced; TypeScript never maps a command to the engine.
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
-import type { Command, ExportReport, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
+import type { Command, ExportReport, HistoryView, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
 
 interface CoreExports {
@@ -18,6 +18,9 @@ interface CoreExports {
   pw_setup(core: number): number
   pw_snapshot(core: number): number
   pw_project(core: number): number
+  pw_history(core: number): number
+  pw_set_author(core: number, len: number): number
+  pw_set_clock(core: number, nowMs: number): number
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
@@ -289,11 +292,34 @@ export class ProjectCore {
     return this.core
   }
 
-  /** Runs a command (history included): its report and its engine bytes. */
-  run(command: Command): WithEngine<RunReport> {
-    const len = this.input(JSON.stringify(command))
-    const report = this.output<RunReport>('run', this.exports.pw_run(this.live(), len))
-    return { report, engine: this.engine() }
+  /**
+   * Runs a command (history included): its report and its engine bytes. The history stamps `author` (`user`, or
+   * `agent:<name>`) and the page's clock on the entry it records; the author is always put back to `user` afterwards,
+   * even when the run throws, so one caller's name never lands on another's edit.
+   */
+  run(command: Command, author = 'user', now = Date.now()): WithEngine<RunReport> {
+    this.exports.pw_set_clock(this.live(), now)
+    const named = author !== 'user'
+    try {
+      if (named) {
+        const len = this.input(author)
+        const code = this.exports.pw_set_author(this.live(), len)
+        if (code !== 0) throw new CoreError('set_author', code)
+      }
+      const len = this.input(JSON.stringify(command))
+      const report = this.output<RunReport>('run', this.exports.pw_run(this.live(), len))
+      return { report, engine: this.engine() }
+    } finally {
+      if (named && this.core) {
+        const len = this.input('user')
+        this.exports.pw_set_author(this.core, len)
+      }
+    }
+  }
+
+  /** The undo history as the history panel shows it: the entries of both stacks, oldest first. */
+  history(): HistoryView {
+    return this.output<HistoryView>('history', this.exports.pw_history(this.live()))
   }
 
   /**

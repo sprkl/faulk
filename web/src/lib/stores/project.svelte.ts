@@ -13,6 +13,8 @@ export class ProjectStore {
   view = $state.raw<ProjectView | null>(null)
   canUndo = $state(false)
   canRedo = $state(false)
+  /** Counts the changes of the history (an entry recorded, undone, redone, or the history replaced): the history panel reads the entries again when it moves. */
+  historyRev = $state(0)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
   watch: ((events: readonly ProjectEvent[]) => void) | null = null
   /**
@@ -112,6 +114,7 @@ export class ProjectStore {
       if (event.type === 'history_changed') {
         this.canUndo = event.can_undo
         this.canRedo = event.can_redo
+        this.historyRev++
       } else if (event.type === 'control_change') {
         // A controller on the live input changes nothing in the project: a sweep must not read it again.
       } else if (event.type === 'device_param_changed' && this.setParam(event.device, event.param, event.value)) {

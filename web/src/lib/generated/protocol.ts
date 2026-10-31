@@ -1738,6 +1738,11 @@ message: string
 reason: "migration"
 })
 /**
+ * Identifier of a history group: the commands of one mouse drag or one agent turn
+ * share a group and are undone together.
+ */
+export type GroupId = number
+/**
  * A tempo in beats (quarter notes) per minute, finite and within `[20, 999]`.
  * 
  * Constant per project at the MVP. Carries every conversion between ticks, seconds,
@@ -2571,6 +2576,46 @@ sample_rate: number
  * Last bar of `ExportRegion::Bars`, included.
  */
 to_bar?: (number | null)
+}
+/**
+ * The undo history as the history panel shows it (`pw_history`): read when the panel is
+ * open, not with every event, since a drag records many.
+ */
+export interface HistoryView {
+/**
+ * What `history.redo` redoes, oldest first: the last one goes first.
+ */
+redo: HistoryEntryView[]
+/**
+ * What `history.undo` undoes, oldest first: the last one goes first.
+ */
+undo: HistoryEntryView[]
+}
+/**
+ * One entry of the history: one command, or every command of one history group.
+ */
+export interface HistoryEntryView {
+/**
+ * When it was recorded, in milliseconds since the Unix epoch (0 when the host gave no clock).
+ */
+at: number
+/**
+ * Who runs a command. Serialized as `user` or `agent:<name>`: the form of the
+ * `Faulk-Author` trailer in version messages and of the history entries.
+ */
+author: string
+/**
+ * The history group it belongs to, if any.
+ */
+group?: (GroupId | null)
+/**
+ * Identifies the entry for as long as it is in the history, whichever stack holds it.
+ */
+id: number
+/**
+ * The name of the entry's first command (`note.move`...).
+ */
+name: string
 }
 /**
  * The page's view of the project: what it reads after an event that names an entity
