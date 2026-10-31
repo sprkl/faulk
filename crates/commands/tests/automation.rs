@@ -1147,6 +1147,7 @@ fn the_stored_value_sent_back_follows_the_slot_of_a_device_that_shifted() {
     let f = fx();
     let c = &f.chain;
     let mut w = World::new(f.state.clone());
+    let before = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
     // A device inserted ahead of `a` shifts it by one slot: the lane follows.
     w.exec(&d(device::Command::Insert {
         track: Some(f.track.clone()),
@@ -1160,7 +1161,7 @@ fn the_stored_value_sent_back_follows_the_slot_of_a_device_that_shifted() {
     let sets = param_sets(&out);
     assert_eq!(sets.len(), 1, "{:?}", out.control);
     let slot_of_a = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
-    assert!(slot_of_a > 0);
+    assert_eq!(slot_of_a, before + 1, "the insert shifted `a`");
     assert_eq!(sets[0].0, slot_of_a);
 }
 
@@ -1258,6 +1259,7 @@ fn deleting_a_device_lane_after_a_shift_restores_the_device_that_moved() {
     let f = fx();
     let c = &f.chain;
     let mut w = World::new(f.state.clone());
+    let before = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
     w.exec(&d(device::Command::Insert {
         track: Some(f.track.clone()),
         master: false,
@@ -1269,6 +1271,7 @@ fn deleting_a_device_lane_after_a_shift_restores_the_device_that_moved() {
     }));
     let sets = param_sets(&out);
     let slot_of_a = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
+    assert_eq!(slot_of_a, before + 1, "the insert shifted `a`");
     assert_eq!(sets.len(), 1, "{:?}", out.control);
     assert_eq!(sets[0].0, slot_of_a);
 }
