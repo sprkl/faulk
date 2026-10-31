@@ -9,6 +9,7 @@
   import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
+  import { createMasterLane } from '../../lib/automation-commands'
   import { armTrack, selectTrack, setMasterVolume, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import type { MeterSnap } from './ballistics'
   import MixerFader from './MixerFader.svelte'
@@ -56,6 +57,17 @@
     if (entry && !selected) dispatcher.run(selectTrack(entry.id))
     if (entry) ui.masterSelection = null
   }
+
+  /** Whether the master already has a volume lane (the Automate button is then a navigate-only action). */
+  const masterHasGainLane = $derived(
+    !entry && Object.values(project.view?.project.master_automation ?? {}).some((lane) => lane && 'mixer' in lane.target && lane.target.mixer.param === 'gain'),
+  )
+
+  /** Automate the master's gain: create the lane if absent, then navigate to the arrangement and unfold the master. */
+  function automateMasterGain() {
+    if (!masterHasGainLane) dispatcher.run(createMasterLane({ mixer: { param: 'gain' } }))
+    ui.showMasterLanes()
+  }
 </script>
 
 <li
@@ -95,6 +107,16 @@
         onclick={showDevices}
       >
         {t('mixer.devices')} ({chain.length})
+      </button>
+      <button
+        class="automate"
+        type="button"
+        title={t('automation.automateHint')}
+        aria-label={t('automation.automate')}
+        data-testid="mixer-master-automate-gain"
+        onclick={automateMasterGain}
+      >
+        {t('automation.automate')}
       </button>
     {/if}
   </div>
@@ -239,8 +261,17 @@
     cursor: pointer;
   }
   .devices:hover,
-  .name:hover {
+  .name:hover,
+  .automate:hover {
     background: var(--fk-surface-2);
+  }
+  .automate {
+    height: var(--fk-row);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
   }
   .pan {
     display: flex;

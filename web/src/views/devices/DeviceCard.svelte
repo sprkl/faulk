@@ -7,13 +7,14 @@
   import { onDestroy } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
+  import { createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { useStores } from '../../lib/stores'
 
-  let { entry, chain }: { entry: ChainEntry; chain: readonly ChainEntry[] } = $props()
+  let { entry, chain, master = false }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean } = $props()
 
-  const { ui, dispatcher, automated } = useStores()
+  const { ui, dispatcher, automated, project } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -25,6 +26,19 @@
   // A knob drag is one history group: one undo takes it back whole.
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
+
+  /** Whether the master already has a lane on a device parameter (the Automate button is then a navigate-only action). */
+  function masterHasDeviceLane(paramKey: string): boolean {
+    return Object.values(project.view?.project.master_automation ?? {}).some(
+      (lane) => lane && 'device' in lane.target && lane.target.device.device === entry.id && lane.target.device.param === paramKey,
+    )
+  }
+
+  /** Automate a master effect's parameter: create the lane if absent, then navigate to the arrangement and unfold the master. */
+  function automateParam(paramKey: string) {
+    if (!masterHasDeviceLane(paramKey)) dispatcher.run(createMasterLane({ device: { device: entry.id, param: paramKey } }))
+    ui.showMasterLanes()
+  }
 </script>
 
 <article class="card" class:bypassed data-testid="device-card" data-kind={entry.kind} data-role={isEffect ? 'effect' : 'instrument'} data-bypassed={bypassed}>
@@ -81,15 +95,29 @@
   {#if descriptor}
     <div class="params">
       {#each descriptor.params as param (param.key)}
-        <ParamControl
-          device={descriptor}
-          {param}
-          value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
-          automated={automated.deviceMark(entry.id, param.key)}
-          onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
-          onbegin={gesture.begin}
-          onend={gesture.end}
-        />
+        <div class="param-wrap">
+          <ParamControl
+            device={descriptor}
+            {param}
+            value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
+            automated={automated.deviceMark(entry.id, param.key)}
+            onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
+            onbegin={gesture.begin}
+            onend={gesture.end}
+          />
+          {#if master}
+            <button
+              class="param-automate"
+              type="button"
+              title={t('automation.automateHint')}
+              aria-label={t('automation.automate')}
+              data-testid="device-param-automate"
+              onclick={() => automateParam(param.key)}
+            >
+              {t('automation.automate')}
+            </button>
+          {/if}
+        </div>
       {/each}
     </div>
   {:else}
@@ -161,6 +189,26 @@
     gap: var(--fk-space-4);
     align-items: flex-end;
     max-width: 640px;
+  }
+  .param-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .param-automate {
+    height: 18px;
+    padding: 0 var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    background: transparent;
+    color: var(--fk-text-muted);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .param-automate:hover {
+    background: var(--fk-surface-2);
+    color: var(--fk-text);
   }
   .muted {
     margin: 0;
