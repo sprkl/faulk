@@ -36,11 +36,15 @@
 //!
 //! # Effect on downstream signal assertions
 //!
-//! Because the limiter is the last stage of `Engine::render`, every signal assertion that runs
-//! on the render output (assert_finite, assert_clean, assert_no_denormals, …) passes regardless
-//! of what the devices produced: the limiter turns NaN and Inf into 0.0 and bounds every sample
-//! to the ceiling. A device-level test that wants to check for NaN must render through that
-//! device directly, not through the engine's render output.
+//! Because the limiter is the last stage of `Engine::render`, a test that checks the render
+//! output for non-finite samples or for a peak above full scale now passes by construction:
+//! the limiter turns NaN and Inf into 0.0 and bounds every sample to the ceiling. Concretely,
+//! `assert_finite` and the `peak() <= 1.0` part of `assert_clean` are vacuous on the engine's
+//! output, so a test that wants to catch a device blowing up to NaN or running away must render
+//! through that device directly (as the device tests of `test-support` do), not through the
+//! engine's render output. The denormal check is **not** affected: a subnormal magnitude is
+//! below any ceiling, so the limiter passes it untouched (`subnormals_pass_untouched`), and
+//! `assert_no_denormals` on the render output keeps all its power.
 
 use crate::time::SampleRate;
 

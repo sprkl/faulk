@@ -1,7 +1,10 @@
-//! #402 through the command layer and the engine: whatever the mix, nothing leaves the engine
-//! above -0.3 dBFS; a mix under the ceiling is bit for bit what it was; the render is the same
-//! natively and in WASM; the export gets the same protection. A hot render is written to
-//! `.qa/renders/output-limiter-hot.wav` for the ear (only the user judges by ear).
+//! #402 through the command layer and the engine: a hot resonant mix (26 dB above a reference
+//! that stays under the ceiling) never leaves the engine above -0.3 dBFS, and the render is the
+//! same natively and in WASM (`parity`). This file does not re-prove bit-identity below the
+//! ceiling (that is `a_signal_below_the_ceiling_is_bit_identical` at the stage level) nor the
+//! export path (that is the `export` tests of `test-support` and `offline` of `engine`): it is
+//! the hot end-to-end case, written to `.qa/renders/output-limiter-hot.wav` for the ear (only
+//! the user judges by ear).
 
 use commands::testing::{context, fixture};
 use commands::{Command, Output, device, live, mixer};

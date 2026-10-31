@@ -293,37 +293,64 @@ fn on_project_reset_the_limiter_keeps_its_gain() {
 
 #[test]
 fn set_sample_rate_is_forwarded_to_the_limiter() {
-    // Engine::set_sample_rate calls limiter.set_sample_rate; the policy is pinned by checking
-    // that after a rate change the limiter's gain is still valid and the release has the right
-    // duration. Built at 48 kHz, rate changed to 96 kHz, then a hot block engages the limiter:
-    // if the forwarding call was removed the keep coefficient would be wrong and the release
-    // would be twice as long.
+    // Engine::set_sample_rate must forward the rate to its limiter, so the release keeps its
+    // 80 ms duration whatever the rate. This is pinned by measuring the release of the engine's
+    // *own* limiter (not a standalone one): a hot mix engages it, the master is dropped to
+    // silence so the output falls below the ceiling and the limiter releases, and the number of
+    // samples the engine's limiter_gain() takes to decay by 1/e gives the time constant. Built
+    // at 48 kHz then switched to 96 kHz: if the forwarding call (engine.rs set_sample_rate) was
+    // removed, the engine's limiter would keep its 48 kHz coefficient and the measured constant
+    // would be about twice RELEASE_SECONDS, failing the assertion.
     use engine::limiter::RELEASE_SECONDS;
+    const NEW_RATE: u32 = 96_000;
+
     let mut rig = Rig::new(3, 8.0);
-    // Switch to 96 kHz via Engine::set_sample_rate.
+    // Switch to 96 kHz via Engine::set_sample_rate, then engage the limiter at the new rate.
     rig.host
         .engine_mut()
-        .set_sample_rate(SampleRate::new(96_000).unwrap());
-    // Engage the limiter at the new rate.
+        .set_sample_rate(SampleRate::new(NEW_RATE).unwrap());
     rig.render(0.1);
+    let engaged = rig.host.engine().limiter_gain();
+    assert!(engaged < 1.0, "limiter not engaged after rate change");
+
+    // Cut the output to silence so the engine's limiter releases: mute the master. The detector
+    // then sees 0, the deficit shrinks by `keep` every sample, and limiter_gain() climbs to 1.0.
+    rig.send(&[M::SetMaster {
+        gain: 0.0,
+        pan: 0.0,
+        mute: true,
+    }]);
+    rig.prepare.flush();
+    rig.host.pump();
+    // Let the master fade settle to silence before timing the release (the fade itself is a
+    // few milliseconds; the deficit measured at the start of the timing window is `d0`).
+    rig.render(0.02);
+    let d0 = 1.0 - rig.host.engine().limiter_gain();
     assert!(
-        rig.host.engine().limiter_gain() < 1.0,
-        "limiter not engaged after rate change"
+        d0 > 0.0,
+        "limiter already at rest before the release window"
     );
-    // The release from a hot shot to quiet: measure the time constant to confirm the limiter's
-    // keep coefficient was updated (at 48 kHz it would decay twice as slowly).
-    let mut lim = Limiter::new(SampleRate::new(96_000).unwrap());
-    lim.process(&mut [8.0f32], &mut [0.0f32]);
-    let d0 = 1.0 - lim.gain();
-    let mut n = 0u32;
-    while 1.0 - lim.gain() > d0 / std::f32::consts::E {
-        lim.process(&mut [0.0f32], &mut [0.0f32]);
-        n += 1;
+
+    // Advance block by block until the engine's limiter deficit has decayed by 1/e.
+    let mut frames = 0u32;
+    loop {
+        rig.prepare.flush();
+        let n = rig.host.render(64);
+        frames += n as u32;
+        if 1.0 - rig.host.engine().limiter_gain() <= d0 / std::f32::consts::E {
+            break;
+        }
+        assert!(
+            frames < NEW_RATE,
+            "release never reached 1/e within one second"
+        );
     }
-    let t = n as f64 / 96_000.0;
+    let t = f64::from(frames) / f64::from(NEW_RATE);
+    // One 64-frame block of granularity on a ~80 ms constant is about 0.7 ms; allow 3 ms.
     assert!(
-        (t - RELEASE_SECONDS).abs() < 0.002,
-        "release duration at 96 kHz: {t:.4} s (expected {RELEASE_SECONDS})"
+        (t - RELEASE_SECONDS).abs() < 0.003,
+        "engine limiter release at {NEW_RATE} Hz: {t:.4} s (expected {RELEASE_SECONDS}); \
+         forwarding to the limiter is likely broken (engaged gain was {engaged})"
     );
 }
 
