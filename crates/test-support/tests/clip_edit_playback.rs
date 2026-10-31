@@ -86,9 +86,9 @@ fn scenario(edits: usize) -> Scenario {
 fn quietest_pad_window(r: &Render, until: f32) -> f32 {
     let mut lowest = f32::MAX;
     let mut pass = 0.0f32;
-    while pass * 2.0 + 1.45 <= until {
+    while pass * 2.0 + 0.2 <= until {
         let mut t = pass * 2.0 + 0.1;
-        while t + 0.01 <= pass * 2.0 + 1.45 {
+        while t + 0.01 <= (pass * 2.0 + 1.45).min(until) {
             lowest = lowest.min(r.peak_in(t..t + 0.01));
             t += 0.01;
         }
