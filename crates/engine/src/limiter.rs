@@ -180,8 +180,8 @@ impl Limiter {
         }
         self.deficit = deficit;
         // The deepest attenuation of this pass, for the export's "pushed into the limiter"
-        // report (#402). One monotonic `max` on an audio-thread-owned field (read off-thread
-        // by the export after the render).
+        // report (#402). One monotonic `max`; the field is read only after the render, on the
+        // same thread that ran it (the export's `Offline`), never concurrently.
         self.max_reduction = self.max_reduction.max(deficit);
         let gain = 1.0 - deficit;
         *l = shape(*l, gain);
