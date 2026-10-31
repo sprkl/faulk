@@ -89,5 +89,19 @@ test('master pan: set, dragged, undone, automated; the tracks have the same Auto
   await expect(arr).toBeVisible()
   expect(await trackLanes(page)).toBe(2)
 
+  // The track's device knobs have the button too: one lane for the knob, none more on a second click.
+  await page.getByTestId('nav-mixer').click()
+  await strip.getByTestId('mixer-devices').click()
+  const knob = page.getByTestId('bottom-panel').getByTestId('device-param-automate').first()
+  await expect(knob).toBeVisible()
+  await knob.click()
+  await expect(arr).toBeVisible()
+  await expect.poll(() => trackLanes(page)).toBe(3)
+  await page.getByTestId('nav-mixer').click()
+  await strip.getByTestId('mixer-devices').click()
+  await knob.click()
+  await expect(arr).toBeVisible()
+  expect(await trackLanes(page)).toBe(3)
+
   expect(seen.errors).toEqual([])
 })

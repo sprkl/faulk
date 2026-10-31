@@ -35,7 +35,7 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'playhead', 'timegrid']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
   [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'mixer', 'mixer-sound', 'master-chain', 'master-pan']],
