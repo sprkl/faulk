@@ -144,7 +144,29 @@ export function trackFocusOrigin(doc: Document = document): () => void {
     pointerFocused = active && active !== doc.body && active.contains(event.target as Node | null) ? active : null
   }
   const key = (event: KeyboardEvent) => {
-    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) lastInput = 'keyboard'
+    if (event.code !== 'Space' && !MODIFIER_KEYS.has(event.key)) {
+      lastInput = 'keyboard'
+      // A UI-shortcut key on an already-focused slider reasserts the keyboard origin even when no
+      // focusin fires (e.g. after Slider.closeMenu() → root.focus() while pointer was the last input).
+      // Without this, pointerFocused stays stale and Space incorrectly toggles the transport.
+      // Scoped to sliders (role="slider"): other controls (buttons, links) may receive shortcut keys
+      // whose side effect focuses them back (e.g. Escape on a menu returning focus to its trigger)
+      // without meaning that the user switched to keyboard navigation.
+      // Checked against BARE_SHORTCUT_CODES (not "!isMusicalKey"): unmapped letters (KeyC, KeyB…)
+      // and digits are neither playing keys nor UI shortcuts and must not switch the origin.
+      // Note: BARE_SHORTCUT_CODES is compared against event.code; '+', '=', '-', '_' in the list
+      // are key values (Equal/Minus are the codes) and will never match, which is correct.
+      // Only the modifier keys' own keydowns are excluded above; a chord (Alt+ArrowLeft, Ctrl+Delete) is
+      // not a bare shortcut: the slider ignores it, so it must not switch the origin either.
+      // Playing keys (KEY_OFFSETS, Z/X) are absent from BARE_SHORTCUT_CODES: a mouse-used knob
+      // keeps playing notes even when a musical key is pressed on it.
+      if (!event.altKey && !event.ctrlKey && !event.metaKey && (BARE_SHORTCUT_CODES as readonly string[]).includes(event.code)) {
+        const active = doc.activeElement
+        if (active && active !== doc.body && pointerFocused === active && active.getAttribute('role') === 'slider') {
+          pointerFocused = null
+        }
+      }
+    }
   }
   const focus = (event: Event) => {
     pointerFocused = lastInput === 'pointer' ? (event.target as Element) : null
@@ -197,6 +219,9 @@ const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [ar
  * 4. a control the keyboard focused (Tab, arrows: a button, link, checkbox, knob or slider) keeps its own keys, the rule of
  *    Space (`spaceTogglesTransport`); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
  *    notes are played. A control focused by a script after a key (a menu giving the focus back) counts as keyboard-focused.
+ *    Exception (#415, option A): a UI-shortcut key (`BARE_SHORTCUT_CODES`: arrows, Delete, Backspace…) pressed on a
+ *    mouse-focused slider reasserts keyboard origin (`trackFocusOrigin`), after which letters no longer play on that
+ *    slider until the next pointer press. Musical keys (`KEY_OFFSETS`, Z/X) and unmapped letters never change the origin.
  * `focusVisible` is injectable for tests; by default it asks `trackFocusOrigin`.
  */
 export function playsNote(
