@@ -40,6 +40,15 @@ pub fn render_native(scenario: &Scenario) -> Render {
         "messages are still pending after the last block"
     );
     assert_eq!(host.engine().skipped(), 0, "messages were skipped");
+    // The output protection (#402) is the last stage, so `assert_finite`/`assert_clean` on the
+    // returned render pass by construction (a NaN is silenced, a runaway clamped). This catches a
+    // blow-up on any path the engine ran — the master strip, the master chain, automation, the
+    // summing, a device — whose output assertion can no longer see it.
+    assert_eq!(
+        host.engine().limiter_silenced(),
+        0,
+        "the output protection silenced non-finite samples: a device or a master-path produced NaN or infinity"
+    );
     Render::new(SAMPLE_RATE, left, right)
 }
 
