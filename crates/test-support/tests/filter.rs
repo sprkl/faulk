@@ -151,6 +151,15 @@ fn bypassed_the_filter_changes_nothing_and_its_mix_blends() {
 
 #[test]
 fn a_cleared_cutoff_lane_goes_back_to_the_stored_cutoff_and_its_points_play_again_after_undo() {
+    cleared_cutoff_lane(true, "filter-lane-clear");
+}
+
+#[test]
+fn a_cutoff_lane_cleared_while_stopped_goes_back_to_the_stored_cutoff_too() {
+    cleared_cutoff_lane(false, "filter-lane-clear-stopped");
+}
+
+fn cleared_cutoff_lane(playing: bool, wav: &str) {
     // #394: a lane that is cleared stops driving the cutoff, which goes back to the project's
     // value (200 Hz, dark); undo brings the points back and the lane takes the cutoff again
     // (the restoring message holds nothing, the lane having left the engine).
@@ -181,7 +190,9 @@ fn a_cleared_cutoff_lane_goes_back_to_the_stored_cutoff_and_its_points_play_agai
             shape: Shape::Step,
         }],
     }));
-    s.run(Command::Transport(transport::Command::Play {}));
+    if playing {
+        s.run(Command::Transport(transport::Command::Play {}));
+    }
     s.run(Command::Live(live::Command::NoteOn {
         track: f.track.clone(),
         note: 45,
@@ -217,5 +228,5 @@ fn a_cleared_cutoff_lane_goes_back_to_the_stored_cutoff_and_its_points_play_agai
         reopened > 3.0 * closed,
         "the undone lane plays again: {closed} -> {reopened}"
     );
-    r.write_wav("filter-lane-clear");
+    r.write_wav(wav);
 }
