@@ -1,0 +1,2 @@
+2026-10-31
+* **Fix** (#394): automation follow-ups from #388 — a cleared or deleted lane restores the stored project value in the engine (device parameter via `ParamSet`, mixer via `forget_lane` on empty `LanePut`); a gesture equal to the stored value still holds the lane in both the engine and the page; a stop at position 0 releases holds on the page; the pan mark and unchanged-gesture hold are tested; AM-1 spec lists `arrangement.place_from_slot`, `arrangement.place_scene` and `arrangement.restore` among the commands that never touch lanes.

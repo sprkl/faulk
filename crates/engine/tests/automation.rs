@@ -619,6 +619,52 @@ fn a_removed_gain_lane_gives_the_strip_back_to_its_fader() {
 }
 
 #[test]
+#[allow(clippy::needless_range_loop)]
+fn a_removed_pan_lane_gives_the_strip_back_to_its_fader() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(
+        0,
+        0,
+        AutomationTarget::MixerPan,
+        &[pt(0, -0.5, Curve::Step)],
+    );
+    let start = r.play(0);
+    r.run(40 * block);
+    let removed = r.at;
+    r.send(&[M::AutomationLaneRemove { lane: LaneSlot(0) }]);
+    r.run(40 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    // The gain is unity throughout (no gain lane).
+    assert_levels(&r.left, &reference, start..r.at, |_| 1.0);
+    // Before the remove: the far channel (right) is attenuated by the pan.
+    let panned = (0.5f32 * core::f32::consts::FRAC_PI_2).cos();
+    for k in start..removed {
+        if reference[k].abs() < 1e-3 {
+            continue;
+        }
+        assert!(
+            (r.right[k] / reference[k] - panned).abs() < 1e-4,
+            "frame {k}: expected pan {panned}, got {}",
+            r.right[k] / reference[k]
+        );
+    }
+    // After the remove (past the 5 ms ramp): back to centre pan.
+    let fade = 240;
+    for k in removed + fade..r.at {
+        if reference[k].abs() < 1e-3 {
+            continue;
+        }
+        assert!(
+            (r.right[k] / reference[k] - 1.0).abs() < 1e-4,
+            "frame {k}: expected pan 1.0, got {}",
+            r.right[k] / reference[k]
+        );
+    }
+}
+
+#[test]
 fn a_gesture_after_the_last_point_holds_until_a_jump_and_a_new_upload_keeps_it() {
     let block = 128;
     let mut r = Rig::new(block, 1);

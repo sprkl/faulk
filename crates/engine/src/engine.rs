@@ -1926,13 +1926,17 @@ impl Engine {
             }
             RtMsg::SetMaster { gain, pan, mute } => {
                 // A gesture on the master's fader or pan holds the lane that drives it (#378),
-                // as one on a track's does; the mute holds neither.
+                // as one on a track's does; the mute holds neither. When neither the gain nor
+                // the pan changed this is an unchanged gesture on a lane-driven parameter
+                // (#394 point 2): the compiler emits SetMaster only when a lane is active, so
+                // hold both (the gesture is on the active one, and both are safe to hold).
                 let moved_gain = state.master.gain.to_bits() != gain.to_bits();
                 let moved_pan = state.master.pan.to_bits() != pan.to_bits();
+                let neither = !moved_gain && !moved_pan;
                 state.master = Master { gain, pan, mute };
                 hold_lanes(state, &self.graph, TrackSlot::MASTER, |target| {
-                    (moved_gain && target == AutomationTarget::MixerGain)
-                        || (moved_pan && target == AutomationTarget::MixerPan)
+                    (moved_gain || neither) && target == AutomationTarget::MixerGain
+                        || (moved_pan || neither) && target == AutomationTarget::MixerPan
                 });
                 None
             }
@@ -1979,15 +1983,17 @@ impl Engine {
                 match state.track_mut(track) {
                     Some(t) => {
                         // A gesture on the fader or the pan holds the lane that drives it
-                        // (AM-2); one on the mute holds neither.
+                        // (AM-2); one on the mute holds neither. When neither changed, this is
+                        // an unchanged gesture on a lane-driven parameter (#394 point 2).
                         let moved_gain = t.gain.to_bits() != gain.to_bits();
                         let moved_pan = t.pan.to_bits() != pan.to_bits();
+                        let neither = !moved_gain && !moved_pan;
                         t.gain = gain;
                         t.pan = pan;
                         t.mute = mute;
                         hold_lanes(state, &self.graph, track, |target| {
-                            (moved_gain && target == AutomationTarget::MixerGain)
-                                || (moved_pan && target == AutomationTarget::MixerPan)
+                            (moved_gain || neither) && target == AutomationTarget::MixerGain
+                                || (moved_pan || neither) && target == AutomationTarget::MixerPan
                         });
                     }
                     None => skipped = true,
@@ -2165,8 +2171,10 @@ impl Engine {
             RtMsg::LanePut(mut put) => {
                 // A new upload of the same lane goes on where the old one was (its
                 // gesture); a strip that loses a lane goes back to its fader.
+                let (track, target) = (put.value.track, put.value.target);
+                let empty = put.value.points.is_empty();
                 let lost = match state.lanes.get(put.slot) {
-                    Some(old) if old.track == put.value.track && old.target == put.value.target => {
+                    Some(old) if old.track == track && old.target == target => {
                         put.value.run.inherit(&old.run);
                         None
                     }
@@ -2175,8 +2183,21 @@ impl Engine {
                 };
                 let (spare, out) = state.lanes.put(put);
                 skipped = out;
-                if !out && let Some((track, target)) = lost {
-                    forget_lane(state, &mut self.graph, track, target);
+                if !out {
+                    if let Some((lost_track, lost_target)) = lost {
+                        forget_lane(state, &mut self.graph, lost_track, lost_target);
+                    }
+                    // An empty upload of a mixer lane (lane.clear): give the strip's field
+                    // back to the fader, as a remove does (#394 point 1). Device lanes are
+                    // handled by a ParamSet from the project compiler.
+                    if empty {
+                        match target {
+                            AutomationTarget::MixerGain | AutomationTarget::MixerPan => {
+                                forget_lane(state, &mut self.graph, track, target);
+                            }
+                            AutomationTarget::DeviceParam { .. } => {}
+                        }
+                    }
                 }
                 Some(Garbage::Lanes(spare))
             }

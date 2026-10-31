@@ -118,9 +118,13 @@ export class AutomatedValues {
         const running = this.running
         untrack(() => {
           if (this.holds.size > 0 && last !== null) {
+            // A stop (running → false) is always a jump: the engine frees all lanes and
+            // applies each lane's value at the playhead (#394 point 4). Clear holds then
+            // even when tick did not change (a stop at position 0, or at the marker).
+            const stopped = wasRunning && !running
             const moved = running ? tick < last || tick - last > this.jumpTicks() : tick !== last
             // eslint-disable-next-line svelte/prefer-svelte-reactivity
-            if (running !== wasRunning || moved) this.holds = new Map()
+            if (stopped || running !== wasRunning || moved) this.holds = new Map()
           }
           last = tick
           wasRunning = running
@@ -202,13 +206,13 @@ export class AutomatedValues {
         }
         if (lanes.length > 0) this.hold(`d:${event.device}:${event.param}`, lanes)
       } else if (event.type === 'mixer_changed') {
-        // A track's strip, or the master's when `track` is null.
+        // A track's strip, or the master's when `track` is null. Any mixer_changed event
+        // is a gesture, even when the value equals the stored one (#394 point 2): the fader
+        // may have been showing the lane's value, not the stored one.
         const owner = event.track ?? MASTER
         const track = event.track ? view.project.tracks[event.track] : { mixer: view.project.master, automation: view.project.master_automation ?? {} }
         if (!track) continue
         for (const param of ['gain', 'pan'] as const) {
-          const changed = param === 'gain' ? (track.mixer.gain_db ?? null) !== (event.gain_db ?? null) : track.mixer.pan !== event.pan
-          if (!changed) continue
           const lanes: AutomationLane[] = []
           for (const lane of Object.values(track.automation)) {
             if (lane && 'mixer' in lane.target && lane.target.mixer.param === param) lanes.push(lane)
