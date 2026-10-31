@@ -151205,6 +151205,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -155163,6 +155187,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -261441,6 +261484,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -265418,6 +265485,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -269887,6 +269973,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -273870,6 +273980,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -337715,6 +337844,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -341692,6 +341845,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -473439,6 +473611,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -477422,6 +477618,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -481917,6 +482132,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -485900,6 +486139,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -541193,6 +541451,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -545170,6 +545452,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -744608,6 +744909,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -748600,6 +748925,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -753069,6 +753413,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -757052,6 +757420,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -846234,6 +846621,30 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Set the master's pan, from -1 (left) to 1 (right). A value outside the range or\nnot a number is refused. A pan gesture sent in one history group is undone in one\nstep. Undo: set the previous pan back.",
+                  "properties": {
+                    "pan": {
+                      "format": "double",
+                      "maximum": 1,
+                      "minimum": -1,
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "pan"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "Solo or unsolo a track. The soloed tracks are those in the session's solo set;\nthe audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).\nSession state: not undoable, not in the history, not saved with the project.",
                   "properties": {
                     "solo": {
@@ -850192,6 +850603,25 @@
                     },
                     "type": {
                       "const": "mixer.set_master_volume",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous": {
+                      "description": "The pan before the command.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "mixer.set_master_pan",
                       "type": "string"
                     }
                   },
@@ -886532,6 +886962,96 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "List automation lanes, without their points (`automation.lane.points` reads them):\neach with its identifier, its owner track (`null` for the master's), its target\n(a device parameter or the owner's `gain` or `pan`) and how many points it holds.\nName `track` for one track's lanes or `master: true` for the master's, not both\n(refused with `invalid`); with neither, every lane of the project: the master's\nfirst, then each track's in display order, a track's lanes in the order of their\nidentifiers. Refused with `not_found` for an unknown track. Paged: `offset` (lanes to\nskip, 0 by default) and `limit` (lanes to return, 1 to 1000, 100 by default; any\nother limit is refused with `invalid`, never clamped); the answer's `page` gives the\n`total`, the `offset` used and the `next_offset` of the next page, `null` after the\nlast one. A query: changes nothing and never enters the history.",
+                  "properties": {
+                    "limit": {
+                      "description": "Lanes to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "master": {
+                      "description": "`true` for only the master's lanes.",
+                      "type": "boolean"
+                    },
+                    "offset": {
+                      "description": "Lanes to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Only this track's lanes."
+                    },
+                    "type": {
+                      "const": "automation.lane.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Read the points of one automation lane in tick order, a page at a time: each point\nhas its `tick` (0 to 2^40, 960 per quarter note), its `value` in the parameter's unit\n(dB for a gain lane) and its `shape` (`linear` or `step`, the transition to the next\npoint). The answer also gives the lane's summary (owner, target, point count). Paged:\n`offset` (points to skip, 0 by default) and `limit` (points to return, 1 to 1000, 100\nby default; any other limit is refused with `invalid`, never clamped); the answer's\n`page` gives the `total`, the `offset` used and the `next_offset` of the next page,\n`null` after the last one. An `offset` past the end gives an empty page. Refused with\n`not_found` for an unknown lane. A query: changes nothing and never enters the\nhistory.",
+                  "properties": {
+                    "lane": {
+                      "$ref": "#/$defs/LaneId",
+                      "description": "The lane whose points are read."
+                    },
+                    "limit": {
+                      "description": "Points to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Points to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "automation.lane.points",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "lane"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -887184,6 +887704,86 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Read one clip, MIDI or audio, without its notes (`clip.notes.list` pages them): the\ntrack that holds it, its summary (name, colour, launch-grid slot, kind, length and\nnote count of a MIDI clip), its own launch quantization when it has one, its content\n(a MIDI clip's length in ticks, loop and note count; an audio clip's media, range of\nframes, gain in dB with `null` for silence, and loop) and a page of its placements\nin the track's arrangement, in the order of their identifiers. Paged on the\nplacements: `offset` (placements to skip, 0 by default) and `limit` (placements to\nreturn, 1 to 1000, 100 by default; any other limit is refused with `invalid`, never\nclamped); the answer's `page` gives the `total`, the `offset` used and the\n`next_offset` of the next page, `null` after the last one. Refused with `not_found`\nfor an unknown clip. A query: changes nothing and never enters the history.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId",
+                      "description": "The clip to read."
+                    },
+                    "limit": {
+                      "description": "Placements to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Placements to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "clip.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "List the notes of a MIDI clip in time order (start, then pitch, then length, then\nthe other fields of the note): each note has `start` and `length` in ticks (960 per\nquarter note, from the start of the clip), `pitch` (MIDI key 0 to 127) and\n`velocity` (1 to 127), and its `cents`, `chance` and `repeat` when they are not the\ndefault. A note is addressed in the edit commands by this whole value. Paged: `offset`\n(notes to skip, 0 by default) and `limit` (notes to return, 1 to 1000, 100 by\ndefault; any other limit is refused with `invalid`, never clamped); the answer's\n`page` gives the `total`, the `offset` used and the `next_offset` of the next page,\n`null` after the last one. An `offset` past the end gives an empty page. Refused with\n`not_found` for an unknown clip and with `invalid` for an audio clip, which has no\nnotes. A query: changes nothing and never enters the history.",
+                  "properties": {
+                    "clip": {
+                      "$ref": "#/$defs/ClipId",
+                      "description": "The MIDI clip whose notes are listed."
+                    },
+                    "limit": {
+                      "description": "Notes to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Notes to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "clip.notes.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clip"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -887680,6 +888280,41 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Describe a device, or a built-in device kind before any is inserted. Give exactly\none of `device` (the id of a device of a track's chain or of the master's) and\n`kind` (a built-in kind such as `faulk.osc_synth`); both or neither is refused with\n`invalid`, an unknown device or kind with `not_found`. For a device the answer has its\nsummary (id, role, bypass state, source, English name), the track that holds it\n(`null` for the master's chain) and the current value of every parameter, by\nparameter key. For a built-in kind, and for a built-in device, it has the kind's\ndescriptor: version, English name, role and every parameter's key, `description`,\nunit, range, default, scale, step and enumerated `values`, and the named keys of a\ndrum-like instrument. A module and the clip player have no descriptor (`null`). A\nquery: changes nothing and never enters the history.",
+                  "properties": {
+                    "device": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/DeviceId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "A device to describe; leave out when giving `kind`."
+                    },
+                    "kind": {
+                      "description": "A built-in kind to describe; leave out when giving `device`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "device.describe",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -887784,7 +888419,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -889043,6 +889678,23 @@
                   "x-destructive": false,
                   "x-kind": "live",
                   "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Read the project's summary: its id, name, file format version, tempo in BPM, time\nsignature, master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,\nscenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected\ntrack, and whether there is something to undo or redo. It lists nothing: use\n`track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,\nnever enters the history and never marks the project as having changes to save.",
+                  "properties": {
+                    "type": {
+                      "const": "project.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -889280,6 +889932,41 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "List the scenes of the launch grid in display order (top to bottom), each with its\nname and the clips in its slots (at most one per track: the track and the clip, in\nthe tracks' display order; an empty slot is not listed). Paged: `offset` (scenes to\nskip, 0 by default) and `limit` (scenes to return, 1 to 1000, 100 by default; any\nother limit is refused with `invalid`, never clamped); the answer's `page` gives the\n`total`, the `offset` used and the `next_offset` of the next page, `null` after the\nlast one. An `offset` past the end gives an empty page. A query: changes nothing and\nnever enters the history.",
+                  "properties": {
+                    "limit": {
+                      "description": "Scenes to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Scenes to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "scene.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -889831,6 +890518,81 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "List the tracks in display order (the order of the arrangement and the mixer), each\nwith its name, colour, kind (`midi` or `audio`), mixer (gain in dB, `null` is\nsilence; pan; mute), solo and arming (session state) and how many devices and clips\nit holds. Paged: `offset` (tracks to skip, 0 by default) and `limit` (tracks to\nreturn, 1 to 1000, 100 by default; any other limit is refused with `invalid`, never\nclamped); the answer's `page` gives the `total`, the `offset` used and the\n`next_offset` of the next page, `null` after the last one. An `offset` past the end\ngives an empty page. A query: changes nothing and never enters the history.",
+                  "properties": {
+                    "limit": {
+                      "description": "Tracks to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Tracks to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "track.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Read one track: its summary, its whole device chain in order (each device with its\nsource, role, bypass state, English name and parameter values; the chain is bounded\nby the project's safety limit), a page of its clips (in the order of their\nidentifiers, which is creation order) and how many arrangement placements and\nautomation lanes it has (`clip.get` lists a clip's placements, `automation.lane.list`\nthe lanes). Paged on the clips: `offset` (clips to skip, 0 by default) and `limit`\n(clips to return, 1 to 1000, 100 by default; any other limit is refused with\n`invalid`, never clamped); the answer's `page` gives the `total`, the `offset` used\nand the `next_offset` of the next page, `null` after the last one. Refused with\n`not_found` for an unknown track. A query: changes nothing and never enters the\nhistory.",
+                  "properties": {
+                    "limit": {
+                      "description": "Clips to return, 1 to 1000, 100 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Clips to skip, 0 by default.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "track": {
+                      "$ref": "#/$defs/TrackId",
+                      "description": "The track to read."
+                    },
+                    "type": {
+                      "const": "track.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "track"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -890140,6 +890902,23 @@
                   "x-destructive": false,
                   "x-kind": "edit",
                   "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Read the transport settings saved with the project: the tempo in BPM, the time\nsignature, the launch quantization, the loop region (`null` when none) and whether\nthe loop is on, and the metronome (on or off, level in dB with `null` for silence,\ncount-in bars). Playback state (playing or not, the playhead) is not part of the\nproject: it belongs to the engine and is not answered here. A query: changes nothing\nand never enters the history.",
+                  "properties": {
+                    "type": {
+                      "const": "transport.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "query",
+                  "x-undo": "none"
                 }
               ]
             },
@@ -890467,6 +891246,44 @@
                 }
               ]
             },
+            "AudioMedia": {
+              "additionalProperties": false,
+              "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
+              "properties": {
+                "channels": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "frames": {
+                  "description": "Length of the whole file in frames.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hash": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "name": {
+                  "description": "The file's original name.",
+                  "type": "string"
+                },
+                "sample_rate": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hash",
+                "sample_rate",
+                "channels",
+                "frames",
+                "name"
+              ],
+              "type": "object"
+            },
             "Author": {
               "description": "Who runs a command. Serialized as `user` or `agent:<name>`: the form of the\n`Faulk-Author` trailer in version messages and of the history entries.",
               "type": "string"
@@ -890619,6 +891436,210 @@
                   },
                   "required": [
                     "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lanes": {
+                      "description": "The lanes of this page.",
+                      "items": {
+                        "$ref": "#/$defs/LaneSummary"
+                      },
+                      "type": "array"
+                    },
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the list."
+                    },
+                    "type": {
+                      "const": "automation.lane.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "lanes",
+                    "page"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lane": {
+                      "$ref": "#/$defs/LaneSummary",
+                      "description": "The lane's summary."
+                    },
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the lane's point list."
+                    },
+                    "points": {
+                      "description": "The points of this page, in tick order.",
+                      "items": {
+                        "$ref": "#/$defs/Point"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "automation.lane.points",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "lane",
+                    "points",
+                    "page"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "AutomationTarget": {
+              "description": "What a lane automates.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "A parameter of a device of the same track.",
+                  "properties": {
+                    "device": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "device": {
+                          "$ref": "#/$defs/DeviceId"
+                        },
+                        "param": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "device",
+                        "param"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "device"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "A parameter of the track's mixer.",
+                  "properties": {
+                    "mixer": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "param": {
+                          "$ref": "#/$defs/MixerParam"
+                        }
+                      },
+                      "required": [
+                        "param"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "mixer"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "ClipContentInfo": {
+              "description": "What a clip holds, apart from the notes (`clip.notes.list`).",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "A MIDI clip: musical time.",
+                  "properties": {
+                    "kind": {
+                      "const": "midi",
+                      "type": "string"
+                    },
+                    "length": {
+                      "$ref": "#/$defs/Tick",
+                      "description": "Length in ticks."
+                    },
+                    "looping": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TickLoop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The loop `[start, end)` in ticks inside the clip, if one is set."
+                    },
+                    "note_count": {
+                      "description": "How many notes it holds.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "length",
+                    "note_count"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "An audio clip: a range of a file.",
+                  "properties": {
+                    "frames": {
+                      "description": "Frames played.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "gain_db": {
+                      "description": "Clip gain in dB; `null` is silence.",
+                      "format": "double",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "const": "audio",
+                      "type": "string"
+                    },
+                    "looping": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/FrameLoop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The loop `[start, end)` in frames of the file, if one is set."
+                    },
+                    "media": {
+                      "$ref": "#/$defs/AudioMedia",
+                      "description": "The audio file the clip plays."
+                    },
+                    "start": {
+                      "description": "First frame of the file played.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "media",
+                    "start",
+                    "frames"
                   ],
                   "type": "object"
                 }
@@ -890939,12 +891960,203 @@
                     "added"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content": {
+                      "$ref": "#/$defs/ClipContentInfo",
+                      "description": "What the clip holds, without the notes."
+                    },
+                    "launch_quantize": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/Quantize"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Its own launch quantization; `null` follows the project's."
+                    },
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the clip's placement list."
+                    },
+                    "placements": {
+                      "description": "The placements of this page, in the order of their identifiers.",
+                      "items": {
+                        "$ref": "#/$defs/PlacementInfo"
+                      },
+                      "type": "array"
+                    },
+                    "summary": {
+                      "$ref": "#/$defs/ClipSummary",
+                      "description": "The clip's summary."
+                    },
+                    "track": {
+                      "$ref": "#/$defs/TrackId",
+                      "description": "The track that holds the clip."
+                    },
+                    "type": {
+                      "const": "clip.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "track",
+                    "summary",
+                    "content",
+                    "placements",
+                    "page"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "notes": {
+                      "description": "The notes of this page, in time order.",
+                      "items": {
+                        "$ref": "#/$defs/Note"
+                      },
+                      "type": "array"
+                    },
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the clip's note list."
+                    },
+                    "type": {
+                      "const": "clip.notes.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "notes",
+                    "page"
+                  ],
+                  "type": "object"
                 }
               ]
+            },
+            "ClipSummary": {
+              "additionalProperties": false,
+              "description": "A clip in a list.",
+              "properties": {
+                "color": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip's colour, `#rrggbb`, or `null`."
+                },
+                "id": {
+                  "$ref": "#/$defs/ClipId",
+                  "description": "The clip's identifier."
+                },
+                "kind": {
+                  "$ref": "#/$defs/TrackKind",
+                  "description": "`midi` or `audio`, as its track."
+                },
+                "length": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+                },
+                "name": {
+                  "description": "The clip's name.",
+                  "type": "string"
+                },
+                "note_count": {
+                  "description": "How many notes a MIDI clip holds; `null` for an audio clip.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "slot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The scene of the launch-grid slot the clip sits in, or `null` when it only lives\nin the arrangement."
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
             },
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DeviceKindInfo": {
+              "additionalProperties": false,
+              "description": "The static description of a built-in device kind.",
+              "properties": {
+                "kind": {
+                  "description": "The kind, `faulk.<name>`: the `id` of a `builtin` device source.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "The device's one English name.",
+                  "type": "string"
+                },
+                "named_keys": {
+                  "description": "The notes an instrument answers to, with their names; empty for a pitched\ninstrument and for effects.",
+                  "items": {
+                    "$ref": "#/$defs/KeyName"
+                  },
+                  "type": "array"
+                },
+                "params": {
+                  "description": "The kind's parameters, in declaration order.",
+                  "items": {
+                    "$ref": "#/$defs/ParamSpec"
+                  },
+                  "type": "array"
+                },
+                "role": {
+                  "$ref": "#/$defs/KindRoleInfo",
+                  "description": "What the kind does in a chain."
+                },
+                "version": {
+                  "description": "The kind's version, raised when its parameters change meaning.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "version",
+                "name",
+                "role",
+                "params",
+                "named_keys"
+              ],
+              "type": "object"
             },
             "DeviceOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -891079,8 +892291,171 @@
                     "value"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "descriptor": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/DeviceKindInfo"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The kind's descriptor; `null` for a module and for the clip player."
+                    },
+                    "device": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/DeviceSummary"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The device's summary; `null` when a kind was asked for."
+                    },
+                    "in_master": {
+                      "description": "Whether the device is in the master's chain (then `track` is `null`).",
+                      "type": "boolean"
+                    },
+                    "params": {
+                      "additionalProperties": {
+                        "format": "double",
+                        "type": "number"
+                      },
+                      "description": "The device's parameter values, by parameter key, in the unit the device declares.",
+                      "type": "object"
+                    },
+                    "track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The track that holds the device; `null` for the master's chain and for a kind."
+                    },
+                    "type": {
+                      "const": "device.describe",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "in_master",
+                    "params"
+                  ],
+                  "type": "object"
                 }
               ]
+            },
+            "DeviceRole": {
+              "description": "What a device does in the chain.",
+              "enum": [
+                "instrument",
+                "effect"
+              ],
+              "type": "string"
+            },
+            "DeviceSource": {
+              "description": "Where a device comes from. Third-party plugins come after the MVP.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "A device built into Faulk, by type id (`\"faulk.osc_synth\"`) and version.",
+                  "properties": {
+                    "builtin": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "format": "uint32",
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "version"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "builtin"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "A module of the Workshop, by name and the hash of its compiled code.",
+                  "properties": {
+                    "module": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hash": {
+                          "$ref": "#/$defs/Hash"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "hash"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "module"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "DeviceSummary": {
+              "additionalProperties": false,
+              "description": "A device of a chain.",
+              "properties": {
+                "enabled": {
+                  "description": "`false` when the device is bypassed.",
+                  "type": "boolean"
+                },
+                "id": {
+                  "$ref": "#/$defs/DeviceId",
+                  "description": "The device's identifier."
+                },
+                "name": {
+                  "description": "The device's English name; `null` for a module and for the clip player.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "role": {
+                  "$ref": "#/$defs/DeviceRole",
+                  "description": "`instrument` or `effect`."
+                },
+                "source": {
+                  "$ref": "#/$defs/DeviceSource",
+                  "description": "Where the device comes from: a built-in kind (`faulk.osc_synth`) or a module."
+                }
+              },
+              "required": [
+                "id",
+                "role",
+                "enabled",
+                "source"
+              ],
+              "type": "object"
             },
             "ExportBitDepth": {
               "description": "How the samples are written.",
@@ -891097,7 +892472,7 @@
                 },
                 {
                   "const": "float32",
-                  "description": "32-bit floats: nothing is clipped.",
+                  "description": "32-bit floats. The output protection (#402) holds every format, floats included, under\n−0.3 dBFS, so no format clips; the choice is only size and precision, not headroom.",
                   "type": "string"
                 }
               ]
@@ -891122,11 +892497,37 @@
                 }
               ]
             },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
             "GroupId": {
               "description": "Identifier of a history group: the commands of one mouse drag or one agent turn\nshare a group and are undone together.",
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             },
             "HistoryOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -891236,9 +892637,77 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "KeyName": {
+              "additionalProperties": false,
+              "description": "A MIDI key an instrument gives a name to (a drum kit's sounds).",
+              "properties": {
+                "key": {
+                  "description": "The MIDI key, 0 to 127.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "The name of the sound on that key.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "name"
+              ],
+              "type": "object"
+            },
+            "KindRoleInfo": {
+              "description": "What a device kind does in a chain.",
+              "enum": [
+                "instrument",
+                "effect",
+                "midi_effect"
+              ],
+              "type": "string"
+            },
             "LaneId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of an automation lane."
+            },
+            "LaneSummary": {
+              "additionalProperties": false,
+              "description": "An automation lane without its points (`automation.lane.points` pages them).",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/LaneId",
+                  "description": "The lane's identifier."
+                },
+                "point_count": {
+                  "description": "How many points the lane holds.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target": {
+                  "$ref": "#/$defs/AutomationTarget",
+                  "description": "The parameter the lane automates.\nThe parameter the lane automates."
+                },
+                "track": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The track that owns the lane; `null` for a lane of the master."
+                }
+              },
+              "required": [
+                "id",
+                "target",
+                "point_count"
+              ],
+              "type": "object"
             },
             "LaunchOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -891473,6 +892942,33 @@
                 }
               ]
             },
+            "Mixer": {
+              "additionalProperties": false,
+              "description": "Gain, pan and mute of a track or of the master. Solo is not here: it is session state\n(founder's decision 10). Sends come after the MVP.",
+              "properties": {
+                "gain_db": {
+                  "description": "Gain in dB; `-inf` (silence) is written `null`.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "mute": {
+                  "type": "boolean"
+                },
+                "pan": {
+                  "description": "Pan from -1 (left) to 1 (right).",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "pan",
+                "mute"
+              ],
+              "type": "object"
+            },
             "MixerOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
               "oneOf": [
@@ -891596,13 +893092,273 @@
                 }
               ]
             },
+            "MixerParam": {
+              "description": "An automatable mixer parameter.",
+              "enum": [
+                "gain",
+                "pan"
+              ],
+              "type": "string"
+            },
+            "Note": {
+              "additionalProperties": false,
+              "description": "A note: a value without an id (CT-4). Its order compares fields in declaration order:\n(start, pitch, length, velocity, cents, chance, repeat).\n\nThe last three fields are optional in the file: a default value is not written, and an\nabsent one reads as the default, so a note has exactly one representation. `chance` and\n`repeat` are stored and edited here; the clip player reads them with #192.",
+              "properties": {
+                "cents": {
+                  "description": "Fine tuning in cents, -50 to 50 (0 by default).",
+                  "format": "int8",
+                  "maximum": 50,
+                  "minimum": -50,
+                  "type": "integer"
+                },
+                "chance": {
+                  "description": "Probability that the note plays, in percent, 0 to 100 (100 by default).",
+                  "format": "uint8",
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "length": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "Duration in ticks, at least 1."
+                },
+                "pitch": {
+                  "description": "MIDI key, 0 to 127.",
+                  "format": "uint8",
+                  "maximum": 127,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "repeat": {
+                  "description": "How many times the note repeats, 1 to 16 (1 by default).",
+                  "format": "uint8",
+                  "maximum": 16,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "start": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "Position from the start of the clip, in ticks."
+                },
+                "velocity": {
+                  "description": "Velocity, 1 to 127.",
+                  "format": "uint8",
+                  "maximum": 127,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "pitch",
+                "length",
+                "velocity"
+              ],
+              "type": "object"
+            },
             "NoteOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
               "not": {}
             },
+            "PageInfo": {
+              "additionalProperties": false,
+              "description": "Where a page sits in its list.",
+              "properties": {
+                "next_offset": {
+                  "description": "The `offset` to ask for the next page; `null` when this page reaches the end of the\nlist.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "offset": {
+                  "description": "The index of the first item of the page (the `offset` asked for, 0 by default).",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "total": {
+                  "description": "How many items the whole list holds.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "total",
+                "offset"
+              ],
+              "type": "object"
+            },
+            "ParamScale": {
+              "description": "How a control maps its travel to a parameter's value.",
+              "enum": [
+                "linear",
+                "log"
+              ],
+              "type": "string"
+            },
+            "ParamSpec": {
+              "additionalProperties": false,
+              "description": "One parameter a device kind declares.",
+              "properties": {
+                "default": {
+                  "description": "The value a new device starts with.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "description": {
+                  "description": "What the parameter does and what its range means.",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "The key of the parameter: what `device.set_param` and the automation targets name.",
+                  "type": "string"
+                },
+                "max": {
+                  "description": "The highest value.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "min": {
+                  "description": "The lowest value.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "scale": {
+                  "$ref": "#/$defs/ParamScale",
+                  "description": "`linear` or `log` (logarithmic travel, for frequencies and times)."
+                },
+                "step": {
+                  "description": "The smallest change of the value; 0 for a continuous parameter.",
+                  "format": "double",
+                  "type": "number"
+                },
+                "unit": {
+                  "$ref": "#/$defs/ParamUnit",
+                  "description": "The unit of the value."
+                },
+                "values": {
+                  "description": "For an enumerated parameter, the key of each value from `min` to `max`; empty\notherwise.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "key",
+                "description",
+                "unit",
+                "min",
+                "max",
+                "default",
+                "scale",
+                "step",
+                "values"
+              ],
+              "type": "object"
+            },
+            "ParamUnit": {
+              "description": "The unit of a device parameter.",
+              "oneOf": [
+                {
+                  "enum": [
+                    "seconds",
+                    "hertz",
+                    "decibels",
+                    "semitones",
+                    "cents",
+                    "percent"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "none",
+                  "description": "A plain number.",
+                  "type": "string"
+                },
+                {
+                  "const": "gain",
+                  "description": "A linear gain (1 is unity).",
+                  "type": "string"
+                }
+              ]
+            },
+            "Placement": {
+              "additionalProperties": false,
+              "description": "A clip set in the arrangement.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "span": {
+                  "$ref": "#/$defs/Span"
+                },
+                "start": {
+                  "$ref": "#/$defs/Tick"
+                }
+              },
+              "required": [
+                "clip",
+                "start",
+                "span"
+              ],
+              "type": "object"
+            },
             "PlacementId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a placement in a track's arrangement."
+            },
+            "PlacementInfo": {
+              "additionalProperties": false,
+              "description": "A clip set in a track's arrangement.",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/PlacementId",
+                  "description": "The placement's identifier."
+                },
+                "placement": {
+                  "$ref": "#/$defs/Placement",
+                  "description": "The placement: clip, start and span."
+                }
+              },
+              "required": [
+                "id",
+                "placement"
+              ],
+              "type": "object"
+            },
+            "Point": {
+              "additionalProperties": false,
+              "description": "A point of a lane, as the commands take and return it.",
+              "properties": {
+                "shape": {
+                  "$ref": "#/$defs/Shape",
+                  "default": "linear",
+                  "description": "The transition from this point to the next: `linear` (default) or `step`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value."
+                },
+                "tick": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "Position in ticks, 0 to 2^40."
+                },
+                "value": {
+                  "description": "The value, in the parameter's unit; rounded to its step.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "tick",
+                "value"
+              ],
+              "type": "object"
+            },
+            "ProjectId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a project: created once with it, never changed (project model § 1.3)."
             },
             "ProjectOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -891912,6 +893668,127 @@
                     "duration_secs"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "can_redo": {
+                      "description": "Whether `history.redo` has an entry to redo.",
+                      "type": "boolean"
+                    },
+                    "can_undo": {
+                      "description": "Whether `history.undo` has an entry to undo.",
+                      "type": "boolean"
+                    },
+                    "clip_count": {
+                      "description": "How many clips, all tracks together.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "denominator": {
+                      "description": "The time signature's denominator.",
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "format": {
+                      "description": "The on-disk format version.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "$ref": "#/$defs/ProjectId",
+                      "description": "The project's stable identity."
+                    },
+                    "lane_count": {
+                      "description": "How many automation lanes, the master's included.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "master": {
+                      "$ref": "#/$defs/Mixer",
+                      "description": "The master's gain (dB, `null` is silence), pan and mute."
+                    },
+                    "master_devices": {
+                      "description": "The master's effect chain, in order (`device.describe` reads one).",
+                      "items": {
+                        "$ref": "#/$defs/DeviceSummary"
+                      },
+                      "type": "array"
+                    },
+                    "name": {
+                      "description": "The project's name.",
+                      "type": "string"
+                    },
+                    "numerator": {
+                      "description": "The time signature's numerator.",
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "placement_count": {
+                      "description": "How many arrangement placements, all tracks together.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "scene_count": {
+                      "description": "How many scenes.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "selected_track": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TrackId"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The selected track (session state); `null` when none."
+                    },
+                    "tempo_bpm": {
+                      "description": "The tempo in BPM.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "track_count": {
+                      "description": "How many tracks.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": {
+                      "const": "project.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "id",
+                    "name",
+                    "format",
+                    "tempo_bpm",
+                    "numerator",
+                    "denominator",
+                    "master",
+                    "track_count",
+                    "scene_count",
+                    "clip_count",
+                    "placement_count",
+                    "lane_count",
+                    "master_devices",
+                    "can_undo",
+                    "can_redo"
+                  ],
+                  "type": "object"
                 }
               ]
             },
@@ -891967,6 +893844,33 @@
             "SceneId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a scene."
+            },
+            "SceneInfo": {
+              "additionalProperties": false,
+              "description": "A scene of the launch grid with the clips of its slots.",
+              "properties": {
+                "clips": {
+                  "description": "The clips in this scene's slots, one per track at most, in the tracks' display order.",
+                  "items": {
+                    "$ref": "#/$defs/SceneSlot"
+                  },
+                  "type": "array"
+                },
+                "id": {
+                  "$ref": "#/$defs/SceneId",
+                  "description": "The scene's identifier."
+                },
+                "name": {
+                  "description": "The scene's name.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "clips"
+              ],
+              "type": "object"
             },
             "SceneOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -892072,6 +893976,118 @@
                     "type"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the list."
+                    },
+                    "scenes": {
+                      "description": "The scenes of this page, in display order.",
+                      "items": {
+                        "$ref": "#/$defs/SceneInfo"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "scene.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "scenes",
+                    "page"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "SceneSlot": {
+              "additionalProperties": false,
+              "description": "A filled slot of a scene.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId",
+                  "description": "The clip in the slot."
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId",
+                  "description": "The track whose slot it is."
+                }
+              },
+              "required": [
+                "track",
+                "clip"
+              ],
+              "type": "object"
+            },
+            "Shape": {
+              "description": "The shape of the transition from a point to the next one.",
+              "enum": [
+                "linear",
+                "step"
+              ],
+              "type": "string"
+            },
+            "Span": {
+              "description": "The extent of a placement: in ticks for a MIDI clip, in source frames for an audio\nclip.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ticks": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "length": {
+                          "$ref": "#/$defs/Tick"
+                        },
+                        "offset": {
+                          "$ref": "#/$defs/Tick"
+                        }
+                      },
+                      "required": [
+                        "length",
+                        "offset"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ticks"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "frames": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "length": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "length",
+                        "offset"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "frames"
+                  ],
+                  "type": "object"
                 }
               ]
             },
@@ -892138,6 +894154,21 @@
             "TrackId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a track."
+            },
+            "TrackKind": {
+              "description": "What a track's clips hold.",
+              "oneOf": [
+                {
+                  "const": "midi",
+                  "description": "MIDI clips, played by the track's instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "audio",
+                  "description": "Audio clips, played by the clip player ([`CLIP_PLAYER`]).",
+                  "type": "string"
+                }
+              ]
             },
             "TrackOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -892376,8 +894407,151 @@
                     "track"
                   ],
                   "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page sits in the list."
+                    },
+                    "tracks": {
+                      "description": "The tracks of this page, in display order.",
+                      "items": {
+                        "$ref": "#/$defs/TrackSummary"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "track.list",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tracks",
+                    "page"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clips": {
+                      "description": "The clips of this page.",
+                      "items": {
+                        "$ref": "#/$defs/ClipSummary"
+                      },
+                      "type": "array"
+                    },
+                    "devices": {
+                      "description": "Its device chain, in order.",
+                      "items": {
+                        "$ref": "#/$defs/DeviceSummary"
+                      },
+                      "type": "array"
+                    },
+                    "lane_count": {
+                      "description": "How many automation lanes the track has.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "$ref": "#/$defs/PageInfo",
+                      "description": "Where this page of clips sits in the track's clip list."
+                    },
+                    "placement_count": {
+                      "description": "How many arrangement placements the track has.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "track": {
+                      "$ref": "#/$defs/TrackSummary",
+                      "description": "The track's summary."
+                    },
+                    "type": {
+                      "const": "track.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "track",
+                    "devices",
+                    "clips",
+                    "page",
+                    "placement_count",
+                    "lane_count"
+                  ],
+                  "type": "object"
                 }
               ]
+            },
+            "TrackSummary": {
+              "additionalProperties": false,
+              "description": "A track in a list.",
+              "properties": {
+                "armed": {
+                  "description": "Whether the track is armed for recording (session state).",
+                  "type": "boolean"
+                },
+                "clip_count": {
+                  "description": "How many clips it holds.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "color": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "`#rrggbb`, or `null` for the default colour."
+                },
+                "device_count": {
+                  "description": "How many devices its chain holds.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "id": {
+                  "$ref": "#/$defs/TrackId",
+                  "description": "The track's identifier."
+                },
+                "kind": {
+                  "$ref": "#/$defs/TrackKind",
+                  "description": "`midi` (MIDI clips played by the instrument) or `audio`."
+                },
+                "mixer": {
+                  "$ref": "#/$defs/Mixer",
+                  "description": "Gain in dB (`null` is silence), pan from -1 to 1 and mute."
+                },
+                "name": {
+                  "description": "The track's name.",
+                  "type": "string"
+                },
+                "solo": {
+                  "description": "Whether the track is soloed (session state).",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "mixer",
+                "solo",
+                "armed",
+                "device_count",
+                "clip_count"
+              ],
+              "type": "object"
             },
             "TransportOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
@@ -892574,6 +894748,84 @@
                     "previous_enabled",
                     "previous_gain_db",
                     "previous_count_in_bars"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count_in_bars": {
+                      "description": "Bars counted in before recording.",
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "denominator": {
+                      "description": "The time signature's denominator.",
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "launch_quantize": {
+                      "$ref": "#/$defs/Quantize",
+                      "description": "The launch quantization."
+                    },
+                    "loop_enabled": {
+                      "description": "Whether the transport loops over the loop region.",
+                      "type": "boolean"
+                    },
+                    "loop_region": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/TickLoop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The loop region in ticks; `null` when none is set."
+                    },
+                    "metronome_enabled": {
+                      "description": "Whether the metronome is on.",
+                      "type": "boolean"
+                    },
+                    "metronome_gain_db": {
+                      "description": "The metronome's level in dB; `null` is silence.",
+                      "format": "double",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "numerator": {
+                      "description": "The time signature's numerator.",
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "tempo_bpm": {
+                      "description": "The tempo in BPM.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": {
+                      "const": "transport.get",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tempo_bpm",
+                    "numerator",
+                    "denominator",
+                    "launch_quantize",
+                    "loop_enabled",
+                    "metronome_enabled",
+                    "metronome_gain_db",
+                    "count_in_bars"
                   ],
                   "type": "object"
                 }
