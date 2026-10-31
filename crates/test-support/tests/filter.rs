@@ -6,7 +6,7 @@
 //! ear. (The device itself is tested in `crates/engine/tests/filter.rs`.)
 
 use commands::testing::{context, fixture};
-use commands::{Command, Output, automation, device, live, transport};
+use commands::{Command, Output, automation, device, history, live, transport};
 use project::{AutomationTarget, DeviceId, Shape, Tick};
 use test_support::{Session, parity};
 
@@ -146,5 +146,75 @@ fn bypassed_the_filter_changes_nothing_and_its_mix_blends() {
     assert!(
         diff > 0.05,
         "the filtered note differs from the dry one: {diff}"
+    );
+}
+
+#[test]
+fn a_cleared_cutoff_lane_goes_back_to_the_stored_cutoff_and_its_points_play_again_after_undo() {
+    // #394: a lane that is cleared stops driving the cutoff, which goes back to the project's
+    // value (200 Hz, dark); undo brings the points back and the lane takes the cutoff again
+    // (the restoring message holds nothing, the lane having left the engine).
+    let f = fixture();
+    let mut s = Session::from_state(f.state.clone(), context());
+    let fx = insert(&mut s, &f.track);
+    set(&mut s, &fx, "mode", 0.0);
+    set(&mut s, &fx, "resonance", 0.7);
+    set(&mut s, &fx, "cutoff", 200.0);
+    let Output::Automation(automation::Output::LaneCreate { lane }) =
+        s.exec(Command::Automation(automation::Command::LaneCreate {
+            track: Some(f.track.clone()),
+            master: false,
+            target: AutomationTarget::Device {
+                device: fx.clone(),
+                param: "cutoff".into(),
+            },
+        }))
+    else {
+        panic!("a lane")
+    };
+    // The lane opens the filter at once: 8 kHz from the first tick.
+    s.run(Command::Automation(automation::Command::PointsAdd {
+        lane: lane.clone(),
+        points: vec![automation::Point {
+            tick: Tick(0),
+            value: 8000.0,
+            shape: Shape::Step,
+        }],
+    }));
+    s.run(Command::Transport(transport::Command::Play {}));
+    s.run(Command::Live(live::Command::NoteOn {
+        track: f.track.clone(),
+        note: 45,
+        velocity: 110,
+    }));
+    s.render_secs(1.0);
+    s.run(Command::Automation(automation::Command::LaneClear {
+        lane: lane.clone(),
+    }));
+    s.render_secs(1.0);
+    s.run(Command::History(history::Command::Undo {}));
+    s.render_secs(1.0);
+
+    let r = parity(s.scenario());
+    r.assert_clean();
+    r.assert_audible(0.5..3.0, 0.01);
+    let sr = r.sample_rate;
+    let window = |from: f32| {
+        let a = (from * sr) as usize;
+        &r.left[a..a + (0.25 * sr) as usize]
+    };
+    let (open, closed, reopened) = (
+        brightness(window(0.5)),
+        brightness(window(1.75)),
+        brightness(window(2.75)),
+    );
+    println!("brightness: {open:.3} (lane), {closed:.3} (cleared), {reopened:.3} (undone)");
+    assert!(
+        open > 3.0 * closed,
+        "the cleared lane lets go: {open} -> {closed}"
+    );
+    assert!(
+        reopened > 3.0 * closed,
+        "the undone lane plays again: {closed} -> {reopened}"
     );
 }

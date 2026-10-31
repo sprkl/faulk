@@ -665,42 +665,6 @@ fn a_removed_pan_lane_gives_the_strip_back_to_its_fader() {
 }
 
 #[test]
-fn a_lane_emptied_by_an_upload_gives_the_strip_back_to_its_fader() {
-    // `automation.lane.clear` uploads the lane again with no point: the strip goes back to its
-    // fader, as when the lane is removed (#394). The pan lane, uploaded the same way, too.
-    let block = 128;
-    let mut r = Rig::new(block, 1);
-    r.lane(
-        0,
-        0,
-        AutomationTarget::MixerGain,
-        &[pt(0, -20.0, Curve::Step)],
-    );
-    r.lane(
-        1,
-        0,
-        AutomationTarget::MixerPan,
-        &[pt(0, -0.5, Curve::Step)],
-    );
-    let start = r.play(0);
-    r.run(40 * block);
-    let emptied = r.at;
-    r.lane(0, 0, AutomationTarget::MixerGain, &[]);
-    r.run(40 * block);
-    let emptied_pan = r.at;
-    r.lane(1, 0, AutomationTarget::MixerPan, &[]);
-    r.run(40 * block);
-    r.check();
-    let reference = reference(block, r.at);
-    assert_levels(&r.left, &reference, start..emptied, |_| gain_of(-20.0));
-    assert_levels(&r.left, &reference, emptied + 240..r.at, |_| 1.0);
-    let panned = (0.5f32 * core::f32::consts::FRAC_PI_2).cos();
-    let right = |k: usize| r.right[k] / reference[k];
-    assert!((right(emptied_pan - 1) - panned).abs() < 1e-4);
-    assert!((right(r.at - 1) - 1.0).abs() < 1e-4);
-}
-
-#[test]
 fn a_gesture_after_the_last_point_holds_until_a_jump_and_a_new_upload_keeps_it() {
     let block = 128;
     let mut r = Rig::new(block, 1);

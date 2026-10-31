@@ -8,6 +8,7 @@ import { insertMasterEffect, setDeviceParam } from '../device-commands'
 import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
+import { applyEffects, type EffectPorts } from './effects'
 import { setMasterVolume, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
@@ -217,7 +218,14 @@ describe('a change of the parameter while the lane plays', () => {
     // The report of the stopped transport does not change: the playhead stays at 0, only the cue tells.
     s.stop(0)
     expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
-    s.project.cued?.()
+    // What the page does for the commands that cue the playhead (the effects table, as the dispatcher runs it).
+    const ports = { cued: () => s.project.cued?.() } as EffectPorts
+    applyEffects({ type: 'transport.set_loop', loop_region: null } as Command, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    applyEffects({ type: 'transport.stop' }, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    applyEffects({ type: 'transport.seek', tick: 0 }, ports)
     expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
   })
 })

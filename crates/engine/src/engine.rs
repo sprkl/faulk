@@ -2165,10 +2165,8 @@ impl Engine {
             RtMsg::LanePut(mut put) => {
                 // A new upload of the same lane goes on where the old one was (its
                 // gesture); a strip that loses a lane goes back to its fader.
-                let (track, target) = (put.value.track, put.value.target);
-                let empty = put.value.points.is_empty();
                 let lost = match state.lanes.get(put.slot) {
-                    Some(old) if old.track == track && old.target == target => {
+                    Some(old) if old.track == put.value.track && old.target == put.value.target => {
                         put.value.run.inherit(&old.run);
                         None
                     }
@@ -2177,21 +2175,8 @@ impl Engine {
                 };
                 let (spare, out) = state.lanes.put(put);
                 skipped = out;
-                if !out {
-                    if let Some((lost_track, lost_target)) = lost {
-                        forget_lane(state, &mut self.graph, lost_track, lost_target);
-                    }
-                    // An empty upload of a mixer lane (lane.clear): give the strip's field
-                    // back to the fader, as a remove does (#394 point 1). Device lanes are
-                    // handled by a ParamSet from the project compiler.
-                    if empty {
-                        match target {
-                            AutomationTarget::MixerGain | AutomationTarget::MixerPan => {
-                                forget_lane(state, &mut self.graph, track, target);
-                            }
-                            AutomationTarget::DeviceParam { .. } => {}
-                        }
-                    }
+                if !out && let Some((track, target)) = lost {
+                    forget_lane(state, &mut self.graph, track, target);
                 }
                 Some(Garbage::Lanes(spare))
             }

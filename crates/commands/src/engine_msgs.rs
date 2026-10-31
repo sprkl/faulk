@@ -474,41 +474,24 @@ fn compile_event(
                     None => return,
                 },
             };
-            lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
-            // A lane emptied of all its points (lane.clear) stops driving its parameter:
-            // restore the stored project value so the engine does not keep the last value
-            // the lane sent (#394 point 1). MixerGain and MixerPan are handled by the
-            // engine's LanePut when it detects an empty upload over an existing lane.
-            if l.points.is_empty()
-                && let Some((track_slot, EngineTarget::DeviceParam { device, param })) =
-                    sync.lane_targets.get(lane).copied()
-            {
-                restore_device_param(track_slot, device, param, project, sync, out);
+            if l.points.is_empty() {
+                // A lane with no point does nothing (AM-1): it leaves the engine, as a deleted
+                // one does, and its parameter goes back to the stored value (#394). Never
+                // uploaded empty: an upload would inherit the hold of the restoring `ParamSet`
+                // and stay silent when its points come back.
+                if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                    restore_param(target, project, sync, out);
+                }
+            } else {
+                lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
             }
         }
         ProjectEvent::AutomationLaneDeleted { track, lane } => {
-            // Remove the cached target before releasing the slot so we can use it below.
-            let cached = sync.lane_targets.remove(lane);
-            match track {
-                None => {
-                    sync.master_lanes.remove(lane);
-                }
-                Some(track) => {
-                    if let Some(entry) = sync.track.get_mut(track) {
-                        entry.lanes.remove(lane);
-                    }
-                }
-            }
-            if let Some(slot) = sync.lanes.release(lane) {
-                out.push(ControlMsg::AutomationLaneRemove {
-                    lane: LaneSlot(slot),
-                });
-            }
-            // For a device parameter lane, restore the stored value so the engine does not
-            // keep the last value the lane sent after the lane is gone (#394 point 1).
-            // The MixerGain and MixerPan cases are handled by the engine's `forget_lane`.
-            if let Some((track_slot, EngineTarget::DeviceParam { device, param })) = cached {
-                restore_device_param(track_slot, device, param, project, sync, out);
+            // For a device parameter lane, the stored value comes back so that the engine does
+            // not keep the last value the lane sent (#394); a mixer lane gives its field back
+            // to the fader in the engine (`forget_lane`).
+            if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                restore_param(target, project, sync, out);
             }
         }
         ProjectEvent::SoloChanged { track, solo } => {
@@ -963,6 +946,55 @@ fn param_id(device: &Device, key: &str) -> Option<ParamId> {
         .map(|p| p.id)
 }
 
+/// Takes a lane out of the engine tables and tells the engine to drop it, when it is there.
+/// Returns the engine target it drove (`None` when the engine did not hold it).
+fn drop_lane(
+    owner: Option<&TrackId>,
+    lane: &LaneId,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) -> Option<(TrackSlot, EngineTarget)> {
+    let target = sync.lane_targets.remove(lane);
+    match owner {
+        None => {
+            sync.master_lanes.remove(lane);
+        }
+        Some(track) => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.remove(lane);
+            }
+        }
+    }
+    if let Some(slot) = sync.lanes.release(lane) {
+        out.push(ControlMsg::AutomationLaneRemove {
+            lane: LaneSlot(slot),
+        });
+    }
+    target
+}
+
+/// A lane that drove `target` is gone: sends the project's stored value of a device parameter
+/// (a mixer field goes back to the fader in the engine). Nothing when another lane still
+/// drives the same parameter (a merged project): the `ParamSet` would hold it.
+fn restore_param(
+    (track_slot, target): (TrackSlot, EngineTarget),
+    project: &Project,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let EngineTarget::DeviceParam { device, param } = target else {
+        return;
+    };
+    if sync
+        .lane_targets
+        .values()
+        .any(|t| *t == (track_slot, target))
+    {
+        return;
+    }
+    restore_device_param(track_slot, device, param, project, sync, out);
+}
+
 /// Sends the project's stored value for a device parameter to the engine, so that when an
 /// automation lane that was driving it is removed or emptied the engine reverts to the
 /// project's value (#394 point 1). Does nothing if the device no longer exists in the
@@ -1165,6 +1197,10 @@ fn lane_msgs(
     sync: &mut EngineSlots,
     out: &mut Vec<ControlMsg>,
 ) {
+    // A lane with no point does nothing (AM-1): the engine does not hold it.
+    if lane.points.is_empty() {
+        return;
+    }
     let target = match &lane.target {
         AutomationTarget::Mixer {
             param: MixerParam::Gain,

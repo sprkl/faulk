@@ -1216,6 +1216,125 @@ fn removing_a_device_or_a_track_sends_no_stored_value_for_the_lanes_it_takes() {
     );
 }
 
+/// The `AutomationLaneRemove` and `AutomationLaneUpload` messages of a command.
+fn lane_traffic(outcome: &commands::Outcome) -> (usize, usize) {
+    let count = |f: fn(&ControlMsg) -> bool| outcome.control.iter().filter(|m| f(m)).count();
+    (
+        count(|m| matches!(m, ControlMsg::AutomationLaneRemove { .. })),
+        count(|m| matches!(m, ControlMsg::AutomationLaneUpload { .. })),
+    )
+}
+
+#[test]
+fn a_lane_with_no_point_leaves_the_engine_and_comes_back_whole_with_its_points() {
+    // A lane with no point does nothing (AM-1): clearing it takes it out of the engine, like a
+    // delete, so the `ParamSet` that restores the stored value holds nothing and the points
+    // that come back (undo) play at once (#394).
+    let f = fx();
+    let mut w = World::new(f.state.clone());
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.effect_lane.clone(),
+    }));
+    assert_eq!(lane_traffic(&out), (1, 0), "{:?}", out.control);
+    assert_eq!(w.lanes.0.len(), 1, "only the gain lane is left");
+    let out = w.exec(&undo());
+    assert_eq!(lane_traffic(&out), (0, 1), "{:?}", out.control);
+    assert_eq!(w.lanes.0.len(), 2);
+    // A lane created with no point is not uploaded, nor is anything restored for it.
+    let out = w.exec(&create_cmd(&f.track, pan_target()));
+    assert_eq!(lane_traffic(&out), (0, 0), "{:?}", out.control);
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    // A mixer lane that is cleared is dropped as well: the engine gives the strip back to
+    // its fader when it forgets the lane.
+    let out = w.exec(&a(automation::Command::LaneClear {
+        lane: f.gain_lane.clone(),
+    }));
+    assert_eq!(lane_traffic(&out), (1, 0), "{:?}", out.control);
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+}
+
+#[test]
+fn deleting_a_device_lane_after_a_shift_restores_the_device_that_moved() {
+    let f = fx();
+    let c = &f.chain;
+    let mut w = World::new(f.state.clone());
+    w.exec(&d(device::Command::Insert {
+        track: Some(f.track.clone()),
+        master: false,
+        kind: device_examples::EFFECT.into(),
+        index: 0,
+    }));
+    let out = w.exec(&a(automation::Command::LaneDelete {
+        lane: f.effect_lane.clone(),
+    }));
+    let sets = param_sets(&out);
+    let slot_of_a = w.s.ctx.engine.track[&f.track].devices.get(&c.a).unwrap() as u16;
+    assert_eq!(sets.len(), 1, "{:?}", out.control);
+    assert_eq!(sets[0].0, slot_of_a);
+}
+
+#[test]
+fn a_master_device_lane_is_restored_on_the_master() {
+    let f = fx();
+    let c = &f.chain;
+    let mut state = f.state.clone();
+    let mut ctx = more_context();
+    commands::run(
+        &master_create(device_target(&c.mb, "gain")),
+        &mut state,
+        &mut ctx,
+    )
+    .unwrap();
+    let lane = state
+        .project
+        .master_automation
+        .keys()
+        .next()
+        .cloned()
+        .unwrap();
+    commands::run(&add_cmd(&lane, vec![linear(7, 0.5)]), &mut state, &mut ctx).unwrap();
+    let mut w = World::new(state);
+    let out = w.exec(&a(automation::Command::LaneClear { lane }));
+    let master_sets: Vec<_> = out
+        .control
+        .iter()
+        .filter_map(|m| match m {
+            ControlMsg::ParamSet { track, value, .. } => Some((track.is_master(), *value)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(master_sets.len(), 1, "{:?}", out.control);
+    assert!(master_sets[0].0, "{:?}", out.control);
+}
+
+#[test]
+fn clearing_one_of_two_lanes_on_a_parameter_restores_nothing_while_the_other_plays() {
+    // A merged project may hold two lanes on one parameter: both play. The stored value sent
+    // back for one would hold the other, so it is not sent.
+    let f = fx();
+    let mut state = f.state.clone();
+    let twin = ::project::LaneId::generate(&mut ::project::IdGenerator::new(
+        1_680_000_000_000,
+        0x00BB_0000_0000_0000_0000,
+    ));
+    let copy = state.project.tracks[&f.track].automation[&f.effect_lane].clone();
+    state
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .automation
+        .insert(twin.clone(), copy);
+    let mut w = World::new(state);
+    let out = w.exec(&a(automation::Command::LaneDelete {
+        lane: f.effect_lane.clone(),
+    }));
+    assert!(param_sets(&out).is_empty(), "{:?}", out.control);
+    // The last one standing, once deleted, restores the stored value.
+    let out = w.exec(&a(automation::Command::LaneDelete { lane: twin }));
+    assert_eq!(param_sets(&out).len(), 1, "{:?}", out.control);
+}
+
 #[test]
 fn a_lane_the_engine_cannot_place_is_not_uploaded_and_a_track_it_does_not_know_gets_nothing() {
     let f = fx();
@@ -1508,10 +1627,15 @@ fn the_engine_holds_the_master_lanes_through_every_lane_command_and_its_undo() {
     let f = fx();
     let c = &f.chain;
     let mut state = f.state.clone();
-    // Two master lanes in the project that the snapshot uploads.
+    // Two master lanes in the project that the snapshot uploads (a lane with no point is not
+    // uploaded: it does nothing).
     let mut ctx = more_context();
     for target in [gain_target(), device_target(&c.mb, "mute")] {
         commands::run(&master_create(target), &mut state, &mut ctx).unwrap();
+    }
+    let created: Vec<LaneId> = state.project.master_automation.keys().cloned().collect();
+    for lane in &created {
+        commands::run(&add_cmd(lane, vec![linear(7, 0.0)]), &mut state, &mut ctx).unwrap();
     }
     let mut w = World::new(state.clone());
     assert_eq!(
