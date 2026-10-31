@@ -94,7 +94,7 @@ describe('a device card', () => {
     expect(body).toContain('data-testid="param-depth"')
     expect(body).toContain('data-testid="param-shape"')
     expect(body).toContain('>depth<')
-    expect(body).toContain('title="What depth does."')
+    expect(body).toContain('title="What depth does. A bare number is read in %."')
     expect(body).toContain('data-bypassed="true"')
   })
 

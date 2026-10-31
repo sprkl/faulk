@@ -35,6 +35,8 @@
   // svelte-ignore state_referenced_locally
   let text = $state(initial)
   let invalid = $state(false)
+  let message = $state(false)
+  let messageTimer: ReturnType<typeof setTimeout> | undefined
   let input: HTMLInputElement | undefined = $state()
   let done = false
 
@@ -57,6 +59,10 @@
     if (text === initial) return true
     if (commit(text)) return true
     invalid = true
+    // The message goes after about two seconds (or at the next keystroke); the field stays marked invalid.
+    clearTimeout(messageTimer)
+    messageTimer = setTimeout(() => (message = false), 2000)
+    message = true
     return false
   }
 
@@ -94,6 +100,7 @@
     window.addEventListener('pointerdown', away, true)
     window.addEventListener('keydown', awayKey, true)
     return () => {
+      clearTimeout(messageTimer)
       window.removeEventListener('pointerdown', away, true)
       window.removeEventListener('keydown', awayKey, true)
     }
@@ -111,11 +118,14 @@
     aria-label={ui.t('controls.field', { name: label })}
     aria-invalid={invalid}
     data-testid="value-input"
-    oninput={() => (invalid = false)}
+    oninput={() => {
+      invalid = false
+      message = false
+    }}
     onkeydown={onKeyDown}
     onblur={onBlur}
   />
-  {#if invalid}
+  {#if invalid && message}
     <p class="error" role="alert" data-testid="value-error">{ui.t('controls.invalid')}</p>
   {/if}
 </div>

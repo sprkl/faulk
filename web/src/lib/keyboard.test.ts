@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   BARE_SHORTCUT_CODES,
   clampOctave,
@@ -14,6 +14,12 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
+
+// Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
+const trackers: Array<() => void> = []
+afterEach(() => {
+  for (const stop of trackers.splice(0)) stop()
+})
 
 describe('computer keyboard', () => {
   it('maps physical keys to notes', () => {
@@ -86,6 +92,7 @@ describe('space bar and the transport', () => {
 
   it('follows where the focus came from: a pressed control is pointer-focused, a Tab or script focus is keyboard-focused', () => {
     const stop = trackFocusOrigin()
+    trackers.push(stop)
     const press = (target: Element) => {
       target.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
       ;(target as HTMLElement).focus()
@@ -118,6 +125,187 @@ describe('space bar and the transport', () => {
     stop()
     b.focus()
     expect(spaceTogglesTransport(b)).toBe(false)
+  })
+
+  it('a UI-shortcut key on an already-focused slider reasserts keyboard origin (#415)', () => {
+    // Regression: Slider.closeMenu() calls root.focus() while lastInput === 'pointer'. The
+    // real path of reassertion is the pointerdown handler 'down' on the already-focused control
+    // (e.g. the right-click that opens the menu): it sets pointerFocused = active. A subsequent
+    // focus() call on the already-focused element is a no-op (no focusin fires), so pointerFocused
+    // stays stale. A non-musical UI-shortcut key on the focused slider must clear pointerFocused.
+    // Scoped to sliders (role="slider"): other controls (buttons etc.) are left alone so that e.g.
+    // pressing Escape on a menu that returns focus to its trigger does not change the focus model.
+    const stop = trackFocusOrigin()
+    trackers.push(stop)
+    const k = el('k') as HTMLElement // k has role="slider"
+
+    // Press (pointer) and focus the slider: it becomes pointer-focused.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
+    expect(spaceTogglesTransport(k)).toBe(true) // pointer-focused: space toggles
+
+    // Space and modifiers must NOT reassert keyboard origin.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    // A chord (Alt+ArrowLeft, Ctrl+Delete, Cmd+Backspace) is not a bare shortcut: the origin stays pointer.
+    for (const mod of ['altKey', 'ctrlKey', 'metaKey'] as const) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', [mod]: true, bubbles: true }))
+      expect(spaceTogglesTransport(k)).toBe(true)
+    }
+    expect(spaceTogglesTransport(k)).toBe(true)
+
+    // Playing keys (bare letters, octave steps Z/X) do NOT reassert keyboard origin:
+    // a mouse-used knob must keep playing notes when the musician presses a key.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // octave step, still pointer-focused
+
+    // Unmapped letters (KeyC, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
+    // they must not reassert keyboard origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
+
+    // Every BARE_SHORTCUT_CODES entry that is a real event.code reasserts keyboard origin on a
+    // focused slider. Enumerated from the exported list so "every" is proven. Space is excluded by
+    // the outer guard; '+', '=', '-', '_' are key values, never codes (tested dead in the next test).
+    const KEY_ONLY = new Set(['+', '=', '-', '_'])
+    const shortcutCodes = BARE_SHORTCUT_CODES.filter((c) => c !== 'Space' && !KEY_ONLY.has(c))
+    expect(shortcutCodes).toEqual([
+      'F2',
+      'Escape',
+      'Enter',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'Home',
+      'Delete',
+      'Backspace',
+      'PageUp',
+      'PageDown',
+      'End',
+      'Tab',
+    ])
+    for (const code of shortcutCodes) {
+      k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      k.focus()
+      expect(spaceTogglesTransport(k), `${code} before`).toBe(true) // pointer-focused
+      k.dispatchEvent(new KeyboardEvent('keydown', { key: code, code, bubbles: true }))
+      expect(spaceTogglesTransport(k), `${code} after`).toBe(false) // keyboard origin now
+    }
+
+    // Restore pointer origin for subsequent assertions.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(false) // keyboard origin now
+
+    // k.focus() while already focused is a no-op: keyboard origin is preserved.
+    k.focus()
+    expect(spaceTogglesTransport(k)).toBe(false)
+    // Space does not toggle (keyboard-focused).
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(false)
+
+    // A pointer press restores pointer origin.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(spaceTogglesTransport(k)).toBe(true)
+
+    // Non-slider controls (buttons, links) are NOT affected: pressing a shortcut key on a button
+    // does not change its focus model (e.g. Escape on a menu trigger should not make it keyboard-focused).
+    const b = el('b') as HTMLElement
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    b.focus()
+    expect(spaceTogglesTransport(b)).toBe(true) // pointer-focused
+    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(spaceTogglesTransport(b)).toBe(true) // still pointer-focused (button, not slider)
+    stop()
+  })
+
+  it('after a non-musical key on a mouse-focused slider, letters no longer play notes (#415 option A)', () => {
+    // Option A (lead decision): focus origin follows the last input modality. A non-musical key
+    // (Delete, arrows…) on a slider that the mouse focused switches it to keyboard origin: letters
+    // no longer play a note on that slider until the next click restores pointer origin.
+    // This is the visible consequence of the fix: not just Space, but playsNote changes too.
+    const stop = trackFocusOrigin()
+    trackers.push(stop)
+    const k = el('k') as HTMLElement // role="slider"
+    const base = { repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false }
+
+    // Pointer-focused: letter on the slider plays (mouse-used knob does not capture keys).
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    k.focus()
+    expect(playsNote({ ...base, target: k })).toBe(true) // pointer origin: plays
+
+    // Non-musical key → keyboard origin → letters no longer play on that slider.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(false) // keyboard origin: slider keeps letters
+
+    // Arrow key confirms: still keyboard origin.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', code: 'ArrowUp', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(false)
+
+    // A click (pointer press) restores pointer origin: letters play again.
+    k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // pointer origin restored
+
+    // Playing keys (KeyA, KeyZ octave step) never change the origin: a mouse-used knob stays pointer-focused.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true)
+
+    // Unmapped letters (KeyC) and digits (Digit1) do not change the origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyC is not a shortcut
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: Digit1 is not a shortcut
+
+    // Every BARE_SHORTCUT_CODES entry that is a real event.code (the handler compares against
+    // event.code) switches a mouse-focused slider to keyboard origin, after which letters stop
+    // playing on it. Enumerated from the exported list so "every" is proven, not stated.
+    // Space is excluded by the outer guard; '+', '=', '-', '_' are key values (the TimeGrid zoom
+    // keys), never event.code values, so they can never match here — asserted dead just below.
+    const KEY_ONLY = new Set(['+', '=', '-', '_'])
+    const codes = BARE_SHORTCUT_CODES.filter((c) => c !== 'Space' && !KEY_ONLY.has(c))
+    expect(codes).toEqual([
+      'F2',
+      'Escape',
+      'Enter',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'Home',
+      'Delete',
+      'Backspace',
+      'PageUp',
+      'PageDown',
+      'End',
+      'Tab',
+    ])
+    for (const code of codes) {
+      k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      k.focus()
+      expect(playsNote({ ...base, target: k }), `${code} before`).toBe(true) // pointer origin
+      k.dispatchEvent(new KeyboardEvent('keydown', { key: code, code, bubbles: true }))
+      expect(playsNote({ ...base, target: k }), `${code} after`).toBe(false) // keyboard origin: slider keeps letters
+    }
+
+    // The four key-value entries never match event.code, so they do not reassert the origin.
+    for (const value of KEY_ONLY) {
+      k.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      k.focus()
+      // A zoom key's real event.code is Equal/Minus/NumpadAdd/NumpadSubtract, not '+'/'='/'-'/'_'.
+      k.dispatchEvent(new KeyboardEvent('keydown', { key: value, code: value === '+' || value === '=' ? 'Equal' : 'Minus', bubbles: true }))
+      expect(playsNote({ ...base, target: k }), `${value} stays pointer`).toBe(true) // not reasserted
+    }
+
+    stop()
   })
 })
 

@@ -13,7 +13,7 @@ const source = (spec) => readFileSync(`${E2E}${spec}.spec.ts`, 'utf8')
 // run, and nowhere else. They cover the engine, the dispatcher, the stores and the shell, which the
 // table sends to the whole suite anyway. A new spec must either be named by an area rule or be added
 // here on purpose: this list is the enumeration that proves "every spec is placed".
-const WHOLE_SUITE_ONLY = ['engine-channel', 'engine-mo2', 'engine-mo5', 'page-dispatcher', 'refused-commands', 'stop-to-marker', 'value-entry']
+const WHOLE_SUITE_ONLY = ['engine-channel', 'engine-mo2', 'engine-mo5', 'refused-commands', 'stop-to-marker', 'value-entry']
 
 test('every spec on disk is named by an area rule or deliberately whole-suite only', () => {
   const named = new Set()
