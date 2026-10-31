@@ -419,4 +419,49 @@ test.describe('with the dispatcher hook (dev server)', () => {
     expect(ms).toBeLessThan(90_000)
     expect(seen.errors).toEqual([])
   })
+
+  test('a mix pushed into the output limiter is warned, and the file still does not clip (#402)', async ({ page }) => {
+    test.setTimeout(120_000)
+    const seen = watch(page)
+    await simulateSavePicker(page)
+    await makeSong(page)
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
+    // Push the mix hard into the output limiter. The faders cap at +6 dB, so stack three more
+    // copies of the chord on top of the master and the track both at +6 dB: the sum slams the
+    // ceiling well past a dB of gain reduction.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __faulkRun: (c: unknown) => void
+        __faulkView: () => { project: { tracks: Record<string, { clips: Record<string, unknown> }> } }
+      }
+      const track = Object.keys(w.__faulkView().project.tracks)[0]
+      w.__faulkRun({ type: 'mixer.set_master_volume', gain_db: 6 })
+      w.__faulkRun({ type: 'mixer.set_volume', track, gain_db: 6 })
+      const clip = Object.keys(w.__faulkView().project.tracks[track].clips)[0]
+      const notes = []
+      for (let copy = 0; copy < 3; copy++)
+        for (const [start, pitch] of [
+          [20, 57],
+          [980, 60],
+          [1940, 64],
+          [2900, 69],
+        ])
+          notes.push({ start, pitch, length: 720, velocity: 127, cents: 0, chance: 100, repeat: 1 })
+      w.__faulkRun({ type: 'clip.notes.add', clip, notes })
+    })
+    await openDialog(page)
+    await page.getByTestId('export-start').click()
+    await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+    // The warning shows and names a real gain reduction; the file stays under full scale.
+    await expect(page.getByTestId('export-limited')).toBeVisible()
+    await expect(page.getByTestId('export-limited')).toContainText('limiter')
+    const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
+    const wav = (await readWav(page, name))!
+    expect(wav.peak).toBeGreaterThan(0.9)
+    expect(wav.peak).toBeLessThanOrEqual(1)
+    expect(seen.errors).toEqual([])
+  })
 })
