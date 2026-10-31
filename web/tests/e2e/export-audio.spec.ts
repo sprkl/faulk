@@ -460,8 +460,12 @@ test.describe('with the dispatcher hook (dev server)', () => {
     await expect(page.getByTestId('export-limited')).toContainText('limiter')
     const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
     const wav = (await readWav(page, name))!
+    // The shipped module's limiter holds the file at the -0.3 dBFS ceiling (0.9661 linear), not
+    // merely under full scale: a 24-bit sample is <= 1 by format, so that alone would prove
+    // nothing. Allow one quantisation step above the ceiling.
+    const CEILING = 0.966_050_8
     expect(wav.peak).toBeGreaterThan(0.9)
-    expect(wav.peak).toBeLessThanOrEqual(1)
+    expect(wav.peak).toBeLessThanOrEqual(CEILING + 1 / 8_388_608)
     expect(seen.errors).toEqual([])
   })
 })

@@ -48,6 +48,31 @@ fn a_song_with_an_echo_exports_alike_natively_and_in_wasm() {
 }
 
 #[test]
+fn a_mix_pushed_into_the_limiter_reports_the_same_reduction_natively_and_in_wasm() {
+    // demo_song clamps the master to +6 dB, so push it past the command layer here to slam the
+    // limiter: the reported gain reduction (fk_export_stat(…, 7)) must be real and identical in
+    // both targets, not 0 == 0 as in the quiet cases.
+    let mut state = demo_song(1, None);
+    state.project.master.gain_db = 24.0;
+    let settings = ExportSettings {
+        region: ExportRegion::Song,
+        bit_depth: ExportBitDepth::Float32,
+        sample_rate: 48_000,
+        ..ExportSettings::default()
+    };
+    let (native, wasm) = (
+        export_native(&state, settings),
+        export_wasm(&state, settings),
+    );
+    same(&native, &wasm);
+    assert!(
+        native.reduction > 0.1,
+        "the mix did not engage the limiter: reduction {}",
+        native.reduction
+    );
+}
+
+#[test]
 fn a_loop_region_in_integers_exports_alike_natively_and_in_wasm() {
     let mut state = demo_song(2, None);
     state.project.transport.loop_region = LoopRegion::new(Tick(0), Tick(3840));
