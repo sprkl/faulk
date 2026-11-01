@@ -1,9 +1,13 @@
 {
   "name": "faulk-helper-release",
   "private": true,
+  "license": "MIT",
   "description": "Publishes the helper's Velopack output to the Vercel Blob store behind get.faulk.app.",
   "type": "module",
   "engines": { "node": ">=22" },
+  "overrides": {
+    "zod": "4.6.7"
+  },
   "dependencies": {
     "@vercel/blob": "2.8.1"
   }

@@ -714,6 +714,19 @@ scene: string
 start: Tick
 type: "arrangement.place_scene"
 } | {
+at: Tick
+length: Tick
+type: "arrangement.insert_time"
+} | {
+from: Tick
+to: Tick
+type: "arrangement.delete_time"
+} | {
+edits: TrackEdit[]
+lanes?: LanePoints[]
+transport?: (LoopState | null)
+type: "arrangement.restore_time"
+} | {
 edits: TrackEdit[]
 type: "arrangement.restore"
 })
@@ -1658,6 +1671,56 @@ overwritten: number
  */
 placements: string[]
 type: "arrangement.place_scene"
+} | {
+/**
+ * Whether the loop region changed.
+ */
+loop_changed: boolean
+/**
+ * How many automation points moved.
+ */
+points_shifted: number
+/**
+ * How many placements moved (the right parts of the splits included).
+ */
+shifted: number
+/**
+ * How many placements were split at `at`.
+ */
+split: number
+type: "arrangement.insert_time"
+} | {
+/**
+ * How many clips of the arrangement lost their last placement and were deleted.
+ */
+clips_removed: number
+/**
+ * How many placements were shortened, trimmed at the front or split.
+ */
+cut: number
+/**
+ * Whether the loop region changed.
+ */
+loop_changed: boolean
+/**
+ * How many automation points were removed.
+ */
+points_removed: number
+/**
+ * How many automation points moved earlier.
+ */
+points_shifted: number
+/**
+ * How many placements were removed.
+ */
+removed: number
+/**
+ * How many placements moved earlier.
+ */
+shifted: number
+type: "arrangement.delete_time"
+} | {
+type: "arrangement.restore_time"
 } | {
 type: "arrangement.restore"
 })
@@ -2840,6 +2903,19 @@ offset: number
 start: number
 }
 /**
+ * The points of one automation lane, written whole by `arrangement.restore_time`.
+ */
+export interface LanePoints {
+/**
+ * A lane of a track or of the master.
+ */
+lane: string
+/**
+ * All the points the lane holds afterwards, at most one per tick.
+ */
+points: Point[]
+}
+/**
  * A point of a lane, as the commands take and return it.
  */
 export interface Point {
@@ -2858,6 +2934,19 @@ tick: number
  * The value, in the parameter's unit; rounded to its step.
  */
 value: number
+}
+/**
+ * The loop settings as `arrangement.restore_time` writes them.
+ */
+export interface LoopState {
+/**
+ * Whether the transport loops; only with a region.
+ */
+loop_enabled: boolean
+/**
+ * The loop region, `null` for none.
+ */
+loop_region?: (TickLoop | null)
 }
 /**
  * A project kept in the browser's own storage.

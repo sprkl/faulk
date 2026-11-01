@@ -1,0 +1,2 @@
+2026-11-01
+* **Update** (#452): the macOS leg of the helper build (`release-helper.yml`, job `unix`) runs only for a production release (a `helper-v*` tag or a dispatch with a version); a trial build (pull request, dispatch without a version) builds Windows and Linux only, to save macOS minutes. `architecture/04-distribution-helper.md` and `agents/verification.md` say so; `scripts/ci/release-helper-workflow.test.mjs` checks the rule.
