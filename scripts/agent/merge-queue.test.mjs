@@ -76,8 +76,10 @@ function world() {
   git(work, 'checkout', '-q', '-b', 'pr')
   const log = join(dir, 'log.txt')
   writeFileSync(log, '')
+  // The caller's FAULK_* settings (FAULK_SHARED_TARGET=0, ...) must not leak into the scripts under test (#463): tests that need one set it on w.env.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('FAULK_')))
   const env = {
-    ...process.env,
+    ...inherited,
     PATH: stubs + delimiter + process.env.PATH,
     MQ_LOG: log,
     MQ_STATE: 'MERGEABLE BEHIND',
