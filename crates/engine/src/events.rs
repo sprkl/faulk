@@ -201,6 +201,10 @@ pub trait Events {
     fn key(&self, index: usize) -> u8;
     /// The voice id of note 0 (at least 1).
     fn first_voice(&self) -> u32;
+    /// The note that entry `entry` (whose event names `voice`) belongs to.
+    fn note_index(&self, _entry: usize, voice: VoiceId) -> usize {
+        voice.get().wrapping_sub(self.first_voice()) as usize
+    }
     /// One bit per note: delivered and not ended yet.
     fn held_bits(&self) -> &[u32];
     /// The same bits, to change.
@@ -221,10 +225,97 @@ fn first_at_or_after<E: Events + ?Sized>(events: &E, from: Tick) -> usize {
     lo
 }
 
+/// Pairs a cursor's [`Aliases`] holds: two per carried note whose voice moves.
+pub const ALIAS_ROOM: usize = 96;
+
+/// The voice ids a cursor gives notes of its run other than `first_voice + index`, sorted
+/// by note: the notes an edit carried over keep the voice they sounded under, and the notes
+/// whose own id that took get a spare one (CL-3, `ClipNotes::carry_held_from`). Empty
+/// outside of a swap; emptied when the cursor holds no note any more.
+#[derive(Clone, Copy, Debug)]
+pub struct Aliases {
+    len: usize,
+    pairs: [[u32; 2]; ALIAS_ROOM],
+}
+
+impl Default for Aliases {
+    fn default() -> Self {
+        Aliases {
+            len: 0,
+            pairs: [[0; 2]; ALIAS_ROOM],
+        }
+    }
+}
+
+impl Aliases {
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The voice id of note `index`: its alias, else `first_voice + index`.
+    pub fn voice(&self, index: usize, first_voice: u32) -> u32 {
+        self.get(index)
+            .unwrap_or_else(|| first_voice.wrapping_add(index as u32))
+    }
+
+    fn get(&self, index: usize) -> Option<u32> {
+        if self.len == 0 {
+            return None;
+        }
+        let pairs = self.pairs.get(..self.len)?;
+        pairs
+            .binary_search_by_key(&(index as u32), |p| p[0])
+            .ok()
+            .map(|k| pairs[k][1])
+    }
+
+    /// Adds a pair (unsorted until [`Aliases::sort`]); dropped when the room is full, which
+    /// the callers' bounds prevent.
+    pub fn push(&mut self, note: u32, voice: u32) {
+        if let Some(slot) = self.pairs.get_mut(self.len) {
+            *slot = [note, voice];
+            self.len += 1;
+        }
+    }
+
+    pub fn sort(&mut self) {
+        if let Some(pairs) = self.pairs.get_mut(..self.len) {
+            pairs.sort_unstable_by_key(|p| p[0]);
+        }
+    }
+
+    /// Pair `k`, in the order of insertion until sorted.
+    pub fn at(&self, k: usize) -> Option<[u32; 2]> {
+        (k < self.len).then(|| self.pairs[k])
+    }
+
+    /// Whether one of the first `len` pairs is for note `note` (sorted or not).
+    pub fn has_note(&self, note: u32, len: usize) -> bool {
+        self.pairs
+            .get(..len.min(self.len))
+            .is_some_and(|p| p.iter().any(|q| q[0] == note))
+    }
+
+    /// Whether a pair names this voice.
+    pub fn has_voice(&self, voice: u32) -> bool {
+        self.pairs
+            .get(..self.len)
+            .is_some_and(|p| p.iter().any(|q| q[1] == voice))
+    }
+}
+
 /// The read state of a run of [`Events`] (module doc): the next entry, the group delivered
 /// in part, the jump detection and the release in progress. The held bits live with the
 /// run, the count of held notes here.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct Cursor {
     /// Index of the next entry to deliver.
     next: usize,
@@ -247,6 +338,8 @@ pub struct Cursor {
     /// [`Cursor::keep_through_swap`]): the next read finds its place in the new run
     /// without a jump.
     reseek: bool,
+    /// The voices of the notes held that are not `first_voice + index` (CL-3).
+    aliases: Aliases,
 }
 
 impl Cursor {
@@ -255,20 +348,29 @@ impl Cursor {
         self.held
     }
 
-    fn index<E: Events + ?Sized>(events: &E, voice: VoiceId) -> usize {
-        voice.get().wrapping_sub(events.first_voice()) as usize
+    /// The voice id of note `index` of the run: the cursor's alias, else the run's own.
+    fn voice_of<E: Events + ?Sized>(&self, events: &E, index: usize) -> Option<VoiceId> {
+        VoiceId::new(self.aliases.voice(index, events.first_voice()))
     }
 
-    fn is_held<E: Events + ?Sized>(events: &E, voice: VoiceId) -> bool {
-        let i = Self::index(events, voice);
+    /// The voices the cursor gives the notes it holds (CL-3).
+    pub fn aliases(&self) -> &Aliases {
+        &self.aliases
+    }
+
+    /// The same, to fill after a swap ([`Cursor::keep_through_swap`]).
+    pub fn aliases_mut(&mut self) -> &mut Aliases {
+        &mut self.aliases
+    }
+
+    fn is_held<E: Events + ?Sized>(events: &E, i: usize) -> bool {
         events
             .held_bits()
             .get(i / 32)
             .is_some_and(|w| w & (1 << (i % 32)) != 0)
     }
 
-    fn set_held<E: Events + ?Sized>(&mut self, events: &mut E, voice: VoiceId, held: bool) {
-        let i = Self::index(events, voice);
+    fn set_held<E: Events + ?Sized>(&mut self, events: &mut E, i: usize, held: bool) {
         if let Some(w) = events.held_bits_mut().get_mut(i / 32) {
             let bit = 1u32 << (i % 32);
             let was = *w & bit != 0;
@@ -278,6 +380,10 @@ impl Cursor {
             } else if !held && was {
                 *w &= !bit;
                 self.held = self.held.saturating_sub(1);
+                if self.held == 0 {
+                    // No voice sounds under an alias any more.
+                    self.aliases.clear();
+                }
             }
         }
     }
@@ -371,10 +477,10 @@ impl Cursor {
         Read::Full(at)
     }
 
-    /// The run this cursor reads is replaced by another (CL-3) that holds, at the same
-    /// indices, the notes this cursor holds: the cursor goes on in the new run, without a
-    /// jump, so that those notes are not released and their note-offs (the new run's) end
-    /// them. `false` when the cursor cannot (a release or a part-delivered group is in
+    /// The run this cursor reads is replaced by another (CL-3) that holds the notes this
+    /// cursor holds (the caller matches them and gives the cursor their voices,
+    /// [`Cursor::aliases_mut`]): the cursor goes on in the new run, without a jump, so that
+    /// those notes are not released and their note-offs (the new run's) end them. `false` when the cursor cannot (a release or a part-delivered group is in
     /// progress, a read was cut, nothing was read yet): the caller starts it over.
     pub fn keep_through_swap(&mut self) -> bool {
         if self.releasing || self.group_end > self.next || self.resume.is_some() {
@@ -385,6 +491,12 @@ impl Cursor {
         }
         self.reseek = true;
         true
+    }
+
+    /// After [`Cursor::keep_through_swap`]: the new run holds `n` of the notes the old one
+    /// held (the others are released by the caller).
+    pub fn set_carried(&mut self, n: u32) {
+        self.held = n;
     }
 
     /// Delivers the rest of a group delivered in part, at offset 0; `false` when some is
@@ -403,7 +515,6 @@ impl Cursor {
     /// Ends every held note with its own note-off at `at` (the live notes of the track are
     /// not touched); `false` when the sink is full before the end.
     fn release<E: Events + ?Sized>(&mut self, events: &mut E, at: u32, sink: &mut Sink) -> bool {
-        let first_voice = events.first_voice();
         while self.release_word < events.held_bits().len() {
             let w = self.release_word;
             loop {
@@ -413,7 +524,7 @@ impl Cursor {
                 }
                 let bit = word.trailing_zeros() as usize;
                 let i = w * 32 + bit;
-                let Some(voice) = VoiceId::new(first_voice.wrapping_add(i as u32)) else {
+                let Some(voice) = self.voice_of(events, i) else {
                     if let Some(word) = events.held_bits_mut().get_mut(w) {
                         *word &= !(1 << bit);
                     }
@@ -426,7 +537,7 @@ impl Cursor {
                 }) {
                     return false;
                 }
-                self.set_held(events, voice, false);
+                self.set_held(events, i, false);
             }
             self.release_word += 1;
         }
@@ -444,28 +555,42 @@ impl Cursor {
         at: u32,
         sink: &mut Sink,
     ) -> bool {
-        let Some(timed) = events.timed(i) else {
+        let Some(mut timed) = events.timed(i) else {
             return true;
         };
-        match timed.kind {
-            TimedKind::Param { device, .. } => sink.push_param(device, timed.event(at)),
-            TimedKind::NoteOff { voice, .. } => {
-                if !Self::is_held(events, voice) {
+        let note = match &mut timed.kind {
+            TimedKind::NoteOn { voice, .. } | TimedKind::NoteOff { voice, .. } => {
+                let index = events.note_index(i, *voice);
+                // A note an edit carried over, or displaced, has another voice id (CL-3).
+                if !self.aliases.is_empty()
+                    && let Some(v) = self.voice_of(events, index)
+                {
+                    *voice = v;
+                }
+                Some(index)
+            }
+            TimedKind::Param { .. } => None,
+        };
+        match (timed.kind, note) {
+            (TimedKind::Param { device, .. }, _) => sink.push_param(device, timed.event(at)),
+            (TimedKind::NoteOff { .. }, Some(index)) => {
+                if !Self::is_held(events, index) {
                     return true;
                 }
                 let pushed = sink.push_note(timed.event(at));
                 if pushed {
-                    self.set_held(events, voice, false);
+                    self.set_held(events, index, false);
                 }
                 pushed
             }
-            TimedKind::NoteOn { voice, .. } => {
+            (TimedKind::NoteOn { .. }, Some(index)) => {
                 let pushed = sink.push_note(timed.event(at));
                 if pushed {
-                    self.set_held(events, voice, true);
+                    self.set_held(events, index, true);
                 }
                 pushed
             }
+            _ => true,
         }
     }
 
