@@ -1239,3 +1239,181 @@ fn an_edited_lane_and_a_rebuilt_device_apply_again_while_stopped() {
     assert_levels(&r.left, &reference, edited + 10 * block..put, |_| 1.5);
     assert_levels(&r.left, &reference, put + 10 * block..r.at, |_| 1.5);
 }
+
+#[test]
+fn a_hold_mix_holds_the_lane_of_a_value_left_as_it_was_and_gives_the_strip_back_to_its_fader() {
+    // #417: the project drops a gesture that equals the stored value, so no `TrackSetMix`
+    // carries it, and one that moves nothing looks like a mute: the intent is a message.
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    let points = [
+        pt(0, -20.0, Curve::Step),
+        pt(2000, -6.0, Curve::Step),
+        pt(4000, 0.0, Curve::Step),
+    ];
+    r.lane(0, 0, AutomationTarget::MixerGain, &points);
+    let start = r.play(0);
+    r.run_to(start + 80 * block);
+    let held = |e: &Engine| e.state().lanes.get(0).unwrap().run.manual();
+    // The fader sits at unity (never moved). A `TrackSetMix` that repeats it holds nothing.
+    r.mix(1.0, 0.0);
+    r.run(10 * block);
+    assert_eq!(held(&r.e), Manual::Free);
+    // The hold: the lane stops and the strip goes back to the fader by the 5 ms ramp.
+    let gesture = r.at;
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(1.0),
+        pan: None,
+    }]);
+    r.run(block);
+    assert!(matches!(held(&r.e), Manual::Until(_)));
+    r.run_to(start + 2000 * FPT + 10 * block);
+    // The lane takes over at its next point, as after any gesture.
+    assert_eq!(held(&r.e), Manual::Free);
+    r.check();
+    let reference = reference(block, r.at);
+    let fade = 240;
+    assert_levels(&r.left, &reference, start..gesture, |_| gain_of(-20.0));
+    assert_levels(
+        &r.left,
+        &reference,
+        gesture + fade + block..start + 2000 * FPT,
+        |_| 1.0,
+    );
+    assert_levels(
+        &r.left,
+        &reference,
+        start + 2000 * FPT..start + 2000 * FPT + 10 * block,
+        |_| gain_of(-6.0),
+    );
+}
+
+#[test]
+fn a_hold_mix_on_the_pan_does_not_hold_the_gain_lane_nor_the_other_way_round() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.lane(
+        0,
+        0,
+        AutomationTarget::MixerGain,
+        &[pt(0, -20.0, Curve::Step), pt(4000, -6.0, Curve::Step)],
+    );
+    r.lane(
+        1,
+        0,
+        AutomationTarget::MixerPan,
+        &[pt(0, 0.5, Curve::Step), pt(4000, -0.5, Curve::Step)],
+    );
+    r.play(0);
+    r.run(40 * block);
+    let held = |e: &Engine, lane: u32| e.state().lanes.get(lane).unwrap().run.manual();
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: None,
+        pan: Some(0.0),
+    }]);
+    r.run(2 * block);
+    assert_eq!(held(&r.e, 0), Manual::Free, "the gain lane keeps playing");
+    assert!(matches!(held(&r.e, 1), Manual::Until(_)));
+    r.send(&[M::Seek { tick: Tick(0) }]);
+    r.run(2 * block);
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(1.0),
+        pan: None,
+    }]);
+    r.run(2 * block);
+    assert!(matches!(held(&r.e, 0), Manual::Until(_)));
+    assert_eq!(held(&r.e, 1), Manual::Free, "the pan lane keeps playing");
+    // Neither field marked: nothing is held (a mute-like message).
+    r.send(&[M::Seek { tick: Tick(0) }]);
+    r.run(2 * block);
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: None,
+        pan: None,
+    }]);
+    r.run(2 * block);
+    assert_eq!(held(&r.e, 0), Manual::Free);
+    assert_eq!(held(&r.e, 1), Manual::Free);
+    r.check();
+}
+
+#[test]
+fn a_hold_mix_while_stopped_holds_until_the_next_seek_and_a_mute_holds_nothing() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    let points = [pt(0, -20.0, Curve::Step), pt(1000, -6.0, Curve::Step)];
+    r.lane(0, 0, AutomationTarget::MixerGain, &points);
+    r.run(10 * block);
+    let held = |e: &Engine| e.state().lanes.get(0).unwrap().run.manual();
+    // A mute gesture (the fields repeat) holds nothing.
+    r.send(&[M::TrackSetMix {
+        track: TrackSlot(0),
+        gain: 1.0,
+        pan: 0.0,
+        mute: true,
+    }]);
+    r.run(10 * block);
+    assert_eq!(held(&r.e), Manual::Free);
+    r.send(&[M::TrackSetMix {
+        track: TrackSlot(0),
+        gain: 1.0,
+        pan: 0.0,
+        mute: false,
+    }]);
+    r.run(10 * block);
+    let gesture = r.at;
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(1.0),
+        pan: None,
+    }]);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Held);
+    let seek = r.at;
+    r.send(&[M::Seek { tick: Tick(1500) }]);
+    r.run(40 * block);
+    assert_eq!(held(&r.e), Manual::Free);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, gesture + 240 + block..seek, |_| 1.0);
+    assert_levels(&r.left, &reference, seek + block..r.at, |_| gain_of(-6.0));
+}
+
+#[test]
+fn a_hold_mix_on_an_unknown_track_is_refused_and_one_on_a_track_without_lanes_changes_nothing() {
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    assert!(
+        r.p.handle(M::HoldMix {
+            track: TrackSlot(5),
+            gain: Some(1.0),
+            pan: Some(0.0),
+        })
+        .is_err()
+    );
+    r.mix(0.5, 0.0);
+    r.run(10 * block);
+    let before = r.at;
+    // The same fader value, no lane: nothing moves.
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(0.5),
+        pan: Some(0.0),
+    }]);
+    r.run(20 * block);
+    // A strip that missed a message takes the value the hold carries (the project's).
+    let stale = r.at;
+    r.send(&[M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(1.0),
+        pan: None,
+    }]);
+    r.run(20 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, before + 240..stale, |_| 0.5);
+    assert_levels(&r.left, &reference, stale + 240 + block..r.at, |_| 1.0);
+}

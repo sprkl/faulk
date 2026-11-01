@@ -109,7 +109,13 @@ impl Core {
             // The folder of the previous project means nothing to this one: `project.open`
             // brings what its own folder holds, `project.new` has none.
             self.saver = Saver::opened(synced.ctx.opened.take());
-        } else if kind == commands::Kind::Edit && !outcome.events.is_empty() {
+        } else if kind == commands::Kind::Edit
+            && outcome
+                .events
+                .iter()
+                .any(commands::ProjectEvent::changes_project)
+        {
+            // A gesture that left a control as it was (`GestureUnchanged`) is no edit.
             self.saver.edited();
         } else if session.is_some_and(|before| before != synced.state.session) {
             self.saver.session_edited();

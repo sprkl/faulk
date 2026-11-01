@@ -653,3 +653,86 @@ fn a_master_lane_goes_back_to_its_start_when_the_loop_wraps() {
         );
     }
 }
+
+#[test]
+fn a_hold_mix_on_the_master_holds_its_lane_and_gives_the_master_back_to_its_fader() {
+    // #417: a gesture on the master that leaves the value as it was.
+    let block = 128;
+    let mut r = Rig::new(block);
+    r.lane(
+        0,
+        MASTER,
+        AutomationTarget::MixerGain,
+        &[
+            pt(0, -20.0, Curve::Step),
+            pt(2000, -6.0, Curve::Step),
+            pt(4000, 0.0, Curve::Step),
+        ],
+    );
+    let start = r.play(0);
+    r.run_to(start + 80 * block);
+    // A `SetMaster` that repeats the fader holds nothing (this is what a mute looks like).
+    r.master(1.0, 0.0);
+    r.run(10 * block);
+    let gesture = r.at;
+    r.send(&[M::HoldMix {
+        track: MASTER,
+        gain: Some(1.0),
+        pan: None,
+    }]);
+    r.run_to(start + 2000 * FPT + 10 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    let fade = 240;
+    // Before the hold the lane plays; the repeated fader changed nothing.
+    assert_levels(&r.left, &reference, start..gesture, |_| gain_of(-20.0));
+    assert_levels(
+        &r.left,
+        &reference,
+        gesture + fade + block..start + 2000 * FPT,
+        |_| 1.0,
+    );
+    assert_levels(
+        &r.left,
+        &reference,
+        start + 2000 * FPT..start + 2000 * FPT + 10 * block,
+        |_| gain_of(-6.0),
+    );
+}
+
+#[test]
+fn a_master_mute_holds_no_lane() {
+    let block = 128;
+    let mut r = Rig::new(block);
+    r.lane(
+        0,
+        MASTER,
+        AutomationTarget::MixerGain,
+        &[pt(0, -20.0, Curve::Step), pt(4000, 0.0, Curve::Step)],
+    );
+    let start = r.play(0);
+    r.run(40 * block);
+    // The mute repeats the fader values: it holds nothing, the lane keeps its level under it.
+    let mute = r.at;
+    r.send(&[M::SetMaster {
+        gain: 1.0,
+        pan: 0.0,
+        mute: true,
+    }]);
+    r.run(40 * block);
+    r.master(1.0, 0.0);
+    r.run(40 * block);
+    r.check();
+    let reference = reference(block, r.at);
+    assert_levels(&r.left, &reference, start..mute, |_| gain_of(-20.0));
+    assert_levels(
+        &r.left,
+        &reference,
+        mute + 240 + block..mute + 40 * block,
+        |_| 0.0,
+    );
+    let back = mute + 80 * block - 40 * block;
+    assert_levels(&r.left, &reference, back + 240 + block..r.at, |_| {
+        gain_of(-20.0)
+    });
+}

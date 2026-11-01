@@ -14,8 +14,8 @@
 
 use project::file::{FileError, FileSystem, SaveState};
 use project::{
-    ClipId, DeviceId, EngineSlots, IdGenerator, LaneId, PlacementId, Project, Quantize, SceneId,
-    SessionState, TickLoop, TrackId,
+    AutomationTarget, ClipId, DeviceId, EngineSlots, IdGenerator, LaneId, PlacementId, Project,
+    Quantize, SceneId, SessionState, TickLoop, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -323,6 +323,16 @@ pub enum ProjectEvent {
         pan: f64,
         mute: bool,
     },
+    /// A manual gesture on a control that an automation lane drives set it to the value the
+    /// project already holds (#417): the command changed nothing and recorded no history
+    /// entry, but the lane still gives way to the gesture (AM-2). `target` is the control;
+    /// `track` owns it: the track of a mixer field or of a device, `null` for the master's
+    /// fader, pan and chain. Emitted only when a lane with points drives the control. It
+    /// changes no state: the page does not mark the project as edited for it.
+    GestureUnchanged {
+        track: Option<TrackId>,
+        target: AutomationTarget,
+    },
     /// A track was soloed or unsoloed (session state).
     SoloChanged { track: TrackId, solo: bool },
     /// A track was armed or disarmed (session state).
@@ -410,6 +420,35 @@ pub enum ProjectEvent {
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+}
+
+impl ProjectEvent {
+    /// Whether the event reports a change of the project, as opposed to a gesture that left
+    /// it as it was ([`ProjectEvent::GestureUnchanged`]): the hosts mark the project as
+    /// edited (unsaved, autosave) for the first only.
+    pub fn changes_project(&self) -> bool {
+        !matches!(self, ProjectEvent::GestureUnchanged { .. })
+    }
+}
+
+/// The event of a manual gesture that left a control as it was (#417): `Some` when a lane
+/// with points drives the control (`owner` is the track that owns it, `None` for the
+/// master), else nothing, so that every other unchanged command stays silent. A lane with
+/// no point does nothing (AM-1) and the engine never receives it.
+pub(crate) fn gesture_unchanged(
+    project: &Project,
+    owner: Option<&TrackId>,
+    target: AutomationTarget,
+) -> Option<ProjectEvent> {
+    let drives = project.lanes(owner).is_some_and(|lanes| {
+        lanes
+            .values()
+            .any(|lane| lane.target == target && !lane.points.is_empty())
+    });
+    drives.then(|| ProjectEvent::GestureUnchanged {
+        track: owner.cloned(),
+        target,
+    })
 }
 
 /// Which part of a track a [`ProjectEvent::TrackChanged`] reports.

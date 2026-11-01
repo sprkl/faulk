@@ -1036080,6 +1036080,34 @@
             },
             {
               "additionalProperties": false,
+              "description": "A manual gesture on a control that an automation lane drives set it to the value the\nproject already holds (#417): the command changed nothing and recorded no history\nentry, but the lane still gives way to the gesture (AM-2). `target` is the control;\n`track` owns it: the track of a mixer field or of a device, `null` for the master's\nfader, pan and chain. Emitted only when a lane with points drives the control. It\nchanges no state: the page does not mark the project as edited for it.",
+              "properties": {
+                "target": {
+                  "$ref": "#/$defs/AutomationTarget"
+                },
+                "track": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TrackId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "gesture_unchanged",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "target"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
               "description": "A track was soloed or unsoloed (session state).",
               "properties": {
                 "solo": {

@@ -10,13 +10,15 @@
 //! - A fader gesture is a burst of `set_volume` or `set_pan` inside one history group
 //!   (`history.begin_group` / `history.end_group`, or the context's group): the history
 //!   merges them into one entry, so one undo undoes the whole gesture.
-//! - A command that changes nothing returns no inverse and no event.
+//! - A command that changes nothing returns no inverse and no event, but for a fader or pan
+//!   gesture on a control that an automation lane drives, which reports
+//!   [`ProjectEvent::GestureUnchanged`] so that the lane gives way to it (#417).
 //! - **Solo** lives in [`project::SessionState`]: it never enters the history nor the
 //!   project's serialization. **Mute** is a field of the project and is versioned.
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
-use project::{Mixer, TrackId};
+use project::{AutomationTarget, Mixer, MixerParam, Project, TrackId};
 
 /// The gain bounds, defined by the project document and shared with the commands (#226).
 pub use project::{MAX_GAIN_DB, MIN_GAIN_DB};
@@ -116,7 +118,7 @@ pub fn apply(
             let mixer = &mut track_mut(state, track)?.mixer;
             check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
-            Ok(gain_outcome(
+            let mut outcome = gain_outcome(
                 previous,
                 db,
                 |previous| Output::SetVolume { previous },
@@ -126,21 +128,35 @@ pub fn apply(
                 },
                 Some(track.clone()),
                 mixer,
-            ))
+            );
+            if previous == db {
+                outcome.events.extend(gesture_unchanged(
+                    &state.project,
+                    Some(track),
+                    MixerParam::Gain,
+                ));
+            }
+            Ok(outcome)
         }
         Command::SetMasterVolume { gain_db } => {
             let db = to_db(*gain_db)?;
             let mixer = &mut state.project.master;
             check_current(mixer)?;
             let previous = std::mem::replace(&mut mixer.gain_db, db);
-            Ok(gain_outcome(
+            let mut outcome = gain_outcome(
                 previous,
                 db,
                 |previous| Output::SetMasterVolume { previous },
                 |gain_db| Command::SetMasterVolume { gain_db },
                 None,
                 mixer,
-            ))
+            );
+            if previous == db {
+                outcome
+                    .events
+                    .extend(gesture_unchanged(&state.project, None, MixerParam::Gain));
+            }
+            Ok(outcome)
         }
         Command::SetMasterPan { pan } => {
             check_pan(*pan)?;
@@ -148,7 +164,11 @@ pub fn apply(
             let previous = mixer.pan;
             let output = Output::SetMasterPan { previous };
             if previous == *pan {
-                return Ok(unchanged(output));
+                let mut outcome = unchanged(output);
+                outcome
+                    .events
+                    .extend(gesture_unchanged(&state.project, None, MixerParam::Pan));
+                return Ok(outcome);
             }
             mixer.pan = *pan;
             Ok(edited(
@@ -164,7 +184,13 @@ pub fn apply(
             let previous = mixer.pan;
             let output = Output::SetPan { previous };
             if previous == *pan {
-                return Ok(unchanged(output));
+                let mut outcome = unchanged(output);
+                outcome.events.extend(gesture_unchanged(
+                    &state.project,
+                    Some(track),
+                    MixerParam::Pan,
+                ));
+                return Ok(outcome);
             }
             mixer.pan = *pan;
             Ok(edited(
@@ -269,6 +295,16 @@ fn to_db(gain: Option<f64>) -> Result<f64, CommandError> {
 /// A command's gain for the document's one.
 fn from_db(db: f64) -> Option<f64> {
     (db != f64::NEG_INFINITY).then_some(db)
+}
+
+/// The event of a fader or pan gesture that left the value as it was (#417), when a lane
+/// drives it; `track` is `None` for the master.
+fn gesture_unchanged(
+    project: &Project,
+    track: Option<&TrackId>,
+    param: MixerParam,
+) -> Option<ProjectEvent> {
+    crate::contract::gesture_unchanged(project, track, AutomationTarget::Mixer { param })
 }
 
 fn unchanged(output: Output) -> Outcome<Command, Output> {

@@ -88,6 +88,11 @@ fn samples() -> Vec<ControlMsg> {
             monitor: true,
         },
         ControlMsg::SelectTrack { track: Some(t) },
+        ControlMsg::HoldMix {
+            track: t,
+            gain: Some(1.0),
+            pan: None,
+        },
         ControlMsg::DeviceInsert {
             track: t,
             device: DeviceSlot(0),
@@ -730,6 +735,14 @@ fn the_encoder_refuses_what_the_decoder_would() {
                 mute: false,
             },
             Tag::TrackSetMix,
+        ),
+        (
+            ControlMsg::HoldMix {
+                track: TrackSlot(0),
+                gain: Some(f32::INFINITY),
+                pan: None,
+            },
+            Tag::HoldMix,
         ),
         (
             ControlMsg::NoteOn {

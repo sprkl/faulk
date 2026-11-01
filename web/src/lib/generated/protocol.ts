@@ -2156,6 +2156,10 @@ pan: number
 track?: (string | null)
 type: "mixer_changed"
 } | {
+target: AutomationTarget
+track?: (string | null)
+type: "gesture_unchanged"
+} | {
 solo: boolean
 /**
  * Identifier of a track.
