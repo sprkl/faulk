@@ -31,6 +31,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
+use crate::query::{DeviceKindInfo, DeviceSummary};
 use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
 use engine::devices::{Builtin, REGISTRY};
 use engine::{Param, Synth};
@@ -158,6 +159,38 @@ domain! {
         /// The value now: the one asked for, clamped and rounded.
         value: f64,
     };
+
+    /// Describe a device, or a built-in device kind before any is inserted. Give exactly
+    /// one of `device` (the id of a device of a track's chain or of the master's) and
+    /// `kind` (a built-in kind such as `faulk.osc_synth`); both or neither is refused with
+    /// `invalid`, an unknown device or kind with `not_found`. For a device the answer has its
+    /// summary (id, role, bypass state, source, English name), the track that holds it
+    /// (`null` for the master's chain) and the current value of every parameter, by
+    /// parameter key. For a built-in kind, and for a built-in device, it has the kind's
+    /// descriptor: version, English name, role and every parameter's key, `description`,
+    /// unit, range, default, scale, step and enumerated `values`, and the named keys of a
+    /// drum-like instrument. A module and the clip player have no descriptor (`null`). A
+    /// query: changes nothing and never enters the history.
+    "device.describe" (kind = "query", undo = "none", destructive = false)
+    Describe {
+        /// A device to describe; leave out when giving `kind`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device: Option<DeviceId>,
+        /// A built-in kind to describe; leave out when giving `device`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+    } => {
+        /// The device's summary; `null` when a kind was asked for.
+        device: Option<Box<DeviceSummary>>,
+        /// The track that holds the device; `null` for the master's chain and for a kind.
+        track: Option<TrackId>,
+        /// Whether the device is in the master's chain (then `track` is `null`).
+        in_master: bool,
+        /// The device's parameter values, by parameter key, in the unit the device declares.
+        params: BTreeMap<String, f64>,
+        /// The kind's descriptor; `null` for a module and for the clip player.
+        descriptor: Option<DeviceKindInfo>,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -197,6 +230,17 @@ pub(crate) fn apply_in(
     ctx: &mut Context,
 ) -> Result<Out, CommandError> {
     match command {
+        Command::Describe { device, kind } => {
+            let d =
+                crate::query::device_describe(&state.project, device.as_ref(), kind.as_deref())?;
+            Ok(crate::query::answer(Output::Describe {
+                device: d.device.map(Box::new),
+                track: d.track,
+                in_master: d.in_master,
+                params: d.params,
+                descriptor: d.descriptor,
+            }))
+        }
         Command::Insert {
             track,
             master,

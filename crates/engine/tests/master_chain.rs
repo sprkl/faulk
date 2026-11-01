@@ -76,7 +76,7 @@ impl Rig {
         self.host.engine().skipped()
     }
 
-    /// Non-finite samples the output protection (#402) silenced. The `is_finite` checks on the
+    /// Frames with a non-finite sample the output protection (#402) silenced. The `is_finite` checks on the
     /// render output are vacuous (the limiter is the last stage); this is the real no-NaN guard.
     fn silenced(&self) -> u64 {
         self.host.engine().limiter_silenced()
