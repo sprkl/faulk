@@ -206,6 +206,25 @@ export class AutomatedValues {
           }
         }
         if (lanes.length > 0) this.hold(`d:${event.device}:${event.param}`, lanes)
+      } else if (event.type === 'gesture_unchanged') {
+        // A gesture that left the value as the project holds it: the engine still gives way to it (#417), so does the page.
+        const owner = event.track ?? MASTER
+        const track = event.track ? view.project.tracks[event.track] : { automation: view.project.master_automation ?? {} }
+        if (!track) continue
+        const lanes: AutomationLane[] = []
+        const target = event.target
+        for (const lane of Object.values(track.automation)) {
+          if (!lane) continue
+          if (
+            'device' in target &&
+            'device' in lane.target &&
+            lane.target.device.device === target.device.device &&
+            lane.target.device.param === target.device.param
+          )
+            lanes.push(lane)
+          if ('mixer' in target && 'mixer' in lane.target && lane.target.mixer.param === target.mixer.param) lanes.push(lane)
+        }
+        if (lanes.length > 0) this.hold('device' in target ? `d:${target.device.device}:${target.device.param}` : `m:${owner}:${target.mixer.param}`, lanes)
       } else if (event.type === 'mixer_changed') {
         // A track's strip, or the master's when `track` is null.
         const owner = event.track ?? MASTER

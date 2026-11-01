@@ -60,6 +60,7 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::TrackPut(_) => "TrackPut",
         RtMsg::TrackRemove(_) => "TrackRemove",
         RtMsg::TrackSetMix { .. } => "TrackSetMix",
+        RtMsg::HoldMix { .. } => "HoldMix",
         RtMsg::TrackSetSolo { .. } => "TrackSetSolo",
         RtMsg::TrackArm { .. } => "TrackArm",
         RtMsg::TrackSetMonitor { .. } => "TrackSetMonitor",
@@ -82,8 +83,8 @@ fn variant(rt: &RtMsg) -> &'static str {
     }
 }
 
-/// Every name [`variant`] returns (26 variants).
-const ALL_VARIANTS: [&str; 26] = [
+/// Every name [`variant`] returns (27 variants).
+const ALL_VARIANTS: [&str; 27] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
@@ -91,6 +92,7 @@ const ALL_VARIANTS: [&str; 26] = [
     "TrackPut",
     "TrackRemove",
     "TrackSetMix",
+    "HoldMix",
     "TrackSetSolo",
     "TrackArm",
     "TrackSetMonitor",
@@ -181,6 +183,11 @@ fn every_rt_message_applies_without_allocating() {
             gain: 0.5,
             pan: -0.25,
             mute: true,
+        },
+        M::HoldMix {
+            track: T0,
+            gain: Some(0.5),
+            pan: None,
         },
         M::TrackSetSolo {
             track: T0,

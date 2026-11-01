@@ -436,6 +436,14 @@ impl ControlMsg {
                 w.f32(*pan);
                 w.bool(*mute);
             }
+            ControlMsg::HoldMix { track, gain, pan } => {
+                w.u32(track.0);
+                // A field the message does not name is written as absent, with a zero value.
+                w.bool(gain.is_some());
+                w.f32(gain.unwrap_or(0.0));
+                w.bool(pan.is_some());
+                w.f32(pan.unwrap_or(0.0));
+            }
             ControlMsg::TrackSetSolo { track, solo: on }
             | ControlMsg::TrackArm { track, armed: on }
             | ControlMsg::TrackSetMonitor { track, monitor: on } => {
@@ -638,6 +646,16 @@ impl ControlMsg {
                 pan: r.f32()?,
                 mute: r.bool()?,
             },
+            Tag::HoldMix => {
+                let track = r.track()?;
+                let (named, gain) = (r.bool()?, r.f32()?);
+                let (pan_named, pan) = (r.bool()?, r.f32()?);
+                ControlMsg::HoldMix {
+                    track,
+                    gain: named.then_some(gain),
+                    pan: pan_named.then_some(pan),
+                }
+            }
             Tag::TrackSetSolo => ControlMsg::TrackSetSolo {
                 track: r.track()?,
                 solo: r.bool()?,

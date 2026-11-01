@@ -756,3 +756,41 @@ test('automation: the master row is visible in an empty project, above the welco
   expect((await masterRow.boundingBox())!.y).toBeGreaterThanOrEqual(stageBox.y + 28)
   expect(seen.errors).toEqual([])
 })
+
+test('automation: a fader gesture equal to the stored value holds the lane in the engine and on the page (#417)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  const midi = (bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+  // A note held at the track's fader: the level the engine reports with no lane.
+  await midi([0x90, 69, 127])
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  const [track, strip] = (await tracks(page))[0]!
+  const stored = (strip as unknown as { mixer: { gain_db: number | null } }).mixer.gain_db
+  // A volume lane at -60 dB: stopped, the engine applies it at the playhead (#388).
+  await addLane(page, 'Volume')
+  const [laneId] = (await lanes(page))[0]!
+  await run(page, { type: 'automation.points.add', lane: laneId, points: [{ tick: 0, value: -60, shape: 'step' }] })
+  await expect(page.getByTestId('arr-lane').first()).toHaveAttribute('data-points', '1')
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  const listGain = page.getByTestId('track-header').first().getByTestId('track-gain-readout')
+  await expect(listGain).toHaveText('−60.0')
+
+  // The same volume as the project holds: the command changes nothing, yet the lane gives way, in the engine and on the page.
+  await run(page, { type: 'mixer.set_volume', track, gain_db: stored })
+  await expect.poll(() => master(page)).toBeGreaterThan(loud / 2)
+  await expect(listGain).toHaveText('0.0')
+  // A seek gives the lane the hand back.
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  await expect(listGain).toHaveText('−60.0')
+  // A mute that repeats the stored one holds nothing: the lane keeps playing.
+  await run(page, { type: 'mixer.set_mute', track, mute: false })
+  await expect(listGain).toHaveText('−60.0')
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  await midi([0x80, 69, 0])
+  expect(seen.errors).toEqual([])
+})
