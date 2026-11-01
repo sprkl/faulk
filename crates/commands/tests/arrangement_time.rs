@@ -597,3 +597,59 @@ fn a_random_sweep_keeps_the_project_valid_free_of_overlaps_and_undoable() {
     }
     assert_eq!(state.project, start.project);
 }
+
+#[test]
+fn an_audio_placement_anywhere_refuses_the_whole_command_and_nothing_moves() {
+    let f = base();
+    let mut s = f.state.clone();
+    let mut ids = IdGenerator::new(1_700_000_000_500, 0x00DD_0000_0000_0000_0000);
+    s.project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .insert(
+            ::project::PlacementId::generate(&mut ids),
+            ::project::Placement {
+                clip: f.audio_clip.clone(),
+                start: Tick(0),
+                span: Span::Frames {
+                    length: ::project::Frame::new(44_100),
+                    offset: ::project::Frame::new(0),
+                },
+            },
+        );
+    s.project.validate().unwrap();
+    for command in [insert(100, 960), delete(100, 960)] {
+        let error = check_refusal(&command, &s, &context()).unwrap();
+        assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    }
+}
+
+#[test]
+fn the_placement_limit_refuses_with_a_limit_error_and_changes_nothing() {
+    let f = base();
+    let mut s = f.state.clone();
+    let mut ids = IdGenerator::new(1_700_000_000_600, 0x00EE_0000_0000_0000_0000);
+    let max = ::project::limits::MAX_PLACEMENTS_PER_TRACK;
+    let track = s.project.tracks.get_mut(&f.track).unwrap();
+    track.placements.clear();
+    // Full to the limit, the first placement straddles tick 2: splitting it needs one more.
+    for i in 0..max {
+        let start = 10 * i64::try_from(i).unwrap();
+        track.placements.insert(
+            ::project::PlacementId::generate(&mut ids),
+            ::project::Placement {
+                clip: f.looped.clone(),
+                start: Tick(start),
+                span: Span::Ticks {
+                    length: Tick(5),
+                    offset: Tick(0),
+                },
+            },
+        );
+    }
+    s.project.validate().unwrap();
+    let error = check_refusal(&insert(2, 960), &s, &context()).unwrap();
+    assert!(matches!(error, CommandError::Limit { .. }), "{error:?}");
+}
