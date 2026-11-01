@@ -19,7 +19,9 @@ name: release-helper
 #  - workflow_dispatch without a version, or a pull request that
 #    touches this workflow, the helper's updater, wiring or manifest, the publication or
 #    web/vercel.json: a trial build. Artifacts only, and a dry run of the Blob
-#    publication on them.
+#    publication on them. Windows and Linux only: the (expensive) macOS leg runs for a
+#    production release alone, that is whenever there is a version (a tag, or a dispatch with a
+#    version).
 on:
   push:
     # Tags only: no trial build after a merge (the pull request ran it where it mattered, and
@@ -287,6 +289,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # macOS and Linux: built and packaged for the record, NOT published, NOT signed, NOT tested.
   # macOS updates need a signed and notarized app; see the distribution doc.
+  # The macOS leg runs for a production release only (a version); a trial build runs Linux alone.
   # ---------------------------------------------------------------------------
   unix:
     needs: version
@@ -295,13 +298,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            channel: osx
-            runtime: osx-arm64
-          - os: ubuntu-latest
-            channel: linux
-            runtime: linux-x64
+        # macOS minutes are expensive: its leg runs for a production release only (a version:
+        # tag push or dispatch with a version), never for a trial build. Keep the two literals
+        # in step with scripts/ci/release-helper-workflow.test.mjs.
+        include: ${{ fromJSON(needs.version.outputs.value != '' && '[{"os":"macos-latest","channel":"osx","runtime":"osx-arm64"},{"os":"ubuntu-latest","channel":"linux","runtime":"linux-x64"}]' || '[{"os":"ubuntu-latest","channel":"linux","runtime":"linux-x64"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
