@@ -123,6 +123,10 @@ pub fn two_tracks(second: bool) -> Scenario {
 pub const PAD_EDIT_SECS: f32 = 0.5;
 /// How long the pad of [`pad_edit`] sounds: 3000 ticks, 1.5625 s at 120 BPM.
 pub const PAD_END_SECS: f32 = 1.5625;
+/// Where the pad is certainly still sounding if the edit did not cut it: twice the default
+/// release of the synth (0.3 s) after the edit, so that the tail of a cut note (the added note
+/// included) is long gone and a peak in the window can only come from the pad itself.
+pub const PAD_SOUNDING_FROM_SECS: f32 = PAD_EDIT_SECS + 0.6;
 /// The length of the render of [`pad_edit`].
 pub const PAD_RENDER_SECS: f32 = 2.5;
 
@@ -130,6 +134,17 @@ pub const PAD_RENDER_SECS: f32 = 2.5;
 /// [`PAD_EDIT_SECS`], while the pad sounds, `clip.notes_add` adds a short note that ranks
 /// before it in the clip (#434: the pad keeps sounding, it is not cut).
 pub fn pad_edit() -> Scenario {
+    pad_scenario(3000)
+}
+
+/// The control of [`pad_edit`]: the pad is 960 ticks long, so it ends at [`PAD_EDIT_SECS`], as
+/// if the edit had cut it. The window [`PAD_SOUNDING_FROM_SECS`]..[`PAD_END_SECS`] must be
+/// silent here and sound in [`pad_edit`]: the margin that tells a cut note from a continued one.
+pub fn pad_cut() -> Scenario {
+    pad_scenario(960)
+}
+
+fn pad_scenario(pad_ticks: i64) -> Scenario {
     let fixture = testing::fixture();
     let mut s = Session::from_state(fixture.state.clone(), testing::context());
     let Output::Scene(scene::Output::Create { scene }) =
@@ -151,7 +166,7 @@ pub fn pad_edit() -> Scenario {
     };
     s.run(Command::Clip(clip::Command::NotesAdd {
         clip: clip.clone(),
-        notes: vec![n(0, 48, 3000, 100)],
+        notes: vec![n(0, 48, pad_ticks, 100)],
     }));
     s.run(Command::Clip(clip::Command::SetLoop {
         clip: clip.clone(),

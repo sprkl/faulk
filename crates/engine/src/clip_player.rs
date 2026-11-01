@@ -92,8 +92,8 @@
 //! sink, or the cursor cannot go on, the cursor starts over and every sounding note is an
 //! orphan; so is a note that moved when [`MAX_CARRIED_NOTES`] others did (the aliases'
 //! room). Fallback on `AllNotesOff` (live notes included) when there are more orphans than
-//! [`crate::graph::ORPHAN_ROOM`] to end one by one, or both the grid and the arrangement
-//! hold the clip. Notes at the same index need no alias: any number of them go on. The
+//! [`crate::graph::ORPHAN_ROOM`] to end one by one (a clip held by both the grid and the
+//! arrangement has each note ended under the voice of each cursor, #443). Notes at the same index need no alias: any number of them go on. The
 //! search of the moved notes in the new table is a binary search each, bounded in all by
 //! [`MAX_SCANNED_ENTRIES`] entries looked at; see `msg_cost` for the cost.
 //!
@@ -135,7 +135,11 @@ pub struct Swap {
     /// Whether the grid's cursor (not the arrangement's) carries them.
     pub grid: bool,
     /// Both cursors hold notes of the clip (a handover in progress): they share the held
-    /// bits and nothing is carried; the voices of the notes are not known per note.
+    /// bits and nothing is carried; the voices of the notes are not known per note, so the
+    /// caller ends each held note under the voice of each cursor
+    /// ([`ClipPlayer::voices_of`], [`ClipPlayer::arrangement_voices_of`]; #443). The player's
+    /// own flow does not reach this state today (the arrangement is released before the grid
+    /// starts the clip): it is kept defensive and tested with a hook.
     pub shared: bool,
     /// Notes of the old table were held and their note-offs are gone: the caller gives them
     /// to the track to end ([`ClipNotes::held_voices`]).
@@ -777,6 +781,34 @@ impl ClipPlayer {
         if self.playing.is_some_and(|p| p.clip == slot) && self.cursor.held() > 0 {
             *self.cursor.aliases()
         } else if self.arrangement.holds(slot) {
+            *self.arrangement.cursor().aliases()
+        } else {
+            Aliases::default()
+        }
+    }
+
+    /// Test only: the arrangement holds the playing clip and the notes of the grid's cursor
+    /// too ([`Swap::shared`]). `false` when no clip plays.
+    #[cfg(feature = "testing")]
+    /// `alias` gives the arrangement's cursor another voice for a note, as if it had carried
+    /// it: `(note index, voice)`.
+    pub fn share_playing_clip_for_tests(&mut self, alias: Option<(u32, u32)>) -> bool {
+        match self.playing {
+            Some(p) => {
+                self.arrangement
+                    .mirror_for_tests(p.clip, &self.cursor, alias);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The voices of the notes the arrangement's cursor delivered, when it reads `slot`,
+    /// read before [`ClipPlayer::clip_changed`]. With [`Swap::shared`] both cursors hold
+    /// notes of the clip: [`ClipPlayer::voices_of`] gives the grid's, this the arrangement's
+    /// (#443).
+    pub fn arrangement_voices_of(&self, slot: ClipSlot) -> Aliases {
+        if self.arrangement.holds(slot) {
             *self.arrangement.cursor().aliases()
         } else {
             Aliases::default()
