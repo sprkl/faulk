@@ -6,7 +6,7 @@
    * The name is read-only here; renaming stays in the track list.
    */
   import { chainOf, masterChainOf } from '../../lib/project/chain'
-  import { formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { formatGain, formatPan, instrumentName, trackColor, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
@@ -76,7 +76,7 @@
   class:master={!entry}
   class:selected
   class:muted={mixer?.mute}
-  style:--track-color={entry ? (entry.track.color ?? NO_COLOR) : 'var(--fk-text)'}
+  style:--track-color={entry ? trackColor(entry.track.color, entry.index) : 'var(--fk-text)'}
   aria-label={t('mixer.strip', { name })}
   aria-current={selected ? 'true' : undefined}
   data-testid={entry ? 'mixer-strip' : 'mixer-master'}
@@ -125,6 +125,7 @@
       class="readout"
       type="button"
       tabindex="-1"
+      aria-label={t('controls.valueOf', { name: entry ? t('tracks.pan', { name }) : t('mixer.masterPan'), value: formatPan(shownPan) })}
       title={t('controls.type')}
       data-testid={entry ? 'mixer-pan-readout' : 'mixer-master-pan-readout'}
       onmousedown={(e) => e.preventDefault()}
@@ -191,6 +192,7 @@
     class="readout gain"
     type="button"
     tabindex="-1"
+    aria-label={t('controls.valueOf', { name: entry ? t('tracks.volume', { name }) : t('mixer.masterVolume'), value: `${formatGain(shownGain)} dB` })}
     title={t('controls.type')}
     data-testid="mixer-gain"
     onmousedown={(e) => e.preventDefault()}
@@ -290,7 +292,7 @@
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-work);
     background: transparent;
-    font-size: 10px;
+    font-size: 11px;
     cursor: pointer;
   }
   .pan {

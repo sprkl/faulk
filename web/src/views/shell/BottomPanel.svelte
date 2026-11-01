@@ -141,7 +141,11 @@
   .handle.dragging,
   .handle:focus-visible {
     background: var(--fk-line);
-    outline: none;
+  }
+  /* The keyboard's resize handle shows where the focus is. */
+  .handle:focus-visible {
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: -2px;
   }
   .collapsed .handle {
     cursor: pointer;
