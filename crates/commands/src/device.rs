@@ -863,8 +863,21 @@ fn set_param(
     let previous = *slot;
     let output = Output::SetParam { previous, value };
     if previous == value {
-        // Nothing changed: nothing to undo, nothing to tell the interface.
-        return Ok(unchanged(output));
+        // Nothing changed: nothing to undo, nothing to tell the interface. A lane that drives
+        // the parameter still gives way to the gesture (#417).
+        let mut outcome = unchanged(output);
+        if let Ok(place) = place_of(state, device_id) {
+            let target = AutomationTarget::Device {
+                device: device_id.clone(),
+                param: param.to_owned(),
+            };
+            outcome.events.extend(crate::contract::gesture_unchanged(
+                &state.project,
+                place.track().as_ref(),
+                target,
+            ));
+        }
+        return Ok(outcome);
     }
     *slot = value;
     Ok(Outcome {

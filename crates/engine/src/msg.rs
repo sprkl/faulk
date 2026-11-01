@@ -38,7 +38,7 @@
 //! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
-//! | `TrackSetMix/Solo/Arm/Monitor`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
+//! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
 //! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
 //! | `DeviceRemove` | `DeviceRemove` |
 //! | `ClipNotesUpload` (last chunk), `ClipAudioSet` | `ClipPut`: the whole clip, and the page or the grown directory of the clip table |
@@ -478,6 +478,18 @@ pub enum ControlMsg {
         pan: f32,
         mute: bool,
     },
+    /// A manual gesture on a fader or a pan that left the value as it was (#417): the project
+    /// drops such a gesture as unchanged, so no `TrackSetMix` carries it, and a `TrackSetMix`
+    /// that moves neither field looks like a mute, which holds nothing. This message says the
+    /// intent: it holds the lanes that drive the fields it names (`Some`, with the fader's value
+    /// the project holds, which the engine takes again) on `track` (`TrackSlot::MASTER` for the
+    /// master) and gives the strip's field back to its fader, as a gesture that moves the value
+    /// does (AM-2). It never touches the mute nor a field it does not name.
+    HoldMix {
+        track: TrackSlot,
+        gain: Option<f32>,
+        pan: Option<f32>,
+    },
     /// Solo is session state (decision 10) but the engine renders it.
     TrackSetSolo {
         track: TrackSlot,
@@ -652,6 +664,7 @@ pub enum Tag {
     TrackArm = 14,
     TrackSetMonitor = 15,
     SelectTrack = 16,
+    HoldMix = 17,
     DeviceInsert = 20,
     DeviceRemove = 21,
     DeviceSetEnabled = 22,
@@ -684,7 +697,7 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 39] = [
+    pub const ALL: [Tag; 40] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -696,6 +709,7 @@ impl Tag {
         Tag::TrackArm,
         Tag::TrackSetMonitor,
         Tag::SelectTrack,
+        Tag::HoldMix,
         Tag::DeviceInsert,
         Tag::DeviceRemove,
         Tag::DeviceSetEnabled,
@@ -753,6 +767,7 @@ impl ControlMsg {
             ControlMsg::TrackArm { .. } => Tag::TrackArm,
             ControlMsg::TrackSetMonitor { .. } => Tag::TrackSetMonitor,
             ControlMsg::SelectTrack { .. } => Tag::SelectTrack,
+            ControlMsg::HoldMix { .. } => Tag::HoldMix,
             ControlMsg::DeviceInsert { .. } => Tag::DeviceInsert,
             ControlMsg::DeviceRemove { .. } => Tag::DeviceRemove,
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
@@ -842,6 +857,14 @@ impl ControlMsg {
             | ControlMsg::NoteOff { track: t, .. }
             | ControlMsg::AllNotesOff { track: t } => track(t),
             ControlMsg::SelectTrack { track: t } => t.as_ref().map_or(Ok(()), track),
+            // The master's strip is addressed by `TrackSlot::MASTER` here too.
+            ControlMsg::HoldMix { track: t, .. } => {
+                if t.is_master() {
+                    Ok(())
+                } else {
+                    track(t)
+                }
+            }
             ControlMsg::DeviceInsert {
                 track: t,
                 device: d,
@@ -862,7 +885,7 @@ impl ControlMsg {
                 ..
             } => {
                 // The master's chain is addressed by `TrackSlot::MASTER`, in these four
-                // messages only: any other message of a track refuses it as a slot past
+                // messages (and `HoldMix`, above) only: any other message of a track refuses it as a slot past
                 // the limit.
                 if !t.is_master() {
                     track(t)?;
@@ -1422,6 +1445,11 @@ pub enum RtMsg {
         gain: f32,
         pan: f32,
         mute: bool,
+    },
+    HoldMix {
+        track: TrackSlot,
+        gain: Option<f32>,
+        pan: Option<f32>,
     },
     TrackSetSolo {
         track: TrackSlot,

@@ -5,7 +5,7 @@
    * goes while the pointer moves. The selection, the snap, the zoom and the scroll are the page's view state,
    * not project data.
    */
-  import { untrack } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import { createClipAt, deletePlacements, duplicatePlacements, movePlacements, resizePlacement, splitPlacement } from '../../lib/arrangement-commands'
   import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
@@ -714,6 +714,7 @@
     if (!ref || !row.lane) return false
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
     if (!hit) return false
+    limitNote = null
     autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     editing = { lane: row.lane, tick: hit.tick, x: tickToX(hit.tick, shown), y: yOfPos(ref.info.axis.pos(hit.value), geoOf(row)) }
     return true
@@ -727,10 +728,23 @@
     if (!e || !ref || !point) return true
     const parsed = ref.info.axis.parse(text)
     if (parsed === null) return false
-    const value = ref.info.axis.clamp(parsed)
+    const value = ref.info.axis.clamp(parsed.value)
     if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))
+    // A text past the range is brought back to the bound, and the editor says so once the field has closed (#421, as #410 for the controls).
+    limitNote = null
+    if (parsed.limit !== undefined) sayLimited(ref.info.axis.format(ref.info.axis.clamp(parsed.limit)), e.x, e.y)
     return true
   }
+
+  /** The note an entry limited to the range leaves where the field was, for about two seconds. */
+  let limitNote = $state.raw<{ text: string; x: number; y: number } | null>(null)
+  let limitTimer: ReturnType<typeof setTimeout> | undefined
+  function sayLimited(value: string, x: number, y: number) {
+    limitNote = { text: t('controls.limited', { value }), x, y }
+    clearTimeout(limitTimer)
+    limitTimer = setTimeout(() => (limitNote = null), 2000)
+  }
+  onDestroy(() => clearTimeout(limitTimer))
 
   function duplicate(linked: boolean) {
     const by = copyShift(selection)
@@ -1130,6 +1144,9 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      {#if limitNote}
+        <p class="limit-note" role="status" data-testid="value-note" style:left="{limitNote.x}px" style:top="{limitNote.y + 14}px">{limitNote.text}</p>
+      {/if}
       {#if editing}
         <div class="anchor" bind:this={editAnchor} style:left="{editing.x}px" style:top="{editing.y}px"></div>
         {#if editAnchor}
@@ -1402,6 +1419,19 @@
   .curves {
     display: inline-flex;
     gap: 2px;
+  }
+  .limit-note {
+    position: absolute;
+    z-index: 20;
+    margin: 0;
+    padding: var(--fk-space-1) var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
+    box-shadow: var(--fk-shadow-float);
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .anchor {
     position: absolute;

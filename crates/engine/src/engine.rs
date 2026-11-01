@@ -968,6 +968,12 @@ impl Preparer {
                     mute,
                 }
             }
+            ControlMsg::HoldMix { track, gain, pan } => {
+                if !track.is_master() {
+                    self.existing_track(track)?;
+                }
+                RtMsg::HoldMix { track, gain, pan }
+            }
             ControlMsg::TrackSetSolo { track, solo } => {
                 self.existing_track(track)?;
                 RtMsg::TrackSetSolo { track, solo }
@@ -2156,6 +2162,43 @@ impl Engine {
                         });
                     }
                     None => skipped = true,
+                }
+                None
+            }
+            RtMsg::HoldMix { track, gain, pan } => {
+                // A gesture that left the value as it was (#417): take the fader's own value
+                // again (the project's, so a strip that missed a message is corrected), hold the
+                // lanes of the fields it names and give those fields back to the fader by the
+                // usual ramp. The mute is not in the message.
+                let held = |target| {
+                    (gain.is_some() && target == AutomationTarget::MixerGain)
+                        || (pan.is_some() && target == AutomationTarget::MixerPan)
+                };
+                if track.is_master() {
+                    if let Some(g) = gain {
+                        state.master.gain = g;
+                        self.graph.forget_master_gain();
+                    }
+                    if let Some(p) = pan {
+                        state.master.pan = p;
+                        self.graph.forget_master_pan();
+                    }
+                    hold_lanes(state, &self.graph, track, held);
+                } else {
+                    match state.track_mut(track) {
+                        Some(t) => {
+                            if let Some(g) = gain {
+                                t.gain = g;
+                                t.graph.forget_gain();
+                            }
+                            if let Some(p) = pan {
+                                t.pan = p;
+                                t.graph.forget_pan();
+                            }
+                            hold_lanes(state, &self.graph, track, held);
+                        }
+                        None => skipped = true,
+                    }
                 }
                 None
             }
