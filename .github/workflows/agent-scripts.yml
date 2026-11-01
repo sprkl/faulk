@@ -17,6 +17,8 @@ jobs:
     # rules (scripts/ci/) and the helper's Blob publication (its logic needs no dependency;
     # @vercel/blob is loaded for real uploads only).
     runs-on: ubuntu-latest
+    # Observed under 1 min.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:

@@ -17,7 +17,7 @@
 export const EVIDENCE = [
   {
     flag: "rust",
-    what: "cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and the WASM build of the engine, with their results",
+    what: "cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test of the crates verify.mjs selects (the touched ones and their dependents; --workspace when it says so or with --full) and the WASM builds it names, with their results (verify.mjs prints the line)",
     applies: (file) =>
       file.startsWith("crates/") ||
       file === "Cargo.toml" ||

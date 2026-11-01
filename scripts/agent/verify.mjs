@@ -1,5 +1,8 @@
 // One command to check a change before the pull request (issue #372; docs/agents/verification.md):
-//   node scripts/agent/verify.mjs [--base origin/develop] [--all] [--no-e2e] [--dry-run]
+// Targeted by default (#447): the Rust crates the diff touches and their dependents (cargo test -p), the WASM builds and parity tests only when
+// the engine or what it embeds changes, fmt and clippy of the workspace, the agent scripts' tests, and the web part: all chosen by the CI selection
+// (scripts/ci/select-core.mjs). --full (alias --all) runs everything; so does an unreadable base or workspace.
+//   node scripts/agent/verify.mjs [--base origin/develop] [--full|--all] [--no-e2e] [--dry-run]
 //                                 [--ports dev,preview,helper] [--keep-going] [--verbose] [--clean] [--prune-cache] [--fix]
 // It runs, from the web app: formatting (Prettier, as the CI does), typecheck, lint, vitest, then the end-to-end specs the diff against the
 // base touches plus the smoke tests (one table with the CI, scripts/ci/e2e-plan.mjs; the whole suite when a shared file changed). It picks free
@@ -15,7 +18,9 @@ import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dirSizeUpTo, freePorts, needsWeb, parsePorts, planE2e, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
+import { packagesFromMetadata } from '../ci/select-core.mjs'
+import { dirSizeUpTo, freePorts, parsePorts, planE2e, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
+import { evidenceLine, planVerify, rootSteps } from './verify-plan.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const web = join(root, 'web')
@@ -57,6 +62,12 @@ function changedFiles(base) {
   const tracked = git('diff', '--name-only', '--no-renames', mergeBase)
   const untracked = git('ls-files', '--others', '--exclude-standard')
   return [...new Set([...tracked, ...untracked])]
+}
+
+/** The workspace crates, from `cargo metadata` (throws when cargo cannot read it: the plan then runs everything). */
+function workspacePackages() {
+  const json = execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  return packagesFromMetadata(JSON.parse(json))
 }
 
 /** Points cargo at the shared build cache. Returns a warning for the summary when the cache is over its limit. */
@@ -103,7 +114,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 process.on('exit', stopRunning)
 
 /** Runs a command in the web app; the output is kept and shown (tail) only when it fails, or with --verbose. */
-function run(name, command, commandArgs, env) {
+function run(name, command, commandArgs, env, cwd = web) {
   return new Promise((resolve) => {
     const started = Date.now()
     const verbose = flag('--verbose')
@@ -111,8 +122,8 @@ function run(name, command, commandArgs, env) {
     // Windows resolves `pnpm` (a .cmd shim) only through a shell; the arguments are ours, never user text.
     const child =
       process.platform === 'win32'
-        ? spawn([command, ...commandArgs].join(' '), { cwd: web, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
-        : spawn(command, commandArgs, { cwd: web, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }) // own process group
+        ? spawn([command, ...commandArgs].join(' '), { cwd, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+        : spawn(command, commandArgs, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }) // own process group
     running.add(child)
     let log = ''
     const onData = (d) => {
@@ -141,15 +152,20 @@ async function main() {
   if (!listed) console.log(`cannot compare with ${base} (run "git fetch origin develop"): running the whole suite`)
   const files = listed ?? []
   const existing = specNames(readdirSync(join(web, 'tests', 'e2e')))
-  // The same plan as the CI (scripts/ci/e2e-plan.mjs): whole specs, plus the smoke tests of the others.
-  const selection = planE2e(files, existing, { all: flag('--all') || !listed })
-  const wantWeb = flag('--all') || !listed || needsWeb(files)
+  // The CI selection itself (#447, scripts/ci/select-core.mjs): crates touched and their dependents, WASM builds and
+  // parity only when the page or the engine embeds the change, and the e2e plan below. --full (or --all): everything.
+  const plan = planVerify({ files: listed, full: flag('--full') || flag('--all'), packages: workspacePackages, specs: () => existing })
+  const decision = plan.decision
+  const webFiles = files.filter((f) => f.replaceAll('\\', '/').startsWith('web/'))
+  const selection = planE2e(webFiles, existing, { all: plan.mode === 'full' || decision.e2eAll })
+  const wantWeb = plan.mode === 'full' || decision.web
   if (selection.run && selection.all && !selection.specs.length) throw new Error('no end-to-end spec found in web/tests/e2e')
   const noE2e = flag('--no-e2e') || !wantWeb || !selection.run
   const specs = noE2e ? [] : selection.specs
   const smoke = noE2e ? [] : selection.smoke
 
   if (flag('--dry-run')) {
+    console.log(`mode ${plan.mode} (${plan.why})\nrust: ${rootSteps(decision).map((s) => s.name).join(', ') || 'none'}\n${evidenceLine({ mode: plan.mode, base, decision })}`)
     console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\nspecs (${specs.length}${selection.all ? ', whole suite' : ''}): ${specs.join(', ')}\nsmoke only (${smoke.length}): ${smoke.join(', ')}`)
     for (const [why, list] of Object.entries(selection.reasons)) console.log(`  ${why}: ${list.join(', ')}`)
     return 0
@@ -165,13 +181,26 @@ async function main() {
   }
 
   let proceed = true
-  if (!wantWeb) {
-    steps.push({ name: 'web checks', ok: true, skipped: true, ms: 0, note: 'no change under web/, crates/ or the build inputs' })
+  // Rust and the other root steps first (cheap failures first); the agent scripts step may fail on Windows for
+  // reasons that predate the change: the summary names the step, --keep-going runs the rest.
+  for (const s of rootSteps(decision)) {
+    if (!proceed) break
+    const glob = process.platform === 'win32' ? s.args.map((a) => (a.includes('*') ? `"${a}"` : a)) : s.args
+    const step = await run(s.name, s.command, glob, env, s.cwd ? join(root, s.cwd) : root)
+    steps.push(step)
+    proceed = step.ok || flag('--keep-going')
+  }
+  if (!proceed) {
+    // a root step failed: the web steps are not run
+  } else if (!wantWeb) {
+    steps.push({ name: 'web checks', ok: true, skipped: true, ms: 0, note: 'no change the page is built from' })
   } else {
     if (!existsSync(join(web, 'node_modules'))) proceed = await go('install', 'pnpm', ['install', '--frozen-lockfile'])
     // --fix: the auto-fixable lint first, then the formatter, which has the last word on layout (as in the PostToolUse hook).
     if (proceed && flag('--fix')) proceed = await go('lint (fix)', 'pnpm', ['lint', '--fix'])
     if (proceed) proceed = flag('--fix') ? await go('format (fix)', 'pnpm', ['format']) : await go('format', 'pnpm', ['format:check'])
+    // The CI `checks` job also runs gen:check: the generated protocol files match the Rust crates.
+    if (proceed && !flag('--fix')) proceed = await go('gen:check', 'pnpm', ['gen:check'])
     if (proceed) proceed = await go('typecheck', 'pnpm', ['typecheck'])
     if (proceed && !flag('--fix')) proceed = await go('lint', 'pnpm', ['lint'])
     // `pnpm test` also builds the two WASM modules the dev server serves.
@@ -202,6 +231,7 @@ async function main() {
   }
 
   console.log(`\n${summary(steps, { base, files, specs, smoke, all: selection.all })}`)
+  console.log(`mode: ${plan.mode} (${plan.why})\nfor record.mjs --rust: ${evidenceLine({ mode: plan.mode, base, decision })}`)
   if (cacheWarning) console.log(cacheWarning)
   console.log(`total ${((Date.now() - started) / 1000).toFixed(0)} s wall`)
   if (flag('--clean')) {
