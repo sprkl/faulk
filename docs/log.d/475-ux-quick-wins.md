@@ -1,0 +1,2 @@
+2026-11-01
+* **Update**: quick wins of the design review (#475, epic #468): the app opens on the arrangement or on the view used last, each view keeps its zoom and scroll across a switch, new tracks cycle the 16 DS-0.1 hues and the track colour is picked from that palette, plus accessibility fixes (panel handle focus, value buttons and Snap select names, 11 px Automate pills). Stored track colours are untouched.

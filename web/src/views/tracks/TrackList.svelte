@@ -9,7 +9,7 @@
   import { useStores } from '../../lib/stores'
   import { createTrack, moveTrack, redo, selectTrack, undo } from '../../lib/track-commands'
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher, keys } = useStores()
   const t = ui.t
 
   // A project that opens with no selected track selects its first, once: the computer keyboard plays the
@@ -74,6 +74,15 @@
     <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())}>{t('tracks.undo')}</button>
     <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => dispatcher.run(redo())}>{t('tracks.redo')}</button>
   </div>
+  <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
+  <button
+    class="ghost typing"
+    type="button"
+    data-testid="typing-mode"
+    data-mode={ui.typing}
+    title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
+    onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
+  >
 
   {#if !engine.started && !project.view}
     <p class="empty" data-testid="tracks-waiting">{t('tracks.waiting')}</p>
@@ -141,6 +150,15 @@
     display: flex;
     align-items: center;
     gap: var(--fk-space-2);
+  }
+  .typing {
+    align-self: flex-start;
+  }
+  /* Typing notes: the button is filled in the text colour (the words say it too), never a hue. */
+  .typing[data-mode='notes'] {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .head h2 {
     flex: 1;

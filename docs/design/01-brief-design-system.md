@@ -29,3 +29,7 @@ Le canvas [Faulk DS-0.1](https://claude.ai/artifact/FrH1dzkY5Xgyn7JdgsU4eQ) fait
 ## Questions ouvertes
 
 Piste de logo, vue unifiée clips et timeline à prototyper.
+
+## Contexte pour les agents (2026-11-01)
+
+Trois fichiers à la racine du dépôt traduisent ce brief pour les agents de design (impeccable) : [`PRODUCT.md`](../../PRODUCT.md) (cible, positionnement, principes, accessibilité), [`DESIGN.md`](../../DESIGN.md) (le système visuel « The Swiss Instrument », ses tokens et ses règles, avec les écarts actuels entre le canvas DS-0.1 et le code) et `.impeccable/design.json` (sa version lisible par l'outil). Le canvas DS-0.1 reste la référence visuelle : `DESIGN.md` en est la traduction écrite, et en cas d'écart le canvas prime jusqu'à ce que `DESIGN.md` soit mis à jour. Décisions du fondateur du 2026-11-01 : l'app vise les producteurs confirmés sur grands écrans (1440 px et plus, pas de tablette), densité confort par défaut, et les actions d'un agent sont visibles, attribuées et annulables.

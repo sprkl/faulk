@@ -1,4 +1,4 @@
-import { clampOctave, defaultOctave, noteForKey, octaveStep, playsNote } from '../keyboard'
+import { clampOctave, defaultOctave, noteForKey, octaveStep, playsNote, TYPING_TOGGLE_CODE } from '../keyboard'
 import { instrumentKind, isMidi, trackLabel } from '../project/tracks'
 import { inputNoteOff, inputNoteOn } from '../synth-commands'
 import type { Dispatcher } from './dispatcher'
@@ -46,8 +46,20 @@ export class KeyboardPlayer {
     this.held.clear()
   }
 
+  /** Switches musical typing; the held notes end, so none outlives the mode that played it. */
+  toggleTyping() {
+    this.releaseAll()
+    this.ui.typing = this.ui.typing === 'notes' ? 'shortcuts' : 'notes'
+  }
+
   keyDown(event: KeyboardEvent) {
-    if (!this.engine.started || !playsNote(event)) return
+    if (!playsNote(event)) return
+    if (event.code === TYPING_TOGGLE_CODE && !event.shiftKey) {
+      this.toggleTyping()
+      return
+    }
+    // Musical typing off: the letters are no notes (the MIDI controller and the on-screen keys are not concerned).
+    if (!this.engine.started || this.ui.typing !== 'notes') return
     const step = octaveStep(event.code)
     if (step !== 0) {
       this.releaseAll()

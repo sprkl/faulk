@@ -7,9 +7,10 @@
    * input (MIDI controller) besides the selected one; recording itself comes with RE-2.
    */
   import { tick } from 'svelte'
+  import ColorPicker from './ColorPicker.svelte'
   import GainControl from './GainControl.svelte'
   import PanControl from './PanControl.svelte'
-  import { copyName, formatGain, formatPan, instrumentName, NO_COLOR, trackLabel, type DragHooks, type TrackEntry } from '../project/tracks'
+  import { copyName, formatGain, formatPan, instrumentName, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../project/tracks'
   import { useStores } from '../stores'
   import { armTrack, deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
 
@@ -42,6 +43,7 @@
 
   const track = $derived(entry.track)
   const label = $derived(trackLabel(entry, t))
+  const color = $derived(trackColor(track.color, entry.index))
   const instrument = $derived(instrumentName(track))
   const mixer = $derived(track.mixer)
   // A lane that drives the volume or the pan moves the control with the play position, and marks it (AM-4, #388).
@@ -92,6 +94,7 @@
 
   // --- the actions menu: rename, move, duplicate, delete (each one command, one history entry) ---------
   let menuOpen = $state(false)
+  let picking = $state(false)
   let root = $state<HTMLElement | null>(null)
 
   const focusMore = () => void tick().then(() => root?.querySelector<HTMLElement>('.more')?.focus())
@@ -184,7 +187,7 @@
 <li
   class="header"
   class:selected
-  class:open={menuOpen}
+  class:open={menuOpen || picking}
   class:dragging
   class:drop-target={dropTarget}
   class:muted={mixer.mute}
@@ -193,7 +196,7 @@
   onfocusout={onRootFocusOut}
   ondragover={onDragOver}
   ondrop={onDrop}
-  style:--track-color={track.color ?? NO_COLOR}
+  style:--track-color={color}
   data-testid="track-header"
   data-track={entry.id}
   aria-current={selected ? 'true' : undefined}
@@ -216,14 +219,7 @@
         >
       </span>
     {/if}
-    <label class="swatch" title={t('tracks.color', { name: label })}>
-      <input
-        type="color"
-        value={track.color ?? NO_COLOR}
-        aria-label={t('tracks.color', { name: label })}
-        onchange={(e) => dispatcher.run(setTrackColor(entry.id, e.currentTarget.value))}
-      />
-    </label>
+    <ColorPicker bind:open={picking} {color} stored={track.color ?? null} name={label} onpick={(picked) => dispatcher.run(setTrackColor(entry.id, picked))} />
     {#if renaming}
       <input
         class="rename"
@@ -301,7 +297,7 @@
           aria-label={t('tracks.arm', { name: label })}
           title={t('tracks.armHint', { name: label })}
           data-testid="track-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
         >
       {/if}
       <GainControl
@@ -315,6 +311,7 @@
         class="value readout"
         type="button"
         tabindex="-1"
+        aria-label={t('controls.valueOf', { name: t('tracks.volume', { name: label }), value: `${formatGain(shownGain)} dB` })}
         title={t('controls.type')}
         data-testid="track-gain-readout"
         onmousedown={(e) => e.preventDefault()}
@@ -334,6 +331,7 @@
         class="value readout"
         type="button"
         tabindex="-1"
+        aria-label={t('controls.valueOf', { name: t('tracks.pan', { name: label }), value: formatPan(shownPan) })}
         title={t('controls.type')}
         data-testid="track-pan-readout"
         onmousedown={(e) => e.preventDefault()}
@@ -435,28 +433,6 @@
     gap: var(--fk-space-2);
     min-width: 0;
   }
-  .swatch {
-    position: relative;
-    flex: none;
-    width: 14px;
-    height: 14px;
-    border-radius: var(--fk-radius-work);
-    background: var(--track-color);
-    cursor: pointer;
-    overflow: hidden;
-  }
-  .swatch input {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    cursor: pointer;
-  }
-  .swatch:focus-within {
-    outline: 2px solid var(--fk-accent-fg);
-    outline-offset: 2px;
-  }
   .name,
   .rename {
     flex: 1;
@@ -536,9 +512,9 @@
     color: #131211;
   }
   .arm[aria-pressed='true'] {
-    background: var(--fk-rec);
-    border-color: var(--fk-rec);
-    color: #131211;
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .readout {
     border: 0;

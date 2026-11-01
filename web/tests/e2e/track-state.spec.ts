@@ -72,7 +72,7 @@ test('mute, solo, arm and the implied mute are letters and shapes on every lane'
   for (let i = 0; i < 3; i++) {
     await expect(mute(i)).toHaveText('M')
     await expect(solo(i)).toHaveText('S')
-    await expect(rows.nth(i).getByTestId('arr-arm')).toHaveText('R')
+    await expect(rows.nth(i).getByTestId('arr-arm')).toHaveText('In')
     await expect(rows.nth(i).getByTestId('arr-meter')).toBeVisible()
   }
   await expect(page.getByTestId('arr-master-meter')).toBeVisible()

@@ -28,12 +28,12 @@
   import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { instrumentNamedKeys, isMidi } from '../../lib/project/tracks'
+  import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
   import { sortedScenes } from '../grid/cells'
-  import { clipLabel, clipOrigin, editedClip, midiClips, type MidiClip } from './clips'
+  import { clipLabel, clipOrigin, editedClip, ghostNotes, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
@@ -111,6 +111,10 @@
     const named = track ? instrumentNamedKeys(track.track) : []
     return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
   })
+  // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
+  const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '#8f8a85')
+  let showOthers = $state(true)
+  const others = $derived(showOthers && track ? ghostNotes(project.tracks, track.id, edited, track.track) : [])
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
@@ -164,8 +168,10 @@
   // View state.
   let tool = $state<Tool>('draw')
   let snap = $state<SnapSetting>('auto')
-  let view = $state<View>({ pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(0)
+  // Zoom and scroll of the clip come back when the panel returns to the roll (it is torn down when another tab is shown).
+  const left = ui.recall<{ clip: string | null; view: View; scrollY: number }>('piano-roll')
+  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(left?.scrollY ?? 0)
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
@@ -270,11 +276,11 @@
   let stage: HTMLDivElement | undefined = $state()
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) =>
-    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown, names: keyNames })
+    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown, names: keyNames, trackColor, others })
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others]
     grid?.invalidate()
   })
 
@@ -285,7 +291,7 @@
   })
 
   // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
-  let openedFor: string | null = null
+  let openedFor: string | null = left?.clip ?? null
   $effect(() => {
     const id = edited?.id ?? null
     if (id === openedFor) return
@@ -329,7 +335,10 @@
     }, wait)
   }
 
-  onDestroy(() => sound(null))
+  onDestroy(() => {
+    ui.remember('piano-roll', { clip: openedFor, view, scrollY })
+    sound(null)
+  })
 
   // --- gestures ---------------------------------------------------------------------------------
 
@@ -787,7 +796,7 @@
       </div>
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
-        <select data-testid="roll-snap" bind:value={snap}>
+        <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
           {#each SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}
@@ -817,6 +826,9 @@
         >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
+      <button aria-pressed={showOthers} title={t('pianoRoll.othersHint')} data-testid="roll-others" onclick={() => (showOthers = !showOthers)}
+        >{t('pianoRoll.others')}</button
+      >
       <button disabled={chosenNotes.length === 0} data-testid="roll-delete" onclick={removeSelected}>{t('pianoRoll.delete')}</button>
       <div class="group" role="group" aria-label={t('pianoRoll.edit')}>
         <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}

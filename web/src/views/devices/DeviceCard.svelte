@@ -218,7 +218,7 @@
     border-radius: var(--fk-radius-pill);
     background: transparent;
     color: var(--fk-text-muted);
-    font-size: 10px;
+    font-size: 11px;
     cursor: pointer;
   }
   .param-automate:hover {

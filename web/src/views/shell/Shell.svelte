@@ -11,7 +11,7 @@
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
-  import { DEFAULT_PANEL, DEFAULT_VIEW, viewById } from '../registry'
+  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import ExportDialog from './ExportDialog.svelte'
@@ -20,7 +20,7 @@
   import TrackList from '../tracks/TrackList.svelte'
 
   // `stores` is for tests; the page lets the shell create its own.
-  let { stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL) }: { stores?: Stores } = $props()
+  let { stores = createStores(startView(), DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
   const { engine, ui, dispatcher, storage, keys, meters } = provideStores(stores)
 

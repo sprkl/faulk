@@ -56,14 +56,60 @@ export const INSTRUMENTS = DEVICES.filter((d) => d.role === 'instrument').map((d
 /** The kind of a track, as the page tells MIDI from audio. */
 export const isMidi = (track: Track): boolean => track.kind === ('midi' satisfies TrackKind)
 
-/** Colours the new tracks take in turn, readable on the light and the dark theme. */
-export const TRACK_COLORS = ['#ff6b5b', '#f2a33a', '#e6c84a', '#58c27d', '#3fb8c9', '#5b8def', '#9b72f2', '#e86fb0'] as const
+/**
+ * The sixteen track hues of the design system (DS-0.1: `track-01` to `track-16` of DESIGN.md), equally
+ * bright, readable on the light and the dark theme. New tracks take them in turn and the colour picker offers them.
+ */
+export const TRACK_COLORS = [
+  '#f08098',
+  '#f18a76',
+  '#ea9356',
+  '#d99e3f',
+  '#c1ab3c',
+  '#a0b751',
+  '#79bf72',
+  '#4ac495',
+  '#00c5b7',
+  '#00c1d5',
+  '#3bb9ed',
+  '#6bafff',
+  '#92a4fc',
+  '#b299f3',
+  '#cd90e0',
+  '#e189c5',
+] as const
 
 /** The colour of the next track created, given how many tracks exist. */
 export const nextColor = (count: number): string => TRACK_COLORS[count % TRACK_COLORS.length]
 
-/** The colour a track without one shows. */
-export const NO_COLOR = '#8f8a85'
+/** The colour a track shows: the one stored, else the hue its position in the list would have got. */
+export const trackColor = (stored: string | null | undefined, index: number): string => stored ?? TRACK_COLORS[Math.abs(index) % TRACK_COLORS.length]
+
+/** The colour of the master's swatch and lanes (the master is no track and has no hue). */
+export const MASTER_COLOR = '#8f8a85'
+
+/** The message keys naming the palette colours, in the order of `TRACK_COLORS`. */
+export const HUE_KEYS = [
+  'tracks.hue.1',
+  'tracks.hue.2',
+  'tracks.hue.3',
+  'tracks.hue.4',
+  'tracks.hue.5',
+  'tracks.hue.6',
+  'tracks.hue.7',
+  'tracks.hue.8',
+  'tracks.hue.9',
+  'tracks.hue.10',
+  'tracks.hue.11',
+  'tracks.hue.12',
+  'tracks.hue.13',
+  'tracks.hue.14',
+  'tracks.hue.15',
+  'tracks.hue.16',
+] as const
+
+/** The message key naming a palette colour, or null for a colour outside the palette. */
+export const hueKey = (color: string): (typeof HUE_KEYS)[number] | null => HUE_KEYS[TRACK_COLORS.findIndex((c) => c === color.toLowerCase())] ?? null
 
 /** The lowest finite gain a command accepts, in dB; the fader's bottom stands for silence (`null`). */
 export const MIN_GAIN_DB = -96
