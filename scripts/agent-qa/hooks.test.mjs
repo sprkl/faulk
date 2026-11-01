@@ -363,17 +363,28 @@ describe("Stop hook: what blocks", () => {
     const markerFiles = (root) =>
       readdirSync(qa(root, "sessions", "s1")).filter((name) => name.startsWith("wrote-"));
 
-    it("is settled silently when its last commit is in develop", () => {
+    it("still warns when its last commit is only in the local develop (an unpushed merge)", () => {
       const root = wroteAndLeft();
       assert.equal(markerFiles(root).length, 1);
       git(root, "merge", "-q", "--no-ff", "-m", "merge", "feat/6-x");
       git(root, "branch", "-d", "feat/6-x");
-      assert.equal(stop(root), null);
-      assert.equal(markerFiles(root).length, 0);
-      assert.equal(stop(root), null);
+      assert.match(stop(root).systemMessage, WARNING);
+      assert.equal(markerFiles(root).length, 1);
     });
 
-    it("is settled when only origin/develop contains its last commit", () => {
+    it("warns again when a warned branch comes back and is lost again", () => {
+      const root = wroteAndLeft();
+      const tip = git(root, "rev-parse", "feat/6-x").trim();
+      git(root, "branch", "-D", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+      assert.equal(stop(root), null); // warned once
+      git(root, "branch", "feat/6-x", tip);
+      assert.equal(stop(root), null); // the ref exists: the flag is cleared
+      git(root, "branch", "-D", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+    });
+
+    it("is settled silently when origin/develop contains its last commit", () => {
       const root = wroteAndLeft();
       git(root, "merge", "-q", "--no-ff", "-m", "merge", "feat/6-x");
       git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");

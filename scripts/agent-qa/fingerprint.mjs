@@ -231,12 +231,12 @@ export function refTip(cwd, ref) {
   }
 }
 
-/** Whether the commit `tip` is contained in `origin/develop` or in the local `develop`. */
+/** Whether the commit `tip` is contained in `origin/develop` (the local remote-tracking ref, no fetch): an unpushed local merge is not settled. */
 export function mergedIntoDevelop(cwd, tip) {
   if (!/^[0-9a-f]{40}$/.test(String(tip))) {
     return false;
   }
-  return ["origin/develop", "develop"].some((develop) => {
+  return ["origin/develop"].some((develop) => {
     try {
       git(cwd, "merge-base", "--is-ancestor", tip, develop);
       return true;
