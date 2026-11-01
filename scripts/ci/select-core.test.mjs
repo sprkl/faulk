@@ -140,7 +140,7 @@ test('scripts/ and .claude/ run only the agent scripts job', () => {
   }
 })
 
-test('each workflow file runs the job it defines, and release-helper.yml alone runs nothing here', () => {
+test('each workflow file runs the job it defines, and release-helper.yml runs only the scripts tests here', () => {
   assert.equal(pr(['.github/workflows/ci.yml']).web, true)
   assert.equal(pr(['.github/workflows/ci.yml']).e2e, 'dev')
   const rust = pr(['.github/workflows/rust.yml'])
@@ -148,6 +148,7 @@ test('each workflow file runs the job it defines, and release-helper.yml alone r
   assert.equal(rust.helperWindows, true)
   assert.equal(pr(['.github/workflows/agent-scripts.yml']).agentScripts, true)
   assert.equal(pr(['.github/workflows/release-helper.yml']).web, false)
+  assert.equal(pr(['.github/workflows/release-helper.yml']).agentScripts, true)
 })
 
 test('a change to the selection rules runs everything', () => {
