@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command } from '../generated/protocol'
 import { UiStore } from '../stores/ui.svelte'
 import { storesContext, type Stores } from '../stores'
-import { setMasterVolume, setPan, setVolume } from '../track-commands'
+import { setMasterPan, setMasterVolume, setPan, setVolume } from '../track-commands'
 import GainControl from './GainControl.svelte'
 import PanControl from './PanControl.svelte'
 
@@ -204,6 +204,12 @@ describe('a pan control', () => {
     const centred = setup(PanControl, pan(0))
     centred.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(sent).toEqual([])
+  })
+
+  it('sends the master pan command when it has no track, and centres it on a double click', () => {
+    const slider = setup(PanControl, { track: null, pan: -0.5, label: 'Master pan' })
+    slider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(sent).toEqual([setMasterPan(0)])
   })
 
   it('shows the centre in the menu and resets from it', () => {

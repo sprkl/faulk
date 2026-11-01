@@ -28,6 +28,7 @@ pub mod midi;
 pub mod mixer;
 pub mod note;
 pub mod project;
+pub mod query;
 pub mod record;
 pub mod scene;
 pub mod track;

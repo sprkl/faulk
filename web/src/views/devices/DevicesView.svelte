@@ -32,7 +32,7 @@
     <DeviceBrowser track={selected.id} midi={isMidi(selected.track)} {chain} />
     <div class="chain" role="group" aria-label={t('devices.chain', { name: trackLabel(selected, t) })} data-testid="device-chain">
       {#each chain as entry (entry.id)}
-        <DeviceCard {entry} {chain} />
+        <DeviceCard {entry} {chain} track={selected.id} />
       {/each}
     </div>
   </div>
