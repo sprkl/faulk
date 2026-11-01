@@ -340,6 +340,16 @@ pub fn messages() -> Vec<Phase> {
             pan: 0.1,
             mute: false,
         },
+        M::HoldMix {
+            track: synth_track,
+            gain: Some(1.0),
+            pan: Some(0.0),
+        },
+        M::HoldMix {
+            track: TrackSlot::MASTER,
+            gain: Some(1.0),
+            pan: Some(0.0),
+        },
     ];
     for (track, device, desc) in placed.iter().chain(&master_placed) {
         mix.push(M::DeviceSetEnabled {

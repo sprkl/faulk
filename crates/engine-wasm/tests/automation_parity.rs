@@ -181,6 +181,65 @@ fn a_stop_and_a_stopped_seek_apply_the_lanes_in_both_targets() {
     );
 }
 
+/// A fader gesture that sets the value the project already holds (#417) is dropped by the
+/// command as unchanged, yet it holds the lane: through the compiler (`HoldMix`) and the
+/// engine, the strip goes back to its fader and stays there until the next seek, the same
+/// natively and in WASM. A mute that repeats the fader holds nothing.
+#[test]
+fn an_unchanged_fader_gesture_holds_the_lane_in_both_targets() {
+    let mut s = Session::single_synth();
+    let track = s.state().project.tracks.keys().next().unwrap().clone();
+    let stored = s.state().project.tracks[&track].mixer.gain_db;
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        vec![point(0, -24.0, Shape::Step)],
+    );
+    s.note_on(57, 110).render_secs(0.5);
+    // Stopped: the lane's -24 dB sounds. A mute on and off keeps the lane: nothing is held.
+    s.run(Command::Mixer(mixer::Command::SetMute {
+        track: track.clone(),
+        mute: true,
+    }))
+    .render_secs(0.2);
+    s.run(Command::Mixer(mixer::Command::SetMute {
+        track: track.clone(),
+        mute: false,
+    }))
+    .render_secs(0.5);
+    // The same volume again: the project does not change, the lane gives way.
+    s.run(Command::Mixer(mixer::Command::SetVolume {
+        track,
+        gain_db: Some(stored),
+    }))
+    .render_secs(0.5);
+    // A seek gives the lane the hand back.
+    s.run(Command::Transport(transport::Command::Seek {
+        tick: Tick(0),
+    }))
+    .render_secs(0.5);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    let lane_level = r.rms_in(0.2..0.5);
+    let after_mute = r.rms_in(1.0..1.2);
+    assert!(
+        (20.0 * (after_mute / lane_level).log10()).abs() < 2.0,
+        "{after_mute} after the mute: the lane still plays"
+    );
+    let held = r.rms_in(1.4..1.7);
+    assert!(
+        (20.0 * (held / lane_level).log10() - 24.0).abs() < 2.0,
+        "{held} under the unchanged gesture: the fader at 0 dB"
+    );
+    let back = r.rms_in(2.0..2.2);
+    assert!(
+        (20.0 * (back / lane_level).log10()).abs() < 2.0,
+        "{back} after the seek"
+    );
+}
+
 /// A two-bar fade from 0 dB to -96 dB (#389) is the same natively and in WASM, and it goes
 /// down along the fader's travel: at the bar line the position is half way, 0.39, which the
 /// taper makes -21 dB (the amplitude law would give -6 dB there, the dB law -48 dB).

@@ -457,6 +457,8 @@ fn what_would_leave_the_timeline_is_refused_and_changes_nothing() {
         delete(0, 0),
         delete(-1, 10),
         delete(max - 5, 10),
+        delete(i64::MIN, i64::MAX),
+        delete(-1, i64::MAX),
     ] {
         let error = check_refusal(&command, &f.state, &context()).unwrap();
         assert!(matches!(error, CommandError::Invalid { .. }), "{command:?}");

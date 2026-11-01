@@ -1736,8 +1736,11 @@ fn delete_time(
     if end <= start {
         return Err(invalid("to", "`to` must be after `from`"));
     }
-    check_cut(start, end - start, "to")?;
-    let length = end - start;
+    // Checked: the two ticks come from the caller and may be extreme.
+    let length = end
+        .checked_sub(start)
+        .ok_or_else(|| invalid("to", "the cut is too long"))?;
+    check_cut(start, length, "to")?;
     let project = &state.project;
     let (mut removed, mut cut, mut shifted) = (0u32, 0u32, 0u32);
     let works = time_works(project, |work| {

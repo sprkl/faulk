@@ -1,0 +1,2 @@
+2026-11-01
+* **Update** (#434): CL-3 follow-up: a note added or removed before a sounding note of an edited clip no longer cuts it (the cursor gives a carried note the voice id it sounds under, matched by start, length and pitch at the swap); sounding notes the edit changes or removes are ended by their own note-off, the live notes of the track untouched; `docs/specs/02-decoupage-mvp.md` CL-3 follows.

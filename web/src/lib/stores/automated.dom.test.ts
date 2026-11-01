@@ -9,7 +9,7 @@ import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
 import { applyEffects, type EffectPorts } from './effects'
-import { setMasterVolume, setVolume } from '../track-commands'
+import { setMasterVolume, setPan, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
@@ -22,15 +22,20 @@ beforeAll(async () => {
 
 function session() {
   const core = ProjectCore.create(module, 'single_synth', 1)
+  // An engine to compile for: without its snapshot the compiler has no slot to name.
+  core.setup()
   const project = new ProjectStore()
   project.show(core.project())
   const engine = new EngineStore()
   const ui = new UiStore('play', 'devices')
   ui.lang = 'en'
   const automated = new AutomatedValues(project, engine, ui)
+  /** The engine bytes the last command produced: what the compiler sends to the engine. */
+  let sent: Uint8Array = new Uint8Array(0)
   const run = (command: Command) => {
-    const { report } = core.run(command)
+    const { report, engine: bytes } = core.run(command)
     if (report.status !== 'applied') throw new Error(JSON.stringify(report))
+    sent = bytes
     project.apply(report.events, () => core.project())
   }
   const track = project.tracks[0]!
@@ -45,8 +50,14 @@ function session() {
   const play = (tick: number) => report('playing', tick)
   /** The transport is stopped with the playhead at `tick` (a stop, or a seek while stopped). */
   const stop = (tick: number) => report('stopped', tick)
+  /** The project is written to its folder: the next change shows as unsaved. */
+  const saved = () => {
+    const frame = core.save('everything')
+    if (frame.status !== 'ok') throw new Error(frame.message)
+    core.saved(true)
+  }
   const lane = (n = 0) => Object.keys(project.tracks[0]!.track.automation)[n]!
-  return { project, engine, automated, ui, run, track: track.id, synth, play, stop, lane }
+  return { project, engine, automated, ui, run, core, saved, sent: () => sent, track: track.id, synth, play, stop, lane }
 }
 
 describe('the value of a lane at the play position', () => {
@@ -227,6 +238,138 @@ describe('a change of the parameter while the lane plays', () => {
     s.run(setDeviceParam(s.synth, 'sustain', 0.9))
     applyEffects({ type: 'transport.seek', tick: 0 }, ports)
     expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+  })
+})
+
+/** The tags of the engine messages in a stream (`crates/engine/src/msg.rs`: 16-byte header, tag at 2, length at 8, next message on a 4-byte boundary). */
+function tagsOf(bytes: Uint8Array): number[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const tags: number[] = []
+  for (let at = 0; at + 16 <= bytes.length; at += Math.ceil((16 + view.getUint32(at + 8, true)) / 4) * 4) tags.push(view.getUint16(at + 2, true))
+  return tags
+}
+const HOLD_MIX = 17
+const PARAM_SET = 23
+const TRACK_SET_MIX = 12
+
+describe('a gesture that leaves the value as the project holds it (#417)', () => {
+  it('holds a device lane, through the compiler (ParamSet) and in the page', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: 0.2, shape: 'linear' },
+        { tick: 1000, value: 0.8, shape: 'linear' },
+        { tick: 2000, value: 0.5, shape: 'linear' },
+      ]),
+    )
+    s.play(250)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.35, 6)
+    const stored = s.project.tracks[0]!.track.devices[s.synth]!.params['sustain']!
+    s.saved()
+    s.run(setDeviceParam(s.synth, 'sustain', stored))
+    // The compiler tells the engine (a ParamSet holds its lanes), and nothing changed in the project.
+    expect(tagsOf(s.sent())).toEqual([PARAM_SET])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    s.play(999)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    s.play(1000)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.8)
+  })
+
+  it('holds the volume lane of a track, and only the volume (the compiler sends a HoldMix, never a TrackSetMix)', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: -12, shape: 'step' },
+        { tick: 1000, value: 0, shape: 'step' },
+      ]),
+    )
+    s.play(600)
+    expect(s.automated.mixer(s.track, 'gain')).toBe(-12)
+    s.saved()
+    s.run(setVolume(s.track, s.project.tracks[0]!.track.mixer.gain_db ?? null))
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.core.dirty()).toBe(false)
+    s.play(700)
+    expect(s.automated.mixer(s.track, 'gain')).toBeUndefined()
+    s.play(1000)
+    expect(s.automated.mixer(s.track, 'gain')).toBe(0)
+    // A mute never holds: the compiler sends the strip, and the page keeps following the lane.
+    s.run({ type: 'mixer.set_mute', track: s.track, mute: true })
+    expect(tagsOf(s.sent())).toEqual([TRACK_SET_MIX])
+    expect(s.automated.mixer(s.track, 'gain')).toBe(0)
+  })
+
+  it('holds the master lanes, and a mute of a track changes nothing there', () => {
+    const s = session()
+    s.run(createMasterLane({ mixer: { param: 'pan' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!)[0]!
+    s.run(
+      addPoints(lane, [
+        { tick: 0, value: -0.5, shape: 'step' },
+        { tick: 1000, value: 0.5, shape: 'step' },
+      ]),
+    )
+    s.play(300)
+    expect(s.automated.mixer('master', 'pan')).toBe(-0.5)
+    // The master's pan is at its stored value (0): a gesture that sets it again.
+    s.saved()
+    s.run({ type: 'mixer.set_master_pan', pan: s.project.view!.project.master.pan })
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.mixer('master', 'pan')).toBeUndefined()
+    s.stop(300)
+    expect(s.automated.mixer('master', 'pan')).toBe(-0.5)
+  })
+
+  it('holds the pan of a track, the volume of the master and a parameter of a master effect the same way', () => {
+    const s = session()
+    // The pan of the track.
+    s.run(createLane(s.track, { mixer: { param: 'pan' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -0.5, shape: 'step' }]))
+    s.play(100)
+    expect(s.automated.mixer(s.track, 'pan')).toBe(-0.5)
+    s.saved()
+    s.run(setPan(s.track, s.project.tracks[0]!.track.mixer.pan))
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.automated.mixer(s.track, 'pan')).toBeUndefined()
+    // The master's volume.
+    s.run(createMasterLane({ mixer: { param: 'gain' } }))
+    const volume = Object.keys(s.project.view!.project.master_automation!)[0]!
+    s.run(addPoints(volume, [{ tick: 0, value: -12, shape: 'step' }]))
+    s.stop(100)
+    expect(s.automated.mixer('master', 'gain')).toBe(-12)
+    s.saved()
+    s.run(setMasterVolume(s.project.view!.project.master.gain_db ?? null))
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    // A parameter of a master effect.
+    s.run(insertMasterEffect('faulk.compressor', 0))
+    const effect = Object.keys(s.project.view!.project.master_devices!)[0]!
+    s.run(createMasterLane({ device: { device: effect, param: 'threshold' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!).find((id) => id !== volume)!
+    s.run(addPoints(lane, [{ tick: 0, value: -20, shape: 'step' }]))
+    s.stop(110)
+    expect(s.automated.device(effect, 'threshold')).toBe(-20)
+    s.saved()
+    s.run(setDeviceParam(effect, 'threshold', s.project.view!.project.master_devices![effect]!.params['threshold']!))
+    expect(tagsOf(s.sent())).toEqual([PARAM_SET])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.device(effect, 'threshold')).toBeUndefined()
+  })
+
+  it('does not hold a control no lane with a point drives', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    s.play(300)
+    s.saved()
+    s.run(setVolume(s.track, s.project.tracks[0]!.track.mixer.gain_db ?? null))
+    expect(s.sent().length).toBe(0)
+    expect(s.core.dirty()).toBe(false)
   })
 })
 

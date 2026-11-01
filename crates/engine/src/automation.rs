@@ -68,6 +68,11 @@
 //! over at that point's sample (after the last point: until the next jump). A jump (play,
 //! seek, loop wrap) gives every parameter back to its lanes at once.
 //!
+//! A gesture that leaves the value as the project holds it is no `TrackSetMix` that moves
+//! (the engine could not tell it from a mute): the page says so by `HoldMix`, which holds the
+//! lanes of the fields it names, takes the fader value it carries and gives the strip's field
+//! back to the fader (#417). A `ParamSet` holds its lanes whatever its value.
+//!
 //! # Stopped (#388)
 //!
 //! What sounds is what the page shows: when the clock stops, and at every seek while it is
