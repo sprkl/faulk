@@ -55,7 +55,8 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   // the project back (the ids of what they made, for the next command).
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     Object.assign(window, {
-      __faulkRun: (command: Command) => dispatcher.run(command),
+      // `author` runs the command as that author (`agent:<name>`), as the agents' relay will (AG-1).
+      __faulkRun: (command: Command, author?: string) => dispatcher.run(command, { author }),
       __faulkView: () => project.view,
       // The answer of `project.list_stored` (`storage-commands.spec.ts`).
       __faulkStored: () => dispatcher.listStored(),
