@@ -8,6 +8,7 @@
 import { RULER_HEIGHT, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
 import { tickToX, type View } from '../../lib/components/timegrid/grid'
 import type { Note, TickLoop } from '../../lib/generated/protocol'
+import type { GhostNote } from './clips'
 import { MAX_PITCH, MAX_VELOCITY, MIN_NOTE_PX, MIN_PITCH, isBlackKey, noteKey, pitchName, pitchTop, type Layout, type Rect } from './roll'
 
 /** What the roll draws besides the grid. */
@@ -26,9 +27,15 @@ export interface RollFrame {
   loop: TickLoop | null
   /** The names of the keys the instrument answers to (a drum kit), or null for a pitched instrument: the other rows are dimmed. */
   names: ReadonlyMap<number, string> | null
+  /** The colour of the track (#470): the notes are drawn in it, their brightness following their velocity. */
+  trackColor: string
+  /** The notes of the other tracks' clips at the same time range (#470): hollow, neutral, read-only. Empty when hidden. */
+  others: readonly GhostNote[]
 }
 
-const VELOCITY_FLOOR = 0.3
+/** Under this row height only the Cs are named. */
+const NAME_EVERY_ROW_PX = 11
+const VELOCITY_FLOOR = 0.35
 const alphaOf = (velocity: number): number => VELOCITY_FLOOR + (1 - VELOCITY_FLOOR) * (velocity / MAX_VELOCITY)
 
 /** The pitches whose rows meet the body `[RULER_HEIGHT, height]`, highest first. */
@@ -153,16 +160,31 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
     if (roll.selected.size > 0 && roll.selected.has(key)) chosen.push(n)
     else visible.push(n)
   }
+  drawOthers(ctx, roll, frame)
+  // A note is the track's colour, brighter as it is louder; the selected ones are inverted (white).
   const paint = (list: readonly Note[], selected: boolean) => {
-    ctx.fillStyle = selected ? colors.text : colors.accent
+    ctx.fillStyle = selected ? colors.text : roll.trackColor
     for (const n of list) {
       const x = tickToX(n.start, view)
       const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
-      ctx.globalAlpha = selected ? 0.55 + 0.45 * (n.velocity / MAX_VELOCITY) : alphaOf(n.velocity)
+      ctx.globalAlpha = selected ? 0.8 + 0.2 * (n.velocity / MAX_VELOCITY) : alphaOf(n.velocity)
       ctx.fillRect(x, pitchTop(n.pitch, layout) + 1, w, rows - 1)
     }
   }
+  // The dark outline keeps two notes side by side apart and a pale note on its row.
+  const outline = (list: readonly Note[]) => {
+    ctx.globalAlpha = 0.9
+    ctx.strokeStyle = colors.bg
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (const n of list) {
+      const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
+      ctx.rect(tickToX(n.start, view) + 0.5, pitchTop(n.pitch, layout) + 1.5, Math.max(1, w - 1), rows - 2)
+    }
+    ctx.stroke()
+  }
   paint(visible, false)
+  outline(visible)
   paint(chosen, true)
   paint(roll.ghosts, true)
   // A bright edge on the selected notes and the notes of a gesture, so that they read on any fill.
@@ -175,6 +197,28 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
       const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
       ctx.rect(tickToX(n.start, view) + 0.5, pitchTop(n.pitch, layout) + 1.5, Math.max(1, w - 1), rows - 2)
     }
+  }
+  ctx.stroke()
+  ctx.globalAlpha = 1
+}
+
+/** The notes of the other tracks: an outline in a neutral colour, no fill, under the notes of the clip. */
+function drawOthers(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFrame) {
+  if (roll.others.length === 0) return
+  const { view, width, height, colors } = frame
+  const { layout } = roll
+  ctx.globalAlpha = 0.6
+  ctx.strokeStyle = colors.barLine
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (const n of roll.others) {
+    const x = tickToX(n.start, view)
+    if (x > width) break
+    const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
+    if (x + w < 0) continue
+    const y = pitchTop(n.pitch, layout)
+    if (y + layout.rowHeight < RULER_HEIGHT || y > height) continue
+    ctx.rect(x + 0.5, y + 1.5, Math.max(1, w - 1), layout.rowHeight - 2)
   }
   ctx.stroke()
   ctx.globalAlpha = 1
@@ -211,9 +255,12 @@ export function drawKeys(
       ctx.textAlign = 'left'
       ctx.fillText(name, 6, y + layout.rowHeight / 2)
       ctx.textAlign = 'start'
-    } else if (pitch % 12 === 0) {
-      ctx.fillStyle = active.has(pitch) ? colors.bg : colors.text
-      ctx.fillText(pitchName(pitch), width - 28, y + layout.rowHeight / 2)
+    } else if (pitch % 12 === 0 || layout.rowHeight >= NAME_EVERY_ROW_PX) {
+      // Every row is named (#470) while the rows are tall enough to read; the Cs stand out.
+      ctx.fillStyle = active.has(pitch) ? colors.bg : pitch % 12 === 0 ? colors.text : colors.barLine
+      ctx.textAlign = 'right'
+      ctx.fillText(pitchName(pitch), width - 5, y + layout.rowHeight / 2)
+      ctx.textAlign = 'start'
     }
     if (names && name === undefined) {
       // No sound on this key: the row is dimmed.

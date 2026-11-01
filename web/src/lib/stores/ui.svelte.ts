@@ -35,6 +35,11 @@ export class UiStore {
    * The roll uses it when it belongs to the selected track and still exists, else its first clip.
    */
   editedClip = $state<string | null>(null)
+  /**
+   * Musical typing (#470): whether the bare letters of the computer keyboard play notes ('notes') or are left to
+   * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
+   */
+  typing = $state<'notes' | 'shortcuts'>('notes')
 
   /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
   panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))

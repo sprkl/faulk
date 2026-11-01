@@ -12,8 +12,9 @@ function setup(over: { selected?: ReturnType<typeof entry> | null; armed?: strin
   const selected = over.selected === undefined ? entry('t1', midi('faulk.osc_synth')) : over.selected
   const project = { selected, armed: over.armed ?? [], tracks: selected ? [selected] : [] }
   const engine = { started: over.started ?? true }
-  const keys = new KeyboardPlayer(project as never, engine as never, new UiStore('play', 'devices'), { run: (c: Command) => void sent.push(c) } as never)
-  return { keys, sent, project }
+  const ui = new UiStore('play', 'devices')
+  const keys = new KeyboardPlayer(project as never, engine as never, ui, { run: (c: Command) => void sent.push(c) } as never)
+  return { keys, sent, project, ui }
 }
 
 const key = (code: string, over: Record<string, unknown> = {}) =>
@@ -60,6 +61,37 @@ describe('the computer keyboard played from the shell (#361)', () => {
     keys.keyUp(key('KeyA'))
     expect(sent).toHaveLength(2)
     expect(setup({ selected: entry('d', midi('faulk.drums')) }).keys.octave).toBe(DRUMS_OCTAVE)
+  })
+
+  it('toggles musical typing with the key left of 1: off, the letters and Z/X play nothing; on again, they play', () => {
+    const { keys, sent, ui } = setup()
+    expect(ui.typing).toBe('notes')
+    keys.keyDown(key('KeyA'))
+    keys.keyDown(key('Backquote'))
+    // The held note ends with the mode that played it.
+    expect(sent.at(-1)).toEqual({ type: 'live.input_note_off', note: 60 })
+    expect(ui.typing).toBe('shortcuts')
+    const before = sent.length
+    keys.keyDown(key('KeyS'))
+    keys.keyDown(key('KeyX'))
+    expect(sent).toHaveLength(before)
+    expect(keys.octave).toBe(4)
+    keys.keyDown(key('Backquote'))
+    expect(ui.typing).toBe('notes')
+    keys.keyDown(key('KeyS'))
+    expect(sent.at(-1)).toEqual({ type: 'live.input_note_on', note: 62, velocity: 100 })
+  })
+
+  it('does not toggle in a text field, with a modifier, on a repeat or before the audio started (it still toggles then)', () => {
+    const { keys, ui } = setup()
+    keys.keyDown(key('Backquote', { target: Object.assign(document.createElement('input'), { type: 'text' }) }))
+    keys.keyDown(key('Backquote', { ctrlKey: true }))
+    keys.keyDown(key('Backquote', { repeat: true }))
+    keys.keyDown(key('Backquote', { shiftKey: true }))
+    expect(ui.typing).toBe('notes')
+    const idle = setup({ started: false })
+    idle.keys.keyDown(key('Backquote'))
+    expect(idle.ui.typing).toBe('shortcuts')
   })
 
   it('releaseAll ends every held note once', () => {

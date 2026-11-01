@@ -74,6 +74,16 @@
     {/if}
   </div>
 
+  <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
+  <button
+    class="ghost typing"
+    type="button"
+    data-testid="typing-mode"
+    data-mode={ui.typing}
+    title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
+    onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
+  >
+
   <button class="ghost" onclick={() => ui.setLang(ui.lang === 'fr' ? 'en' : 'fr')}>{t('lang.switch')}</button>
 </header>
 

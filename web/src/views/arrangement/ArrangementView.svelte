@@ -511,6 +511,8 @@
       // A shift-click on a selected clip takes it out of the selection and starts nothing.
       if (!on) return
     } else if (!picked.has(block.id)) picked = new Set([block.id])
+    // The piano roll follows the clip selected here (#470); a double click still brings the panel up.
+    ui.editedClip = block.clip
     if (zone === 'body') {
       const ids = blocks.filter((b) => picked.has(b.id)).map((b) => b.id)
       gesture = {

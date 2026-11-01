@@ -14,8 +14,8 @@ const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback
 const header = (page: Page, name: string) => page.getByTestId('track-header').filter({ has: page.getByRole('button', { name, exact: true }) })
 
 const TEXTS = {
-  en: { arm: (name: string) => `Arm ${name}`, drums: 'Track 2' },
-  fr: { arm: (name: string) => `Armer ${name}`, drums: 'Piste 2' },
+  en: { arm: (name: string) => `Live input on ${name}`, drums: 'Track 2' },
+  fr: { arm: (name: string) => `Entrée en direct sur ${name}`, drums: 'Piste 2' },
 } as const
 
 for (const lang of ['en', 'fr'] as const) {

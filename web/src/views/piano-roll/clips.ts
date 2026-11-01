@@ -5,7 +5,7 @@
  * among them is view state; the roll never keeps an identifier the project no longer has.
  */
 
-import type { Clip, Note, Tick, TickLoop, Track } from '../../lib/generated/protocol'
+import type { Clip, Note, Placement, Tick, TickLoop, Track } from '../../lib/generated/protocol'
 
 /** A MIDI clip of a track, with what the roll needs of its content. */
 export interface MidiClip {
@@ -45,6 +45,50 @@ export function midiClips(track: Track): MidiClip[] {
 /** The clip to edit: the user's choice when it still exists, else the first one. */
 export function editedClip(clips: readonly MidiClip[], chosen: string | null): MidiClip | null {
   return clips.find((c) => c.id === chosen) ?? clips[0] ?? null
+}
+
+/** A note of another track's clip, in the time of the edited clip (#470): drawn hollow and neutral, never edited. */
+export type GhostNote = Pick<Note, 'start' | 'length' | 'pitch'>
+
+const ticksOf = (placement: Placement): { length: number; offset: number } | null => ('ticks' in placement.span ? placement.span.ticks : null)
+
+/**
+ * The notes of the other MIDI tracks' clips at the same time range as the edited clip.
+ * A clip of the arrangement is compared with the placements of the other tracks that overlap its first placement;
+ * a clip that is only in the launch grid, with the clips of the other tracks in the same scene. Looping is not unrolled.
+ */
+export function ghostNotes(tracks: readonly { id: string; track: Track }[], trackId: string, edited: MidiClip | null, editedTrack: Track | null): GhostNote[] {
+  if (!edited || !editedTrack) return []
+  const out: GhostNote[] = []
+  let anchor: { start: number; offset: number } | null = null
+  for (const placement of Object.values(editedTrack.placements)) {
+    const span = placement && placement.clip === edited.id ? ticksOf(placement) : null
+    if (placement && span && (anchor === null || placement.start < anchor.start)) anchor = { start: placement.start, offset: span.offset }
+  }
+  for (const other of tracks) {
+    if (other.id === trackId || other.track.kind !== 'midi') continue
+    if (anchor) {
+      // Clip time `t` of the edited clip is at timeline tick `anchor.start + t - anchor.offset`.
+      const shift = anchor.start - anchor.offset
+      for (const placement of Object.values(other.track.placements)) {
+        const clip = placement && other.track.clips[placement.clip]
+        const span = placement && ticksOf(placement)
+        if (!placement || !clip || !span || !('midi' in clip.content)) continue
+        for (const n of clip.content.midi.notes) {
+          if (n.start < span.offset || n.start >= span.offset + span.length) continue
+          const start = placement.start + n.start - span.offset - shift
+          if (start >= 0 && start < edited.length) out.push({ start, length: n.length, pitch: n.pitch })
+        }
+      }
+    } else if (edited.scene !== null) {
+      for (const clip of Object.values(other.track.clips)) {
+        if (clip && clip.slot === edited.scene && 'midi' in clip.content) {
+          for (const n of clip.content.midi.notes) if (n.start < edited.length) out.push({ start: n.start, length: n.length, pitch: n.pitch })
+        }
+      }
+    }
+  }
+  return out.sort((a, b) => a.start - b.start)
 }
 
 /** The name the roll shows for a clip: the one stored in the project, the same in every view. */
