@@ -35,3 +35,7 @@ Sous Windows, le helper vit dans la zone de notification : son état, le code d'
 Le projet se travaille avec Claude Code. Les règles pour les agents sont dans `CLAUDE.md`. À l'ouverture du dépôt, Claude Code propose d'installer les plugins déclarés dans `.claude/settings.json`, dont les skills d'ingénierie de Matt Pocock.
 
 Prérequis : Rust (`rustup`, cible `wasm32-unknown-unknown`), Node 24 et pnpm ; sous Windows, les Visual Studio Build Tools (charge de travail C++) pour compiler le helper.
+
+## Licence et marque
+
+Le code est publié sous licence MIT (voir `LICENSE`), copyright Sparkle. Le nom « Faulk », son logo et les domaines faulk.app ne sont pas couverts par cette licence : voir `TRADEMARKS.md`.

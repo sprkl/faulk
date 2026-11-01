@@ -43,7 +43,6 @@ const IGNORED = [
   /^[^/]+\.md$/,
   /^(LICENSE|\.gitignore|\.git-blame-ignore-revs)[^/]*$/,
   /^\.github\/(ISSUE_TEMPLATE\/|PULL_REQUEST_TEMPLATE|CODEOWNERS$|dependabot\.yml$|[^/]+\.md$)/, // not .github/actions/
-  /^\.github\/workflows\/release-helper\.yml$/, // its own triggers
 ]
 
 /** Everything runs. Needs no workspace, so it also serves when the workspace cannot be read. */
@@ -133,6 +132,8 @@ export function select({ event, base, files, packages, specs }) {
     if (f === '.github/workflows/ci.yml') { web = webE2eAll = true; continue }
     if (f === '.github/workflows/rust.yml') { rustAll = out.rustProto = true; continue }
     if (f === '.github/workflows/agent-scripts.yml') { out.agentScripts = true; continue }
+    // It has its own trial build; the scripts tests check its macOS rule (#452).
+    if (f === '.github/workflows/release-helper.yml') { out.agentScripts = true; continue }
 
     // Workspace-wide Rust inputs, and the future Faust / Rust modules.
     if (/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/.test(f) || f.startsWith('.cargo/') || f.startsWith('modules/')) {

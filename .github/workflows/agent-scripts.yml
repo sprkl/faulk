@@ -5,6 +5,10 @@ on:
     branches: [develop, main]
   pull_request:
 
+# Least privilege: a job that needs more says so itself.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,6 +21,8 @@ jobs:
     # rules (scripts/ci/) and the helper's Blob publication (its logic needs no dependency;
     # @vercel/blob is loaded for real uploads only).
     runs-on: ubuntu-latest
+    # Observed under 1 min.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:

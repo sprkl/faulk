@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { flushSync } from 'svelte'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { addPoints, createLane, createMasterLane } from '../automation-commands'
+import { addPoints, clearLane, createLane, deleteLane, createMasterLane } from '../automation-commands'
 import { insertMasterEffect, setDeviceParam } from '../device-commands'
 import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
 import { applyEffects, type EffectPorts } from './effects'
-import { setMasterVolume, setPan, setVolume } from '../track-commands'
+import { deleteTrack, setMasterVolume, setPan, setVolume, undo } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
@@ -238,6 +238,95 @@ describe('a change of the parameter while the lane plays', () => {
     s.run(setDeviceParam(s.synth, 'sustain', 0.9))
     applyEffects({ type: 'transport.seek', tick: 0 }, ports)
     expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+  })
+})
+
+describe('the engine drops its holds where the page does (#425)', () => {
+  function held() {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: 0.2, shape: 'linear' },
+        { tick: 1000, value: 0.8, shape: 'linear' },
+      ]),
+    )
+    s.stop(100)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    return s
+  }
+
+  it('lets go of the holds at a relay of the engine (a new epoch of slots), though the transport and the playhead stay', () => {
+    const s = held()
+    s.stop(100)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The page's engine starts over from a snapshot (a switch of mode): the project's slots are in the next epoch.
+    const epoch = s.project.view!.slots.epoch
+    s.core.snapshot()
+    s.project.show(s.core.project())
+    expect(s.project.view!.slots.epoch).toBe(epoch + 1)
+    flushSync()
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.26, 6)
+    // A gesture after the relay holds again.
+    s.run(setDeviceParam(s.synth, 'sustain', 0.5))
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+  })
+
+  it('lets go of the holds of a track that is deleted and restored by an undo', () => {
+    const s = held()
+    s.run(deleteTrack(s.track))
+    s.run(undo())
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.26, 6)
+  })
+
+  it('lets go of the hold of a lane that is deleted and restored (an undo)', () => {
+    const s = held()
+    s.run(deleteLane(s.lane()))
+    s.run(undo())
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.26, 6)
+  })
+
+  it('lets go of the hold of a lane that had its points removed and gets points again', () => {
+    const s = held()
+    s.run(clearLane(s.lane()))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: 0.6, shape: 'step' }]))
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.6)
+  })
+
+  it('keeps the hold when another lane with points drives the parameter, and lets go when the other has none (a merged project)', () => {
+    for (const otherPoints of [true, false]) {
+      const s = held()
+      const view = s.project.view!
+      const track = view.project.tracks[s.track]!
+      const lane = s.lane()
+      const first = track.automation[lane]!
+      const twin = { ...first, points: otherPoints ? first.points : [] } as typeof first
+      const merged = {
+        ...view,
+        project: { ...view.project, tracks: { ...view.project.tracks, [s.track]: { ...track, automation: { ...track.automation, twin } } } },
+      }
+      s.project.show(merged)
+      const rest = { ...merged, project: { ...merged.project, tracks: { ...merged.project.tracks, [s.track]: { ...track, automation: { twin } } } } }
+      s.project.apply([{ type: 'automation_lane_deleted', track: s.track, lane }], () => rest)
+      s.stop(100)
+      // The page's own record of holds (private): the parameter is held only while a lane with points keeps it in the engine.
+      expect((s.automated as unknown as { holds: Map<string, unknown> }).holds.has(`d:${s.synth}:sustain`)).toBe(otherPoints)
+      if (otherPoints) expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    }
+  })
+
+  it('lets go of the hold of a lane of the master that is deleted and restored', () => {
+    const s = session()
+    s.run(createMasterLane({ mixer: { param: 'gain' } }))
+    const [lane] = Object.keys(s.project.view!.project.master_automation!)
+    s.run(addPoints(lane!, [{ tick: 0, value: -12, shape: 'step' }]))
+    s.stop(0)
+    s.run(setMasterVolume(-3))
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    s.run(deleteLane(lane!))
+    s.run(undo())
+    expect(s.automated.mixer('master', 'gain')).toBe(-12)
   })
 })
 
