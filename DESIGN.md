@@ -253,7 +253,7 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 - **Shape:** pill (999px), 32px high (26px compact).
 - **Primary:** ultraviolet fill, paper text, for the one main action of a surface; hover and pressed in deep ultraviolet.
 - **Bordered:** transparent with a 1px line, for secondary actions.
-- **Icon buttons:** 32px square on ink surface 2 with 8px radius; toggles (loop, metronome, follow) show their on state in ultraviolet on ink.
+- **Icon buttons:** 32px square on ink surface 2 with 8px radius; toggles (loop, metronome, follow, piano-roll and typing toggles) show their on state with a neutral fill and a dot or glyph, never ultraviolet (One Voice Rule, founder 2026-11-01); Play shows its running state in play green with the triangle, Stop stays neutral.
 - **Focus:** a 2px ultraviolet-on-ink outline with 2px offset, on every interactive element.
 - **Disabled:** muted text on a flat surface, no fill.
 
@@ -269,14 +269,14 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 - **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count; CPU load, driver and the amber helper-lost state are not shipped yet.
 
 ### Track header and clips
-- **Track header:** one compact row with the track colour as a 3px bar, name, type, and M, S, R toggles (letters, so state is not colour alone); fader and pan live in the mixer and the chain, not in the header.
-- **Today:** the left track column shows large cards with volume and pan sliders, and the arrangement repeats a slim header per lane.
+- **Track header:** one compact row with the track colour as a 3px bar, name, type, M, S and In toggles (letters, so state is not colour alone; In is live input, neutral inverted fill when on) and a level meter; fader and pan live in the mixer and the chain, not in the header. A track silenced by another track's solo shows a dashed M (implied mute).
+- **Today:** the left track column still shows large cards with volume and pan sliders, and the arrangement lane headers (276px wide for now) carry the letters and the meter; one row per lane comes with #471.
 - **Clips:** 2px radius, filled with the track hue at full brightness, label in ink, content (notes or waveform) drawn in darker ink inside; the selected clip gets a light outline; a recording clip is rec red with its pulse.
 
 ### Audio controls
-- **Knob:** round, ultraviolet arc for the value, parameter label above or below in label style, value in mono; drag vertically, double-click to reset.
-- **Fader:** vertical track with a flat cap, value in mono under it.
-- **Meter:** flat green segments up to -12 dB, then wider segments so the zone reads by shape; peak hold 1.5 s as a white line; clip is a hatched top segment with the word CLIP, latched until clicked.
+- **Knob:** round, neutral arc (ink text) for the value, parameter label above or below in label style, value in mono; drag vertically, double-click to reset. An automated parameter shows a curve glyph and a dotted frame, never ultraviolet.
+- **Fader:** vertical track with a flat cap and a neutral fill, value in mono under it; automated faders take the same curve glyph.
+- **Meter:** flat green segments up to -12 dB, then wider segments so the zone reads by shape; peak hold 1.5 s as a white line; clip is a hatched top segment with the word CLIP, latched until clicked or reset from the keyboard. One meter component everywhere: each lane, each mixer strip, and the master in the top bar of every view. The Compressor card shows its gain reduction.
 
 ### Module card (signature)
 - **Not shipped yet** (no module library or Atelier). 20px-radius card with the module's grainy sound object, its English name, its origin (built in, made in the Atelier, third-party plugin), and an on or bypass state in mono.

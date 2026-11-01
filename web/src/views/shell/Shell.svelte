@@ -22,7 +22,7 @@
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(startView(), DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
-  const { engine, ui, dispatcher, storage, keys } = provideStores(stores)
+  const { engine, ui, dispatcher, storage, keys, meters } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
@@ -34,6 +34,7 @@
   )
 
   onMount(() => {
+    const stopMeters = meters.start()
     void dispatcher.checkHelper()
     // The project of last time comes back (or a banner offers it).
     void storage.restore()
@@ -51,6 +52,7 @@
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     return () => {
+      stopMeters()
       stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
     }

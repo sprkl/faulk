@@ -183,7 +183,7 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
   await page.getByTestId('panel-devices').click()
-  await page.mouse.dblclick(g.x(3 * BAR + 1000), g.y(0))
+  await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
 
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/arrangement-view.png` })

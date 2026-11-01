@@ -297,7 +297,7 @@
           aria-label={t('tracks.arm', { name: label })}
           title={t('tracks.armHint', { name: label })}
           data-testid="track-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
         >
       {/if}
       <GainControl
@@ -354,10 +354,12 @@
     background: var(--fk-bg);
     cursor: default;
   }
+  /* The selection: a 2px light outline and a tint, with secondary text that stays AA on it. */
   .header.selected {
+    --fk-text-muted: var(--fk-text-muted-on-tint);
     background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
-    border-left-color: var(--track-color);
+    outline: 2px solid var(--fk-text);
+    outline-offset: -1px;
   }
   .header {
     position: relative;
@@ -510,9 +512,9 @@
     color: #131211;
   }
   .arm[aria-pressed='true'] {
-    background: var(--fk-rec);
-    border-color: var(--fk-rec);
-    color: #131211;
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .readout {
     border: 0;

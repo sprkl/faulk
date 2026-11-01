@@ -206,7 +206,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 3;
+pub const FEEDBACK_VERSION: u8 = 4;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1634,10 +1634,13 @@ pub struct TrackMeter {
     pub peak_r: f32,
     pub rms_l: f32,
     pub rms_r: f32,
+    /// The largest gain reduction, in decibels (>= 0), that a device of the strip's chain took
+    /// during the period (#469, version 4); 0 when none works.
+    pub gain_reduction_db: f32,
 }
 
 /// Size of a [`TrackMeter`] on the wire.
-pub const TRACK_METER_BYTES: usize = 16;
+pub const TRACK_METER_BYTES: usize = 20;
 
 /// A note the engine recorded since the last report (RE-2): the page turns the take into
 /// a clip with one undoable command.
@@ -1673,9 +1676,11 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///     48    4 recorded (u32, notes recorded since the last report, drained)
 ///     52    4 voices (u32, MO-5: the most voices sounding in the tracks' devices during the
 ///             period, `Device::voices` summed over the tracks, `crate::host`)
-///     56      TrackMeter × (tracks + 1) (16 bytes each): one per track slot below `tracks`
-///             (zeros for an empty slot; peak and RMS after the track's fader), then the
-///             output's meter after the master (version 2)
+///     56      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///             largest gain reduction in decibels of the strip's devices over the period, version 4):
+///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
+///             track's fader), then the output's meter after the master (version 2); the master's
+///             reduction is that of its own chain
 ///          then ActiveClip × active_clips (track u32, scene u16, state u8, pad u8, anchor i64:
 ///             16 bytes; version 3)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,

@@ -11,6 +11,10 @@ export const keys = defineFeature(
     'keys.noTarget': 'Select a MIDI track to play.',
     'keys.targetArmed': 'Playing {name} and the armed tracks.',
     'keys.armedOnly': 'Playing the armed tracks.',
+    'keys.typingNotes': 'Typing: notes',
+    'keys.typingShortcuts': 'Typing: shortcuts',
+    'keys.typingHintNotes': 'The letters play notes. Press the key left of 1 (` or ²) to use them as shortcuts.',
+    'keys.typingHintShortcuts': 'The letters play nothing. Press the key left of 1 (` or ²) to play notes with them.',
   },
   {
     'keys.title': 'Clavier de l’ordinateur',
@@ -20,5 +24,9 @@ export const keys = defineFeature(
     'keys.noTarget': 'Sélectionne une piste MIDI pour jouer.',
     'keys.targetArmed': 'Tu joues sur {name} et sur les pistes armées.',
     'keys.armedOnly': 'Tu joues sur les pistes armées.',
+    'keys.typingNotes': 'Saisie : notes',
+    'keys.typingShortcuts': 'Saisie : raccourcis',
+    'keys.typingHintNotes': 'Les lettres jouent des notes. Appuie sur la touche à gauche du 1 (` ou ²) pour les utiliser comme raccourcis.',
+    'keys.typingHintShortcuts': 'Les lettres ne jouent rien. Appuie sur la touche à gauche du 1 (` ou ²) pour jouer des notes avec.',
   },
 )

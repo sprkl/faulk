@@ -24,7 +24,7 @@ test('a changed spec runs itself and nothing else', () => {
 
 test('a view maps to its specs', () => {
   const r = pick(['web/src/views/mixer/MixerFader.svelte'])
-  assert.deepEqual(r.specs, ['automation', 'continuous', 'master-chain', 'master-pan', 'mixer', 'mixer-sound'])
+  assert.deepEqual(r.specs, ['automation', 'continuous', 'master-chain', 'master-pan', 'mixer', 'mixer-sound', 'track-state'])
   assert.equal(r.all, false)
 })
 

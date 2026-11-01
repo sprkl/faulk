@@ -315,6 +315,15 @@ impl Device for Compressor {
         self.set_value(id, value);
     }
 
+    /// The smoothed reduction now (>= 0, finite).
+    fn gain_reduction_db(&self) -> f32 {
+        if self.reduction.is_finite() {
+            self.reduction.max(0.0)
+        } else {
+            0.0
+        }
+    }
+
     /// Opens the gain (no reduction) and snaps the ramps; the parameter values are kept.
     fn reset(&mut self) {
         self.hold = 0.0;

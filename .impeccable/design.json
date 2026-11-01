@@ -79,8 +79,8 @@
       "name": "Track Header",
       "kind": "custom",
       "refersTo": "track-header",
-      "description": "One compact row: colour bar, name, type, M S R letters.",
-      "html": "<div class=\"ds-track\"><span class=\"ds-track-bar\"></span><span class=\"ds-track-name\">Bass<small>MIDI · Oscillator</small></span><button aria-pressed=\"false\">M</button><button aria-pressed=\"true\" class=\"ds-solo\">S</button><button aria-pressed=\"false\">R</button></div>",
+      "description": "One compact row: colour bar, name, type, M S In letters and a meter.",
+      "html": "<div class=\"ds-track\"><span class=\"ds-track-bar\"></span><span class=\"ds-track-name\">Bass<small>MIDI · Oscillator</small></span><button aria-pressed=\"false\">M</button><button aria-pressed=\"true\" class=\"ds-solo\">S</button><button aria-pressed=\"false\">In</button></div>",
       "css": ".ds-track { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 0; background: #1a1917; border-radius: 2px; color: #ece9e6; font: 400 13px/1.2 'Geist Variable', Geist, sans-serif; width: 240px; } .ds-track-bar { width: 3px; align-self: stretch; background: #f08098; } .ds-track-name { flex: 1; display: flex; gap: 6px; align-items: baseline; } .ds-track-name small { color: #8f8a85; font-size: 11px; } .ds-track button { width: 22px; height: 22px; border-radius: 2px; border: 1px solid #34312e; background: #22201e; color: #8f8a85; font: 600 11px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; } .ds-track .ds-solo { background: #efcc36; color: #131211; border-color: #efcc36; } .ds-track button:focus-visible { outline: 2px solid #9c92ff; outline-offset: 1px; }"
     }
   ],

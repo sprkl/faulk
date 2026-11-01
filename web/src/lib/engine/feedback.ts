@@ -1,4 +1,4 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 3). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 4). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
@@ -6,18 +6,20 @@
 /** Size of the fixed part of a report. */
 export const FEEDBACK_HEADER_BYTES = 56
 /** Size of one meter. */
-export const TRACK_METER_BYTES = 16
+export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
 export const ACTIVE_CLIP_BYTES = 16
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 3
+export const FEEDBACK_VERSION = 4
 
-/** Peak and RMS of both channels, linear amplitude. */
+/** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
   peakL: number
   peakR: number
   rmsL: number
   rmsR: number
+  /** The largest gain reduction, in dB (>= 0), a device of the strip took during the period (a Compressor); 0 when none works. */
+  gainReductionDb: number
 }
 
 export type TransportState = 'stopped' | 'playing' | 'recording'
@@ -84,6 +86,8 @@ function meterAt(view: DataView, at: number): Meter {
     peakR: view.getFloat32(at + 4, true),
     rmsL: view.getFloat32(at + 8, true),
     rmsR: view.getFloat32(at + 12, true),
+    // A reduction is a positive number of dB: anything else (a corrupt float) shows as none.
+    gainReductionDb: Math.max(0, view.getFloat32(at + 16, true)) || 0,
   }
 }
 

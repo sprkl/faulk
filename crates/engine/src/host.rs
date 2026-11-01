@@ -340,6 +340,7 @@ impl Host {
             put(at + 4, m.peak_r.to_bits());
             put(at + 8, m.rms_l.to_bits());
             put(at + 12, m.rms_r.to_bits());
+            put(at + 16, m.gain_reduction_db.to_bits());
             at += TRACK_METER_BYTES;
         }
         // The grid cells that are not idle, after the meters: at most two per track, which is
@@ -455,6 +456,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             peak_r: f32::from_bits(u32_at(at + 4)?),
             rms_l: f32::from_bits(u32_at(at + 8)?),
             rms_r: f32::from_bits(u32_at(at + 12)?),
+            gain_reduction_db: f32::from_bits(u32_at(at + 16)?),
         })
     };
     let meters = (0..tracks as usize)

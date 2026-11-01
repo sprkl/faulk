@@ -257,7 +257,7 @@ test('a spec that is also a smoke spec runs whole, not twice', () => {
 })
 
 test('a longer list gets more machines, never more than three', () => {
-  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 2) // 7 specs + the smoke tests
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 12 specs + the smoke tests
   const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
   assert.equal(many.e2eShards, 3)
   assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')
