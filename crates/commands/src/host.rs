@@ -75,6 +75,33 @@ pub struct ProjectView {
     pub slots: ViewSlots,
 }
 
+/// The undo history as the history panel shows it (`pw_history`): read when the panel is
+/// open, not with every event, since a drag records many.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryView {
+    /// What `history.undo` undoes, oldest first: the last one goes first.
+    pub undo: Vec<HistoryEntryView>,
+    /// What `history.redo` redoes, oldest first: the last one goes first.
+    pub redo: Vec<HistoryEntryView>,
+}
+
+/// One entry of the history: one command, or every command of one history group.
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryEntryView {
+    /// Identifies the entry for as long as it is in the history, whichever stack holds it.
+    pub id: u64,
+    /// When it was recorded, in milliseconds since the Unix epoch (0 when the host gave no clock).
+    pub at: u64,
+    /// The name of the entry's first command (`note.move`...).
+    pub name: String,
+    /// Who ran it.
+    pub author: crate::Author,
+    /// The history group it belongs to, if any.
+    pub group: Option<crate::GroupId>,
+}
+
 /// The engine slots of the tracks and scenes that have one. The engine reports the state of
 /// a launch-grid cell by slots (its track slot, its scene slot), never by identifier; the
 /// launch grid reads this table to find the cell of a report. An entity the engine was never

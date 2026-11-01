@@ -229,6 +229,25 @@ impl Core {
         }
     }
 
+    /// The undo history as the history panel shows it.
+    pub fn history(&self) -> commands::host::HistoryView {
+        self.synced.state.history.view()
+    }
+
+    /// Who the commands run next are attributed to (`user` or `agent:<name>`): the history
+    /// stamps it on their entries. A string that is neither changes nothing.
+    pub fn set_author(&mut self, author: &[u8]) -> Result<(), AuthorError> {
+        let text = core::str::from_utf8(author).map_err(|_| AuthorError)?;
+        self.synced.ctx.author = Author::try_from(text.to_owned()).map_err(|_| AuthorError)?;
+        Ok(())
+    }
+
+    /// The host's clock for the commands run next, in milliseconds since the Unix epoch:
+    /// the history stamps it on the entries it records.
+    pub fn set_clock(&mut self, now_ms: u64) {
+        self.synced.ctx.now_ms = now_ms;
+    }
+
     /// Stages the folder in `frame` (see [`parse_folder`]) for the next `project.open` that
     /// names it, replacing a folder staged before. Nothing is staged when the frame is
     /// malformed.
@@ -295,6 +314,10 @@ pub struct FolderFrameError;
 /// [`Core::stage_stored`]: the JSON is not a list of stored projects: nothing staged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StoredJsonError;
+
+/// [`Core::set_author`]: the string is not `user` nor `agent:<name>`: the author is unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorError;
 
 /// The most bytes of a folder's name.
 const MAX_FOLDER_NAME: usize = 1024;
@@ -613,6 +636,52 @@ pub unsafe extern "C" fn pw_export_job(core: *mut Core, len: u32) -> i32 {
 pub unsafe extern "C" fn pw_project(core: *mut Core) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe { with_core(core, |core| publish(&core.view(), Vec::new())) }
+}
+
+/// [`Core::history`]: a `HistoryView`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_history(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| publish(&core.history(), Vec::new())) }
+}
+
+/// [`Core::set_clock`]: the page's `Date.now()`, a whole number of milliseconds (a negative or
+/// non-finite value is 0).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_set_clock(core: *mut Core, now_ms: f64) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            core.set_clock(if now_ms.is_finite() && now_ms > 0.0 {
+                now_ms as u64
+            } else {
+                0
+            });
+            0
+        })
+    }
+}
+
+/// [`Core::set_author`] with the author in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (the author is unchanged).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_set_author(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| match with_inbox(len, |a| core.set_author(a)) {
+            Ok(()) => 0,
+            Err(AuthorError) => ERR_BAD_INPUT,
+        })
+    }
 }
 
 /// [`Core::stage`] with the folder frame in the first `len` bytes of the inbox: 0, or

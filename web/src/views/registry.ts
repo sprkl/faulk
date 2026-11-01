@@ -11,6 +11,7 @@ import type { MessageKey } from '../lib/i18n/index'
 import ArrangementView from './arrangement/ArrangementView.svelte'
 import DevicesView from './devices/DevicesView.svelte'
 import GridView from './grid/GridView.svelte'
+import HistoryView from './history/HistoryView.svelte'
 import MixerView from './mixer/MixerView.svelte'
 import PianoRollView from './piano-roll/PianoRollView.svelte'
 import PlayView from './play/PlayView.svelte'
@@ -31,6 +32,7 @@ export const views = [
   { id: 'arrangement', label: 'views.arrangement', place: 'main', component: ArrangementView },
   { id: 'devices', label: 'views.devices', place: 'panel', component: DevicesView },
   { id: 'grid', label: 'views.grid', place: 'main', component: GridView },
+  { id: 'history', label: 'views.history', place: 'panel', component: HistoryView },
   { id: 'mixer', label: 'views.mixer', place: 'main', component: MixerView },
   { id: 'piano-roll', label: 'views.pianoRoll', place: 'panel', component: PianoRollView },
   { id: 'play', label: 'views.play', place: 'main', component: PlayView },
