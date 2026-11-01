@@ -377,6 +377,12 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Touche : `web/src/views/history/`, `web/src/lib/i18n/history.ts`.
 - Dépend de : PR-5.
 - Phase : 3.
+- **Réalisé (#52, 2026-10-31)** :
+  - **Déjà là** : `history.undo` / `history.redo`, les raccourcis Ctrl/Cmd+Z, Ctrl/Cmd+Maj+Z et Ctrl+Y (`historyShortcut`), les boutons de la liste des pistes, et un glisser de note envoyé comme **une** commande (`clip.notes.update`) donc une entrée.
+  - **Contrat** : chaque `Entry` de l'historique porte un `id` (stable d'une pile à l'autre) et `at` (millisecondes, `Context::now_ms`). L'horloge est celle de la page, donnée avant chaque commande (`pw_set_clock`, `ProjectCore.run`) ; le cœur reste sans horloge. `pw_history` rend `HistoryView` (entrées des deux piles, de la plus ancienne à la plus récente : id, nom de la première commande, auteur, groupe, heure), lu par le panneau quand l'historique change (`ProjectStore.historyRev`), jamais avec chaque événement. L'historique n'est pas enregistré dans le projet.
+  - **Auteur** : `Author` (`user` ou `agent:<nom>`) existait. La page passe l'auteur d'une commande par `Dispatcher.run(commande, { author })` → `pw_set_author`, fixé avant chaque exécution (rien n'est reporté d'une exécution à la suivante). Le relais des agents (AG-1) s'en servira ; en attendant, seul le crochet de développement `__faulkRun(commande, auteur)` l'emploie (test Playwright).
+  - **Interface** : onglet « Historique » du panneau du bas (`web/src/views/history/`), entrées de la plus récente à la plus ancienne, les entrées annulées au-dessus en grisé, libellé traduit par commande (`history.cmd.<nom>`, repli : le nom de la commande), auteur (« Vous » / nom de l'agent), heure. Boutons Annuler / Rétablir en tête. Pas de saut à une entrée.
+  - **Versions** : `PROTOCOL_VERSION` reste 10 (non publié ; aucun message page ↔ helper ne change : seul le paquet de schémas `project_core` gagne `HistoryView`). Test de bout en bout : `web/tests/e2e/history.spec.ts`.
 - Étiquettes : hardware: non, founder: oui.
 
 **PR-8 — Commandes de pistes**
