@@ -211,7 +211,11 @@ export class Dispatcher {
     this.state.activeNotes = []
     this.state.notice = null
     this.mirror(step.events)
-    if (step.events.length === 0) this.refresh()
+    if (step.events.length === 0) {
+      this.refresh()
+      // No report said that a project was opened: the views that hold a choice made on the old one still have to drop it (#445).
+      this.project.openedRev++
+    }
     const view = core.project()
     // The input of the restored session; reopened by the switch back to Web when Boost plays.
     const input = view.session.midi_input ?? null

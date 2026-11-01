@@ -419,6 +419,9 @@ fn one_history_entry_undoes_and_redoes_everything_exactly() {
     }
     let end = state.clone();
     assert_ne!(end.project, start.project);
+    // Editing time never touches the tempo map nor the time signature.
+    assert_eq!(end.project.tempo, start.project.tempo);
+    assert_eq!(end.project.meter, start.project.meter);
     for _ in 0..2 {
         run(
             &Command::History(history::Command::Undo {}),
@@ -428,6 +431,8 @@ fn one_history_entry_undoes_and_redoes_everything_exactly() {
         .unwrap();
     }
     assert_eq!(state.project, start.project);
+    assert_eq!(state.project.tempo, start.project.tempo);
+    assert_eq!(state.project.meter, start.project.meter);
     for _ in 0..2 {
         run(
             &Command::History(history::Command::Redo {}),
@@ -437,6 +442,8 @@ fn one_history_entry_undoes_and_redoes_everything_exactly() {
         .unwrap();
     }
     assert_eq!(state.project, end.project);
+    assert_eq!(state.project.tempo, start.project.tempo);
+    assert_eq!(state.project.meter, start.project.meter);
     assert!(
         state.project.tracks[&f.track]
             .automation
@@ -624,7 +631,13 @@ fn an_audio_placement_anywhere_refuses_the_whole_command_and_nothing_moves() {
     s.project.validate().unwrap();
     for command in [insert(100, 960), delete(100, 960)] {
         let error = check_refusal(&command, &s, &context()).unwrap();
-        assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+        // The refusal names the field and says why, so that an agent or a person knows what to do.
+        let CommandError::Invalid { field, message } = &error else {
+            panic!("{error:?}")
+        };
+        assert_eq!(field, "track");
+        assert!(message.contains("audio"), "{message}");
+        assert!(message.contains("insert or delete time"), "{message}");
     }
 }
 

@@ -272,6 +272,11 @@
   // The time selection (#396): Shift+drag on the ruler. Insert and Delete bars act on it.
   let timeSel = $state.raw<{ start: number; end: number } | null>(null)
   let barCount = $state(4)
+  // A project opened or started replaces the one the range was chosen on: drop it (#445). Undo and redo keep it shown (#435).
+  $effect(() => {
+    void project.openedRev
+    timeSel = null
+  })
   const timeNow = $derived.by(() => {
     const g = gesture
     if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
