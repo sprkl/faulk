@@ -1620,6 +1620,14 @@ fn time_works(
         if track.placements.is_empty() {
             continue;
         }
+        if track.kind != project::TrackKind::Midi {
+            return Err(invalid(
+                "track",
+                format!(
+                    "track {id} holds audio placements: insert or delete time is refused for the whole project until the audio import supports it"
+                ),
+            ));
+        }
         let mut work = TrackWork::new(project, id)?;
         edit(&mut work)?;
         works.insert(id.clone(), work);

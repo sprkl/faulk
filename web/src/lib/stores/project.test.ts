@@ -5,6 +5,7 @@ import { createLane, deleteLane } from '../automation-commands'
 import { setInstrument } from '../device-commands'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
+import { newProject } from '../project-commands'
 import * as commands from '../track-commands'
 import { ProjectStore } from './project.svelte'
 
@@ -97,5 +98,20 @@ describe('the lanes an instrument swap takes (AM-4)', () => {
     expect(store.swapLanes).toBeNull()
     run(commands.redo())
     expect(store.swapLanes).toEqual({ track: id, n: 1 })
+  })
+})
+
+describe('the count of projects opened (#445)', () => {
+  it('moves when a project is started, not on an edit, an undo or a redo', () => {
+    const { store, run } = session('single_synth')
+    expect(store.openedRev).toBe(0)
+    run(commands.createTrack('midi', 'faulk.osc_synth', '#58c27d'))
+    run(commands.undo())
+    run(commands.redo())
+    expect(store.openedRev).toBe(0)
+    run(newProject())
+    expect(store.openedRev).toBe(1)
+    run(newProject())
+    expect(store.openedRev).toBe(2)
   })
 })

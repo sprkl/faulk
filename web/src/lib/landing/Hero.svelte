@@ -52,7 +52,7 @@
     padding-top: clamp(24px, 4vw, 56px);
   }
   h1 {
-    font-size: clamp(44px, 11.4vw, 176px);
+    font-size: clamp(36px, 7.6vw, 124px);
     line-height: 0.86;
     letter-spacing: -0.035em;
     text-wrap: balance;

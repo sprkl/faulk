@@ -15,7 +15,7 @@ Ce document décrit la chaîne qui va du dépôt au helper installé sur un post
 
 ## L'outil : Velopack
 
-Velopack (crate `velopack` et outil `vpk`, tous deux en **1.2.161**, versions à garder identiques) produit à partir du binaire de `cargo build` :
+Velopack (crate `velopack` et outil `vpk`, tous deux en **1.3.39-g8d2844f**, versions à garder identiques) produit à partir du binaire de `cargo build` :
 
 - un installeur Windows `FaulkHelper-win-Setup.exe` (installation par utilisateur, sans droits d'administrateur, dans `%LocalAppData%\FaulkHelper`) et une version portable ;
 - un paquet complet `FaulkHelper-<version>-full.nupkg` et, quand la version précédente est disponible au moment du build, un paquet **différentiel** `FaulkHelper-<version>-delta.nupkg` (mesuré en local : 231 Ko contre 4,3 Mo pour le paquet complet) ;
