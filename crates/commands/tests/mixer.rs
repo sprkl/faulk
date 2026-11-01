@@ -42,6 +42,10 @@ fn master(gain_db: Option<f64>) -> Command {
     mx(mixer::Command::SetMasterVolume { gain_db })
 }
 
+fn master_pan(pan: f64) -> Command {
+    mx(mixer::Command::SetMasterPan { pan })
+}
+
 fn undo() -> Command {
     Command::History(history::Command::Undo {})
 }
@@ -80,6 +84,8 @@ fn every_command_meets_the_contract_in_each_direction() {
         (mute(t, false), &muted),
         (master(Some(-3.0)), &f.state),
         (master(None), &f.state),
+        (master_pan(-1.0), &f.state),
+        (master_pan(1.0), &f.state),
         (solo(t, true), &f.state),
         (solo(t, false), &soloed),
     ];
@@ -124,6 +130,11 @@ fn pan_is_refused_outside_minus_one_to_one() {
             "pan",
             "{bad}"
         );
+        assert_eq!(
+            invalid_field(refused(&master_pan(bad), &f.state)),
+            "pan",
+            "master {bad}"
+        );
     }
 }
 
@@ -154,6 +165,7 @@ fn a_value_already_in_place_changes_nothing_and_records_nothing() {
         pan(&f.track, 0.0),
         mute(&f.track, false),
         master(Some(0.0)),
+        master_pan(0.0),
     ] {
         let outcome = run(&command, &mut s, &mut context()).unwrap();
         assert!(outcome.events.is_empty());
@@ -222,6 +234,10 @@ fn undo_restores_silence_and_the_master() {
     run(&master(Some(-9.0)), &mut s, &mut context()).unwrap();
     run(&undo(), &mut s, &mut context()).unwrap();
     assert_eq!(s.project.master.gain_db, 0.0);
+    run(&master_pan(-0.4), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.master.pan, -0.4);
+    run(&undo(), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.master.pan, 0.0);
     s.project.validate().unwrap();
 }
 
@@ -304,6 +320,7 @@ fn the_schema_states_the_ranges_and_the_kinds() {
     for n in [
         "mixer.set_volume",
         "mixer.set_pan",
+        "mixer.set_master_pan",
         "mixer.set_mute",
         "mixer.set_master_volume",
     ] {
@@ -311,11 +328,14 @@ fn the_schema_states_the_ranges_and_the_kinds() {
         assert_eq!(tool(n).undo, commands::UndoKind::Inverse, "{n}");
         assert!(!tool(n).description.is_empty());
     }
-    let pan = &tool("mixer.set_pan").input_schema["properties"]["pan"];
-    assert_eq!(
-        (pan["minimum"].as_f64(), pan["maximum"].as_f64()),
-        (Some(-1.0), Some(1.0))
-    );
+    for n in ["mixer.set_pan", "mixer.set_master_pan"] {
+        let pan = &tool(n).input_schema["properties"]["pan"];
+        assert_eq!(
+            (pan["minimum"].as_f64(), pan["maximum"].as_f64()),
+            (Some(-1.0), Some(1.0)),
+            "{n}"
+        );
+    }
     for n in ["mixer.set_volume", "mixer.set_master_volume"] {
         let gain = &tool(n).input_schema["properties"]["gain_db"];
         assert_eq!(

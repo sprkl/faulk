@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The pan of a track, from -1 (left) to 1 (right), centred by default, shared by the mixer and the
+   * The pan of a track or of the master (`track` null), from -1 (left) to 1 (right), centred by default, shared by the mixer and the
    * track list. A `Slider`: magnet on the centre, fine mode, reset to the centre as one command. One
    * drag is one history group (`gesture.ts`). It holds no project state.
    */
@@ -8,20 +8,22 @@
   import { createGesture } from '../gesture'
   import { formatPan } from '../project/tracks'
   import { useStores } from '../stores'
-  import { setPan } from '../track-commands'
+  import { setMasterPan, setPan } from '../track-commands'
   import { parsePanEntry } from '../value-entry'
   import Slider from './Slider.svelte'
 
-  let { track, pan, label, automated, testid }: { track: string; pan: number; label: string; automated?: string; testid?: string } = $props()
+  let { track, pan, label, automated, testid }: { track: string | null; pan: number; label: string; automated?: string; testid?: string } = $props()
 
   const { dispatcher, ui } = useStores()
+  /** The command that sets the pan: a track's, or the master's when `track` is null. */
+  const panCommand = (pan: number) => (track === null ? setMasterPan(pan) : setPan(track, pan))
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
 
   function onposition(position: number) {
     // Three decimals: the fine mode goes below the percent the readout shows.
     const next = position === 0.5 ? 0 : Math.round((position * 2 - 1) * 1000) / 1000
-    if (next !== pan) dispatcher.run(setPan(track, next))
+    if (next !== pan) dispatcher.run(panCommand(next))
   }
 
   let slider: ReturnType<typeof Slider> | undefined = $state()
@@ -37,14 +39,14 @@
     commit(text: string): boolean | string {
       const next = parsePanEntry(text)
       if (!next) return false
-      if (next.pan !== pan) dispatcher.run(setPan(track, next.pan))
+      if (next.pan !== pan) dispatcher.run(panCommand(next.pan))
       return next.limited ? ui.t('controls.limited', { value: formatPan(next.pan) }) : true
     },
   }
 
   function onreset() {
     // Already centred: no command, no empty history entry.
-    if (pan !== 0) dispatcher.run(setPan(track, 0))
+    if (pan !== 0) dispatcher.run(panCommand(0))
   }
 </script>
 
