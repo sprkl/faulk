@@ -757,6 +757,25 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 - Phase : 4.
 - Étiquettes : hardware: non, founder: non.
 
+**AR-6 — Insérer ou supprimer du temps sur toutes les pistes** (#396)
+- But : changer la longueur d'une section en une opération : `arrangement.insert_time { at, length }` et `arrangement.delete_time { from, to }` décalent ensemble les placements de toutes les pistes, les points de tous les couloirs d'automation (pistes et master) et la région de boucle, en une seule entrée d'historique.
+- Critères : un placement à cheval sur le point d'insertion est coupé comme `arrangement.split` ; la suppression coupe aux deux bords et retire ce qui est entre eux ; les points d'automation suivent, la région de boucle suit ; l'annulation rend tout exactement ; sélection de temps sur la règle et actions dans la barre d'outils de la vue Arrangement, EN et FR, test Playwright ; parité MCP.
+- Touche : `crates/commands/src/arrangement.rs`, `web/src/views/arrangement/`, `web/src/lib/i18n/arrangement.ts`.
+- Dépend de : AR-1, AR-4, AM-1.
+- Phase : 4.
+- Étiquettes : hardware: non, founder: oui.
+- Automation : c'est la seule exception à « les couloirs ne suivent pas les clips » (#390) : ces deux commandes déplacent le temps entier du projet, clips et couloirs ensemble.
+- Réalisé (#396) : trois commandes, `arrangement.insert_time`, `arrangement.delete_time` et leur inverse `arrangement.restore_time` (placements comme `arrangement.restore`, points de couloirs remplacés tels quels, boucle). Décisions du chef de projet (délégation du fondateur) :
+  - **Tout le projet** : toutes les pistes et le master, sans variante par piste.
+  - **Insertion** : un placement qui commence au point d'insertion ou après avance ; un placement qui le traverse est coupé là (la partie gauche garde l'identifiant, la droite est un nouveau placement du même clip, donc lié, qui reprend le clip à travers sa boucle ; rien à droite si un clip sans boucle avait fini) ; un placement qui finit au point d'insertion ou avant ne bouge pas.
+  - **Suppression** : la règle de rognage d'AR-1 sur `[from, to)` (retiré, raccourci, rogné au début, coupé en deux), puis tout ce qui commence à `to` ou après recule de `to − from`. Un clip de l'arrangement seul qui perd son dernier placement disparaît avec lui, comme `arrangement.delete`.
+  - **Automation** : à l'insertion, les points à partir de `at` avancent (une rampe qui traverse le point s'étire sur le temps inséré, aucun point n'est inventé) ; à la suppression, les points de `[from, to)` disparaissent et les suivants reculent, donc le dernier point avant la coupure rejoint directement le premier après (une rampe reste continue ; un point `step` garde sa valeur jusqu'à la coupure, puis la suivante s'applique).
+  - **Boucle** : une borne à partir du point d'insertion avance (une fin exactement au point reste) ; à la suppression, une borne dans l'intervalle tombe sur `from` ; une boucle vide est effacée et désactivée.
+  - **Tempo et mesure** : le format du projet impose un seul point au tick 0 (`validate`), il n'y a rien à décaler ; pas de marqueurs dans le modèle (#194 les ajoutera et devra les suivre). La tête de lecture et la grille de lancement ne sont pas sur la timeline et ne bougent pas.
+  - **Refus** : un placement, un point ou une borne de boucle qui dépasserait 2^40 refuse toute la commande ; une piste qui porte un placement audio la refuse aussi (l'arrangement audio vient avec l'import, comme pour toutes les commandes d'arrangement). Sans effet (rien à partir du point), pas d'entrée d'historique.
+  - **Interface** : Maj + glisser sur la règle choisit une plage de temps (le glisser simple reste la région de boucle) ; la barre d'outils offre un nombre de mesures avec « Insérer des mesures » (au début de la plage choisie, sinon à la mesure de la position de lecture) et « Supprimer les mesures sélectionnées ». « Dupliquer la section » reste à décider (la plage de temps en serait la base).
+- Vérification : `crates/commands/tests/arrangement_time.rs` (chaque cas ci-dessus, annulation et rétablissement exacts, une entrée d'historique, refus, balayage aléatoire), les exemples du contrat (`arrangement_examples`), `web/tests/e2e/arrangement-time.spec.ts` (navigateur réel).
+
 ### Épopée 8 — Piano roll (PN)
 
 **PN-1 — Éditeur piano roll**

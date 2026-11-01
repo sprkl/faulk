@@ -367,7 +367,9 @@ test('automation: a limited or unreadable typed value says so in French (#421)',
   await expect(page.getByTestId('value-note')).toHaveText('Limité à 6.0 dB')
   await page.keyboard.press('Control+z')
   await stage(page).getByTestId('timegrid').focus()
-  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  // The toolbar can wrap differently once the selection count changes, which moves the stage: measure again.
+  const g2 = await spot(page, 0)
+  await page.mouse.dblclick(g2.x(0), g2.y(0.78))
   await page.getByTestId('value-input').fill('fort')
   await page.getByTestId('value-input').press('Enter')
   await expect(page.getByTestId('value-error')).toHaveText('Valeur non reconnue')

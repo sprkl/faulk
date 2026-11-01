@@ -6,7 +6,17 @@
    * not project data.
    */
   import { onDestroy, untrack } from 'svelte'
-  import { createClipAt, deletePlacements, duplicatePlacements, movePlacements, resizePlacement, splitPlacement } from '../../lib/arrangement-commands'
+  import {
+    barStart,
+    createClipAt,
+    deletePlacements,
+    deleteTime,
+    duplicatePlacements,
+    insertTime,
+    movePlacements,
+    resizePlacement,
+    splitPlacement,
+  } from '../../lib/arrangement-commands'
   import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
@@ -93,7 +103,7 @@
         startY: number
       }
     | { kind: 'resize'; grabbed: Block; edge: 'start' | 'end'; to: number | null; moved: boolean; startX: number }
-    | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number }
+    | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number; select: boolean }
     | {
         // A point of a lane (and the points selected with it) being dragged.
         kind: 'point'
@@ -256,9 +266,29 @@
   })
   const loopNow = $derived.by(() => {
     const g = gesture
-    if (g?.kind === 'ruler' && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+    if (g?.kind === 'ruler' && !g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
     return transport?.loop_region ?? null
   })
+  // The time selection (#396): Shift+drag on the ruler. Insert and Delete bars act on it.
+  let timeSel = $state.raw<{ start: number; end: number } | null>(null)
+  let barCount = $state(4)
+  const timeNow = $derived.by(() => {
+    const g = gesture
+    if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+    return timeSel
+  })
+  const barsToInsert = $derived(Math.max(1, Math.min(9999, Math.floor(Number(barCount)) || 1)))
+  function insertBars() {
+    const at = timeSel ? timeSel.start : barStart(position ?? 0, bar)
+    timeSel = null
+    run(insertTime(at, barsToInsert * bar))
+  }
+  function deleteSelectedTime() {
+    const sel = timeSel
+    if (!sel) return
+    timeSel = null
+    run(deleteTime(sel.start, sel.end))
+  }
   const loopOn = $derived(transport?.loop_enabled ?? false)
 
   // --- the play position ---------------------------------------------------------------------------
@@ -375,6 +405,7 @@
       ghosts,
       loop: loopNow,
       loopOn,
+      timeSel: timeNow,
       fallbackName: t('arrangement.clipDefault'),
     })
     const lanes: LaneScene[] = []
@@ -408,7 +439,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, selectedIds, ghosts, hidden, loopNow, loopOn, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
+    void [blocks, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
     grid?.invalidate()
   })
 
@@ -449,7 +480,7 @@
     stage.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
       const tick = snapTick(xToTick(x, shown), stepOf(event))
-      gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x }
+      gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x, select: event.shiftKey }
       return
     }
     const where = rowAt(layout, y, y0)
@@ -554,6 +585,11 @@
     gesture = null
     if (!g || !commit) return
     if (g.kind === 'ruler') {
+      if (g.select) {
+        if (g.moved && g.from !== g.to) timeSel = { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+        else timeSel = null
+        return
+      }
       if (!g.moved || g.from === g.to) return run(seek(g.to))
       // A region needs the loop on to be heard: setting it and turning the loop on is one step to undo.
       const start = Math.min(g.from, g.to)
@@ -923,6 +959,13 @@
     <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
       >{t('arrangement.delete')}</button
     >
+    <span class="time" role="group" aria-label={t('arrangement.timeTools')}>
+      <input type="number" min="1" max="9999" aria-label={t('arrangement.bars')} data-testid="arr-bars" bind:value={barCount} />
+      <button title={t('arrangement.insertBarsHint')} data-testid="arr-insert-bars" onclick={insertBars}>{t('arrangement.insertBars')}</button>
+      <button title={t('arrangement.deleteBarsHint')} disabled={!timeSel} data-testid="arr-delete-bars" onclick={deleteSelectedTime}
+        >{t('arrangement.deleteBars')}</button
+      >
+    </span>
     <span class="curves" role="group" aria-label={t('automation.curves')}>
       <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
         >{t('automation.linear')}</button
@@ -1416,9 +1459,14 @@
   .stage[data-cursor='add'] {
     cursor: crosshair;
   }
-  .curves {
+  .curves,
+  .time {
     display: inline-flex;
     gap: 2px;
+  }
+  .time input {
+    width: 4.5em;
+    font: inherit;
   }
   .limit-note {
     position: absolute;
