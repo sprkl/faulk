@@ -84,6 +84,17 @@ for (const [locale, insertLabel, deleteLabel] of [
     await expect.poll(() => starts(page)).toEqual([3 * BAR])
     await expect(page.getByTestId('arr-delete-bars')).toBeDisabled()
 
+    // The selection stays after an undo and a redo (#435) ...
+    await selectTime(page, 0, 1)
+    await expect(page.getByTestId('arr-delete-bars')).toBeEnabled()
+    await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+Shift+z')
+    await expect(page.getByTestId('arr-delete-bars')).toBeEnabled()
+    // ... but a project started on top of it drops it, so that Delete never targets a range chosen on another project (#445).
+    await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'project.new' }))
+    await expect(arr(page)).toHaveAttribute('data-block-count', '0')
+    await expect(page.getByTestId('arr-delete-bars')).toBeDisabled()
+
     expect(seen.errors).toEqual([])
     await context.close()
   })

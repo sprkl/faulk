@@ -627,7 +627,7 @@ fn extent(p: &Placement) -> Result<(i64, i64, i64), CommandError> {
         Span::Ticks { length, offset } => Ok((p.start.get(), length.get(), offset.get())),
         Span::Frames { .. } => Err(invalid(
             "placement",
-            "an audio placement is not edited in ticks; audio arrangement comes with the import",
+            "an audio placement is not edited in ticks: arrangement edits such as insert or delete time are refused until the audio import supports it",
         )),
     }
 }
@@ -1619,6 +1619,14 @@ fn time_works(
     for (id, track) in &project.tracks {
         if track.placements.is_empty() {
             continue;
+        }
+        if track.kind != project::TrackKind::Midi {
+            return Err(invalid(
+                "track",
+                format!(
+                    "track {id} holds audio placements: insert or delete time is refused for the whole project until the audio import supports it"
+                ),
+            ));
         }
         let mut work = TrackWork::new(project, id)?;
         edit(&mut work)?;
