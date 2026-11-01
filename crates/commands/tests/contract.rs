@@ -155,6 +155,7 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Mixer(mixer::Command::SetMasterVolume {
             gain_db: Some(-3.0),
         })),
+        on(Command::Mixer(mixer::Command::SetMasterPan { pan: -0.5 })),
         on(Command::Mixer(mixer::Command::SetSolo {
             track: f.track.clone(),
             solo: true,

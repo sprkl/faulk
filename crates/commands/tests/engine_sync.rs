@@ -140,6 +140,11 @@ fn each_edit_compiles_to_its_messages() {
     assert!(
         matches!(msgs[..], [ControlMsg::SetMaster { gain, mute: false, .. }] if (gain - 0.1).abs() < 1e-6)
     );
+    let (_, msgs) = run(&mut s, json!({"type": "mixer.set_master_pan", "pan": -0.5}));
+    assert!(
+        matches!(msgs[..], [ControlMsg::SetMaster { pan, .. }] if (pan + 0.5).abs() < 1e-6),
+        "{msgs:?}"
+    );
     let (_, msgs) = run(
         &mut s,
         json!({"type": "mixer.set_solo", "track": a, "solo": true}),
