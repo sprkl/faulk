@@ -66,6 +66,8 @@ jobs:
   # ---------------------------------------------------------------------------
   version:
     runs-on: ubuntu-latest
+    # A few seconds.
+    timeout-minutes: 10
     outputs:
       value: ${{ steps.resolve.outputs.value }}
       pack: ${{ steps.resolve.outputs.pack }}
