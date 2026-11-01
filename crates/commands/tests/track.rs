@@ -864,7 +864,7 @@ fn a_track_keeps_its_stored_colour_whatever_happens_to_the_others() {
     let out = run(&create(TrackKind::Audio), &mut s, &mut ctx).unwrap();
     assert_eq!(color_of(&s, &created(&out).0), before[1]);
 
-    // A duplicate has a hue of its own; the source and the others keep theirs.
+    // A duplicate keeps the source's colour; the source and the others keep theirs.
     let dup = tc(track::Command::Duplicate {
         track: ids[0].clone(),
         name: None,
@@ -879,8 +879,11 @@ fn a_track_keeps_its_stored_colour_whatever_happens_to_the_others() {
     let Output::Track(track::Output::Duplicate { track: copy }) = out.output else {
         panic!()
     };
-    let copy_color = color_of(&s, &copy);
-    assert!(copy_color.is_some() && !snapshot.contains(&copy_color));
+    assert_eq!(
+        color_of(&s, &copy),
+        color_of(&s, &ids[0]),
+        "a copy keeps its source's colour"
+    );
     let after: Vec<_> = ids
         .iter()
         .filter(|id| s.project.tracks.contains_key(*id))

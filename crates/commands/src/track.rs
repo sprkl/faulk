@@ -201,8 +201,8 @@ domain! {
     /// devices, clips, placements and automation lanes. The clips are new, independent
     /// clips with the same content, each with the next name ("Clip 2" gives "Clip 3").
     /// `name` is optional (trimmed, at most 200
-    /// characters): the copy has the source's name by default and takes the next free palette hue
-    /// as its colour (as `track.create`). The copy is never muted
+    /// characters): the copy has the source's name and colour by default
+    /// (recolour it with `track.set_color`). The copy is never muted
     /// (volume and pan are copied); solo and arming are session state of the source and
     /// are not copied. Refused with `limit` at
     /// the safety limit of tracks, notes or automation points. Undo: `track.delete` of
@@ -961,8 +961,6 @@ fn duplicate_within(
     let key = OrderKey::for_index(&keys, at + 1).map_err(|e| invalid("index", e.to_string()))?;
     let mut copy = source.clone();
     copy.order = key;
-    // The copy has a hue of its own, so that the two tracks tell apart.
-    copy.color = Some(state.project.next_track_color());
     // A duplicate is there to be heard: a muted source does not make a silent copy.
     copy.mixer.mute = false;
     if let Some(name) = name {
