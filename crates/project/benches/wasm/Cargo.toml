@@ -2,7 +2,7 @@
 name = "load-wasm"
 version = "0.1.0"
 edition = "2024"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
 description = "The load bench's prototype folder reader and writer compiled to wasm32 (QA-7), driven by web/tests/bench. Not part of the workspace, not a product crate."
 

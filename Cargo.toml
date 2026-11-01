@@ -4,7 +4,7 @@ members = ["crates/engine", "crates/commands", "crates/engine-wasm", "crates/pro
 
 [workspace.package]
 edition = "2024"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
 
 # Dependencies (notably the `wasmi` interpreter of the native/WASM parity tests) are optimised in dev and
