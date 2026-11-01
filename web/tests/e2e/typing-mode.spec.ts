@@ -54,7 +54,7 @@ test('musical typing: the letters play notes only while the mode is on, one key 
   expect(errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
 })
 
-test('the piano roll opens on the notes of its clip', async ({ page }) => {
+test('the piano roll shows a drawn note in view, and the other tracks toggle flips', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
   await page.getByTestId('panel-piano-roll').click()
@@ -69,15 +69,8 @@ test('the piano roll opens on the notes of its clip', async ({ page }) => {
   const scrollY = Number(await stage.getAttribute('data-scroll-y'))
   await page.mouse.click(box.x + 1000 * ppt, box.y + 28 + (127 - 60) * 16 - scrollY + 8)
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '1')
-  const opened = Number(await stage.getAttribute('data-scroll-y'))
-  await page.mouse.move(box.x + 200, box.y + 100)
-  await page.mouse.wheel(0, 1500)
-  await expect.poll(async () => Number(await stage.getAttribute('data-scroll-y'))).not.toBe(opened)
-
-  // Leaving the panel and coming back opens the clip again, around its note.
-  await page.getByTestId('panel-devices').click()
-  await page.getByTestId('panel-piano-roll').click()
-  await expect(stage).toBeVisible()
+  // The row of the note is in the stage. (Opening on a clip's notes is `initialScrollY`, unit-tested in roll.test.ts;
+  // a clip left and reopened keeps its remembered place since #475.)
   const top = Number(await stage.getAttribute('data-scroll-y'))
   const height = (await stage.boundingBox())!.height
   const rowTop = (127 - 60) * 16 - top + 28
