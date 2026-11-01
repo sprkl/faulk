@@ -5,6 +5,10 @@ on:
     branches: [develop, main]
   pull_request:
 
+# Least privilege: a job that needs more says so itself.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

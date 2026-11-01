@@ -52,6 +52,10 @@ on:
         required: false
         default: ''
 
+# Least privilege: a job that needs more says so itself (`release` writes contents).
+permissions:
+  contents: read
+
 concurrency:
   group: release-helper-${{ github.ref }}-${{ inputs.version }}-${{ inputs.mirror }}
   cancel-in-progress: false
