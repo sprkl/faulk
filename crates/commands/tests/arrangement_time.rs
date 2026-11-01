@@ -442,6 +442,8 @@ fn one_history_entry_undoes_and_redoes_everything_exactly() {
         .unwrap();
     }
     assert_eq!(state.project, end.project);
+    assert_eq!(state.project.tempo, start.project.tempo);
+    assert_eq!(state.project.meter, start.project.meter);
     assert!(
         state.project.tracks[&f.track]
             .automation

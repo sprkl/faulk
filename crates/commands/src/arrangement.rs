@@ -627,7 +627,7 @@ fn extent(p: &Placement) -> Result<(i64, i64, i64), CommandError> {
         Span::Ticks { length, offset } => Ok((p.start.get(), length.get(), offset.get())),
         Span::Frames { .. } => Err(invalid(
             "placement",
-            "an audio placement is not edited in ticks: arrangement edits such as insert or delete time are refused until the audio import supports it",
+            "an audio placement is not edited in ticks; audio arrangement comes with the import",
         )),
     }
 }
