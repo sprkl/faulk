@@ -27,7 +27,12 @@ export interface ArrangementFrame {
   timeSel: LoopRegion | null
   /** The name of a clip without one. */
   fallbackName: string
+  /** The tracks that make no sound (muted, or silenced by a solo): their clips are drawn at 40 %. */
+  silent: ReadonlySet<string>
 }
+
+/** How much of its colour a clip of a silent track keeps. */
+export const SILENT_ALPHA = 0.4
 
 const NOTE_MIN_PX = 1.5
 const pitchRanges = new WeakMap<readonly Note[], [number, number]>()
@@ -87,11 +92,12 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     const h = LANE_HEIGHT - 2 * BLOCK_INSET
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)
-    ctx.globalAlpha = ghost ? 0.7 : 1
+    const k = scene.silent.has(block.track) ? SILENT_ALPHA : 1
+    ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.fillStyle = block.color
     ctx.globalAlpha *= 0.32
     ctx.fillRect(x0, y, w, h)
-    ctx.globalAlpha = ghost ? 0.7 : 1
+    ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.strokeStyle = selected ? colors.text : block.color
     ctx.lineWidth = selected ? 2 : 1
     ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1)
@@ -108,7 +114,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const span = Math.max(1, h - 20)
       const rowH = Math.min(4, span / (high - low + 1))
       ctx.fillStyle = block.color
-      ctx.globalAlpha = ghost ? 0.7 : 0.95
+      ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k
       // The clip is shown from its offset; a clip with a loop goes round it where the block outlasts it
       // (a few passes at most: a long block of a short loop is a texture, not a score).
       const cycle = block.looping ? block.looping.end : block.clipLength
@@ -134,7 +140,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     }
     // The name.
     if (w > 28) {
-      ctx.globalAlpha = 1
+      ctx.globalAlpha = k
       ctx.fillStyle = colors.text
       ctx.textBaseline = 'top'
       ctx.save()

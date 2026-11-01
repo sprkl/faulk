@@ -45,7 +45,9 @@
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
-  import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
+  import { MASTER_METER } from '../../lib/stores'
+  import { armTrack, beginGroup, endGroup, selectTrack, setMute, setSolo } from '../../lib/track-commands'
+  import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
   import { barTicks } from '../transport/time'
@@ -83,7 +85,7 @@
   import { layoutOf, rowsBetween, type Row } from './automation/layout'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher, meters } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -149,6 +151,8 @@
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
+  /** The tracks that make no sound: muted, or silenced by another track's solo. */
+  const silent = $derived(new Set(entries.filter((e) => e.track.mixer.mute || project.silencedBySolo(e.id)).map((e) => e.id)))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   /** The tick of the last point of any lane: a lane may reach further than the clips (an agent, a fade-out), and must stay in reach. */
@@ -419,6 +423,7 @@
       loopOn,
       timeSel: timeNow,
       fallbackName: t('arrangement.clipDefault'),
+      silent,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -451,7 +456,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
+    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
     grid?.invalidate()
   })
 
@@ -1056,7 +1061,7 @@
     >
   </div>
 
-  <div class="board" class:scrolls={overflowing} style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
+  <div class="board" class:scrolls={overflowing} style:--head="276px" style:--ruler="{RULER_HEIGHT}px">
     {#if entries.length === 0}
       <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
       <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
@@ -1076,6 +1081,17 @@
                 <div class="head master-head">
                   <span class="swatch" style:background="var(--fk-text-muted)"></span>
                   <span class="label">{t('mixer.master')}</span>
+                </div>
+                <div class="lane-meter">
+                  <LevelMeter
+                    snap={meters.snap(MASTER_METER)}
+                    orientation="horizontal"
+                    label={t('meter.master')}
+                    clipLabel={t('meter.clip')}
+                    resetLabel={t('meter.reset', { name: t('mixer.master') })}
+                    onreset={() => meters.reset(MASTER_METER)}
+                    testid="arr-master-meter"
+                  />
                 </div>
                 <button
                   class="fold"
@@ -1103,8 +1119,15 @@
               </div>
             {:else}
               {@const trackEntry = entries[row.track]!}
+              {@const name = trackLabel(trackEntry, t)}
+              {@const muted = trackEntry.track.mixer.mute}
+              {@const soloed = project.soloed.includes(trackEntry.id)}
+              {@const armed = project.armed.includes(trackEntry.id)}
+              {@const implied = project.silencedBySolo(trackEntry.id)}
               <div
                 class="row"
+                class:silent={muted || implied}
+                class:selected={project.selected?.id === trackEntry.id}
                 title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
                 style:height="{row.height}px"
                 class:off={detached.has(trackEntry.id)}
@@ -1122,6 +1145,51 @@
                   <span class="swatch"></span>
                   <span class="track-name">{trackLabel(trackEntry, t)}</span>
                 </button>
+                <div class="states" role="group" aria-label={t('arrangement.states', { name })}>
+                  <button
+                    class="state mute"
+                    class:implied
+                    type="button"
+                    aria-pressed={muted}
+                    aria-label={implied && !muted ? `${t('tracks.mute', { name })}. ${t('tracks.implied')}` : t('tracks.mute', { name })}
+                    title={implied && !muted ? t('tracks.implied') : t('tracks.mute', { name })}
+                    data-testid="arr-mute"
+                    data-implied={implied && !muted ? 'true' : undefined}
+                    onclick={() => run(setMute(trackEntry.id, !muted))}
+                    >M{#if implied && !muted}<span class="sr-only"> {t('tracks.implied')}</span>{/if}</button
+                  >
+                  <button
+                    class="state solo"
+                    type="button"
+                    aria-pressed={soloed}
+                    aria-label={t('tracks.solo', { name })}
+                    title={t('tracks.solo', { name })}
+                    data-testid="arr-solo"
+                    onclick={() => run(setSolo(trackEntry.id, !soloed))}>S</button
+                  >
+                  {#if trackEntry.track.kind === 'midi'}
+                    <button
+                      class="state arm"
+                      type="button"
+                      aria-pressed={armed}
+                      aria-label={t('tracks.arm', { name })}
+                      title={t('tracks.armHint', { name })}
+                      data-testid="arr-arm"
+                      onclick={() => run(armTrack(trackEntry.id, !armed))}>In</button
+                    >
+                  {/if}
+                </div>
+                <div class="lane-meter">
+                  <LevelMeter
+                    snap={meters.snap(trackEntry.id)}
+                    orientation="horizontal"
+                    label={t('mixer.level', { name })}
+                    clipLabel={t('meter.clip')}
+                    resetLabel={t('meter.reset', { name })}
+                    onreset={() => meters.reset(trackEntry.id)}
+                    testid="arr-meter"
+                  />
+                </div>
                 {#if detached.has(trackEntry.id)}
                   <button
                     class="back"
@@ -1431,9 +1499,76 @@
   .row.off .head {
     opacity: 0.6;
   }
+  /* A muted track, or one a solo silences: the name and the meter at 40 %; its M says which (letters and a dashed frame, never the dimming alone). */
+  .row.silent .head,
+  .row.silent .lane-meter {
+    opacity: 0.4;
+  }
+  /* The selected track: a 2px light outline inside its header and a tint. */
+  .row.selected {
+    outline: 2px solid var(--fk-text);
+    outline-offset: -2px;
+  }
+  .states {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    padding: 0 var(--fk-space-1);
+  }
+  .state {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+    background: transparent;
+    font-family: var(--fk-font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .state:hover {
+    background: var(--fk-surface-2);
+  }
+  .state.mute[aria-pressed='true'] {
+    background: var(--fk-mute);
+    border-color: var(--fk-mute);
+    color: #131211;
+    text-decoration: line-through;
+  }
+  .state.mute.implied:not([aria-pressed='true']) {
+    border-style: dashed;
+    border-color: var(--fk-mute);
+    color: var(--fk-mute);
+  }
+  .state.solo[aria-pressed='true'] {
+    background: var(--fk-solo);
+    border-color: var(--fk-solo);
+    color: #131211;
+    text-decoration: underline;
+  }
+  /* Live input on: the neutral inverted fill of the other strips (red is for recording, which this is not). */
+  .state.arm {
+    width: 26px;
+  }
+  .state.arm[aria-pressed='true'] {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
+  }
+  .lane-meter {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: 0 var(--fk-space-1);
+  }
+  .lane-meter :global(.meter) {
+    --len: 52px;
+  }
   /* The master row: same layout as a track row but without a clickable button head, and with a distinct top border. */
   .master-row {
-    border-top: 1px solid var(--fk-accent-fg);
+    border-top: 1px solid var(--fk-text-muted);
   }
   .master-head {
     display: flex;
@@ -1451,9 +1586,9 @@
     align-self: center;
     margin-right: var(--fk-space-1);
     padding: 0 var(--fk-space-1);
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-accent-fg);
-    background: var(--fk-accent-tint);
+    border-color: var(--fk-text);
+    color: var(--fk-text);
+    background: var(--fk-surface-2);
   }
   .head {
     display: flex;
@@ -1469,7 +1604,10 @@
     text-align: left;
   }
   .head.on {
+    --fk-text-muted: var(--fk-text-muted-on-tint);
     background: var(--fk-accent-tint);
+    color: var(--fk-text);
+    font-weight: 600;
   }
   .swatch {
     flex: none;
@@ -1554,10 +1692,14 @@
     display: inline-flex;
     gap: 2px;
   }
+  /* On: a fill in the text colour and a dot before the word, never a hue. */
   .follow[aria-pressed='true'] {
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-accent-fg);
-    background: var(--fk-accent-tint);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
+    background: var(--fk-text);
+  }
+  .follow[aria-pressed='true']::before {
+    content: '● ';
   }
   .stage {
     position: relative;
@@ -1617,7 +1759,7 @@
   }
   .fold[aria-expanded='true'],
   .fold.has {
-    color: var(--fk-accent-fg);
+    color: var(--fk-text);
   }
   .fold .n {
     font-family: var(--fk-font-mono);

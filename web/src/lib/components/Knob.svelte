@@ -120,7 +120,8 @@
     cursor: text;
   }
   .automated .value {
-    color: var(--fk-accent-fg);
+    color: var(--fk-text);
+    text-decoration: underline dotted;
   }
   button.value:hover {
     background: var(--fk-surface-2);
@@ -133,7 +134,7 @@
   }
   .fill {
     fill: none;
-    stroke: var(--fk-accent-fg);
+    stroke: var(--fk-text-muted);
     stroke-width: 4;
     stroke-linecap: round;
   }

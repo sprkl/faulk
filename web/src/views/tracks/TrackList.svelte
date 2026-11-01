@@ -154,6 +154,12 @@
   .typing {
     align-self: flex-start;
   }
+  /* Typing notes: the button is filled in the text colour (the words say it too), never a hue. */
+  .typing[data-mode='notes'] {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
+  }
   .head h2 {
     flex: 1;
   }

@@ -13,7 +13,7 @@ export const CLIP_PEAK = 0.999
 /** How fast the bar falls, in dB per second. */
 export const RELEASE_DB_PER_S = 24
 /** How long the hold marker stays at a peak, in seconds, then how fast it falls (dB per second). */
-export const HOLD_S = 2
+export const HOLD_S = 1.5
 export const HOLD_FALL_DB_PER_S = 12
 /** The longest gap between two reports that counts: a longer one (a hidden tab) is clamped. */
 const MAX_STEP_S = 0.25
@@ -76,17 +76,23 @@ export interface MeterSnap {
   clipped: boolean
   /** The louder bar, in dB, for the meter's accessible value. */
   levelDb: number
+  /** The largest gain reduction of the strip's compressors, in dB (>= 0; 0 when none works or the engine reports none). */
+  reductionDb: number
 }
 
 /** The snapshot of a silent meter. */
-export const SILENT: MeterSnap = { levelL: 0, levelR: 0, holdL: 0, holdR: 0, peakDb: METER_FLOOR_DB, clipped: false, levelDb: METER_FLOOR_DB }
+export const SILENT: MeterSnap = { levelL: 0, levelR: 0, holdL: 0, holdR: 0, peakDb: METER_FLOOR_DB, clipped: false, levelDb: METER_FLOOR_DB, reductionDb: 0 }
 
 class StereoMeter {
   readonly l = new Ballistics()
   readonly r = new Ballistics()
 
+  /** The strip's gain reduction in the last report, in dB. */
+  reductionDb = 0
+
   snap(): MeterSnap {
     return {
+      reductionDb: this.reductionDb,
       levelL: fillOf(this.l.level),
       levelR: fillOf(this.r.level),
       holdL: fillOf(this.l.hold),
@@ -110,12 +116,13 @@ export class MeterBank {
   }
 
   /** Feeds one report: `read` gives a strip's peaks (zeros for a strip the report does not cover). */
-  update(ids: readonly string[], read: (id: string) => { peakL: number; peakR: number }, now: number): Map<string, MeterSnap> {
+  update(ids: readonly string[], read: (id: string) => { peakL: number; peakR: number; gainReductionDb?: number }, now: number): Map<string, MeterSnap> {
     const next = new Map<string, StereoMeter>()
     const snaps = new Map<string, MeterSnap>()
     for (const id of ids) {
       const meter = this.meters.get(id) ?? new StereoMeter()
-      const { peakL, peakR } = read(id)
+      const { peakL, peakR, gainReductionDb } = read(id)
+      meter.reductionDb = gainReductionDb !== undefined && Number.isFinite(gainReductionDb) ? Math.max(0, gainReductionDb) : 0
       meter.l.update(peakL, now)
       meter.r.update(peakR, now)
       next.set(id, meter)

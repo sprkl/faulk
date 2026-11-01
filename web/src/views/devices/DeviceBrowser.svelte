@@ -147,9 +147,9 @@
   .warn {
     margin: 0;
     padding: var(--fk-space-2);
-    border: 1px solid var(--fk-accent-fg);
+    border: 1px solid var(--fk-text-muted);
     border-radius: var(--fk-radius-work);
-    background: var(--fk-accent-tint);
+    background: var(--fk-surface-2);
     font-size: 12px;
   }
   .dismiss {

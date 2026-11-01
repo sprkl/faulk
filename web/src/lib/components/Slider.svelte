@@ -235,6 +235,21 @@
   oncontextmenu={onContextMenu}
   onkeydown={onKeyDown}
 >
+  {#if automated !== undefined}
+    <svg
+      class="auto-glyph"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+      data-testid="automated-glyph"><path d="M1 9 L4 4 L7 8 L11 2" /></svg
+    >
+  {/if}
   {#if kind === 'knob'}
     {@render children?.()}
   {:else}
@@ -340,7 +355,7 @@
     background: var(--fk-line);
   }
   .fill {
-    background: var(--fk-accent-fg);
+    background: var(--fk-text-muted);
   }
   .horizontal .rail,
   .horizontal .fill {
@@ -382,7 +397,7 @@
   }
   .thumb {
     position: absolute;
-    border: 2px solid var(--fk-accent-fg);
+    border: 2px solid var(--fk-text);
     border-radius: var(--fk-radius-work);
     background: var(--fk-bg);
     box-sizing: border-box;
@@ -397,18 +412,26 @@
     right: 2px;
     height: 16px;
   }
-  /* A lane drives the control (#388): an accent tint around it and a filled thumb. */
+  /* A lane drives the control (#388): a dotted frame, a filled thumb and the curve glyph in the corner, never a hue. */
   .slider.automated {
     border-radius: var(--fk-radius-work);
-    background: var(--fk-accent-tint);
-    box-shadow:
-      0 0 0 2px var(--fk-accent-tint),
-      0 0 0 3px var(--fk-accent-fg);
+    box-shadow: 0 0 0 1px var(--fk-text-muted);
   }
   .slider.knob.automated {
     border-radius: 50%;
   }
   .automated .thumb {
-    background: var(--fk-accent-fg);
+    background: var(--fk-text);
+  }
+  .auto-glyph {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 1;
+    padding: 1px;
+    border-radius: 50%;
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    pointer-events: none;
   }
 </style>
