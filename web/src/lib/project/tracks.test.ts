@@ -7,7 +7,6 @@ import {
   INSTRUMENTS,
   instrumentKind,
   instrumentName,
-  nextColor,
   sortedTracks,
   TRACK_COLORS,
   trackColor,
@@ -59,10 +58,7 @@ describe('the track list', () => {
     expect(INSTRUMENTS.map((i) => i.name)).toEqual(expect.arrayContaining(['Oscillator', 'Drums']))
   })
 
-  it('gives each new track the next colour of the palette, in a loop', () => {
-    expect(nextColor(0)).toBe(TRACK_COLORS[0])
-    expect(nextColor(TRACK_COLORS.length)).toBe(TRACK_COLORS[0])
-    expect(nextColor(TRACK_COLORS.length + 1)).toBe(TRACK_COLORS[1])
+  it('has palette hues written #rrggbb', () => {
     for (const color of TRACK_COLORS) expect(color).toMatch(/^#[0-9a-f]{6}$/)
   })
 

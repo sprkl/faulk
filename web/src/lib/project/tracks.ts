@@ -79,10 +79,10 @@ export const TRACK_COLORS = [
   '#e189c5',
 ] as const
 
-/** The colour of the next track created, given how many tracks exist. */
-export const nextColor = (count: number): string => TRACK_COLORS[count % TRACK_COLORS.length]
-
-/** The colour a track shows: the one stored, else the hue its position in the list would have got. */
+/**
+ * The colour a track shows: the one stored (a track gets one when it is created, and a project opened
+ * without one gets its position's hue stored), else the hue its position in the list would have got.
+ */
 export const trackColor = (stored: string | null | undefined, index: number): string => stored ?? TRACK_COLORS[Math.abs(index) % TRACK_COLORS.length]
 
 /** The colour of the master's swatch and lanes (the master is no track and has no hue). */

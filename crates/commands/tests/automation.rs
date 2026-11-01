@@ -870,6 +870,7 @@ fn a_dense_lane_is_a_blob_in_the_folder_and_a_table_when_read_back() {
     // One batch, one history entry.
     let entries = s.history.undo.len();
     go(&mut s, &add_cmd(&f.gain_lane, points));
+    s.project.color_uncolored_tracks(); // opening colours the tracks that have none (#479)
     assert_eq!(s.history.undo.len(), entries + 1);
     let mut fs = MemFs::new();
     save(

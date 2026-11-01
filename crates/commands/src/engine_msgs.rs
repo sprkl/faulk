@@ -1537,6 +1537,7 @@ pub mod single_synth {
             "Untitled",
         );
         let mut track = Track::new(project::TrackKind::Midi, "Synth", OrderKey::first());
+        track.color = Some(project::colors::palette_hue(0));
         let synth = crate::track::instrument_device(engine::OSC_SYNTH.kind)
             .expect("the synth is a built-in instrument");
         track.devices.insert(device(), synth);
