@@ -64,7 +64,7 @@ concurrency:
 
 env:
   PACK_ID: FaulkHelper
-  VPK_VERSION: '1.2.161' # must match the `velopack` crate pinned in crates/helper/Cargo.toml
+  VPK_VERSION: '1.3.39-g8d2844f' # must match the `velopack` crate pinned in crates/helper/Cargo.toml
 
 jobs:
   # ---------------------------------------------------------------------------

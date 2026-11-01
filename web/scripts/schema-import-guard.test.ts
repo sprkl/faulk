@@ -2,7 +2,7 @@
 import { ESLint } from 'eslint'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 const web = fileURLToPath(new URL('..', import.meta.url))
 const eslint = new ESLint({ cwd: web })
@@ -18,7 +18,14 @@ async function lint(code: string, path: string): Promise<string[]> {
 
 const rejected = (messages: string[]) => messages.filter((message) => message.includes('generated/schema.json'))
 
-describe('lint guard on generated/schema.json (#436)', () => {
+// The first lint loads the ESLint config and the TypeScript parser: seconds on a cold or loaded runner,
+// which made whichever test ran first time out at vitest's 5 s default (#436). Warm that path once with
+// its own budget; each case also gets 30 s, enough for the Svelte and JavaScript paths' own cold start.
+describe('lint guard on generated/schema.json (#436)', { timeout: 30_000 }, () => {
+  beforeAll(async () => {
+    await lint('export const warm = 1\n', 'src/lib/keyboard.ts')
+  }, 120_000)
+
   it.each([
     ['a static import', `import schema from '../lib/generated/schema.json'\nexport const s = schema\n`],
     ['a relative import from the root of src', `import schema from './lib/generated/schema.json'\nexport const s = schema\n`],
