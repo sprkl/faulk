@@ -25,6 +25,7 @@
 
 use crate::contract::{ClipPart, CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
+use crate::query::{ClipContentInfo, ClipSummary, PageInfo, PlacementInfo};
 use project::limits::{
     MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS,
     MAX_PLACEMENTS_PER_TRACK, MAX_TICK,
@@ -349,6 +350,66 @@ domain! {
     } => {
         /// How many copies were new.
         added: u32,
+    };
+
+    /// Read one clip, MIDI or audio, without its notes (`clip.notes.list` pages them): the
+    /// track that holds it, its summary (name, colour, launch-grid slot, kind, length and
+    /// note count of a MIDI clip), its own launch quantization when it has one, its content
+    /// (a MIDI clip's length in ticks, loop and note count; an audio clip's media, range of
+    /// frames, gain in dB with `null` for silence, and loop) and a page of its placements
+    /// in the track's arrangement, in the order of their identifiers. Paged on the
+    /// placements: `offset` (placements to skip, 0 by default) and `limit` (placements to
+    /// return, 1 to 1000, 100 by default; any other limit is refused with `invalid`, never
+    /// clamped); the answer's `page` gives the `total`, the `offset` used and the
+    /// `next_offset` of the next page, `null` after the last one. Refused with `not_found`
+    /// for an unknown clip. A query: changes nothing and never enters the history.
+    "clip.get" (kind = "query", undo = "none", destructive = false)
+    Get {
+        /// The clip to read.
+        clip: ClipId,
+        /// Placements to skip, 0 by default.
+        offset: Option<u32>,
+        /// Placements to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The track that holds the clip.
+        track: TrackId,
+        /// The clip's summary.
+        summary: ClipSummary,
+        /// Its own launch quantization; `null` follows the project's.
+        launch_quantize: Option<Quantize>,
+        /// What the clip holds, without the notes.
+        content: Box<ClipContentInfo>,
+        /// The placements of this page, in the order of their identifiers.
+        placements: Vec<PlacementInfo>,
+        /// Where this page sits in the clip's placement list.
+        page: PageInfo,
+    };
+
+    /// List the notes of a MIDI clip in time order (start, then pitch, then length, then
+    /// the other fields of the note): each note has `start` and `length` in ticks (960 per
+    /// quarter note, from the start of the clip), `pitch` (MIDI key 0 to 127) and
+    /// `velocity` (1 to 127), and its `cents`, `chance` and `repeat` when they are not the
+    /// default. A note is addressed in the edit commands by this whole value. Paged: `offset`
+    /// (notes to skip, 0 by default) and `limit` (notes to return, 1 to 1000, 100 by
+    /// default; any other limit is refused with `invalid`, never clamped); the answer's
+    /// `page` gives the `total`, the `offset` used and the `next_offset` of the next page,
+    /// `null` after the last one. An `offset` past the end gives an empty page. Refused with
+    /// `not_found` for an unknown clip and with `invalid` for an audio clip, which has no
+    /// notes. A query: changes nothing and never enters the history.
+    "clip.notes.list" (kind = "query", undo = "none", destructive = false)
+    NotesList {
+        /// The MIDI clip whose notes are listed.
+        clip: ClipId,
+        /// Notes to skip, 0 by default.
+        offset: Option<u32>,
+        /// Notes to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The notes of this page, in time order.
+        notes: Vec<Note>,
+        /// Where this page sits in the clip's note list.
+        page: PageInfo,
     };
 }
 
@@ -842,6 +903,29 @@ pub(crate) fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
 /// Applies a command of this domain.
 pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     match command {
+        Command::Get {
+            clip,
+            offset,
+            limit,
+        } => {
+            let d = crate::query::clip_get(&state.project, clip, *offset, *limit)?;
+            Ok(crate::query::answer(Output::Get {
+                track: d.track,
+                summary: d.summary,
+                launch_quantize: d.launch_quantize,
+                content: Box::new(d.content),
+                placements: d.placements,
+                page: d.page,
+            }))
+        }
+        Command::NotesList {
+            clip,
+            offset,
+            limit,
+        } => {
+            let (notes, page) = crate::query::clip_notes(&state.project, clip, *offset, *limit)?;
+            Ok(crate::query::answer(Output::NotesList { notes, page }))
+        }
         Command::Create {
             track,
             at,

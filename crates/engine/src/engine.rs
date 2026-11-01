@@ -38,7 +38,7 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::arrangement;
 use crate::automation::TrackLanes;
-use crate::clip_player::{ClipNotes, ClipPlayer};
+use crate::clip_player::{ClipNotes, ClipPlayer, held_notes_unchanged};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::launcher;
@@ -1786,7 +1786,7 @@ impl Engine {
         self.limiter.silenced()
     }
 
-    /// Clears the protection's silenced-sample counter, before a render pass.
+    /// Clears the protection's silenced-frame counter, before a render pass.
     pub fn reset_limiter_silenced(&mut self) {
         self.limiter.reset_silenced();
     }
@@ -2155,16 +2155,39 @@ impl Engine {
             }
             RtMsg::ClipPut(mut put) => {
                 let slot = ClipSlot(put.slot);
-                // A clip replaced while it plays: the player goes on in the new table.
+                // A clip replaced while it plays: the player goes on in the new table
+                // (CL-3). The notes it holds go on sounding when the new table has them
+                // unchanged; otherwise the track releases them.
                 let player = playing_track(state, slot);
                 put.value.on_track = player;
+                let old_slot = slot;
+                // The held notes the new table keeps (read before the put moves the old
+                // table out).
+                let keep = player.is_some()
+                    && match (
+                        state.clips.get(old_slot.0).map(|c| &c.content),
+                        &put.value.content,
+                    ) {
+                        (Some(ClipContent::Notes(old)), ClipContent::Notes(new)) => {
+                            held_notes_unchanged(old, new)
+                        }
+                        _ => false,
+                    };
                 let (spare, out) = state.clips.put(put);
                 skipped = out;
-                if !out
-                    && let Some(t) = player.and_then(|t| state.track_mut(t))
-                    && t.player.clip_changed(slot, false)
-                {
-                    t.graph.release_notes();
+                if !out && let Some(t) = player.and_then(|t| state.track_mut(t)) {
+                    let swap = t.player.clip_changed(slot, false, keep);
+                    if swap.release {
+                        t.graph.release_notes();
+                    }
+                    if swap.kept
+                        && let Some(old) = spare.item.as_deref()
+                        && let ClipContent::Notes(old) = &old.content
+                        && let Some(new) = state.clips.get_mut(slot.0)
+                        && let ClipContent::Notes(new) = &mut new.content
+                    {
+                        new.take_held_from(old);
+                    }
                 }
                 Some(Garbage::Clips(spare))
             }
@@ -2172,7 +2195,7 @@ impl Engine {
                 Ok(old) => {
                     if let Some(c) = &old
                         && let Some(t) = c.on_track.and_then(|t| state.track_mut(t))
-                        && t.player.clip_changed(clip, true)
+                        && t.player.clip_changed(clip, true, false).release
                     {
                         t.graph.release_notes();
                     }

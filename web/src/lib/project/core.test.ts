@@ -382,3 +382,33 @@ describe('ProjectCore', () => {
     core.free()
   })
 })
+
+describe('history', () => {
+  it('lists the entries with their author and the clock the page gave, and the author is put back after a run', () => {
+    const core = ProjectCore.create(module, 'empty', 1, seed)
+    core.setup()
+    apply(core, { type: 'project.rename', name: 'One' })
+    expect(core.run({ type: 'project.rename', name: 'Two' }, 'agent:claude', 5000).report.status).toBe('applied')
+    core.run({ type: 'project.rename', name: 'Three' }, 'user', 6000)
+    const view = core.history()
+    expect(view.undo.map((e) => e.author)).toEqual(['user', 'agent:claude', 'user'])
+    expect(view.undo.map((e) => e.at).slice(1)).toEqual([5000, 6000])
+    core.run({ type: 'history.undo' })
+    const after = core.history()
+    expect(after.redo.map((e) => e.id)).toEqual([view.undo[2]!.id])
+    expect(after.undo).toHaveLength(2)
+  })
+
+  it('puts the author back to user when a run throws, and refuses an author it cannot read', () => {
+    const core = ProjectCore.create(module, 'empty', 1, seed)
+    core.setup()
+    expect(() => core.run({ type: 'project.rename', name: 'x' }, 'robot')).toThrow(CoreError)
+    apply(core, { type: 'project.rename', name: 'Mine' })
+    expect(core.history().undo.at(-1)!.author).toBe('user')
+    const circular = {} as Record<string, unknown>
+    circular.self = circular
+    expect(() => core.run(circular as unknown as Command, 'agent:claude')).toThrow()
+    apply(core, { type: 'project.rename', name: 'Mine again' })
+    expect(core.history().undo.at(-1)!.author).toBe('user')
+  })
+})

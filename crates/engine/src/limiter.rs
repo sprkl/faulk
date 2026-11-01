@@ -25,16 +25,17 @@
 //! A signal that stays below the ceiling is returned untouched, bit for bit (the gain is
 //! exactly `1.0` and the sample is not multiplied). A signal that was limited and comes back
 //! below it differs from the input by at most [`SNAP`] of its magnitude while the gain
-//! snaps. A sample that is not finite becomes silence (the limiter is the last defence
-//! against a device that blew up), and a subnormal magnitude is below any ceiling, so it
-//! passes untouched.
+//! snaps, except that a normal magnitude the gain would push into the subnormal range is
+//! flushed to exactly 0.0 (the limiter never creates a denormal). A sample that is not finite
+//! becomes silence (the limiter is the last defence against a device that blew up), and a
+//! subnormal input is below any ceiling, so it passes untouched at any gain.
 //!
 //! The immediate attack trades some distortion on an over for zero latency: this is a safety
 //! net that works on rare overs, not a mastering tool.
 //!
 //! Nothing here allocates, locks, logs or panics: three `f32` fields (the gain deficit, the
 //! release coefficient and the peak gain reduction for the export's report) and one `u64` counter
-//! of the non-finite samples it silenced (for the no-NaN guard below), all on the stack, no heap.
+//! of the stereo frames in which it silenced a non-finite channel (for the no-NaN guard below), all on the stack, no heap.
 //!
 //! # Effect on downstream signal assertions
 //!
@@ -52,7 +53,7 @@
 //! `assert_no_denormals` on the render output keeps all its power.
 //!
 //! For the non-device paths (master strip, master chain, automation, summing) that have no direct
-//! device test, the limiter counts the non-finite samples it silences ([`Limiter::silenced`]): an
+//! device test, the limiter counts the frames in which it silenced a non-finite channel ([`Limiter::silenced`]): an
 //! offline render asserts that count is `0`, which catches a blow-up the vacuous `assert_finite`
 //! would miss.
 
@@ -87,9 +88,10 @@ pub struct Limiter {
     /// cleared by [`Limiter::reset`] or a sample-rate change: a render reads a whole pass, and the
     /// export resets it before the pass.
     max_reduction: f32,
-    /// How many stereo frames had a non-finite (NaN or infinity) sample on either channel and were
-    /// turned to silence since the last [`Limiter::reset_silenced`] (a count of frames, not of
-    /// samples). The limiter is the last line against a device or a non-device path (master strip,
+    /// How many stereo frames had a non-finite (NaN or infinity) sample on either channel since
+    /// the last [`Limiter::reset_silenced`]: the non-finite channel is turned to 0.0, the other
+    /// one is kept and limited as usual. A count of frames (once per frame, even when both
+    /// channels are non-finite), not of samples. The limiter is the last line against a device or a non-device path (master strip,
     /// automation, summing) that blows up; because it clamps and silences, an engine-level
     /// `assert_finite` on the render output passes by construction, so this counter is the seam
     /// that lets an offline render still catch a blow-up (#402). Same ownership as `max_reduction`:
@@ -125,15 +127,15 @@ impl Limiter {
         self.max_reduction = 0.0;
     }
 
-    /// How many stereo frames with a non-finite sample were turned to silence since the last
-    /// [`Limiter::reset_silenced`] (frames, not samples). `0` on a clean render; an offline test
+    /// How many stereo frames with a non-finite sample on either channel (that channel turned
+    /// to 0.0) since the last [`Limiter::reset_silenced`] (frames, not samples). `0` on a clean render; an offline test
     /// asserts it is `0` for the paths the engine-level `assert_finite` can no longer police
     /// (master strip, automation, summing).
     pub fn silenced(&self) -> u64 {
         self.silenced
     }
 
-    /// Clears the silenced-sample counter. An offline render calls it before a pass.
+    /// Clears the silenced-frame counter. An offline render calls it before a pass.
     pub fn reset_silenced(&mut self) {
         self.silenced = 0;
     }
@@ -219,7 +221,21 @@ fn shape(x: f32, gain: f32) -> f32 {
     if !x.is_finite() {
         return 0.0;
     }
-    let y = if gain < 1.0 { x * gain } else { x };
+    let y = if gain < 1.0 {
+        // A tiny normal times a gain under one can fall into the subnormal range: flush it to
+        // zero, deterministically, so the limiter never creates a denormal. A subnormal input
+        // is passed untouched (as at rest), so a device that emits one stays visible.
+        let g = x * gain;
+        if g.abs() >= f32::MIN_POSITIVE {
+            g
+        } else if x.abs() < f32::MIN_POSITIVE {
+            x
+        } else {
+            0.0
+        }
+    } else {
+        x
+    };
     y.clamp(-CEILING, CEILING)
 }
 
@@ -262,6 +278,44 @@ mod tests {
             assert!(l.iter().chain(&r).all(|s| s.abs() <= CEILING), "amp {amp}");
             assert!(l.iter().chain(&r).all(|s| s.is_finite()));
         }
+    }
+
+    #[test]
+    fn a_tiny_normal_never_becomes_a_subnormal_when_the_gain_is_below_one() {
+        // The other channel is hot, so the gain is far below 1: a tiny normal on this one would
+        // land in the subnormal range if the product were not flushed (#416).
+        for k in [1.0f32, 1.5, 2.0, 3.0, 4.0, 8.0] {
+            for sign in [1.0f32, -1.0] {
+                let mut lim = Limiter::new(rate());
+                let tiny = sign * f32::MIN_POSITIVE * k;
+                let (mut l, mut r) = ([tiny; 8], [4.0f32; 8]);
+                lim.process(&mut l, &mut r);
+                assert!(lim.gain() < 1.0);
+                for s in l.iter().chain(&r) {
+                    assert!(*s == 0.0 || s.abs() >= f32::MIN_POSITIVE, "k {k}: {s:e}");
+                }
+            }
+        }
+        // Sweep the exponent of small normals over the release too.
+        let mut lim = Limiter::new(rate());
+        lim.process(&mut [0.0f32], &mut [8.0f32]);
+        let n = 4800;
+        let mut l: Vec<f32> = (0..n)
+            .map(|i| f32::MIN_POSITIVE * (1.0 + (i % 64) as f32 / 8.0))
+            .collect();
+        let mut r = vec![0.0f32; n];
+        lim.process(&mut l, &mut r);
+        assert!(l.iter().all(|s| *s == 0.0 || s.abs() >= f32::MIN_POSITIVE));
+    }
+
+    #[test]
+    fn a_subnormal_input_stays_visible_when_the_gain_is_below_one() {
+        let mut lim = Limiter::new(rate());
+        let sub = f32::MIN_POSITIVE / 4.0;
+        let (mut l, mut r) = ([sub; 4], [4.0f32; 4]);
+        lim.process(&mut l, &mut r);
+        assert!(lim.gain() < 1.0);
+        assert_eq!(l, [sub; 4]);
     }
 
     #[test]

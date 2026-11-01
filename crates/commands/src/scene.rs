@@ -15,6 +15,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, ScenePart, State, Undo};
 use crate::macros::domain;
+use crate::query::{PageInfo, SceneInfo};
 use project::limits::{MAX_NAME_CHARS, MAX_SCENES};
 use project::{Clip, ClipId, OrderKey, Placement, PlacementId, Project, Scene, SceneId, TrackId};
 use schemars::JsonSchema;
@@ -106,6 +107,27 @@ domain! {
     /// an index. Undo: set the key before this command back.
     "scene.restore_order" (kind = "edit", undo = "inverse", destructive = false)
     RestoreOrder { scene: SceneId, order: OrderKey } => {};
+
+    /// List the scenes of the launch grid in display order (top to bottom), each with its
+    /// name and the clips in its slots (at most one per track: the track and the clip, in
+    /// the tracks' display order; an empty slot is not listed). Paged: `offset` (scenes to
+    /// skip, 0 by default) and `limit` (scenes to return, 1 to 1000, 100 by default; any
+    /// other limit is refused with `invalid`, never clamped); the answer's `page` gives the
+    /// `total`, the `offset` used and the `next_offset` of the next page, `null` after the
+    /// last one. An `offset` past the end gives an empty page. A query: changes nothing and
+    /// never enters the history.
+    "scene.list" (kind = "query", undo = "none", destructive = false)
+    List {
+        /// Scenes to skip, 0 by default.
+        offset: Option<u32>,
+        /// Scenes to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The scenes of this page, in display order.
+        scenes: Vec<SceneInfo>,
+        /// Where this page sits in the list.
+        page: PageInfo,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -182,6 +204,10 @@ fn scene_mut<'a>(state: &'a mut State, scene: &SceneId) -> Result<&'a mut Scene,
 /// Applies a command of this domain.
 pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     match command {
+        Command::List { offset, limit } => {
+            let (scenes, page) = crate::query::scene_list(&state.project, *offset, *limit)?;
+            Ok(crate::query::answer(Output::List { scenes, page }))
+        }
         Command::Create { name } => create(state, ctx, name.as_deref()),
         Command::Delete { scene } => delete(state, scene),
         Command::Restore {

@@ -221,6 +221,31 @@ fn live_commands_reach_the_engine_and_the_session_is_seen() {
 }
 
 #[test]
+fn queries_neither_mark_the_project_dirty_nor_enter_the_history() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    assert!(!h.dirty());
+    let before = h.view();
+    for command in [
+        json!({"type": "project.get"}),
+        json!({"type": "track.list"}),
+        json!({"type": "track.get", "track": SYNTH_TRACK}),
+        json!({"type": "scene.list"}),
+        json!({"type": "transport.get"}),
+        json!({"type": "automation.lane.list"}),
+        json!({"type": "device.describe", "kind": "faulk.osc_synth"}),
+    ] {
+        let (report, bytes) = h.run(command.clone());
+        assert_eq!(report["status"], "applied", "{command}");
+        assert!(report["output"].is_object(), "{command}");
+        assert!(bytes.is_empty(), "{command}: nothing for the engine");
+    }
+    assert!(!h.dirty(), "a query is not a change to save");
+    assert_eq!(h.core().undo_depth(), 0);
+    assert_eq!(h.view(), before);
+}
+
+#[test]
 fn a_snapshot_moves_to_the_next_epoch() {
     let h = Handle::new(KIND_SINGLE_SYNTH);
     let (setup, a) = h.call0(pw_setup);
@@ -601,6 +626,9 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_setup(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
+        assert_eq!(pw_history(core::ptr::null_mut()), ERR_NO_CORE);
+        assert_eq!(pw_set_author(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_set_clock(core::ptr::null_mut(), 1.0), ERR_NO_CORE);
         assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_stage_stored(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_save(core::ptr::null_mut(), 0), ERR_NO_CORE);
@@ -1340,4 +1368,56 @@ fn a_master_lane_is_saved_in_its_own_file_and_opens_again() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entry_path(&entries[0]), file);
     h.saved(true);
+}
+
+fn set_author(h: &Handle, author: &str) -> i32 {
+    write_inbox(author);
+    // SAFETY: a live core.
+    unsafe { pw_set_author(h.0, author.len() as u32) }
+}
+
+#[test]
+fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothing() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_set_clock(h.0, 1234.0) }, 0);
+    h.apply(json!({"type": "track.create", "kind": "midi"}));
+    assert_eq!(set_author(&h, "agent:claude"), 0);
+    h.apply(json!({"type": "project.rename", "name": "By agent"}));
+    for bad in ["", "robot", "agent:"] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(
+            unsafe { pw_set_author(h.0, bad.len() as u32) },
+            ERR_BAD_INPUT
+        );
+    }
+    h.apply(json!({"type": "project.rename", "name": "Again"}));
+    assert_eq!(set_author(&h, "user"), 0);
+    h.apply(json!({"type": "project.rename", "name": "By user"}));
+    let view = h.call0(pw_history).0;
+    let authors: Vec<_> = view["undo"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["author"].clone())
+        .collect();
+    assert_eq!(
+        authors,
+        [
+            json!("user"),
+            json!("agent:claude"),
+            json!("agent:claude"),
+            json!("user")
+        ]
+    );
+    assert_eq!(view["undo"][1]["name"], "project.rename");
+    assert_eq!(view["undo"][0]["at"], 1234);
+    assert_eq!(view["redo"], json!([]));
+    h.apply(json!({"type": "history.undo"}));
+    let view = h.call0(pw_history).0;
+    assert_eq!(view["undo"].as_array().unwrap().len(), 3);
+    assert_eq!(view["redo"][0]["name"], "project.rename");
+    assert_eq!(view["redo"][0]["at"], 1234);
 }

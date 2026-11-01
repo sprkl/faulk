@@ -9,8 +9,9 @@ use crate::contract::{
 };
 use crate::export::{self, ExportBitDepth, ExportRegion, ExportSettings};
 use crate::macros::domain;
+use crate::query::DeviceSummary;
 use project::file::{OpenOptions, SessionLoad, load_session, open};
-use project::{EngineSlots, ProjectId, Tick};
+use project::{EngineSlots, Mixer, ProjectId, Tick, TrackId};
 use std::collections::BTreeSet;
 
 /// Longest project name accepted, in characters: the project's own limit.
@@ -228,6 +229,48 @@ domain! {
         /// Seconds of content, without the tail.
         duration_secs: f64,
     };
+
+    /// Read the project's summary: its id, name, file format version, tempo in BPM, time
+    /// signature, master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,
+    /// scenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected
+    /// track, and whether there is something to undo or redo. It lists nothing: use
+    /// `track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,
+    /// never enters the history and never marks the project as having changes to save.
+    "project.get" (kind = "query", undo = "none", destructive = false)
+    Get {} => {
+        /// The project's stable identity.
+        id: ProjectId,
+        /// The project's name.
+        name: String,
+        /// The on-disk format version.
+        format: u32,
+        /// The tempo in BPM.
+        tempo_bpm: f64,
+        /// The time signature's numerator.
+        numerator: u8,
+        /// The time signature's denominator.
+        denominator: u8,
+        /// The master's gain (dB, `null` is silence), pan and mute.
+        master: Mixer,
+        /// How many tracks.
+        track_count: u32,
+        /// How many scenes.
+        scene_count: u32,
+        /// How many clips, all tracks together.
+        clip_count: u32,
+        /// How many arrangement placements, all tracks together.
+        placement_count: u32,
+        /// How many automation lanes, the master's included.
+        lane_count: u32,
+        /// The master's effect chain, in order (`device.describe` reads one).
+        master_devices: Vec<DeviceSummary>,
+        /// The selected track (session state); `null` when none.
+        selected_track: Option<TrackId>,
+        /// Whether `history.undo` has an entry to undo.
+        can_undo: bool,
+        /// Whether `history.redo` has an entry to redo.
+        can_redo: bool,
+    };
 }
 
 /// Applies a command of this domain.
@@ -237,6 +280,27 @@ pub fn apply(
     ctx: &mut Context,
 ) -> Result<Outcome<Command, Output>, CommandError> {
     match command {
+        Command::Get {} => {
+            let p = crate::query::project_data(state);
+            Ok(crate::query::answer(Output::Get {
+                id: p.id,
+                name: p.name,
+                format: p.format,
+                tempo_bpm: p.tempo_bpm,
+                numerator: p.numerator,
+                denominator: p.denominator,
+                master: p.master,
+                track_count: p.track_count,
+                scene_count: p.scene_count,
+                clip_count: p.clip_count,
+                placement_count: p.placement_count,
+                lane_count: p.lane_count,
+                master_devices: p.master_devices,
+                selected_track: p.selected_track,
+                can_undo: p.can_undo,
+                can_redo: p.can_redo,
+            }))
+        }
         Command::Open { folder } => open_folder(folder, state, ctx),
         Command::New {} => Ok(new_project(state, ctx)),
         // The write belongs to the host (the page's storage; a folder picker needs a click):
