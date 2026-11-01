@@ -365,7 +365,12 @@ fn an_edit_that_changes_the_sounding_note_ends_it_once_and_spares_the_live_notes
             "the pad is ended by its own note-off: {:?}",
             events(0)
         );
-        // The live note (voice key + 1) was never ended.
+        // The live note (voice key + 1) sounded and was never ended.
+        assert!(
+            events(0).iter().any(|e| e.1 && e.2 == 73 && e.3 == 72),
+            "{:?}",
+            events(0)
+        );
         assert!(
             events(0).iter().all(|e| e.2 != 73 || e.1),
             "{:?}",
@@ -552,8 +557,8 @@ fn up_to_the_carry_limit_of_moved_notes_are_kept() {
 }
 
 #[test]
-fn many_unchanged_notes_are_kept_whatever_their_number() {
-    let crowd: Vec<Note> = (0..5000).map(|i| note(0, 3000, (i % 128) as u8)).collect();
+fn thousands_of_unchanged_notes_are_kept() {
+    let crowd: Vec<Note> = (0..4000).map(|i| note(0, 3000, (i % 128) as u8)).collect();
     let mut r = Rig::new(48_000, 1, Quantize::None);
     playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
     r.run(500 * F, 128);
@@ -562,7 +567,7 @@ fn many_unchanged_notes_are_kept_whatever_their_number() {
     r.send(&[upload(0, 3840, Some((0, 3840)), edited)]);
     r.run_to(3700 * F, 128);
     assert!(all_notes_offs().is_empty(), "{:?}", events(0));
-    assert_eq!(ons(0).iter().filter(|e| e.0 < 3000 * F).count(), 5000);
+    assert_eq!(ons(0).iter().filter(|e| e.0 < 3000 * F).count(), 4000);
     assert_nothing_held_after_stop(&mut r);
 }
 
@@ -577,6 +582,76 @@ fn more_changed_notes_than_the_track_can_end_are_released_by_the_track_once() {
     let at = r.frames;
     r.run(100 * F, 128);
     assert!(all_notes_offs().contains(&at), "released at the swap");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn more_sounding_notes_than_apply_looks_at_are_released_by_the_track() {
+    // Above `MAX_HELD_NOTES`: nothing is carried, even unchanged.
+    let crowd: Vec<Note> = (0..4200).map(|i| note(0, 3000, (i % 128) as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    r.run(500 * F, 128);
+    r.send(&[upload(0, 3840, Some((0, 3840)), crowd)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "released at the swap");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn two_edits_in_one_batch_share_the_room_of_the_track() {
+    // 100 pads; the first edit shortens 40 of them (40 notes to end, the track takes 64),
+    // the second 40 others (40 more: the room left is too small). The second releases the
+    // track; nothing stays held, the first edit's note-offs are covered by the release.
+    let pads = |short: std::ops::Range<usize>| -> Vec<Note> {
+        (0..100)
+            .map(|i| {
+                note(
+                    0,
+                    if short.contains(&i) { 2000 } else { 3000 },
+                    20 + i as u8,
+                )
+            })
+            .collect()
+    };
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), pads(0..0)));
+    r.run(500 * F, 128);
+    r.send(&[
+        upload(0, 3840, Some((0, 3840)), pads(0..40)),
+        upload(0, 3840, Some((0, 3840)), pads(0..80)),
+    ]);
+    r.run_to(3700 * F, 128);
+    assert_eq!(all_notes_offs().len(), 1, "{:?}", all_notes_offs());
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn removing_a_clip_whose_notes_moved_ends_each_under_its_own_voice() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 48)]),
+    );
+    r.run(500 * F, 128);
+    // The pad moves to index 1 (voice 129 kept through an alias).
+    r.send(&[upload(
+        0,
+        3840,
+        Some((0, 3840)),
+        vec![note(0, 100, 40), note(0, 3000, 48)],
+    )]);
+    r.run(100 * F, 128);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(
+        events(0).contains(&(at, false, 129, 48, 0)),
+        "{:?}",
+        events(0)
+    );
+    assert!(all_notes_offs().is_empty());
     assert_nothing_held_after_stop(&mut r);
 }
 

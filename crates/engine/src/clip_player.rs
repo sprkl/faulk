@@ -356,6 +356,15 @@ pub const SPARE_VOICES: usize = ALIAS_ROOM;
 /// its size for each. Beyond, the notes still to find are orphans (ended, not carried).
 pub const MAX_SCANNED_ENTRIES: usize = 16_384;
 
+/// What one binary search for a moved note is charged against [`MAX_SCANNED_ENTRIES`]
+/// (about the steps of a search over a million notes, rounded up).
+const SEARCH_COST: usize = 32;
+
+/// Sounding notes of a clip an edit looks at in all (CL-3): with more held, nothing is
+/// carried and the track releases everything (bounds the walk of `apply` over the held
+/// bits, about 2 ms for a million notes held at once otherwise).
+pub const MAX_HELD_NOTES: usize = 4096;
+
 /// A sounding note whose note-off nobody can give any more (its note was edited, moved or
 /// removed): the voice id and key the track ends it with.
 pub type Orphan = (VoiceId, u8);
@@ -391,6 +400,10 @@ impl ClipNotes {
         budget: &mut usize,
     ) -> Option<usize> {
         let order = self.order();
+        if *budget < SEARCH_COST {
+            return None;
+        }
+        *budget -= SEARCH_COST;
         let mut k = self.first_on_at(start);
         while let Some(&o) = order.get(k) {
             if *budget == 0 {
@@ -444,13 +457,15 @@ impl ClipNotes {
     /// new table's own note-off ends it. The own id of a note that a kept voice holds goes
     /// to a spare id after the table's own, so no two notes of a table share a voice. A
     /// held note with no counterpart, or beyond [`MAX_CARRIED_NOTES`], is given to
-    /// `orphans`: the track ends it. Returns the notes carried. No allocation, no panic.
+    /// `orphans`: the track ends it; `orphans` returns `false` when there are too many, and
+    /// the walk stops there (the caller falls back). The caller checked that at most
+    /// [`MAX_HELD_NOTES`] are held. Returns the notes carried. No allocation, no panic.
     pub fn carry_held_from(
         &mut self,
         old: &ClipNotes,
         old_aliases: &Aliases,
         aliases: &mut Aliases,
-        mut orphans: impl FnMut(Orphan),
+        mut orphans: impl FnMut(Orphan) -> bool,
     ) -> u32 {
         let n = self.notes();
         aliases.clear();
@@ -482,7 +497,9 @@ impl ClipNotes {
                 let own = |j: usize| voice == SCHEDULE_FIRST_VOICE.wrapping_add(j as u32);
                 // A note that moved needs a pair, and may displace another: two pairs.
                 let Some(j) = found.filter(|&j| own(j) || moved < MAX_CARRIED_NOTES) else {
-                    orphans((id, was.pitch()));
+                    if !orphans((id, was.pitch())) {
+                        return carried;
+                    }
                     continue;
                 };
                 if let Some(word) = self.held_bits_mut().get_mut(j / 32) {

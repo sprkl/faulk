@@ -1443,8 +1443,7 @@ impl Default for Ending {
 }
 
 impl Ending {
-    /// Always `true` (for [`ClipNotes::held_voices`]); a note beyond the room sets
-    /// `overflow`.
+    /// `false` once a note is beyond the room (`overflow`): the walk of the caller stops.
     fn push(&mut self, note: crate::clip_player::Orphan) -> bool {
         match self.notes.get_mut(self.len) {
             Some(slot) => {
@@ -1453,7 +1452,7 @@ impl Ending {
             }
             None => self.overflow = true,
         }
-        true
+        !self.overflow
     }
 
     /// Gives the notes to the track to end; `false` (nothing given) when they are more than
@@ -1479,13 +1478,16 @@ fn swap_notes(
     both_notes: bool,
     old: Option<&ClipNotes>,
 ) {
+    // Too many sounding notes to look at: nothing is carried, the track releases all.
+    let too_many =
+        old.is_some_and(|o| o.held_count() as usize > crate::clip_player::MAX_HELD_NOTES);
     // The voices of the notes held, before the cursor starts over or goes on.
     let Some(voices) = state.track_mut(track).map(|t| t.player.voices_of(slot)) else {
         return;
     };
     let Some(swap) = state
         .track_mut(track)
-        .map(|t| t.player.clip_changed(slot, false, both_notes))
+        .map(|t| t.player.clip_changed(slot, false, both_notes && !too_many))
     else {
         return;
     };
@@ -1493,6 +1495,7 @@ fn swap_notes(
     let mut carrying = false;
     if let Some(old) = old
         && !swap.shared
+        && !too_many
     {
         if swap.kept
             && let Some(new) = state.clips.get_mut(slot.0)
@@ -1504,9 +1507,8 @@ fn swap_notes(
                 .and_then(|t| t.as_deref_mut())
         {
             let cursor = t.player.carrier(swap);
-            let carried = new.carry_held_from(old, &voices, cursor.aliases_mut(), |o| {
-                ending.push(o);
-            });
+            let carried =
+                new.carry_held_from(old, &voices, cursor.aliases_mut(), |o| ending.push(o));
             cursor.set_carried(carried);
             carrying = true;
         } else if swap.release {
@@ -1519,7 +1521,7 @@ fn swap_notes(
     if !(swap.kept || swap.release) {
         return;
     }
-    if swap.shared || !ending.hand_to(&mut t.graph) {
+    if swap.shared || (swap.release && too_many) || !ending.hand_to(&mut t.graph) {
         // Too many notes to end one by one (or voices that cannot be told apart): the
         // cursor starts over, nothing is carried, the track releases all its notes.
         if carrying {
@@ -2304,10 +2306,12 @@ impl Engine {
                             // The notes it held are ended by the track, one by one (all of
                             // its notes released when there are too many).
                             let mut ending = Ending::default();
-                            if !swap.shared {
+                            let too_many =
+                                notes.held_count() as usize > crate::clip_player::MAX_HELD_NOTES;
+                            if !swap.shared && !too_many {
                                 notes.held_voices(&voices, |o| ending.push(o));
                             }
-                            if swap.shared || !ending.hand_to(&mut t.graph) {
+                            if swap.shared || too_many || !ending.hand_to(&mut t.graph) {
                                 t.graph.release_notes();
                             }
                         }

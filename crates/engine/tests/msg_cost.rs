@@ -163,7 +163,7 @@ fn per_message_and_per_growth_cost() {
 #[test]
 #[ignore = "prints numbers, run in release by hand"]
 fn clip_swap_added_cost_at_the_limit() {
-    use engine::clip_player::{ClipNotes, MAX_CARRIED_NOTES};
+    use engine::clip_player::{ClipNotes, MAX_CARRIED_NOTES, MAX_HELD_NOTES};
     use engine::events::{Aliases, Events};
     let count = limits::MAX_NOTES_PER_CLIP as usize;
     let rounds = 50;
@@ -188,7 +188,10 @@ fn clip_swap_added_cost_at_the_limit() {
             let t0 = Instant::now();
             let mut orphans = 0;
             let (before, mut now) = (Aliases::default(), Aliases::default());
-            let carried = new.carry_held_from(&old, &before, &mut now, |_| orphans += 1);
+            let carried = new.carry_held_from(&old, &before, &mut now, |_| {
+                orphans += 1;
+                true
+            });
             total += t0.elapsed().as_nanos() as f64;
             assert_eq!(carried as usize + orphans, held.len());
         }
@@ -208,12 +211,20 @@ fn clip_swap_added_cost_at_the_limit() {
         .collect();
     let few: Vec<usize> = (0..8).map(|k| 1000 + k).collect();
     let many: Vec<usize> = (0..MAX_CARRIED_NOTES).map(|k| 1000 + 3 * k).collect();
+    // The most `apply` looks at: this many sounding notes, all moved.
+    let most: Vec<usize> = (0..MAX_HELD_NOTES).map(|k| 1000 + 3 * k).collect();
     run("1M notes, 8 held, same table", &spread, &few, false);
     run("1M notes, 8 held, a note added before", &spread, &few, true);
     run(
-        "1M notes, 256 held, a note added before",
+        &format!("1M notes, {MAX_CARRIED_NOTES} held, a note added before"),
         &spread,
         &many,
+        true,
+    );
+    run(
+        &format!("1M notes, {MAX_HELD_NOTES} held (the limit), a note added before"),
+        &spread,
+        &most,
         true,
     );
     // The worst case of the scan: every note on one tick.
@@ -227,6 +238,11 @@ fn clip_swap_added_cost_at_the_limit() {
         })
         .collect();
     let crowd_held: Vec<usize> = (0..MAX_CARRIED_NOTES).map(|k| 500_000 + k).collect();
-    run("1M notes on one tick, 256 held", &crowd, &crowd_held, true);
+    run(
+        &format!("1M notes on one tick, {MAX_CARRIED_NOTES} held"),
+        &crowd,
+        &crowd_held,
+        true,
+    );
     let _ = ClipNotes::try_new(&[]).unwrap().len();
 }
