@@ -120,7 +120,7 @@ test('the selected track has a 2px light outline and text that is AA', async ({ 
   const row = page.getByTestId('arr-track').nth(1).locator('xpath=..')
   await expect(row).toHaveCSS('outline-width', '2px')
   await expect(row).toHaveCSS('outline-style', 'solid')
-  expect(await contrast(row.locator('.label'))).toBeGreaterThanOrEqual(4.5)
+  expect(await contrast(row.locator('.track-name'))).toBeGreaterThanOrEqual(4.5)
   // The track list's header too: its name and its secondary text.
   const header = page.getByTestId('track-header').nth(1)
   await expect(header).toHaveCSS('outline-width', '2px')
@@ -210,6 +210,7 @@ test('one voice: playback is green with its triangle, toggles are fills, knobs a
 })
 
 test('an automated parameter is marked by a glyph, not by the violet', async ({ page }) => {
+  test.skip(test.info().project.name !== 'dev', 'the lane gets its points through the dev hooks of the page')
   const { errors } = watch(page)
   await start(page)
   await page.getByTestId('nav-mixer').click()
