@@ -1066,7 +1066,7 @@ fn insert_time_sends_the_track_table_the_master_lane_and_the_loop_once_and_so_do
                 .filter(|m| matches!(m, ControlMsg::AutomationLaneUpload { .. }))
                 .count(),
             msgs.iter()
-                .filter(|m| matches!(m, ControlMsg::SetTransport { .. }))
+                .filter(|m| matches!(m, ControlMsg::SetLoop { .. }))
                 .count(),
         )
     };
