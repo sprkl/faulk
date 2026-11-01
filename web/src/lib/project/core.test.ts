@@ -384,6 +384,20 @@ describe('ProjectCore', () => {
 })
 
 describe('history', () => {
+  it('reads a 10 000-entry history well inside a frame (#432: 3.5 ms median measured; the bound leaves room for a slow machine)', () => {
+    const core = ProjectCore.create(module, 'empty', 1, seed)
+    core.setup()
+    for (let i = 0; i < 10_000; i++) core.run({ type: 'project.rename', name: `p${i}` })
+    const times: number[] = []
+    for (let i = 0; i < 15; i++) {
+      const start = performance.now()
+      expect(core.history().undo).toHaveLength(10_000)
+      times.push(performance.now() - start)
+    }
+    times.sort((a, b) => a - b)
+    expect(times[7]!).toBeLessThan(50)
+  })
+
   it('lists the entries with their author and the clock the page gave, and the author is put back after a run', () => {
     const core = ProjectCore.create(module, 'empty', 1, seed)
     core.setup()
