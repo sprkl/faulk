@@ -11,6 +11,7 @@ import { engine } from './engine'
 import type { FeatureMessages } from './feature'
 import { grid } from './grid'
 import { helper } from './helper'
+import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
@@ -58,6 +59,7 @@ export const features = {
   arrangement,
   automation,
   audioExport,
+  history,
   refusal,
 } as const satisfies Record<string, FeatureMessages>
 

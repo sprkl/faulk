@@ -64,10 +64,15 @@ impl Rig {
             out.extend_from_slice(&l);
             self.p.collect();
         }
-        assert!(
-            out.iter()
-                .all(|s| s.is_finite() && (*s == 0.0 || s.abs() > 1e-20))
+        // `is_finite` on the output is vacuous (the output protection of #402 turns NaN and
+        // infinity to 0.0), so the no-NaN guard is the limiter's silenced-frame counter; the
+        // denormal check keeps its power (the protection passes subnormals untouched).
+        assert_eq!(
+            self.e.limiter_silenced(),
+            0,
+            "the click or the master produced a non-finite sample"
         );
+        assert!(out.iter().all(|s| *s == 0.0 || s.abs() > 1e-20));
         out
     }
 
@@ -615,8 +620,7 @@ fn seconds_of_audio_with_changes_never_allocate() {
                 from: Tick(i64::from(round) * 100),
             }]);
         }
-        let out = rig.seconds(0.2);
-        assert!(out.iter().all(|s| s.is_finite()));
+        rig.seconds(0.2);
         let new_rate = if round % 2 == 0 {
             SampleRate::HZ_44100
         } else {
@@ -649,8 +653,7 @@ fn ticks_at_the_edges_of_the_range_never_panic() {
                 M::SetRecording { recording: true },
                 M::Play { from: Tick(from) },
             ]);
-            let out = rig.seconds(2.0);
-            assert!(out.iter().all(|s| s.is_finite()));
+            rig.seconds(2.0);
             rig.send(&[M::Stop, M::Play { from: Tick(from) }]);
             rig.seconds(0.5);
         }

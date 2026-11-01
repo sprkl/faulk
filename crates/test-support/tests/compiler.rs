@@ -263,6 +263,52 @@ fn live_edits_and_the_snapshot_of_the_final_project_leave_the_same_engine() {
 }
 
 #[test]
+fn a_lane_with_no_point_is_in_no_engine_whether_cleared_or_created_empty() {
+    // #394: a lane with no point does nothing, so the live stream and the snapshot hold
+    // neither the lane that was cleared nor the one that was created and never filled.
+    let (mut live, synth, scenes) = start();
+    edit(&mut live, &synth, &scenes);
+    let (_owner, lane) = live
+        .state()
+        .project
+        .tracks
+        .iter()
+        .find_map(|(t, track)| {
+            track
+                .automation
+                .keys()
+                .next()
+                .map(|l| (t.clone(), l.clone()))
+        })
+        .expect("the project has a lane");
+    let lanes_before = EngineView::of_project(&live.state().project, &live.state().session)
+        .lanes
+        .len();
+    live.run(Command::Automation(
+        commands::automation::Command::LaneClear { lane },
+    ));
+    live.run(cmd(json!({
+        "type": "automation.lane.create",
+        "master": true,
+        "target": {"mixer": {"param": "pan"}},
+    })));
+    let state = live.state().clone();
+    let snapshot = Session::from_state(state.clone(), live.ctx().clone());
+    let expected = EngineView::of_project(&state.project, &state.session);
+    assert_eq!(expected.lanes.len(), lanes_before - 1);
+    assert_eq!(
+        EngineView::of_stream(live.scenario(), &live.ctx().engine),
+        expected,
+        "the live stream"
+    );
+    assert_eq!(
+        EngineView::of_stream(snapshot.scenario(), &snapshot.ctx().engine),
+        expected,
+        "the snapshot"
+    );
+}
+
+#[test]
 fn live_and_snapshot_render_the_same_natively_and_in_wasm() {
     let (mut live, synth, scenes) = start();
     let tracks = edit(&mut live, &synth, &scenes);

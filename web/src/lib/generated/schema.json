@@ -1088435,6 +1088435,89 @@
       ],
       "title": "ExportReport"
     },
+    "history_view": {
+      "$defs": {
+        "Author": {
+          "description": "Who runs a command. Serialized as `user` or `agent:<name>`: the form of the\n`Faulk-Author` trailer in version messages and of the history entries.",
+          "type": "string"
+        },
+        "GroupId": {
+          "description": "Identifier of a history group: the commands of one mouse drag or one agent turn\nshare a group and are undone together.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "HistoryEntryView": {
+          "additionalProperties": false,
+          "description": "One entry of the history: one command, or every command of one history group.",
+          "properties": {
+            "at": {
+              "description": "When it was recorded, in milliseconds since the Unix epoch (0 when the host gave no clock).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "author": {
+              "$ref": "#/$defs/Author",
+              "description": "Who ran it."
+            },
+            "group": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GroupId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The history group it belongs to, if any."
+            },
+            "id": {
+              "description": "Identifies the entry for as long as it is in the history, whichever stack holds it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "description": "The name of the entry's first command (`note.move`...).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "at",
+            "name",
+            "author"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The undo history as the history panel shows it (`pw_history`): read when the panel is\nopen, not with every event, since a drag records many.",
+      "properties": {
+        "redo": {
+          "description": "What `history.redo` redoes, oldest first: the last one goes first.",
+          "items": {
+            "$ref": "#/$defs/HistoryEntryView"
+          },
+          "type": "array"
+        },
+        "undo": {
+          "description": "What `history.undo` undoes, oldest first: the last one goes first.",
+          "items": {
+            "$ref": "#/$defs/HistoryEntryView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "undo",
+        "redo"
+      ],
+      "title": "HistoryView",
+      "type": "object"
+    },
     "project_view": {
       "$defs": {
         "AudioMedia": {

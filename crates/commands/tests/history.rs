@@ -170,13 +170,13 @@ fn an_irreversible_edit_empties_both_stacks() {
         undo: UndoKind::None,
         destructive: true,
     };
-    assert!(hist.record(destructive, &Undo::None, &Author::User, None));
+    assert!(hist.record(destructive, &Undo::None, &Author::User, None, 0));
     assert!(!hist.can_undo() && !hist.can_redo());
     // Nothing left to empty: the history does not change.
-    assert!(!hist.record(destructive, &Undo::None, &Author::User, None));
+    assert!(!hist.record(destructive, &Undo::None, &Author::User, None, 0));
     // An edit without inverse that is not destructive (a no-op) records nothing.
     let mut kept = f.state.history.clone();
-    assert!(!kept.record(rename("x").meta(), &Undo::None, &Author::User, None));
+    assert!(!kept.record(rename("x").meta(), &Undo::None, &Author::User, None, 0));
     assert_eq!(kept, f.state.history);
 }
 
@@ -310,6 +310,8 @@ fn an_entry_that_fails_halfway_leaves_the_state_and_history_untouched() {
     let missing = ::project::DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
     // Applied in reverse order: the rename applies, then the unknown device fails.
     s.history.undo.push(Entry {
+        id: 0,
+        at: 0,
         name: "device.set_param",
         author: Author::User,
         group: Some(GroupId(99)),
@@ -414,6 +416,8 @@ fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
     let mut s = f.state.clone();
     let missing = ::project::DeviceId::parse("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
     s.history.redo.push(Entry {
+        id: 0,
+        at: 0,
         name: "device.set_param",
         author: Author::User,
         group: Some(GroupId(99)),

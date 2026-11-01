@@ -559,6 +559,10 @@ impl EngineView {
                 );
             }
             for (lid, lane) in &t.automation {
+                // A lane with no point does nothing: the compiler does not upload it (#394).
+                if lane.points.is_empty() {
+                    continue;
+                }
                 let target = match &lane.target {
                     project::AutomationTarget::Mixer {
                         param: project::MixerParam::Gain,
@@ -621,6 +625,9 @@ impl EngineView {
             );
         }
         for (lid, lane) in &project.master_automation {
+            if lane.points.is_empty() {
+                continue;
+            }
             let target = match &lane.target {
                 project::AutomationTarget::Mixer {
                     param: project::MixerParam::Gain,

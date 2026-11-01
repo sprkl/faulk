@@ -4,7 +4,7 @@ import { peakOf } from '../engine/feedback'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
-import type { Command, ProjectEvent, RunReport } from '../generated/protocol'
+import type { Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
@@ -369,7 +369,7 @@ export class Dispatcher {
    * engine gets what it means for it; the project store gets the events; the page-local
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
-  run(command: Command, options: { quiet?: boolean } = {}) {
+  run(command: Command, options: { quiet?: boolean; author?: string } = {}) {
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
@@ -395,7 +395,7 @@ export class Dispatcher {
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
     // Saving needs none: it is about the folder.
     if (!core || (!this.engine && !isSaveCommand(command))) return
-    const step = engineStep(() => core.run(command))
+    const step = engineStep(() => core.run(command, options.author))
     if ('refused' in step) {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
       // so a refusal is the core's: the user is told, the developer message stays in the console.
@@ -435,9 +435,15 @@ export class Dispatcher {
       loadFolderVersion: () => void this.storage?.loadDisk(),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
+      cued: () => this.project.cued?.(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
+  }
+
+  /** The undo history for the history panel; empty before audio starts (no core yet). */
+  history(): HistoryView {
+    return this.core?.history() ?? { undo: [], redo: [] }
   }
 
   /**
