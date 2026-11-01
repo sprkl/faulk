@@ -20,6 +20,8 @@ test('history panel: a 10 000-entry history draws a page of rows and an edit sta
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
+  const hook = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
+  test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
   await page.evaluate((n) => {
     const w = window as unknown as W
     for (let i = 0; i < n; i++) w.__faulkRun({ type: 'project.rename', name: `p${i}` })
