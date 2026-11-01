@@ -8,6 +8,7 @@ import { insertMasterEffect, setDeviceParam } from '../device-commands'
 import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
+import { applyEffects, type EffectPorts } from './effects'
 import { setMasterVolume, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
@@ -206,6 +207,27 @@ describe('a change of the parameter while the lane plays', () => {
     s.play(3500)
     expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(1 - 2500 / 3000, 6)
   })
+
+  it('lets go at a stop or a seek to where the playhead already stands: the engine frees the lanes at every cue (#394)', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: 0.4, shape: 'step' }]))
+    s.stop(0)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The report of the stopped transport does not change: the playhead stays at 0, only the cue tells.
+    s.stop(0)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // What the page does for the commands that cue the playhead (the effects table, as the dispatcher runs it).
+    const ports = { cued: () => s.project.cued?.() } as EffectPorts
+    applyEffects({ type: 'transport.set_loop', loop_region: null } as Command, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    applyEffects({ type: 'transport.stop' }, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    applyEffects({ type: 'transport.seek', tick: 0 }, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+  })
 })
 
 describe('the mark of a control that a lane drives (#388)', () => {
@@ -224,6 +246,15 @@ describe('the mark of a control that a lane drives (#388)', () => {
     s.ui.lang = 'fr'
     expect(s.automated.mixerMark(s.track, 'gain')).toContain('Mixeur › Volume')
     expect(s.automated.mixerMark(s.track, 'gain')).not.toBe(volume)
+  })
+
+  it('marks the pan when a pan lane drives it, apart from the volume mark', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'pan' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -0.5, shape: 'step' }]))
+    expect(s.automated.mixerMark(s.track, 'pan')).toContain('Pan')
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeUndefined()
+    expect(s.automated.mixer(s.track, 'pan')).toBe(-0.5)
   })
 
   it('does not mark a parameter whose lane has no point yet: such a lane does nothing', () => {

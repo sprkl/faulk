@@ -43,6 +43,8 @@ export interface EffectPorts {
   allowAccess(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
+  /** `transport.stop`, `transport.seek`, `transport.pause`: the playhead is cued, even to where it already stands (the engine frees every held gesture of a lane, #394). */
+  cued(): void
 }
 
 export function applyEffects(command: Command, ports: EffectPorts) {
@@ -66,6 +68,11 @@ export function applyEffects(command: Command, ports: EffectPorts) {
     case 'live.all_notes_off':
     case 'live.all_sound_off':
       ports.clearNotes()
+      return
+    case 'transport.stop':
+    case 'transport.seek':
+    case 'transport.pause':
+      ports.cued()
       return
     case 'project.save':
       ports.save()

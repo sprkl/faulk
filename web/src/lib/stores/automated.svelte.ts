@@ -107,6 +107,11 @@ export class AutomatedValues {
     private readonly ui: UiStore,
   ) {
     project.watch = (events) => this.observe(events)
+    // A stop or a seek frees every hold in the engine, even when the playhead stays where it is (#394).
+    project.cued = () => {
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      if (this.holds.size > 0) this.holds = new Map()
+    }
     // The engine gives every lane its hand back at a jump (AM-2): the transport starting or stopping (Play is a jump, a stop applies
     // the lanes), a seek (the play position changes while stopped), the play position going back (a seek, the loop) or leaping ahead
     // while it runs. A forward seek of less than half a second of music looks like playing and goes unseen.

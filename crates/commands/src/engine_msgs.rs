@@ -474,23 +474,24 @@ fn compile_event(
                     None => return,
                 },
             };
-            lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
+            if l.points.is_empty() {
+                // A lane with no point does nothing (AM-1): it leaves the engine, as a deleted
+                // one does, and its parameter goes back to the stored value (#394). Never
+                // uploaded empty: an upload would inherit the hold of the restoring `ParamSet`
+                // and stay silent when its points come back.
+                if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                    restore_param(target, project, sync, out);
+                }
+            } else {
+                lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
+            }
         }
         ProjectEvent::AutomationLaneDeleted { track, lane } => {
-            match track {
-                None => {
-                    sync.master_lanes.remove(lane);
-                }
-                Some(track) => {
-                    if let Some(entry) = sync.track.get_mut(track) {
-                        entry.lanes.remove(lane);
-                    }
-                }
-            }
-            if let Some(slot) = sync.lanes.release(lane) {
-                out.push(ControlMsg::AutomationLaneRemove {
-                    lane: LaneSlot(slot),
-                });
+            // For a device parameter lane, the stored value comes back so that the engine does
+            // not keep the last value the lane sent (#394); a mixer lane gives its field back
+            // to the fader in the engine (`forget_lane`).
+            if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                restore_param(target, project, sync, out);
             }
         }
         ProjectEvent::SoloChanged { track, solo } => {
@@ -886,6 +887,7 @@ fn remove_track(id: &TrackId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>)
         }
     }
     for lane in &entry.lanes {
+        sync.lane_targets.remove(lane);
         if let Some(lane) = sync.lanes.release(lane) {
             out.push(ControlMsg::AutomationLaneRemove {
                 lane: LaneSlot(lane),
@@ -942,6 +944,121 @@ fn param_id(device: &Device, key: &str) -> Option<ParamId> {
         .iter()
         .find(|p| p.key == key)
         .map(|p| p.id)
+}
+
+/// Takes a lane out of the engine tables and tells the engine to drop it, when it is there.
+/// Returns the engine target it drove (`None` when the engine did not hold it).
+fn drop_lane(
+    owner: Option<&TrackId>,
+    lane: &LaneId,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) -> Option<(TrackSlot, EngineTarget)> {
+    let target = sync.lane_targets.remove(lane);
+    match owner {
+        None => {
+            sync.master_lanes.remove(lane);
+        }
+        Some(track) => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.remove(lane);
+            }
+        }
+    }
+    if let Some(slot) = sync.lanes.release(lane) {
+        out.push(ControlMsg::AutomationLaneRemove {
+            lane: LaneSlot(slot),
+        });
+    }
+    target
+}
+
+/// A lane that drove `target` is gone: sends the project's stored value of a device parameter
+/// (a mixer field goes back to the fader in the engine). Nothing when another lane still
+/// drives the same parameter (a merged project): the `ParamSet` would hold it.
+fn restore_param(
+    (track_slot, target): (TrackSlot, EngineTarget),
+    project: &Project,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let EngineTarget::DeviceParam { device, param } = target else {
+        return;
+    };
+    if sync
+        .lane_targets
+        .values()
+        .any(|t| *t == (track_slot, target))
+    {
+        return;
+    }
+    restore_device_param(track_slot, device, param, project, sync, out);
+}
+
+/// Sends the project's stored value for a device parameter to the engine, so that when an
+/// automation lane that was driving it is removed or emptied the engine reverts to the
+/// project's value (#394 point 1). Does nothing if the device no longer exists in the
+/// project (it was removed in the same command, e.g. `device.remove`).
+fn restore_device_param(
+    track_slot: TrackSlot,
+    device_slot: DeviceSlot,
+    param: ParamId,
+    project: &Project,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    // Resolve the DeviceId from the slot the engine holds.
+    let device_id = if track_slot.is_master() {
+        sync.master_devices.id_at(device_slot.0 as u32)
+    } else {
+        sync.tracks
+            .id_at(track_slot.0)
+            .and_then(|tid| sync.track.get(tid))
+            .and_then(|ts| ts.devices.id_at(device_slot.0 as u32))
+    };
+    let Some(device_id) = device_id else {
+        return; // device no longer in the engine table (normal for device.remove)
+    };
+    // Resolve the device's project record to read the stored parameter value.
+    let devices = if track_slot.is_master() {
+        &project.master_devices
+    } else {
+        let Some(track_id) = sync.tracks.id_at(track_slot.0) else {
+            return;
+        };
+        let Some(track) = project.tracks.get(track_id) else {
+            return;
+        };
+        &track.devices
+    };
+    let Some(device) = devices.get(device_id) else {
+        return; // device was removed from the project (e.g. device.remove before lane delete)
+    };
+    // Reverse-resolve the ParamId to its descriptor, then read the stored value; a key the
+    // project does not hold is at the descriptor's default, as the engine built the device.
+    let DeviceSource::Builtin { id, .. } = &device.source else {
+        // Only built-in devices have lanes in the engine today (`lane_msgs` uploads none for a
+        // module: no descriptor yet, MO), so no `lane_targets` entry reaches this point for
+        // another source. When modules get lanes, they need their own default lookup here.
+        return;
+    };
+    let Some(descriptor) = crate::device::registry()
+        .iter()
+        .find(|b| b.descriptor.kind == id)
+        .map(|b| b.descriptor)
+    else {
+        return;
+    };
+    let Some(p) = descriptor.params.iter().find(|p| p.id == param) else {
+        return;
+    };
+    let value = device.params.get(p.key).copied().unwrap_or(p.default);
+    out.push(ControlMsg::ParamSet {
+        track: track_slot,
+        device: device_slot,
+        param,
+        value: finite_f32(value),
+    });
 }
 
 // ---------------------------------------------------------------- clips and arrangement
@@ -1080,6 +1197,10 @@ fn lane_msgs(
     sync: &mut EngineSlots,
     out: &mut Vec<ControlMsg>,
 ) {
+    // A lane with no point does nothing (AM-1): the engine does not hold it.
+    if lane.points.is_empty() {
+        return;
+    }
     let target = match &lane.target {
         AutomationTarget::Mixer {
             param: MixerParam::Gain,
@@ -1104,6 +1225,9 @@ fn lane_msgs(
         sync.overflow += 1;
         return;
     };
+    // Store the engine target so that AutomationLaneDeleted can restore the stored value
+    // even after the project has already removed the lane's device (#394).
+    sync.lane_targets.insert(id.clone(), (track_slot, target));
     match owner {
         Some(track) => {
             if let Some(entry) = sync.track.get_mut(track) {
