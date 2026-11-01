@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import schema from '../generated/schema.json'
 import { messages } from './app'
 import { COMMAND_LABEL_PREFIX } from './history'
 
-const catalog = schema.command.catalog as { name: string; kind: string }[]
+// Read at run time, never imported: schema.json is tens of MB, and a JSON import makes the compiler infer its whole type (heap out of memory in the typecheck).
+const schema = JSON.parse(readFileSync(new URL('../generated/schema.json', import.meta.url), 'utf8')) as {
+  command: { catalog: { name: string; kind: string }[] }
+}
+const catalog = schema.command.catalog
 const labelled = (lang: 'en' | 'fr') =>
   Object.keys(messages[lang])
     .filter((key) => key.startsWith(COMMAND_LABEL_PREFIX))
