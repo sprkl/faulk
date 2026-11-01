@@ -40,7 +40,7 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { NO_COLOR, isMidi, trackLabel } from '../../lib/project/tracks'
+  import { MASTER_COLOR, isMidi, trackColor, trackLabel } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
@@ -166,8 +166,11 @@
 
   // View state.
   let snap = $state<SnapSetting>('auto')
-  let view = $state<View>({ pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(0)
+  // Zoom and scroll come back as the view was left (it is torn down when another view is shown).
+  const left = ui.recall<{ view: View; scrollY: number }>('arrangement')
+  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(left?.scrollY ?? 0)
+  onDestroy(() => ui.remember('arrangement', { view, scrollY }))
   let stageW = $state(0)
   let stageH = $state(0)
   let picked = $state.raw<ReadonlySet<string>>(new Set())
@@ -206,7 +209,10 @@
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const refs = new Map<string, { trackId: string; info: LaneInfo; color: string }>()
     for (const e of allEntries) {
-      const color = e.id === MASTER ? NO_COLOR : (('color' in e.track ? (e.track.color as string | null | undefined) : null) ?? NO_COLOR)
+      const color =
+        e.id === MASTER
+          ? MASTER_COLOR
+          : trackColor('color' in e.track ? (e.track.color as string | null | undefined) : null, 'index' in e ? (e.index as number) : 0)
       for (const info of shownLanes.get(e.id) ?? []) refs.set(info.id, { trackId: e.id, info, color })
     }
     return refs
@@ -994,7 +1000,7 @@
   <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
     <label class="field">
       <span>{t('pianoRoll.snap')}</span>
-      <select data-testid="arr-snap" bind:value={snap}>
+      <select aria-label={t('pianoRoll.snap')} data-testid="arr-snap" bind:value={snap}>
         {#each SNAP_SETTINGS as setting (setting)}
           <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
         {/each}
@@ -1107,14 +1113,14 @@
                 <button
                   class="head"
                   class:on={project.selected?.id === trackEntry.id}
-                  style:--swatch={trackEntry.track.color ?? 'var(--fk-text-muted)'}
+                  style:--swatch={trackColor(trackEntry.track.color, trackEntry.index)}
                   aria-pressed={project.selected?.id === trackEntry.id}
                   aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
                   data-testid="arr-track"
                   onclick={() => select(trackEntry.id)}
                 >
                   <span class="swatch"></span>
-                  <span class="label">{trackLabel(trackEntry, t)}</span>
+                  <span class="track-name">{trackLabel(trackEntry, t)}</span>
                 </button>
                 {#if detached.has(trackEntry.id)}
                   <button
@@ -1473,10 +1479,18 @@
     border-radius: 2px;
     background: var(--swatch);
   }
-  .label {
+  .label,
+  .track-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The name the user gave: normal case, the text colour (the global .label is for captions). */
+  .track-name {
+    min-width: 0;
+    color: var(--fk-text);
+    font-size: 12px;
+    font-weight: 600;
   }
   .hbar {
     overflow-x: scroll;

@@ -405,6 +405,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
     }
     expect(handlers).toEqual({
       'lib/keyboard.ts': ['Space'], // trackFocusOrigin only notes that a key was pressed; it triggers nothing
+      'lib/components/ColorPicker.svelte': ['End', 'Escape', 'Home', 'Home', 'Tab'], // the palette's grid of a popup, like a menu: it reads no letter; arrows, Home, End, Escape and Tab only
       'lib/components/Slider.svelte': ['Enter'], // opens the value field (#365)
       'lib/components/ValueField.svelte': ['Enter', 'Escape'],
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],

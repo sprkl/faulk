@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { DEFAULT_PANEL, DEFAULT_VIEW, viewById, views } from './registry'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { UiStore } from '../lib/stores/ui.svelte'
+import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, views } from './registry'
 
 describe('view registry', () => {
   it('has unique ids, sorted', () => {
@@ -26,5 +27,40 @@ describe('view labels', () => {
       expect(messages.en[view.label], view.id).toBeTruthy()
       expect(messages.fr[view.label], view.id).toBeTruthy()
     }
+  })
+})
+
+describe('the view the app opens on', () => {
+  const keep = (value: string | null) => vi.stubGlobal('localStorage', { getItem: () => value, setItem: () => {} })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is the arrangement, not the instrument', () => {
+    expect(DEFAULT_VIEW).toBe('arrangement')
+    keep(null)
+    expect(startView()).toBe('arrangement')
+  })
+
+  it('is the view used last, when it is still a main view', () => {
+    keep('mixer')
+    expect(startView()).toBe('mixer')
+    keep('devices')
+    expect(startView()).toBe('arrangement')
+    keep('gone')
+    expect(startView()).toBe('arrangement')
+  })
+
+  it('is kept when a view is shown', () => {
+    const saved = new Map<string, string>()
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => saved.set(k, v) })
+    new UiStore('arrangement', 'devices').show('grid')
+    expect(startView()).toBe('grid')
+  })
+
+  it('hands each view its zoom and scroll back', () => {
+    const ui = new UiStore('arrangement', 'devices')
+    expect(ui.recall('arrangement')).toBeUndefined()
+    ui.remember('arrangement', { scrollY: 120 })
+    expect(ui.recall('arrangement')).toEqual({ scrollY: 120 })
+    expect(ui.recall('grid')).toBeUndefined()
   })
 })

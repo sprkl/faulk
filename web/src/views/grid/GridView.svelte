@@ -9,13 +9,13 @@
    * state. The cells are one button each and share the handlers of the board, so a 32 by 64 grid
    * stays light; they redraw only when a state changes, not at each report of the engine.
    */
-  import { tick, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import type { ClipState } from '../../lib/engine/feedback'
   import type { Command } from '../../lib/generated/protocol'
   import { barStart, placeFromSlot, placeScene } from '../../lib/arrangement-commands'
   import { barTicks } from '../transport/time'
   import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
-  import { trackLabel } from '../../lib/project/tracks'
+  import { trackColor, trackLabel } from '../../lib/project/tracks'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
@@ -53,6 +53,18 @@
   const colLast = $derived(visibleRange(scrollLeft, viewW, COL_W, tracks.length, OVERSCAN_COLS, SCENE_W).last)
   const shownScenes = $derived(scenes.slice(rowFirst, rowLast))
   const shownTracks = $derived(tracks.slice(colFirst, colLast))
+  // The scroll comes back as the view was left.
+  const left = ui.recall<{ top: number; left: number }>('grid')
+  let restored = false
+  $effect(() => {
+    if (!scroller || restored) return
+    restored = true
+    if (left) {
+      scroller.scrollTop = left.top
+      scroller.scrollLeft = left.left
+    }
+  })
+  onDestroy(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }))
   const onScroll = () => {
     scrollTop = scroller!.scrollTop
     scrollLeft = scroller!.scrollLeft
@@ -614,7 +626,7 @@
             class="colhead"
             role="columnheader"
             aria-colindex={entry.index + 2}
-            style:--track-color={entry.track.color ?? undefined}
+            style:--track-color={trackColor(entry.track.color, entry.index)}
             aria-current={project.selected?.id === entry.id ? 'true' : undefined}
             data-testid="grid-track"
             data-track={entry.id}
@@ -741,7 +753,7 @@
                 class:open={cellMenu === cell.id}
                 role="gridcell"
                 aria-colindex={entry.index + 2}
-                style:--track-color={entry.track.color ?? undefined}
+                style:--track-color={trackColor(entry.track.color, entry.index)}
                 data-slot-clip={cell.id}
                 onkeydown={onSlotKey}
                 onfocusout={onSlotFocusOut}

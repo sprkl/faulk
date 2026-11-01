@@ -35,10 +35,10 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
   [/^web\/src\/views\/history\//, ['history', 'history-cost']],
-  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode']],
+  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'mixer', 'mixer-sound', 'master-chain', 'master-pan']],
   [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'master-chain', 'master-pan']],
   [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar']],
@@ -46,7 +46,7 @@ export const RULES = [
   [/^web\/src\/views\/play\//, ['keyboard', 'keyboard-all-views', 'live-input', 'typing-mode']],
   [/^web\/src\/views\/shell\/ExportDialog\./, ['export-audio']],
   [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access']],
-  [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, ['bottom-panel']],
+  [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, ['bottom-panel', 'ux-quick-wins']],
   // Libraries with one clear audience.
   [/^web\/src\/lib\/export\//, ['export-audio']],
   [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access']],

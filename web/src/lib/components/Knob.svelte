@@ -92,6 +92,7 @@
       class="value"
       type="button"
       tabindex="-1"
+      aria-label={ui.t('controls.valueOf', { name: label, value: display })}
       title={ui.t('controls.type')}
       data-testid="value-readout"
       onmousedown={(e) => e.preventDefault()}

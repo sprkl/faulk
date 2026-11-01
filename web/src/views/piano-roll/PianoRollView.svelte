@@ -28,7 +28,7 @@
   import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { instrumentNamedKeys, isMidi, NO_COLOR } from '../../lib/project/tracks'
+  import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
@@ -112,7 +112,7 @@
     return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
   })
   // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
-  const trackColor = $derived(track?.track.color ?? NO_COLOR)
+  const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '#8f8a85')
   let showOthers = $state(true)
   const others = $derived(showOthers && track ? ghostNotes(project.tracks, track.id, edited, track.track) : [])
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
@@ -168,8 +168,10 @@
   // View state.
   let tool = $state<Tool>('draw')
   let snap = $state<SnapSetting>('auto')
-  let view = $state<View>({ pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(0)
+  // Zoom and scroll of the clip come back when the panel returns to the roll (it is torn down when another tab is shown).
+  const left = ui.recall<{ clip: string | null; view: View; scrollY: number }>('piano-roll')
+  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(left?.scrollY ?? 0)
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
@@ -289,7 +291,7 @@
   })
 
   // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
-  let openedFor: string | null = null
+  let openedFor: string | null = left?.clip ?? null
   $effect(() => {
     const id = edited?.id ?? null
     if (id === openedFor) return
@@ -333,7 +335,10 @@
     }, wait)
   }
 
-  onDestroy(() => sound(null))
+  onDestroy(() => {
+    ui.remember('piano-roll', { clip: openedFor, view, scrollY })
+    sound(null)
+  })
 
   // --- gestures ---------------------------------------------------------------------------------
 
@@ -791,7 +796,7 @@
       </div>
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
-        <select data-testid="roll-snap" bind:value={snap}>
+        <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
           {#each SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}
