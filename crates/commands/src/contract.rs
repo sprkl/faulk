@@ -95,6 +95,10 @@ pub struct GroupId(pub u64);
 pub struct Context {
     pub author: Author,
     pub group: Option<GroupId>,
+    /// The host's clock in milliseconds since the Unix epoch, set before each command: the
+    /// history stamps it on the entries it records (0 when the host has none). The commands
+    /// never read it, so the project stays pure.
+    pub now_ms: u64,
     pub ids: IdGenerator,
     /// The engine's slots of the project's entities (PR-3).
     pub engine: EngineSlots,
@@ -200,6 +204,7 @@ impl Context {
         Self {
             author,
             group: None,
+            now_ms: 0,
             ids,
             engine: EngineSlots::default(),
             folder: None,

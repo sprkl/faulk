@@ -62,6 +62,13 @@ domain! {
 /// One entry of the history: the inverses of one command or of one group.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
+    /// Identifies the entry for the history panel: unique within the [`History`], kept when
+    /// the entry moves between the undo and the redo stack and when a later edit of its
+    /// group joins it. The history panel keys its rows by it.
+    pub id: u64,
+    /// When the entry was recorded, in the host's milliseconds (`Context::now_ms`); an undo
+    /// and a redo keep it, a later edit of the group that joins it does not change it.
+    pub at: u64,
     /// The name of the entry's first command, for the history panel (PR-7).
     pub name: &'static str,
     pub author: Author,
@@ -82,6 +89,8 @@ pub struct History {
     pub open_group: Option<(GroupId, Author)>,
     /// The number of the next group this history gives out.
     pub next_group: u64,
+    /// The id of the next entry this history records.
+    pub next_entry: u64,
 }
 
 impl History {
@@ -103,6 +112,26 @@ impl History {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// The entries as the history panel shows them (oldest first).
+    pub fn view(&self) -> crate::host::HistoryView {
+        let rows = |entries: &[Entry]| {
+            entries
+                .iter()
+                .map(|entry| crate::host::HistoryEntryView {
+                    id: entry.id,
+                    at: entry.at,
+                    name: entry.name.to_owned(),
+                    author: entry.author.clone(),
+                    group: entry.group,
+                })
+                .collect()
+        };
+        crate::host::HistoryView {
+            undo: rows(&self.undo),
+            redo: rows(&self.redo),
         }
     }
 
@@ -141,6 +170,7 @@ impl History {
         undo: &Undo<crate::Command>,
         author: &Author,
         group: Option<GroupId>,
+        at: u64,
     ) -> bool {
         match (meta.kind, undo) {
             (Kind::Edit, Undo::Inverse(inverse)) => {
@@ -149,12 +179,17 @@ impl History {
                     Some(top) if group.is_some() && top.group == group => {
                         top.commands.push((**inverse).clone());
                     }
-                    _ => self.undo.push(Entry {
-                        name: meta.name,
-                        author: author.clone(),
-                        group,
-                        commands: vec![(**inverse).clone()],
-                    }),
+                    _ => {
+                        self.next_entry += 1;
+                        self.undo.push(Entry {
+                            id: self.next_entry,
+                            at,
+                            name: meta.name,
+                            author: author.clone(),
+                            group,
+                            commands: vec![(**inverse).clone()],
+                        });
+                    }
                 }
                 true
             }
@@ -190,10 +225,13 @@ pub fn run(
             .filter(|(_, opener)| *opener == ctx.author)
             .map(|(group, _)| *group)
     });
-    if state
-        .history
-        .record(command.meta(), &outcome.undo, &ctx.author, group)
-    {
+    if state.history.record(
+        command.meta(),
+        &outcome.undo,
+        &ctx.author,
+        group,
+        ctx.now_ms,
+    ) {
         outcome.events.push(state.history.changed_event());
     }
     Ok(outcome)

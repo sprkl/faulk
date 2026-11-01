@@ -243,6 +243,10 @@ pub struct Cursor {
     releasing: bool,
     /// Word of the held bits the release goes on from.
     release_word: usize,
+    /// The run was replaced by another one that holds the same notes (CL-3,
+    /// [`Cursor::keep_through_swap`]): the next read finds its place in the new run
+    /// without a jump.
+    reseek: bool,
 }
 
 impl Cursor {
@@ -287,6 +291,12 @@ impl Cursor {
         start: usize,
         sink: &mut Sink,
     ) -> Read {
+        if core::mem::take(&mut self.reseek) {
+            // The run was swapped: the entries before the tick we are at were delivered
+            // (or are in the past of a note that goes on) in the old one.
+            self.next = self.expect.map_or(0, |t| first_at_or_after(events, t));
+            self.group_end = 0;
+        }
         let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
         // The rest of a group delivered in part, at the first frame.
         let continues = self.expect == Some(segment.from) || self.resume == Some(segment.from);
@@ -359,6 +369,22 @@ impl Cursor {
     fn full(&mut self, segment: &Segment, at: usize) -> Read {
         self.resume = Some(segment.to);
         Read::Full(at)
+    }
+
+    /// The run this cursor reads is replaced by another (CL-3) that holds, at the same
+    /// indices, the notes this cursor holds: the cursor goes on in the new run, without a
+    /// jump, so that those notes are not released and their note-offs (the new run's) end
+    /// them. `false` when the cursor cannot (a release or a part-delivered group is in
+    /// progress, a read was cut, nothing was read yet): the caller starts it over.
+    pub fn keep_through_swap(&mut self) -> bool {
+        if self.releasing || self.group_end > self.next || self.resume.is_some() {
+            return false;
+        }
+        if self.expect.is_none() {
+            return false;
+        }
+        self.reseek = true;
+        true
     }
 
     /// Delivers the rest of a group delivered in part, at offset 0; `false` when some is

@@ -1,0 +1,2 @@
+2026-11-01
+* **Update** (#73): CL-3, editing a clip while it plays: a sounding note that the edit leaves unchanged (same index, start, length, pitch) goes on instead of being cut; the 1 000-edit proof (engine tests under the allocation detector, offline render with the real synth, native/WASM parity); `docs/specs/02-decoupage-mvp.md` CL-3 notes the known limit (a note added before a sounding one moves its index).
