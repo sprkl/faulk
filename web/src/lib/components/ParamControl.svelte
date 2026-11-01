@@ -7,13 +7,14 @@
    */
   import { choices, deviceText, formatValue, isChoice, labelKey, positionOf, valueAt, type DeviceDescriptor, type ParamDescriptor } from '../devices'
   import { useStores } from '../stores'
-  import { parseParam as parseValue } from '../value-entry'
+  import { baseUnit, parseParamEntry } from '../value-entry'
   import Knob from './Knob.svelte'
 
   let {
     device,
     param,
     value,
+    automated,
     onchange,
     onbegin,
     onend,
@@ -21,6 +22,8 @@
     device: DeviceDescriptor
     param: ParamDescriptor
     value: number
+    /** The tooltip when an automation lane drives the parameter (#388): it marks the control. */
+    automated?: string
     /** The new value in the parameter's unit. */
     onchange: (value: number) => void
     /** A drag starts and ends (knobs only): the owner groups it as one history entry. */
@@ -41,18 +44,23 @@
     triangle: 'M2 16 L 7 4 L 12 16 L 17 4 L 22 16',
   }
 
-  // The value the entry field opened on.
-  // svelte-ignore state_referenced_locally
-  let openedAt = value
-
   const key = $derived(labelKey(device, param.key))
   const label = $derived(deviceText(ui.lang, key) ?? param.key)
   const hint = $derived(deviceText(ui.lang, `${key}.hint`) ?? param.description)
+  // The knob's tooltip states what a bare number means when typed (#410).
+  const base = $derived(baseUnit(param))
+  const knobHint = $derived(base ? `${hint} ${ui.t('controls.bare', { unit: base })}` : hint)
   const valueLabel = (valueKey: string) => deviceText(ui.lang, labelKey(device, valueKey)) ?? valueKey
 </script>
 
 {#if isChoice(param)}
-  <div class="choice" data-testid="param-{param.key}" title={hint}>
+  <div
+    class="choice"
+    class:automated={automated !== undefined}
+    data-automated={automated === undefined ? undefined : 'true'}
+    data-testid="param-{param.key}"
+    title={automated ?? hint}
+  >
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
         <button
@@ -77,7 +85,8 @@
   <div data-testid="param-{param.key}">
     <Knob
       {label}
-      {hint}
+      hint={knobHint}
+      {automated}
       {onbegin}
       {onend}
       position={positionOf(param, value)}
@@ -85,17 +94,14 @@
       home={positionOf(param, param.default)}
       defaultDisplay={formatValue(param, param.default)}
       entry={{
-        text: () => {
-          // A bare number is in the unit the field opened with, even if the value moves while it is open.
-          openedAt = value
-          return formatValue(param, value)
-        },
+        text: () => formatValue(param, value),
         commit: (text) => {
-          const next = parseValue(param, text, openedAt)
+          // A bare number is in the base unit of the parameter, whatever the readout shows (#410).
+          const next = parseParamEntry(param, text)
           if (next === null) return false
           // The same value: no command, no empty history entry.
-          if (next !== value) onchange(next)
-          return true
+          if (next.value !== value) onchange(next.value)
+          return next.limit === undefined ? true : ui.t('controls.limited', { value: formatValue(param, next.limit) })
         },
       }}
       onchange={(p) => {
@@ -113,6 +119,10 @@
 <style>
   .choice {
     display: flex;
+  }
+  .choice.automated .segmented {
+    background: var(--fk-accent-tint);
+    border-color: var(--fk-accent-fg);
   }
   .segmented {
     display: inline-flex;

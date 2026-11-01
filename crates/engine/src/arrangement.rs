@@ -59,7 +59,7 @@
 //! audio path: every lookup is a binary search over a table of any content, and each step
 //! of a read moves the tick forward.
 
-use crate::clip_player::{Cut, Env, read_pieces};
+use crate::clip_player::{Cut, Env, Swap, read_pieces};
 use crate::engine::ClipContent;
 use crate::events::{Cursor, Sink};
 use crate::msg::{ClipSlot, Placement, PlacementSlot, Span};
@@ -162,20 +162,32 @@ impl ArrangementPlayer {
         self.cursor.held()
     }
 
+    /// Whether the player reads the clip in `slot`.
+    pub fn holds(&self, slot: ClipSlot) -> bool {
+        self.active.is_some_and(|a| a.clip == slot)
+    }
+
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When the
     /// player reads it, its cursor starts over (the next read is a jump into the new table)
-    /// and, when removed, the placement stops. Returns whether notes of the old table were
-    /// held: their note-offs are gone with it, the caller releases the track.
-    pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool) -> bool {
-        if self.active.is_none_or(|a| a.clip != slot) {
-            return false;
+    /// and, when removed, the placement stops. With `keep` the cursor goes on in the new
+    /// table when it can ([`Cursor::keep_through_swap`], CL-3); see
+    /// [`crate::clip_player::Swap`].
+    pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool, keep: bool) -> Swap {
+        if !self.holds(slot) {
+            return Swap::default();
         }
         let held = self.cursor.held() > 0;
-        self.cursor = Cursor::default();
+        let mut swap = Swap::default();
+        if keep && !removed && held && self.cursor.keep_through_swap() {
+            swap.kept = true;
+        } else {
+            swap.release = held;
+            self.cursor = Cursor::default();
+        }
         if removed {
             self.active = None;
         }
-        held
+        swap
     }
 
     /// Ends the placement being read, its notes released at `at`; `false` when the sink

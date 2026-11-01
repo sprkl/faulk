@@ -33,6 +33,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, TrackPart, Undo};
 use crate::macros::domain;
+use crate::query::{ClipSummary, DeviceSummary, PageInfo, TrackSummary};
 use engine::devices::Builtin;
 use project::limits::{
     MAX_CLIPS, MAX_LANES, MAX_NAME_CHARS, MAX_NOTES, MAX_PLACEMENTS, MAX_POINTS, MAX_TRACKS,
@@ -208,6 +209,61 @@ domain! {
         /// The new track.
         track: TrackId,
     };
+
+    /// List the tracks in display order (the order of the arrangement and the mixer), each
+    /// with its name, colour, kind (`midi` or `audio`), mixer (gain in dB, `null` is
+    /// silence; pan; mute), solo and arming (session state) and how many devices and clips
+    /// it holds. Paged: `offset` (tracks to skip, 0 by default) and `limit` (tracks to
+    /// return, 1 to 1000, 100 by default; any other limit is refused with `invalid`, never
+    /// clamped); the answer's `page` gives the `total`, the `offset` used and the
+    /// `next_offset` of the next page, `null` after the last one. An `offset` past the end
+    /// gives an empty page. A query: changes nothing and never enters the history.
+    "track.list" (kind = "query", undo = "none", destructive = false)
+    List {
+        /// Tracks to skip, 0 by default.
+        offset: Option<u32>,
+        /// Tracks to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The tracks of this page, in display order.
+        tracks: Vec<TrackSummary>,
+        /// Where this page sits in the list.
+        page: PageInfo,
+    };
+
+    /// Read one track: its summary, its whole device chain in order (each device with its
+    /// source, role, bypass state, English name and parameter values; the chain is bounded
+    /// by the project's safety limit), a page of its clips (in the order of their
+    /// identifiers, which is creation order) and how many arrangement placements and
+    /// automation lanes it has (`clip.get` lists a clip's placements, `automation.lane.list`
+    /// the lanes). Paged on the clips: `offset` (clips to skip, 0 by default) and `limit`
+    /// (clips to return, 1 to 1000, 100 by default; any other limit is refused with
+    /// `invalid`, never clamped); the answer's `page` gives the `total`, the `offset` used
+    /// and the `next_offset` of the next page, `null` after the last one. Refused with
+    /// `not_found` for an unknown track. A query: changes nothing and never enters the
+    /// history.
+    "track.get" (kind = "query", undo = "none", destructive = false)
+    Get {
+        /// The track to read.
+        track: TrackId,
+        /// Clips to skip, 0 by default.
+        offset: Option<u32>,
+        /// Clips to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The track's summary.
+        track: TrackSummary,
+        /// Its device chain, in order.
+        devices: Vec<DeviceSummary>,
+        /// The clips of this page.
+        clips: Vec<ClipSummary>,
+        /// Where this page of clips sits in the track's clip list.
+        page: PageInfo,
+        /// How many arrangement placements the track has.
+        placement_count: u32,
+        /// How many automation lanes the track has.
+        lane_count: u32,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -215,6 +271,25 @@ type Out = Outcome<Command, Output>;
 /// Applies a command of this domain.
 pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     match command {
+        Command::List { offset, limit } => {
+            let (tracks, page) = crate::query::track_list(state, *offset, *limit)?;
+            Ok(crate::query::answer(Output::List { tracks, page }))
+        }
+        Command::Get {
+            track,
+            offset,
+            limit,
+        } => {
+            let d = crate::query::track_get(state, track, *offset, *limit)?;
+            Ok(crate::query::answer(Output::Get {
+                track: d.track,
+                devices: d.devices,
+                clips: d.clips,
+                page: d.page,
+                placement_count: d.placement_count,
+                lane_count: d.lane_count,
+            }))
+        }
         Command::Create {
             kind,
             instrument,
@@ -607,7 +682,7 @@ fn lane_deletions(track: &TrackId, lanes: &BTreeMap<LaneId, AutomationLane>) -> 
     lanes
         .keys()
         .map(|lane| ProjectEvent::AutomationLaneDeleted {
-            track: track.clone(),
+            track: Some(track.clone()),
             lane: lane.clone(),
         })
         .collect()
@@ -683,7 +758,7 @@ fn restore_instrument(
         lanes
             .keys()
             .map(|lane| ProjectEvent::AutomationLaneCreated {
-                track: track_id.clone(),
+                track: Some(track_id.clone()),
                 lane: lane.clone(),
             }),
     );

@@ -1116,6 +1116,19 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.audioExport.open).toBe(true)
   })
 
+  it('tells the project store about every stop, seek and pause, and about no other transport command (#394)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    const cued = vi.fn()
+    session.project.cued = cued
+    session.dispatcher.run({ type: 'transport.stop' })
+    session.dispatcher.run({ type: 'transport.seek', tick: 0 })
+    session.dispatcher.run({ type: 'transport.pause', tick: 0 })
+    expect(cued).toHaveBeenCalledTimes(3)
+    session.dispatcher.run({ type: 'transport.set_loop', loop_region: { start: 0, end: 3840 } })
+    expect(cued).toHaveBeenCalledTimes(3)
+  })
+
   it('knows what an export can render: a clip in the arrangement, a loop region', async () => {
     const session = newSession()
     await session.dispatcher.start()

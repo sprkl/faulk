@@ -5,8 +5,8 @@
 //! # A lane
 //!
 //! A lane ([`crate::engine::Lane`]) is a table of points sorted by tick, at most one per
-//! tick, with finite values (the Preparer makes them so, and turns a gain lane's dB into a
-//! linear gain: a gain lane moves in amplitude). The shape of a point is the transition
+//! tick, with finite values (the Preparer makes them so; a gain lane keeps its dB, which the
+//! fader's law clamps to its range). The shape of a point is the transition
 //! **after** it: `Linear` goes in a straight line to the next point's value, `Step` holds
 //! its value until the next point. Before its first point a lane holds the first value,
 //! after its last point the last value.
@@ -16,6 +16,24 @@
 //! MO-4). The value of a lane at frame `c` is the value of the transition after the last
 //! point reached, at the playhead `max(position_at(c), tick of that point)`: a point's
 //! value falls exactly on its sample and a linear transition is linear in frames.
+//!
+//! # A volume lane (#389)
+//!
+//! A straight line drawn on a volume lane is a line along the **travel of the fader**
+//! ([`crate::fader`], the law of the mixer's fader and of the lane's axis in the timeline), not
+//! in amplitude and not in dB: a fade from 0 dB to -96 dB over eight bars goes down like a
+//! fader pulled at constant speed. A linear transition goes in a straight line in position
+//! from the position of the point's dB to the position of the next one's. The lane's lowest
+//! value, -96 dB, is silence: an amplitude of exactly 0. A pan lane and a device parameter
+//! stay linear in their own unit.
+//!
+//! The strip draws straight lines between the values it receives (below), so the curve is
+//! sent as **chords**: the value of a volume lane at a frame is the straight line, in
+//! amplitude, between the curve's amplitudes at the two anchors around the frame, the last
+//! control frame (or the point just reached) and the next control frame (or the next point).
+//! The anchors are the same whatever the block size, so the render does not depend on it
+//! either; a chord is at most [`CONTROL_FRAMES`] long, and a point and a control frame are
+//! on the curve exactly.
 //!
 //! # Pieces and control instants
 //!
@@ -48,11 +66,31 @@
 //! pan changed) **holds** the matching lanes of the track: they send nothing, and the
 //! gesture applies, until the playhead reaches the lane's next point, where the lane takes
 //! over at that point's sample (after the last point: until the next jump). A jump (play,
-//! seek, loop wrap) gives every parameter back to its lanes at once. Stopped, the lanes
-//! send nothing: the last value, a gesture's or a lane's, stays. A new upload of a lane
+//! seek, loop wrap) gives every parameter back to its lanes at once.
+//!
+//! # Stopped (#388)
+//!
+//! What sounds is what the page shows: when the clock stops, and at every seek while it is
+//! stopped, each lane sends its value at the playhead ([`TrackLanes::push_frozen`], the lane
+//! read through a one-frame [`Segment::frozen`]; before the first point, the first value).
+//! Then it sends nothing: a gesture made while stopped holds until the next play or seek,
+//! which give the parameter back to its lanes. A lane that is uploaded again (its points
+//! edited), created, or whose device was built again sends its value at the playhead too.
+//! A new upload of a lane
 //! (its points edited) keeps its hold; a lane uploaded in the same batch of messages as the
 //! gesture is not held (the list is the last block's). A device built again in its slot,
 //! or switched on or off, receives its lanes' values again.
+//!
+//! # The master's lanes (#378)
+//!
+//! The master plays lanes like a track: its gain and pan, and the parameters of the effects
+//! of its chain, addressed by [`TrackSlot::MASTER`]. A master lane is read by the same code
+//! ([`TrackLanes`]), through its own list head ([`MasterLanes`]), in the graph's master pass
+//! ([`crate::graph`]): the master's chain runs once per sub-block, as a track's, and the
+//! master's strip applies the lanes' gain and pan sub-block by sub-block. A manual gesture
+//! on the master (`SetMaster` that moves the gain or the pan, a `ParamSet` on its chain)
+//! holds the matching master lanes like it holds a track's. A master with no lane renders as
+//! it did before (one pass of the chain over the block).
 //!
 //! # Lanes of a track
 //!
@@ -68,6 +106,7 @@
 use crate::device::Event;
 use crate::engine::{Lane, Paged, Track};
 use crate::events::Sink;
+
 use crate::mixer::{GAIN, GAIN_RAMP, MIXER_SLOT, PAN, PAN_RAMP};
 use crate::msg::{AutomationPoint, AutomationTarget, Curve, DeviceSlot, ParamId, Slots, TrackSlot};
 use crate::transport::Segment;
@@ -185,6 +224,95 @@ pub fn value_at(points: &[AutomationPoint], r: usize, segment: &Segment, c: usiz
     Some((va + (vb - va) * t) as f32)
 }
 
+/// What the engine sends for a lane at frame `c` (module doc): the value of the lane in its
+/// unit, except for a volume lane, which goes to the strip as an amplitude along the fader's
+/// travel ([`gain_value`]).
+fn lane_value(
+    target: AutomationTarget,
+    points: &[AutomationPoint],
+    r: usize,
+    segment: &Segment,
+    base: u64,
+    c: usize,
+) -> Option<f32> {
+    if target == AutomationTarget::MixerGain {
+        gain_value(points, r, segment, base, c)
+    } else {
+        value_at(points, r, segment, c)
+    }
+}
+
+/// The amplitude of a volume lane at frame `c` with `r` points reached (module doc, "A volume
+/// lane"). A held value is the amplitude of its dB. On a linear transition the fader's
+/// position goes in a straight line from the value of the point to the value of the next
+/// one, and the amplitude is drawn as a chord of that curve between the two **anchors**
+/// around `c`: the last control frame or the frame of the last point reached, and the next
+/// control frame or the frame of the next point. The anchors do not depend on how the clock
+/// was cut into blocks, so neither does the line the strip draws between the values it
+/// receives; at a point and at a control frame the value is exact.
+fn gain_value(
+    points: &[AutomationPoint],
+    r: usize,
+    segment: &Segment,
+    base: u64,
+    c: usize,
+) -> Option<f32> {
+    let first = points.first()?;
+    if r == 0 {
+        return Some(held_gain(first.value));
+    }
+    let prev = points.get(r - 1)?;
+    let Some(next) = points.get(r) else {
+        return Some(held_gain(prev.value));
+    };
+    if prev.curve == Curve::Step || next.tick <= prev.tick || prev.value == next.value {
+        return Some(held_gain(prev.value));
+    }
+    let control = c as i64 - (base.wrapping_add(c as u64) % CONTROL_FRAMES) as i64;
+    let point = segment.sample_of(prev.tick).floor();
+    let a = (control as f64).max(point);
+    let landing = segment.sample_of(next.tick).floor();
+    let b = ((control + CONTROL_FRAMES as i64) as f64).min(landing);
+    let (pa, pb) = (position(prev.value), position(next.value));
+    let ga = f64::from(crate::fader::gain_at(along(prev, next, segment, a, pa, pb)));
+    let gb = if b >= landing {
+        f64::from(crate::fader::gain_at(pb))
+    } else {
+        f64::from(crate::fader::gain_at(along(prev, next, segment, b, pa, pb)))
+    };
+    if b <= a {
+        return Some(ga as f32);
+    }
+    let x = ((c as f64 - a) / (b - a)).clamp(0.0, 1.0);
+    Some((ga + (gb - ga) * x) as f32)
+}
+
+/// The amplitude of a held gain in dB (`MIN_DB` is silence).
+fn held_gain(db: f32) -> f32 {
+    crate::fader::gain_at(position(db))
+}
+
+/// The fader position of a gain in dB.
+fn position(db: f32) -> f64 {
+    crate::fader::position_of_db(f64::from(db))
+}
+
+/// The fader position at fractional frame `frame` of a linear transition from `prev` to
+/// `next` (the lane's straight line in travel, from `pa` to `pb`).
+fn along(
+    prev: &AutomationPoint,
+    next: &AutomationPoint,
+    segment: &Segment,
+    frame: f64,
+    pa: f64,
+    pb: f64,
+) -> f64 {
+    let (ta, tb) = (prev.tick.0 as f64, next.tick.0 as f64);
+    let x = segment.position_at_frame(frame).max(ta);
+    let t = ((x - ta) / (tb - ta)).clamp(0.0, 1.0);
+    pa + (pb - pa) * t
+}
+
 /// Whether the transition after the last of `r` points reached moves.
 fn on_slope(points: &[AutomationPoint], r: usize) -> bool {
     match (r.checked_sub(1).and_then(|i| points.get(i)), points.get(r)) {
@@ -226,13 +354,27 @@ fn address(target: AutomationTarget, ramp: bool) -> (DeviceSlot, ParamId) {
 
 /// Links every lane to its track for this block (module doc), no allocation. The list
 /// runs from the highest slot to the lowest.
-pub(crate) fn link(tracks: &mut Slots<Box<Track>>, lanes: &mut Paged<Box<Lane>>) {
+pub(crate) fn link(
+    tracks: &mut Slots<Box<Track>>,
+    lanes: &mut Paged<Box<Lane>>,
+    master: &mut MasterLanes,
+) {
     for track in tracks.as_mut_slice().iter_mut().flatten() {
         track.graph.lanes = NO_LANE;
         track.graph.lane_count = 0;
     }
+    master.head = NO_LANE;
+    master.count = 0;
     lanes.for_each_mut(|slot, lane| {
         lane.run.next = NO_LANE;
+        if lane.track.is_master() {
+            if (master.count as usize) < LANES_PER_TRACK {
+                lane.run.next = master.head;
+                master.head = slot;
+                master.count += 1;
+            }
+            return;
+        }
         let Some(track) = tracks
             .as_mut_slice()
             .get_mut(lane.track.0 as usize)
@@ -246,6 +388,29 @@ pub(crate) fn link(tracks: &mut Slots<Box<Track>>, lanes: &mut Paged<Box<Lane>>)
             track.graph.lane_count += 1;
         }
     });
+}
+
+/// What the graph keeps of the master's lanes (#378), as [`crate::graph::TrackGraph`] does
+/// of a track's: the first of its lanes, linked at every block, and how many are linked; the
+/// tick the next clock segment starts at when the playhead moves on without a jump; the
+/// playhead and cue count the lanes were last applied at while the clock is stopped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MasterLanes {
+    pub(crate) head: u32,
+    pub(crate) count: u32,
+    pub(crate) expect: Option<crate::time::Tick>,
+    pub(crate) stopped_at: Option<(u64, u64)>,
+}
+
+impl MasterLanes {
+    pub(crate) const fn new() -> Self {
+        MasterLanes {
+            head: NO_LANE,
+            count: 0,
+            expect: None,
+            stopped_at: None,
+        }
+    }
 }
 
 /// The lanes of one track, through its list (module doc).
@@ -281,6 +446,42 @@ impl TrackLanes<'_> {
         self.each(|lane| {
             lane.run.manual = Manual::Free;
             lane.run.sent = None;
+        });
+    }
+
+    /// The clock is stopped at `position`: every lane whose parameter is not held by a
+    /// gesture and has not applied its value yet sends it at offset 0 (a device's value, a
+    /// strip's gain or pan, without a ramp end). `moved` is a stop or a seek: it gives every
+    /// parameter back to its lanes first, like a jump. Between two such events a lane sends
+    /// nothing, so a gesture holds until the next play or seek.
+    pub(crate) fn push_frozen(&mut self, position: f64, moved: bool, sink: &mut Sink) {
+        let segment = Segment::frozen(position);
+        self.each(|lane| {
+            if moved {
+                lane.run.manual = Manual::Free;
+                lane.run.sent = None;
+            }
+            if lane.run.manual != Manual::Free || lane.run.sent.is_some() {
+                return;
+            }
+            let points = lane.points.as_slice();
+            let r = reached(points, lane.run.index, &segment, 0);
+            lane.run.index = r;
+            let Some(value) = lane_value(lane.target, points, r, &segment, 0, 0) else {
+                return;
+            };
+            let (device, id) = address(lane.target, false);
+            let pushed = sink.push_lane_param(
+                device,
+                Event::ParamValue {
+                    offset: 0,
+                    id,
+                    value,
+                },
+            );
+            if pushed {
+                lane.run.sent = Some(value.to_bits());
+            }
         });
     }
 
@@ -362,7 +563,7 @@ impl TrackLanes<'_> {
             if lane.run.manual != Manual::Free {
                 return;
             }
-            let Some(value) = value_at(points, r, segment, start) else {
+            let Some(value) = lane_value(lane.target, points, r, segment, base, start) else {
                 return;
             };
             if let AutomationTarget::DeviceParam { .. } = lane.target {
@@ -397,6 +598,7 @@ impl TrackLanes<'_> {
     pub(crate) fn push_end(
         &mut self,
         segment: &Segment,
+        base: u64,
         start: usize,
         end: usize,
         sink: &mut Sink,
@@ -417,7 +619,7 @@ impl TrackLanes<'_> {
             if !on_slope(points, r) {
                 return;
             }
-            let Some(value) = value_at(points, r, segment, last) else {
+            let Some(value) = lane_value(lane.target, points, r, segment, base, last) else {
                 return;
             };
             let (device, id) = address(lane.target, true);

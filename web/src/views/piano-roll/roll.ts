@@ -400,5 +400,19 @@ export function lengthFor(end: number, clipLength: number, bar: number): number 
   return length > MAX_BARS * bar ? null : length
 }
 
-/** The span a duplicate shifts by: from the first start to the last end of the selection. */
-export const duplicateOffset = (selected: readonly Note[]): number => (selected.length === 0 ? 0 : endOf(selected) - Math.min(...selected.map((n) => n.start)))
+/**
+ * The span a duplicate shifts by: from the start of the bar of the first note to the last end of
+ * the selection, rounded up to whole bars (at least one). Same rule as `clip.notes.duplicate` without `offset`.
+ */
+export function duplicateOffset(selected: readonly Note[], bar: number): number {
+  if (selected.length === 0 || !(bar > 0)) return 0
+  const from = Math.floor(Math.min(...selected.map((n) => n.start)) / bar) * bar
+  return Math.max(1, Math.ceil((endOf(selected) - from) / bar)) * bar
+}
+
+/**
+ * The step a note is drawn on. The ruler's Auto step follows the zoom and may get finer than a
+ * sixteenth, which would draw slivers: for drawing it stops at a sixteenth. A step the musician
+ * picked, or no snapping, is kept as is.
+ */
+export const drawStep = (auto: boolean, step: number | null): number | null => (auto && step !== null ? Math.max(step, SIXTEENTH) : step)

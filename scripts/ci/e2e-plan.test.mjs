@@ -13,7 +13,7 @@ const source = (spec) => readFileSync(`${E2E}${spec}.spec.ts`, 'utf8')
 // run, and nowhere else. They cover the engine, the dispatcher, the stores and the shell, which the
 // table sends to the whole suite anyway. A new spec must either be named by an area rule or be added
 // here on purpose: this list is the enumeration that proves "every spec is placed".
-const WHOLE_SUITE_ONLY = ['engine-channel', 'engine-mo2', 'engine-mo5', 'page-dispatcher', 'refused-commands', 'stop-to-marker', 'value-entry']
+const WHOLE_SUITE_ONLY = ['engine-channel', 'engine-mo2', 'engine-mo5', 'refused-commands', 'stop-to-marker', 'value-entry']
 
 test('every spec on disk is named by an area rule or deliberately whole-suite only', () => {
   const named = new Set()
@@ -58,11 +58,11 @@ test('the smoke grep matches the printed title of its tests and not their neighb
 
 test('one change, one plan: whole specs, smoke of the others, shards', () => {
   const p = plan(['web/src/views/mixer/MixerFader.svelte'])
-  assert.deepEqual(p.specs, ['automation', 'continuous', 'master-chain', 'mixer', 'mixer-sound'])
+  assert.deepEqual(p.specs, ['automation', 'continuous', 'master-chain', 'master-pan', 'mixer', 'mixer-sound'])
   assert.deepEqual(p.smoke, ['export-audio', 'isolation', 'open-project', 'project-store', 'transport'])
   assert.equal(p.all, false)
   assert.equal(p.run, true)
-  assert.equal(p.shards, 1)
+  assert.equal(p.shards, 2)
   assert.ok(p.grep.length > 0)
 })
 

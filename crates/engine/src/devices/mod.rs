@@ -10,6 +10,7 @@ use crate::msg::DeviceKind;
 pub mod compressor;
 pub mod drums;
 pub mod echo;
+pub mod filter;
 pub mod osc_synth;
 pub mod reverb;
 pub mod time_change;
@@ -37,6 +38,7 @@ pub const REGISTRY: &[Builtin] = &[
     echo::BUILTIN,
     reverb::BUILTIN,
     compressor::BUILTIN,
+    filter::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

@@ -192,15 +192,68 @@ test('a device knob: reset by double click, by the menu and by Delete, each one 
   await page.keyboard.press('Control+z')
   await expect(attack).toHaveAttribute('aria-valuetext', end)
 
-  // Space on a focused knob keeps its old meaning (nothing): it does not start the transport behind it.
-  await attack.focus()
+  // #415 option A: non-musical key (Delete/arrows) on a mouse-focused slider switches it to keyboard
+  // origin. Consequence: letters no longer play a note on that slider until the next click restores
+  // pointer origin. Explicit test of the behavior change (not hidden by replacing focus() with click()).
+  //
+  // Step 1 — mouse-focused slider: a held letter plays, and keeps a voice alive while held.
+  // This also measures, on this shard, how long the engine takes to show the voice: we time it
+  // and reuse that measured bound in step 2 instead of guessing a latency (CLAUDE.md: never state
+  // an unmeasured figure).
+  await attack.click() // explicit pointer press: pointer origin
+  const t0 = Date.now()
+  await page.keyboard.down('KeyA')
+  await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
+  const startMs = Date.now() - t0 // measured time for a held KeyA to raise the voice count on this shard
+  await page.keyboard.up('KeyA')
+  // Wait for the voice to fully release before step 2, so that step 2's assertion
+  // is only about whether KeyA starts a new voice, not a releasing one from step 1.
+  await expect(page.getByTestId('voices')).not.toContainText(/\b1\b/)
+  //
+  // Step 2 — non-musical key → keyboard origin → a held letter no longer plays.
+  // KeyA is held down for the whole window: if playsNote had regressed to true, the voice would be
+  // present for the entire hold (a held key sustains its voice), so at least one sample would catch
+  // it. The window is a generous multiple (>=10x, floored at 1 s) of the start time measured in
+  // step 1 on this same shard, so a slow shard widens it rather than racing it.
+  await page.keyboard.press('Delete') // non-musical key on already-pointer-focused slider
+  await page.keyboard.down('KeyA')
+  const windowMs = Math.max(1000, startMs * 10)
+  const step = Math.max(100, Math.round(windowMs / 8))
+  const samples: string[] = []
+  const deadline = Date.now() + windowMs
+  while (Date.now() < deadline) {
+    samples.push((await page.getByTestId('voices').textContent()) ?? '')
+    await page.waitForTimeout(step)
+  }
+  expect(samples.length).toBeGreaterThanOrEqual(5) // enough samples to span the hold
+  expect(samples.some((s) => /\b1\b/.test(s))).toBe(false) // no voice ever appeared: playsNote stayed false
+  await page.keyboard.up('KeyA')
+  // Space must not toggle the transport either (keyboard-focused slider keeps Space).
   await page.keyboard.press('Space')
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
-
-  // A letter on a focused knob still plays a note: the keyboard rule is not broken by the controls.
-  await attack.focus()
+  //
+  // Step 3 — click restores pointer origin: letter plays again.
+  await attack.click()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
   await page.keyboard.up('KeyA')
+
+  // Regression #415: context-menu click then key — Space must not toggle the transport.
+  // The real path: right-click on attack (already focused) fires pointerdown → the 'down' handler sets
+  // pointerFocused = attack (the already-active element). The menu item click then closes the menu;
+  // closeMenu() calls root.focus() with lastInput === 'pointer', firing a focusin that confirms
+  // pointerFocused = attack. A subsequent attack.focus() is a no-op (no focusin). Without the fix,
+  // pointerFocused stays stale and Space toggles the transport; the fix clears it on the first
+  // non-musical UI key on the focused slider.
+  await attack.click()
+  await page.keyboard.press('End')
+  await attack.click({ button: 'right' })
+  await page.getByTestId('value-menu-default').click()
+  // After closeMenu, attack is focused with pointer origin. attack.focus() is a no-op.
+  await attack.focus()
+  await page.keyboard.press('Backspace') // first non-musical key: clears stale pointerFocused
+  await attack.focus()
+  await page.keyboard.press('Space') // Space must not toggle the transport (#415)
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-pressed', 'false')
   expect(errors).toEqual([])
 })

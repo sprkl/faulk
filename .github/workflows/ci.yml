@@ -63,7 +63,7 @@ jobs:
       - uses: ./.github/actions/web-setup
 
       # `pnpm dev`, `build` and `test` regenerate src/lib/generated/ themselves; this fails when the
-      # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`), never merge by hand.
+      # committed copy is stale. On a merge conflict there, regenerate (`pnpm gen:protocol`, or `.claude/tools/regen-generated.sh <pr>`), never merge by hand.
       - name: Generated files are up to date
         run: pnpm gen:check
 

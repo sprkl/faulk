@@ -157,3 +157,53 @@ fn per_message_and_per_growth_cost() {
         "growth of a device row, {devices} devices moved: apply {apply:.1} µs, drop {drop:.1} µs"
     );
 }
+
+/// CL-3: what a `ClipPut` over a playing clip adds to `apply`, at the table's limit and in
+/// the worst case (every note of the old table held): the comparison of the held notes and
+/// the copy of the held bits.
+#[test]
+#[ignore = "prints numbers, run in release by hand"]
+fn clip_swap_added_cost_at_the_limit() {
+    use engine::clip_player::{ClipNotes, held_notes_unchanged};
+    use engine::events::Events;
+    let count = limits::MAX_NOTES_PER_CLIP as usize;
+    let notes: Vec<Note> = (0..count)
+        .map(|i| Note {
+            start: Tick(i as i64),
+            length: Tick(100),
+            pitch: (i % 128) as u8,
+            velocity: 100,
+            ..Note::default()
+        })
+        .collect();
+    let mut old = ClipNotes::try_new(&notes).unwrap();
+    let mut new = ClipNotes::try_new(&notes).unwrap();
+    old.held_bits_mut().iter_mut().for_each(|w| *w = u32::MAX);
+    let rounds = 50;
+    let (mut cmp_ns, mut copy_ns) = (0f64, 0f64);
+    for _ in 0..rounds {
+        let t0 = Instant::now();
+        assert!(held_notes_unchanged(&old, &new));
+        let t1 = Instant::now();
+        new.take_held_from(&old);
+        let t2 = Instant::now();
+        cmp_ns += (t1 - t0).as_nanos() as f64;
+        copy_ns += (t2 - t1).as_nanos() as f64;
+    }
+    println!(
+        "{count} notes all held: compare {:.1} us, copy {:.1} us (mean of {rounds})",
+        cmp_ns / f64::from(rounds) / 1000.0,
+        copy_ns / f64::from(rounds) / 1000.0
+    );
+    // A realistic pad: 8 held notes among the same table.
+    old.held_bits_mut().iter_mut().for_each(|w| *w = 0);
+    old.held_bits_mut()[3] = 0xFF;
+    let t0 = Instant::now();
+    for _ in 0..rounds {
+        assert!(held_notes_unchanged(&old, &new));
+    }
+    println!(
+        "8 held notes: compare {:.2} us",
+        (Instant::now() - t0).as_nanos() as f64 / f64::from(rounds) / 1000.0
+    );
+}

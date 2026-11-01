@@ -12,6 +12,7 @@ const TEXTS = {
     add: (n: string) => `Add ${n} to the track`,
     remove: (n: string) => `Remove ${n}`,
     hint: 'Output level of the synth, from 0 to 1 (linear gain).',
+    bare: (u: string) => `A bare number is read in ${u}.`,
   },
   fr: {
     bypass: (n: string) => `Contourner ${n}`,
@@ -19,6 +20,7 @@ const TEXTS = {
     add: (n: string) => `Ajouter ${n} à la piste`,
     remove: (n: string) => `Retirer ${n}`,
     hint: 'Niveau de sortie du synthé, de 0 à 1 (gain linéaire).',
+    bare: (u: string) => `Un nombre seul = ${u}.`,
   },
 } as const
 
@@ -49,7 +51,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(osc.getByTestId('device-left')).toHaveCount(0)
     await expect(panel.getByTestId('browse-no-effects')).toHaveCount(0)
     // The tooltip of a parameter is its description, in the page's language.
-    await expect(osc.getByTestId('param-gain').locator('.knob').first()).toHaveAttribute('title', x.hint)
+    await expect(osc.getByTestId('param-gain').locator('.knob').first()).toHaveAttribute('title', `${x.hint} ${x.bare('dB')}`)
 
     // A choice and a knob reach the project.
     await osc.getByRole('radio', { name: lang === 'en' ? 'Square' : 'Carré' }).click()
@@ -143,6 +145,31 @@ for (const lang of ['en', 'fr'] as const) {
     await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(reverb).toHaveCount(0)
+
+    // Filter (DV-2): inserted from the browser, one control per parameter, the mode is a choice of
+    // three, the cutoff shows hertz and the resonance a percentage, removed, then undone.
+    await panel.getByRole('button', { name: x.add('Filter'), exact: true }).click()
+    const filter = card(page, 'Filter')
+    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(4)
+    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(3)
+    const lowpass = filter.getByRole('radio', { name: lang === 'en' ? 'Low-pass' : 'Passe-bas', exact: true })
+    await expect(lowpass).toHaveAttribute('aria-checked', 'true')
+    const bandpass = filter.getByRole('radio', { name: lang === 'en' ? 'Band-pass' : 'Passe-bande', exact: true })
+    await bandpass.click()
+    await expect(bandpass).toHaveAttribute('aria-checked', 'true')
+    const cutoff = filter.getByTestId('param-cutoff').getByRole('slider')
+    await expect(cutoff).toHaveAttribute('aria-valuetext', /kHz|Hz/)
+    const cutoffBefore = await cutoff.getAttribute('aria-valuetext')
+    await cutoff.press('End')
+    await expect.poll(() => cutoff.getAttribute('aria-valuetext')).not.toBe(cutoffBefore)
+    await expect(filter.getByTestId('param-resonance').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
+    await filter.getByRole('button', { name: x.remove('Filter'), exact: true }).click()
+    await expect(filter).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(filter).toHaveCount(1)
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(filter).toHaveCount(0)
 
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()

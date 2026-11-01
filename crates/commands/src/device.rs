@@ -22,8 +22,8 @@
 //!   undoable, hence not flagged destructive (the contract reserves that flag for edits
 //!   without an inverse).
 //! - Removing a device deletes the automation lanes that target it (AM-1); `device.restore`
-//!   brings them back with it, under their identifiers and with their points. The master's
-//!   devices have no lanes.
+//!   brings them back with it, under their identifiers and with their points, for a device of
+//!   the master's chain as for a track's (#378).
 //! - A command that changes nothing returns no inverse and no event.
 //!
 //! Also here: the parameters of the built-in synth ([`SynthParam`]) with their engine ids
@@ -31,6 +31,7 @@
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
+use crate::query::{DeviceKindInfo, DeviceSummary};
 use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
 use engine::devices::{Builtin, REGISTRY};
 use engine::{Param, Synth};
@@ -158,6 +159,38 @@ domain! {
         /// The value now: the one asked for, clamped and rounded.
         value: f64,
     };
+
+    /// Describe a device, or a built-in device kind before any is inserted. Give exactly
+    /// one of `device` (the id of a device of a track's chain or of the master's) and
+    /// `kind` (a built-in kind such as `faulk.osc_synth`); both or neither is refused with
+    /// `invalid`, an unknown device or kind with `not_found`. For a device the answer has its
+    /// summary (id, role, bypass state, source, English name), the track that holds it
+    /// (`null` for the master's chain) and the current value of every parameter, by
+    /// parameter key. For a built-in kind, and for a built-in device, it has the kind's
+    /// descriptor: version, English name, role and every parameter's key, `description`,
+    /// unit, range, default, scale, step and enumerated `values`, and the named keys of a
+    /// drum-like instrument. A module and the clip player have no descriptor (`null`). A
+    /// query: changes nothing and never enters the history.
+    "device.describe" (kind = "query", undo = "none", destructive = false)
+    Describe {
+        /// A device to describe; leave out when giving `kind`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device: Option<DeviceId>,
+        /// A built-in kind to describe; leave out when giving `device`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+    } => {
+        /// The device's summary; `null` when a kind was asked for.
+        device: Option<Box<DeviceSummary>>,
+        /// The track that holds the device; `null` for the master's chain and for a kind.
+        track: Option<TrackId>,
+        /// Whether the device is in the master's chain (then `track` is `null`).
+        in_master: bool,
+        /// The device's parameter values, by parameter key, in the unit the device declares.
+        params: BTreeMap<String, f64>,
+        /// The kind's descriptor; `null` for a module and for the clip player.
+        descriptor: Option<DeviceKindInfo>,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -197,6 +230,17 @@ pub(crate) fn apply_in(
     ctx: &mut Context,
 ) -> Result<Out, CommandError> {
     match command {
+        Command::Describe { device, kind } => {
+            let d =
+                crate::query::device_describe(&state.project, device.as_ref(), kind.as_deref())?;
+            Ok(crate::query::answer(Output::Describe {
+                device: d.device.map(Box::new),
+                track: d.track,
+                in_master: d.in_master,
+                params: d.params,
+                descriptor: d.descriptor,
+            }))
+        }
         Command::Insert {
             track,
             master,
@@ -517,25 +561,26 @@ fn remove(state: &mut State, device_id: &DeviceId) -> Result<Out, CommandError> 
     let snapshot = chain_mut(state, &place)?
         .remove(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
-    // The lanes that target the device go with it (AM-1), and come back with it.
+    // The lanes that target the device go with it (AM-1), and come back with it: those of
+    // its track, or those of the master (#378).
     let mut lanes = BTreeMap::new();
     let mut events = Vec::new();
-    if let Place::Track(track_id) = &place {
-        let track = track_mut(state, track_id)?;
-        let ids: Vec<LaneId> = track
-            .automation
-            .iter()
-            .filter(|(_, lane)| matches!(&lane.target, AutomationTarget::Device { device: d, .. } if d == device_id))
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in ids {
-            if let Some(lane) = track.automation.remove(&id) {
-                events.push(ProjectEvent::AutomationLaneDeleted {
-                    track: track_id.clone(),
-                    lane: id.clone(),
-                });
-                lanes.insert(id, lane);
-            }
+    let place_lanes = state
+        .project
+        .lanes_mut(place.track().as_ref())
+        .ok_or_else(|| not_found("track", device_id))?;
+    let ids: Vec<LaneId> = place_lanes
+        .iter()
+        .filter(|(_, lane)| matches!(&lane.target, AutomationTarget::Device { device: d, .. } if d == device_id))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in ids {
+        if let Some(lane) = place_lanes.remove(&id) {
+            events.push(ProjectEvent::AutomationLaneDeleted {
+                track: place.track(),
+                lane: id.clone(),
+            });
+            lanes.insert(id, lane);
         }
     }
     let (track, master) = place.fields();
@@ -580,10 +625,8 @@ fn restore(
         return Err(limit());
     }
     devices.insert(device_id.clone(), snapshot.clone());
-    if let Place::Track(track_id) = place {
-        track_mut(state, track_id)?
-            .automation
-            .extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
+    if let Some(place_lanes) = state.project.lanes_mut(place.track().as_ref()) {
+        place_lanes.extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
     }
     // The snapshot is data from outside: the whole project must stay valid with it (the
     // chain keeps its instrument first, parameters are finite, limits hold). A refusal
@@ -592,11 +635,9 @@ fn restore(
         if let Ok(devices) = chain_mut(state, place) {
             devices.remove(device_id);
         }
-        if let Place::Track(track_id) = place
-            && let Ok(track) = track_mut(state, track_id)
-        {
+        if let Some(place_lanes) = state.project.lanes_mut(place.track().as_ref()) {
             for id in lanes.keys() {
-                track.automation.remove(id);
+                place_lanes.remove(id);
             }
         }
         let first = violations
@@ -605,17 +646,13 @@ fn restore(
         return Err(invalid("snapshot", first));
     }
     // The lanes first: the engine uploads them with the chain, which follows.
-    let mut events: Vec<ProjectEvent> = Vec::new();
-    if let Place::Track(track_id) = place {
-        events.extend(
-            lanes
-                .keys()
-                .map(|lane| ProjectEvent::AutomationLaneCreated {
-                    track: track_id.clone(),
-                    lane: lane.clone(),
-                }),
-        );
-    }
+    let mut events: Vec<ProjectEvent> = lanes
+        .keys()
+        .map(|lane| ProjectEvent::AutomationLaneCreated {
+            track: place.track(),
+            lane: lane.clone(),
+        })
+        .collect();
     events.extend(chain_changed(place));
     Ok(Outcome {
         output: Output::Restore {},
@@ -627,7 +664,7 @@ fn restore(
     })
 }
 
-/// The lanes a restored device brings back: only in a track (the master has none), each
+/// The lanes a restored device brings back, in a track or in the master (#378), each
 /// targeting this device and a parameter it has, under a new identifier, within the safety limits of lanes.
 pub(crate) fn check_lanes(
     state: &State,
@@ -639,17 +676,10 @@ pub(crate) fn check_lanes(
     if lanes.is_empty() {
         return Ok(());
     }
-    let Place::Track(track_id) = place else {
-        return Err(invalid(
-            "lanes",
-            "the master's devices have no automation lanes",
-        ));
-    };
-    let track = state
+    let owned = state
         .project
-        .tracks
-        .get(track_id)
-        .ok_or_else(|| not_found("track", track_id))?;
+        .lanes(place.track().as_ref())
+        .ok_or_else(|| not_found("track", device_id))?;
     for (id, lane) in lanes {
         if state.project.contains_id(&id.0) {
             return Err(invalid(
@@ -671,7 +701,7 @@ pub(crate) fn check_lanes(
         }
         crate::automation::check_restored_lane(snapshot, lane)?;
     }
-    if track.automation.len().saturating_add(lanes.len()) > project::limits::MAX_LANES_PER_TRACK {
+    if owned.len().saturating_add(lanes.len()) > project::limits::MAX_LANES_PER_TRACK {
         return Err(CommandError::Limit {
             entity: "lanes".into(),
             max: project::limits::MAX_LANES_PER_TRACK as u64,

@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
+
+// Version 10 (#378): the master has automation lanes. `automation.lane.create` and `automation.lane.restore` take `track` or `master: true` (exactly one), `automation.lane.delete` answers `track: null` for a master lane, the events `automation_lane_created`, `automation_lane_deleted` and `automation_points_changed` carry `track: null` for the master, and the project holds `master_automation`. The engine addresses the master's lanes with the track slot `u32::MAX` in `AutomationLaneUpload`. The project file format is unchanged (still 1): the master's lanes are files `master/automation/<lane>.tsv`.
 
 // Version 9 (#118): the commands gain `automation.lane.create`, `automation.lane.delete`, `automation.lane.restore`, `automation.points.add`, `automation.points.remove`, `automation.points.update`, `automation.points.restore` and `automation.lane.clear`; `device.restore` takes an optional `lanes` (the automation lanes `device.remove` took with the device); the events gain `automation_lane_created`, `automation_lane_deleted` and `automation_points_changed`. The project file format is unchanged (still 1).
 
@@ -136,6 +138,10 @@ pub fn schema_bundle() -> serde_json::Value {
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "param_defaults": param_defaults,
+        // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
+        // The page's fader, the axis of a volume lane and the engine's reading of a lane all
+        // follow it; the page builds its own from this table.
+        "fader_taper": engine::fader::TAPER,
         "single_synth": {
             "track": single_synth::TRACK,
             "device": single_synth::DEVICE,
@@ -156,6 +162,7 @@ pub fn schema_bundle() -> serde_json::Value {
             "snapshot_report": schemars::schema_for!(commands::host::SnapshotReport),
             "project_view": schemars::schema_for!(commands::host::ProjectView),
             "export_report": schemars::schema_for!(commands::host::ExportReport),
+            "history_view": schemars::schema_for!(commands::host::HistoryView),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.

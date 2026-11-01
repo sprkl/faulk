@@ -278,3 +278,82 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   await stop()
   expect(seen.errors).toEqual([])
 })
+
+// #395: with Follow on, Stop, Back to start and a seek bring the view to the play position when it is outside the window;
+// with Follow off the view does not move.
+test('arrangement view: Stop, Back to start and a seek bring the view back to the position while following', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await page.getByTestId('nav-arrangement').click()
+  const grid = stage(page).getByTestId('timegrid')
+  const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
+  const scroll = () => num('data-scroll-tick')
+  const visible = async () => ((await grid.getAttribute('data-playhead-x')) ?? '') !== ''
+  const transport = page.getByTestId('transport')
+  const play = () => transport.getByRole('button', { name: 'Play', exact: true }).click()
+  const stop = () => transport.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect.poll(() => num('data-draw-count')).toBeGreaterThan(0)
+
+  // Play until the view turns the page, then Stop: the position goes back to the start and the view with it.
+  await play()
+  await expect.poll(scroll, { timeout: 30_000 }).toBeGreaterThan(0)
+  await stop()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await expect.poll(scroll).toBe(0)
+  await expect.poll(visible).toBe(true)
+
+  // Back to start while playing, past the first page: the position jumps to 0 and the view follows it.
+  await play()
+  await expect.poll(scroll, { timeout: 30_000 }).toBeGreaterThan(0)
+  await transport.getByTestId('transport-rewind').click()
+  await expect.poll(scroll).toBe(0)
+  await expect.poll(visible).toBe(true)
+
+  // Follow off (a hand scroll): Stop and Back to start leave the view where it is, the position goes out of the window.
+  await expect.poll(scroll, { timeout: 30_000 }).toBeGreaterThan(0)
+  const box = (await stage(page).boundingBox())!
+  await page.mouse.move(box.x + 200, box.y + 100)
+  await page.keyboard.down('Shift')
+  await page.mouse.wheel(0, 200)
+  await page.keyboard.up('Shift')
+  await expect(arr(page)).toHaveAttribute('data-follow', 'false')
+  const held = await scroll()
+  await stop()
+  await transport.getByTestId('transport-rewind').click()
+  await page.waitForTimeout(500)
+  expect(await scroll()).toBe(held)
+  expect(await visible()).toBe(false)
+
+  // A seek far outside the window needs the dispatcher hook of the dev server: with Follow off the view stays,
+  // with Follow on it goes to the position.
+  const hooked = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun === 'function')
+  if (hooked) {
+    const seek = (tick: number) =>
+      page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
+    await seek(10 * BAR)
+    await page.waitForTimeout(500)
+    expect(await scroll()).toBe(held)
+    expect(await visible()).toBe(false)
+    await page.getByTestId('arr-follow').click()
+    await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+    await expect.poll(visible).toBe(true)
+    await seek(0)
+    await expect.poll(scroll).toBe(0)
+    await expect.poll(visible).toBe(true)
+    await seek(10 * BAR)
+    await expect.poll(scroll).toBeGreaterThan(0)
+    await expect.poll(visible).toBe(true)
+  }
+  // Follow brings the stopped position back too, and a click on the ruler still moves it.
+  await page.getByTestId('arr-follow').click()
+  await expect(arr(page)).toHaveAttribute('data-follow', 'true')
+  await expect.poll(visible).toBe(true)
+  const g = await spot(page)
+  await page.mouse.click(g.x(0) + 200, g.ruler)
+  await expect.poll(visible).toBe(true)
+  expect(seen.errors).toEqual([])
+})

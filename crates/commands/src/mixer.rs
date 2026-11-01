@@ -79,6 +79,18 @@ domain! {
         previous: Option<f64>,
     };
 
+    /// Set the master's pan, from -1 (left) to 1 (right). A value outside the range or
+    /// not a number is refused. A pan gesture sent in one history group is undone in one
+    /// step. Undo: set the previous pan back.
+    "mixer.set_master_pan" (kind = "edit", undo = "inverse", destructive = false)
+    SetMasterPan {
+        #[schemars(range(min = -1.0, max = 1.0))]
+        pan: f64,
+    } => {
+        /// The pan before the command.
+        previous: f64,
+    };
+
     /// Solo or unsolo a track. The soloed tracks are those in the session's solo set;
     /// the audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).
     /// Session state: not undoable, not in the history, not saved with the project.
@@ -130,13 +142,24 @@ pub fn apply(
                 mixer,
             ))
         }
-        Command::SetPan { track, pan } => {
-            if !pan.is_finite() || !(-1.0..=1.0).contains(pan) {
-                return Err(CommandError::Invalid {
-                    field: "pan".into(),
-                    message: format!("a pan is from -1 to 1, not {pan}"),
-                });
+        Command::SetMasterPan { pan } => {
+            check_pan(*pan)?;
+            let mixer = &mut state.project.master;
+            let previous = mixer.pan;
+            let output = Output::SetMasterPan { previous };
+            if previous == *pan {
+                return Ok(unchanged(output));
             }
+            mixer.pan = *pan;
+            Ok(edited(
+                output,
+                Command::SetMasterPan { pan: previous },
+                None,
+                mixer,
+            ))
+        }
+        Command::SetPan { track, pan } => {
+            check_pan(*pan)?;
             let mixer = &mut track_mut(state, track)?.mixer;
             let previous = mixer.pan;
             let output = Output::SetPan { previous };
@@ -198,6 +221,16 @@ pub fn apply(
             })
         }
     }
+}
+
+fn check_pan(pan: f64) -> Result<(), CommandError> {
+    if !pan.is_finite() || !(-1.0..=1.0).contains(&pan) {
+        return Err(CommandError::Invalid {
+            field: "pan".into(),
+            message: format!("a pan is from -1 to 1, not {pan}"),
+        });
+    }
+    Ok(())
 }
 
 fn not_found(track: &TrackId) -> CommandError {

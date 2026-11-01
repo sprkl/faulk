@@ -74,6 +74,33 @@ export class UiStore {
     this.panel = 'devices'
   }
 
+  /**
+   * A one-shot request from the mixer or the devices panel to unfold the automation lanes of an owner
+   * (a track id, or `'master'`) in the arrangement view. `ArrangementView` consumes it with
+   * `takeLanesRequest()` and adds the owner to its `open` set once; it is not a sticky flag, so folding
+   * the owner and navigating back does not reopen it. A second request before the first is consumed
+   * replaces it.
+   */
+  openLanes = $state<string | null>(null)
+
+  /** Navigates to the arrangement and requests, once, that the lanes of `owner` be unfolded. */
+  showLanes(owner: string) {
+    this.openLanes = owner
+    this.view = 'arrangement'
+  }
+
+  /** The master's lanes (`showLanes` for the master). */
+  showMasterLanes() {
+    this.showLanes('master')
+  }
+
+  /** Reads and clears the pending lanes request: the owner to unfold, or `null` when none was pending. */
+  takeLanesRequest(): string | null {
+    const owner = this.openLanes
+    this.openLanes = null
+    return owner
+  }
+
   setPanelHeight(panel: PanelViewId, height: number) {
     this.panelHeights = { ...this.panelHeights, [panel]: height }
     write(HEIGHTS_KEY, JSON.stringify(this.panelHeights))

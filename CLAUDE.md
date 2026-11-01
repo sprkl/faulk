@@ -121,3 +121,11 @@ The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.
+
+### Music producer
+
+`.claude/skills/music-producer/`: an agent produces music autonomously (brief → constraints → seed loop → variations → arrangement → finish) and delivers a production sheet in a checkable notation plus a MIDI render (`.claude/skills/music-producer/scripts/sheet_tool.py check | render`). Its references distil creative strategies, theory, a pattern library and arrangement rules in Faulk's own words, with no source named (repository rule). Test cases live in its `evals/`.
+
+### Lead tools
+
+`.claude/tools/merge-queue.sh <pr> [<pr>...]`: the lead's merge of ready pull requests into `develop`, one at a time. If `develop` moved since the pull request's CI, it updates the branch and waits for that CI again; it merges with a merge commit and stops at the first conflict or failed check. Uses `gh`, `git` and core shell tools, no build, so it may run while an agent builds. It refuses a pull request with no reported check, and waits (up to 5 minutes) for a workflow run on the current head before judging the checks. When `develop` and the pull request both changed `web/src/lib/generated/`, it stops before updating (a branch update would leave the generated files stale or in conflict) and names `.claude/tools/regen-generated.sh <pr>`: the one tool of the folder that builds (`pnpm install`, a Rust build), which merges `develop` into the branch in a temporary worktree, regenerates, commits and pushes (#426); run the queue again afterwards.

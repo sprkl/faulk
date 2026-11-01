@@ -199,3 +199,17 @@ fn bundle_exports_the_device_descriptors() {
         assert!(param[field].is_object(), "schema of param {field}");
     }
 }
+
+#[test]
+fn bundle_carries_the_faders_law_with_the_commands_bounds() {
+    let bundle = schema_bundle();
+    let taper = bundle["fader_taper"].as_array().unwrap();
+    assert_eq!(taper.len(), engine::fader::TAPER.len());
+    // The ends of the taper are the bounds the commands accept for a gain.
+    assert_eq!(taper[0][1], project::MIN_GAIN_DB);
+    assert_eq!(taper[taper.len() - 1][1], project::MAX_GAIN_DB);
+    assert_eq!(engine::fader::MIN_DB, project::MIN_GAIN_DB);
+    assert_eq!(engine::fader::MAX_DB, project::MAX_GAIN_DB);
+    assert_eq!(taper[0][0], 0.0);
+    assert_eq!(taper[taper.len() - 1][0], 1.0);
+}

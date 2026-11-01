@@ -11,11 +11,13 @@ import { engine } from './engine'
 import type { FeatureMessages } from './feature'
 import { grid } from './grid'
 import { helper } from './helper'
+import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
 import { compressor } from './compressor'
 import { echo } from './echo'
+import { filter } from './filter'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -45,6 +47,7 @@ export const features = {
   drums,
   echo,
   reverb,
+  filter,
   compressor,
   devices,
   keys,
@@ -56,6 +59,7 @@ export const features = {
   arrangement,
   automation,
   audioExport,
+  history,
   refusal,
 } as const satisfies Record<string, FeatureMessages>
 

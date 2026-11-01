@@ -128,6 +128,27 @@ export function stopDecision({ fingerprint, writer, baseline, branch, verificati
 }
 
 /**
+ * `<anything>/.claude/worktrees/agent-<id>`: the folder Claude Code gives a
+ * subagent that runs isolated. `root` is a checkout root.
+ */
+export function isAgentWorktreePath(root) {
+  const parts = String(root).replaceAll("\\", "/").replace(/\/+$/, "").split("/");
+  const n = parts.length;
+  return n >= 3 && parts[n - 3] === ".claude" && parts[n - 2] === "worktrees" && /^agent-[\w-]+$/.test(parts[n - 1]);
+}
+
+/**
+ * Whether the lead's Stop leaves a subagent's writer marker unjudged: only a
+ * subagent that is still running, in its own isolated worktree of this
+ * repository, that is not a checkout the lead works in. Everything else (a
+ * marker with no agent, an agent that went quiet, the lead's checkouts, a
+ * folder that merely looks like an agent's) is judged as the session's own.
+ */
+export function exemptAgentMarker({ marker, running, agentWorktree, sameRepository, leadRoot }) {
+  return Boolean(marker?.agent) && running && agentWorktree && sameRepository && !leadRoot;
+}
+
+/**
  * One deferral per user prompt: once a deferral has let a stop through, the
  * next one needs the user to have written since. Without this rule, a blocked
  * agent would defer at each stop (after touching the code, if the rule were per

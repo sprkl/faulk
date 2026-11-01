@@ -72,7 +72,7 @@
 
 use rtrb::{Producer, PushError};
 
-use crate::automation::{LANE_ROOM, NO_LANE, TrackLanes};
+use crate::automation::{LANE_ROOM, MasterLanes, NO_LANE, TrackLanes};
 use crate::clip_player::Env;
 use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
@@ -179,6 +179,10 @@ pub struct TrackGraph {
     /// The tick the next clock segment starts at when the playhead moves on without a jump
     /// (`None` after a stopped block): a jump gives the parameters back to the lanes.
     lane_expect: Option<Tick>,
+    /// The bits of the playhead and the cue count the lanes were last applied at while the
+    /// clock is stopped (`None` while it runs): a stop or a seek changes it and gives the
+    /// parameters back to the lanes.
+    stopped_at: Option<(u64, u64)>,
     next: Option<Box<Track>>,
 }
 
@@ -196,6 +200,7 @@ impl TrackGraph {
             lanes: NO_LANE,
             lane_count: 0,
             lane_expect: None,
+            stopped_at: None,
             next: None,
         }
     }
@@ -284,6 +289,9 @@ pub struct BlockClock<'a> {
     /// The block's first frame since the engine started (the automation's control frames,
     /// [`crate::automation`]).
     pub frame: u64,
+    /// The cues the clock has taken ([`crate::transport::Transport::cues`]): a seek while stopped, even to the
+    /// tick the playhead stands on, changes it.
+    pub cues: u64,
 }
 
 /// The render of the graph (module doc), owned by the audio side.
@@ -296,6 +304,8 @@ pub struct Graph {
     master: Mixer,
     /// The `master_schedule_gen` of the state the master strip last read.
     master_gen: u32,
+    /// The master's automation lanes, linked at every block (#378).
+    pub(crate) master_lanes: MasterLanes,
     /// The output's meter since the last report, after the master and the metronome (MO-5).
     master_meter: MeterAcc,
     /// Voices sounding in the tracks' devices after the last block (MO-5).
@@ -356,6 +366,7 @@ impl Graph {
             },
             master: Mixer::unity(),
             master_gen: 0,
+            master_lanes: MasterLanes::new(),
             master_meter: MeterAcc::default(),
             voices: 0,
             retiring: None,
@@ -372,6 +383,16 @@ impl Graph {
     /// A `Reset` gave the master its default state: the strip takes it back.
     pub(crate) fn reset_master(&mut self) {
         self.master.forget();
+    }
+
+    /// A master gain lane is gone: the strip takes the fader's gain back (#378).
+    pub(crate) fn forget_master_gain(&mut self) {
+        self.master.forget_gain();
+    }
+
+    /// A master pan lane is gone: the strip takes the fader's pan back.
+    pub(crate) fn forget_master_pan(&mut self) {
+        self.master.forget_pan();
     }
 
     /// The master's levels (left, right) at the next frame.
@@ -436,7 +457,7 @@ impl Graph {
         let mut voices = 0u32;
         let any_solo = state.tracks.as_slice().iter().flatten().any(|t| t.solo);
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
-        crate::automation::link(&mut state.tracks, &mut state.lanes);
+        crate::automation::link(&mut state.tracks, &mut state.lanes, &mut self.master_lanes);
         let clips = &mut state.clips;
         let lanes = &mut state.lanes;
         for (slot, entry) in state.tracks.as_mut_slice().iter_mut().enumerate() {
@@ -525,16 +546,21 @@ impl Graph {
             self.master.forget();
         }
         let frames = left.len().min(right.len());
-        let Graph {
-            master, scratch, ..
-        } = self;
-        master.sync(
+        self.master.sync(
             state.master.gain,
             state.master.pan,
             state.master.mute,
             true,
             fade,
         );
+        // With lanes (#378) the chain and the strip run sub-block by sub-block, as a track's.
+        if self.master_lanes.head != NO_LANE {
+            self.master_lane_pass(state, clock, ctx, left, right);
+            return;
+        }
+        let Graph {
+            master, scratch, ..
+        } = self;
         // The master's chain (#364) runs over the whole sum, before the fader: effects only,
         // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
         scratch.sink.clear();
@@ -588,6 +614,174 @@ impl Graph {
                 core::iter::empty(),
                 fade,
             );
+        }
+    }
+
+    /// The master's chain and strip over the sum when the master has automation lanes (#378):
+    /// the same sub-block loop as a track's ([`render_track`]), without a clip player. A piece
+    /// ends at the next point of a lane, and at the next control frame while a lane moves; the
+    /// chain runs over the piece with the devices' values of the sink, and the strip applies
+    /// the gain and pan lanes' values of the sink (and the master schedule's, if any).
+    fn master_lane_pass(
+        &mut self,
+        state: &mut State,
+        clock: &BlockClock<'_>,
+        ctx: &BlockCtx,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) {
+        let fade = self.fade;
+        let frames = left.len().min(right.len());
+        let Graph {
+            master,
+            scratch,
+            master_lanes,
+            ..
+        } = self;
+        let State {
+            master_devices,
+            master_schedule,
+            lanes: lane_table,
+            ..
+        } = state;
+        let Scratch {
+            sink,
+            merged,
+            unused,
+            ..
+        } = scratch;
+        sink.clear();
+        let mut lanes = Some(TrackLanes {
+            table: lane_table,
+            head: master_lanes.head,
+        })
+        .filter(|l| !l.is_empty());
+        let mut schedule = master_schedule.as_deref_mut();
+        let devices = master_devices.as_mut_slice();
+        let mut chain = |sink: &Sink, from: usize, to: usize, position: f64| {
+            let sub = BlockCtx {
+                frames: (to - from) as u32,
+                transport: Transport {
+                    position_ticks: position,
+                    ..ctx.transport
+                },
+                ..*ctx
+            };
+            run_chain(
+                devices,
+                sink,
+                merged,
+                unused,
+                &sub,
+                &mut left[from..to],
+                &mut right[from..to],
+            );
+            master.apply_in_place(
+                &mut left[from..to],
+                &mut right[from..to],
+                timed(sink.params()),
+                fade,
+            );
+        };
+        if !clock.running || clock.segments.is_empty() {
+            // Stopped: the lanes apply their value at the playhead once, at the stop and at
+            // every seek; a gesture holds until the next play or seek (AM-2, #388).
+            master_lanes.expect = None;
+            if clock.running {
+                master_lanes.stopped_at = None;
+            } else {
+                let at = (clock.position.to_bits(), clock.cues);
+                let moved = master_lanes.stopped_at != Some(at);
+                master_lanes.stopped_at = Some(at);
+                if let Some(l) = lanes.as_mut() {
+                    l.push_frozen(clock.position, moved, sink);
+                }
+            }
+            if let Some(s) = schedule.as_deref_mut() {
+                s.stop(sink);
+            }
+            chain(sink, 0, frames, clock.position);
+            return;
+        }
+        master_lanes.stopped_at = None;
+        let mut start = 0;
+        let mut i = 0;
+        let mut position = clock.position;
+        let mut entered = usize::MAX;
+        let mut piece: Option<Segment> = None;
+        let mut piece_from = Tick::ZERO;
+        let mut pushed = false;
+        while i < clock.segments.len() && start < frames {
+            let segment = clock.segments[i];
+            let seg_end = segment.offset + segment.frames;
+            if entered != i {
+                entered = i;
+                piece = None;
+                piece_from = segment.from;
+                pushed = false;
+                if let Some(l) = lanes.as_mut()
+                    && master_lanes.expect != Some(segment.from)
+                {
+                    l.jump();
+                }
+                master_lanes.expect = Some(segment.to);
+            }
+            position = segment.position_at(start);
+            let current = match piece {
+                Some(p) => p,
+                None => {
+                    let cut = match lanes.as_mut() {
+                        Some(l) if seg_end > start => {
+                            l.piece_end(&segment, clock.frame, start, seg_end)
+                        }
+                        _ => seg_end,
+                    };
+                    let p = if cut >= seg_end && piece_from == segment.from {
+                        segment
+                    } else {
+                        segment.piece(start, cut, piece_from)
+                    };
+                    piece = Some(p);
+                    p
+                }
+            };
+            if !pushed
+                && seg_end > start
+                && let Some(l) = lanes.as_mut()
+            {
+                l.push_start(&segment, clock.frame, start, sink);
+                pushed = true;
+            }
+            let read = match schedule.as_deref_mut() {
+                Some(s) => s.read(&current, start, sink),
+                None => Read::Done,
+            };
+            let piece_end = current.offset + current.frames;
+            let end = match read {
+                Read::Done => {
+                    piece = None;
+                    piece_from = current.to;
+                    if piece_end >= seg_end {
+                        i += 1;
+                    }
+                    piece_end
+                }
+                Read::Full(at) => start + at.max(1),
+            }
+            .min(frames);
+            if end > start {
+                if let Some(l) = lanes.as_mut() {
+                    l.push_end(&segment, clock.frame, start, end, sink);
+                }
+                chain(sink, start, end, position);
+                sink.clear();
+                pushed = false;
+                start = end;
+            }
+        }
+        if start < frames {
+            // Unreachable: the segments of a running block cover it.
+            chain(sink, start, frames, position);
         }
     }
 
@@ -696,6 +890,8 @@ fn render_track(
     let player_runs = input.as_ref().is_some_and(|i| i.clips.is_some())
         && (track.player.engaged() || track.launch.is_some() || track.back);
     if !has_enabled_device(track) && !player_runs {
+        // Not rendered: the next stopped block it renders applies its lanes again.
+        track.graph.stopped_at = None;
         return false;
     }
     let frames = ctx.frames as usize;
@@ -740,6 +936,7 @@ fn render_track(
         schedule: track_schedule,
         lanes: lane_head,
         lane_expect,
+        stopped_at,
         ..
     } = graph;
     // The track's automation lanes (AM-2, [`crate::automation`]).
@@ -812,8 +1009,21 @@ fn render_track(
         );
     };
     if !clock.running || clock.segments.is_empty() {
-        // Stopped, the lanes send nothing: the last value stays (AM-2).
+        // Stopped, the lanes apply their value at the playhead once, when the clock stops
+        // and at every seek (and after an upload or a rebuilt device); a gesture holds
+        // until the next play or seek (AM-2).
         *lane_expect = None;
+        if clock.running {
+            // A running block without a segment (an `f64` edge of the clock) is not a stop.
+            *stopped_at = None;
+        } else {
+            let at = (clock.position.to_bits(), clock.cues);
+            let moved = *stopped_at != Some(at);
+            *stopped_at = Some(at);
+            if let Some(l) = lanes.as_mut() {
+                l.push_frozen(clock.position, moved, sink);
+            }
+        }
         if let Some(s) = schedule.as_deref_mut() {
             s.stop(sink);
         }
@@ -822,6 +1032,7 @@ fn render_track(
         }
         chain(sink, 0, frames, clock.position);
     } else {
+        *stopped_at = None;
         let mut start = 0;
         let mut i = 0;
         let mut position = clock.position;
@@ -899,7 +1110,7 @@ fn render_track(
             // next sub-block.
             if end > start {
                 if let Some(l) = lanes.as_mut() {
-                    l.push_end(&segment, start, end, sink);
+                    l.push_end(&segment, clock.frame, start, end, sink);
                 }
                 chain(sink, start, end, position);
                 sink.clear();

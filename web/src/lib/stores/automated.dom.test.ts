@@ -1,17 +1,19 @@
-// The controls that follow a lane while the transport runs (AM-4), fed by the real project core as the dispatcher feeds it.
+// The controls that follow a lane at the play position (AM-4) and say a lane drives them (#388), fed by the real project core as the dispatcher feeds it.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { flushSync } from 'svelte'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { addPoints, createLane } from '../automation-commands'
-import { setDeviceParam } from '../device-commands'
+import { addPoints, createLane, createMasterLane } from '../automation-commands'
+import { insertMasterEffect, setDeviceParam } from '../device-commands'
 import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
-import { setVolume } from '../track-commands'
+import { applyEffects, type EffectPorts } from './effects'
+import { setMasterVolume, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
+import { UiStore } from './ui.svelte'
 
 let module: WebAssembly.Module
 beforeAll(async () => {
@@ -23,7 +25,9 @@ function session() {
   const project = new ProjectStore()
   project.show(core.project())
   const engine = new EngineStore()
-  const automated = new AutomatedValues(project, engine)
+  const ui = new UiStore('play', 'devices')
+  ui.lang = 'en'
+  const automated = new AutomatedValues(project, engine, ui)
   const run = (command: Command) => {
     const { report } = core.run(command)
     if (report.status !== 'applied') throw new Error(JSON.stringify(report))
@@ -31,18 +35,22 @@ function session() {
   }
   const track = project.tracks[0]!
   const synth = Object.keys(track.track.devices)[0]!
-  const play = (tick: number | null) => {
+  const report = (transport: 'playing' | 'stopped', tick: number) => {
     engine.started = true
-    engine.feedback = { transport: tick === null ? 'stopped' : 'playing', playheadTick: tick ?? 0 } as unknown as FeedbackReport
+    engine.feedback = { transport, playheadTick: tick } as unknown as FeedbackReport
     // The effect that ends a hold at a jump runs on the next flush.
     flushSync()
   }
+  /** The transport runs at `tick`. */
+  const play = (tick: number) => report('playing', tick)
+  /** The transport is stopped with the playhead at `tick` (a stop, or a seek while stopped). */
+  const stop = (tick: number) => report('stopped', tick)
   const lane = (n = 0) => Object.keys(project.tracks[0]!.track.automation)[n]!
-  return { project, engine, automated, run, track: track.id, synth, play, lane }
+  return { project, engine, automated, ui, run, track: track.id, synth, play, stop, lane }
 }
 
 describe('the value of a lane at the play position', () => {
-  it('is none while the transport is stopped, and follows the lane while it runs', () => {
+  it('follows the lane while the transport runs, and the playhead while it is stopped', () => {
     const s = session()
     s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
     s.run(
@@ -51,17 +59,32 @@ describe('the value of a lane at the play position', () => {
         { tick: 1000, value: 1, shape: 'linear' },
       ]),
     )
-    s.play(null)
-    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The engine has not reported: the playhead is at the start.
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0)
+    s.stop(400)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.4, 6)
     s.play(250)
     expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.25, 6)
     s.play(5000)
     expect(s.automated.device(s.synth, 'sustain')).toBe(1)
+    // A seek while stopped: the controls show the lane's value there.
+    s.stop(5000)
+    s.stop(500)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.5, 6)
     // A parameter with no lane is not driven.
     expect(s.automated.device(s.synth, 'attack')).toBeUndefined()
   })
 
-  it('reads a volume lane by amplitude and gives it by track', () => {
+  it('holds the first point value before the first point', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(addPoints(s.lane(), [{ tick: 3840, value: 0.7, shape: 'linear' }]))
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.7)
+    s.stop(100)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.7)
+  })
+
+  it('reads a volume lane along the fader travel and gives it by track', () => {
     const s = session()
     s.run(createLane(s.track, { mixer: { param: 'gain' } }))
     s.run(
@@ -71,7 +94,7 @@ describe('the value of a lane at the play position', () => {
       ]),
     )
     s.play(500)
-    expect(s.automated.mixer(s.track, 'gain')).toBeCloseTo(-6.02, 1)
+    expect(s.automated.mixer(s.track, 'gain')).toBeCloseTo(-21, 6)
     expect(s.automated.mixer(s.track, 'pan')).toBeUndefined()
     expect(s.automated.mixer('someone-else', 'gain')).toBeUndefined()
   })
@@ -123,19 +146,38 @@ describe('a change of the parameter while the lane plays', () => {
     expect(s.automated.mixer(s.track, 'gain')).toBe(0)
   })
 
-  it('holds nothing when the transport is stopped, and after the last point holds until a jump', () => {
+  it('holds a change made while stopped until the next seek or play, and after the last point holds until a jump', () => {
     const s = session()
     s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
-    s.run(addPoints(s.lane(), [{ tick: 0, value: 0.2, shape: 'linear' }]))
-    s.play(null)
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: 0.2, shape: 'linear' },
+        { tick: 1000, value: 0.8, shape: 'linear' },
+      ]),
+    )
+    s.stop(100)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.26, 6)
+    // A change while stopped holds, whatever the next point is (AM-2).
     s.run(setDeviceParam(s.synth, 'sustain', 0.9))
-    s.play(500)
-    expect(s.automated.device(s.synth, 'sustain')).toBe(0.2)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The same report again (the engine reports all the time): still held.
+    s.stop(100)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // A seek gives the lane the hand.
+    s.stop(500)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.5, 6)
+    // So does a play, after another change.
     s.run(setDeviceParam(s.synth, 'sustain', 0.4))
-    s.play(900)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    s.play(500)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.5, 6)
+    // Running past the last point: the change holds until a jump.
+    s.play(1200)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.1))
+    s.play(1900)
     expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
     s.play(10)
-    expect(s.automated.device(s.synth, 'sustain')).toBe(0.2)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.206, 6)
   })
 
   it('lets go when the transport stops and plays again, or leaps ahead: the engine frees every lane at a jump', () => {
@@ -152,8 +194,9 @@ describe('a change of the parameter while the lane plays', () => {
     s.run(setDeviceParam(s.synth, 'sustain', 0.9))
     s.play(700)
     expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
-    // Stop at 700 and Play: the position is inside the span the change held, and the lane has the hand.
-    s.play(null)
+    // Stop at 700: the engine applies the lane's value there, and Play from there is a jump too.
+    s.stop(700)
+    expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.7, 6)
     s.play(700)
     expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(0.7, 6)
     // A change at 1200 holds until 4000; a leap to 3500 (more than half a second of music) frees the lane.
@@ -163,5 +206,126 @@ describe('a change of the parameter while the lane plays', () => {
     expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
     s.play(3500)
     expect(s.automated.device(s.synth, 'sustain')).toBeCloseTo(1 - 2500 / 3000, 6)
+  })
+
+  it('lets go at a stop or a seek to where the playhead already stands: the engine frees the lanes at every cue (#394)', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: 0.4, shape: 'step' }]))
+    s.stop(0)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // The report of the stopped transport does not change: the playhead stays at 0, only the cue tells.
+    s.stop(0)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    // What the page does for the commands that cue the playhead (the effects table, as the dispatcher runs it).
+    const ports = { cued: () => s.project.cued?.() } as EffectPorts
+    applyEffects({ type: 'transport.set_loop', loop_region: null } as Command, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBeUndefined()
+    applyEffects({ type: 'transport.stop' }, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+    s.run(setDeviceParam(s.synth, 'sustain', 0.9))
+    applyEffects({ type: 'transport.seek', tick: 0 }, ports)
+    expect(s.automated.device(s.synth, 'sustain')).toBe(0.4)
+  })
+})
+
+describe('the mark of a control that a lane drives (#388)', () => {
+  it('names the lane in the language of the page, for a device parameter and for the mixer, and only for the automated ones', () => {
+    const s = session()
+    s.run(createLane(s.track, { device: { device: s.synth, param: 'sustain' } }))
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    s.run(addPoints(s.lane(0), [{ tick: 0, value: 0.2, shape: 'linear' }]))
+    s.run(addPoints(s.lane(1), [{ tick: 0, value: -12, shape: 'linear' }]))
+    const volume = s.automated.mixerMark(s.track, 'gain')
+    expect(volume).toContain('Mixer › Volume')
+    expect(s.automated.deviceMark(s.synth, 'sustain')).toContain('Sustain')
+    expect(s.automated.deviceMark(s.synth, 'attack')).toBeUndefined()
+    expect(s.automated.mixerMark(s.track, 'pan')).toBeUndefined()
+    expect(s.automated.mixerMark('someone-else', 'gain')).toBeUndefined()
+    s.ui.lang = 'fr'
+    expect(s.automated.mixerMark(s.track, 'gain')).toContain('Mixeur › Volume')
+    expect(s.automated.mixerMark(s.track, 'gain')).not.toBe(volume)
+  })
+
+  it('marks the pan when a pan lane drives it, apart from the volume mark', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'pan' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -0.5, shape: 'step' }]))
+    expect(s.automated.mixerMark(s.track, 'pan')).toContain('Pan')
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeUndefined()
+    expect(s.automated.mixer(s.track, 'pan')).toBe(-0.5)
+  })
+
+  it('does not mark a parameter whose lane has no point yet: such a lane does nothing', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeUndefined()
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -12, shape: 'linear' }]))
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeDefined()
+  })
+
+  it('keeps the mark while a change holds the lane, and shows the lane value on the track list and the mixer, silence included', () => {
+    const s = session()
+    s.run(createLane(s.track, { mixer: { param: 'gain' } }))
+    s.run(
+      addPoints(s.lane(), [
+        { tick: 0, value: -96, shape: 'linear' },
+        { tick: 1000, value: 0, shape: 'linear' },
+      ]),
+    )
+    expect(s.automated.shownGain(s.track, -3)).toBeNull()
+    s.stop(1000)
+    expect(s.automated.shownGain(s.track, -3)).toBe(0)
+    s.run(setVolume(s.track, -10))
+    expect(s.automated.shownGain(s.track, -10)).toBe(-10)
+    expect(s.automated.mixerMark(s.track, 'gain')).toBeDefined()
+    expect(s.automated.shownPan(s.track, 0.3)).toBe(0.3)
+  })
+})
+
+describe('the master (#378)', () => {
+  it('follows a volume lane of the master and marks the fader, apart from the tracks', () => {
+    const s = session()
+    s.run(createMasterLane({ mixer: { param: 'gain' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!)[0]!
+    expect(s.automated.mixerMark('master', 'gain')).toBeUndefined()
+    s.run(
+      addPoints(lane, [
+        { tick: 0, value: -96, shape: 'linear' },
+        { tick: 1000, value: 0, shape: 'linear' },
+      ]),
+    )
+    s.play(500)
+    expect(s.automated.mixer('master', 'gain')).toBeCloseTo(-21, 6)
+    expect(s.automated.shownGain('master', 0)).toBeCloseTo(-21, 6)
+    expect(s.automated.mixerMark('master', 'gain')).toContain('Mixer')
+    // The track's own volume is not driven by the master's lane.
+    expect(s.automated.mixer(s.track, 'gain')).toBeUndefined()
+    // A gesture on the master's fader holds the lane until its next point, as for a track.
+    s.run(setMasterVolume(-3))
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    s.play(700)
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    // A seek lets go of the hold.
+    s.stop(200)
+    expect(s.automated.mixer('master', 'gain')).toBeDefined()
+  })
+
+  it('follows a lane on a parameter of a master effect', () => {
+    const s = session()
+    s.run(insertMasterEffect('faulk.compressor', 0))
+    const effect = Object.keys(s.project.view!.project.master_devices!)[0]!
+    s.run(createMasterLane({ device: { device: effect, param: 'threshold' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!)[0]!
+    s.run(
+      addPoints(lane, [
+        { tick: 0, value: -40, shape: 'linear' },
+        { tick: 1000, value: 0, shape: 'linear' },
+      ]),
+    )
+    s.play(500)
+    expect(s.automated.device(effect, 'threshold')).toBeCloseTo(-20, 6)
+    expect(s.automated.deviceMark(effect, 'threshold')).toBeDefined()
   })
 })

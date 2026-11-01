@@ -95,6 +95,10 @@ pub struct GroupId(pub u64);
 pub struct Context {
     pub author: Author,
     pub group: Option<GroupId>,
+    /// The host's clock in milliseconds since the Unix epoch, set before each command: the
+    /// history stamps it on the entries it records (0 when the host has none). The commands
+    /// never read it, so the project stays pure.
+    pub now_ms: u64,
     pub ids: IdGenerator,
     /// The engine's slots of the project's entities (PR-3).
     pub engine: EngineSlots,
@@ -200,6 +204,7 @@ impl Context {
         Self {
             author,
             group: None,
+            now_ms: 0,
             ids,
             engine: EngineSlots::default(),
             folder: None,
@@ -390,12 +395,23 @@ pub enum ProjectEvent {
     SceneChanged { scene: SceneId, part: ScenePart },
     /// An automation lane was created or brought back, with its points (AM-1). The page
     /// reads the lane from its own copy of the project, to which the same command applies.
-    AutomationLaneCreated { track: TrackId, lane: LaneId },
+    /// `track` is `null` for a lane of the master (#378).
+    AutomationLaneCreated {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
     /// An automation lane was deleted, with its points: by `automation.lane.delete`, or
-    /// because the device it targets was removed.
-    AutomationLaneDeleted { track: TrackId, lane: LaneId },
-    /// The points of a lane changed: some were added, removed, changed or cleared.
-    AutomationPointsChanged { track: TrackId, lane: LaneId },
+    /// because the device it targets was removed. `track` is `null` for a lane of the master.
+    AutomationLaneDeleted {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
+    /// The points of a lane changed: some were added, removed, changed or cleared. `track` is
+    /// `null` for a lane of the master.
+    AutomationPointsChanged {
+        track: Option<TrackId>,
+        lane: LaneId,
+    },
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },

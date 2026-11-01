@@ -55,7 +55,7 @@ Les modules sont l'actif central : portables entre les deux modes et partageable
 
 Décisions du 2026-10-14 (détail et effets dans le [découpage du MVP](../specs/02-decoupage-mvp.md) § 7) :
 
-- **Périmètre du MVP** : pistes MIDI, pistes audio (import et lecture de fichiers audio, lus en flux depuis le disque ; l'enregistrement audio suit immédiatement le MVP) et automation (couloirs sur les paramètres des devices et du mixeur) ; tempo constant ; pas d'envois et retours ; les sessions ACP arrivent avec l'Atelier.
+- **Périmètre du MVP** : pistes MIDI, pistes audio (import et lecture de fichiers audio, lus en flux depuis le disque ; l'enregistrement audio suit immédiatement le MVP) et automation (couloirs sur les paramètres des devices et du mixeur ; un couloir appartient à la piste, pas à ses clips : déplacer ou copier un clip ne déplace pas son automation ; à l'arrêt, ce qui sonne est ce que les contrôles montrent) ; tempo constant ; pas d'envois et retours ; les sessions ACP arrivent avec l'Atelier.
 - **Instruments et effets du MVP** : synthé oscillateur, batterie synthétisée, filtre, delay, réverbération, compresseur, plus le lecteur de clips des pistes audio.
 - **Pas de plafond visible** : le nombre de pistes, de devices, de scènes ou de notes n'est pas limité par le moteur ; seule une limite de sûreté très haute existe.
 - **Projet** : un dossier regroupé par piste, texte pour la structure, fichiers audio nommés par leur empreinte ([modèle de projet](../architecture/02-modele-projet.md)) ; la page possède le projet dans les deux modes.

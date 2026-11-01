@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: finish-repetitive-track
+expected_outcome: |
+  Concrete finishing edits for a 96-bar drum and bass track: boundary blurring at the section changes (anticipation,
+  hesitation, parts carrying over or dropping early) with bar numbers, several unique one-off events placed by bar,
+  variations of the looped break and bass, all in E minor and at 170 bpm, plus an explicit stopping criterion
+  (when the track is good enough).

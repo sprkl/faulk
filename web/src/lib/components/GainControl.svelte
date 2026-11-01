@@ -9,9 +9,9 @@
   import { createGesture } from '../gesture'
   import type { Command } from '../generated/protocol'
   import { gainAt, positionOf, UNITY_POSITION } from '../project/fader'
-  import { formatGain } from '../project/tracks'
+  import { formatGain, MAX_GAIN_DB } from '../project/tracks'
   import { useStores } from '../stores'
-  import { parseGain } from '../value-entry'
+  import { parseGainEntry } from '../value-entry'
   import Slider from './Slider.svelte'
 
   let {
@@ -19,16 +19,19 @@
     label,
     set,
     orientation = 'horizontal',
+    automated,
     testid,
   }: {
     gainDb: number | null | undefined
     label: string
     set: (gainDb: number | null) => Command
     orientation?: 'horizontal' | 'vertical'
+    /** The tooltip when an automation lane drives the volume (#388). */
+    automated?: string
     testid?: string
   } = $props()
 
-  const { dispatcher } = useStores()
+  const { dispatcher, ui } = useStores()
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
 
@@ -49,11 +52,11 @@
   // Typing a gain: one command, or none when the text is unreadable or the gain is the one it has.
   const entry = {
     text: () => `${formatGain(gainDb)} dB`,
-    commit(text: string): boolean {
-      const gain = parseGain(text)
-      if (gain === undefined) return false
-      if (!same(gainDb, gain)) dispatcher.run(set(gain))
-      return true
+    commit(text: string): boolean | string {
+      const entry = parseGainEntry(text)
+      if (!entry) return false
+      if (!same(gainDb, entry.gain)) dispatcher.run(set(entry.gain))
+      return entry.limited ? ui.t('controls.limited', { value: `${MAX_GAIN_DB} dB` }) : true
     },
   }
 
@@ -69,6 +72,7 @@
   {entry}
   {orientation}
   {label}
+  {automated}
   {testid}
   position={positionOf(gainDb)}
   home={UNITY_POSITION}

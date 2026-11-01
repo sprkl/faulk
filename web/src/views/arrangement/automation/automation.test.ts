@@ -4,6 +4,7 @@ import { RULER_HEIGHT } from '../../../lib/components/timegrid/render'
 import { MAX_TICK } from '../arrangement'
 import { asPoint, dragDelta, hitPoint, moveSelection, newPoint, planMove, pointsInBox, posOfY, previewPoints, yOfPos, POINT_RADIUS } from './gestures'
 import { ADD_ROW, CLIP_ROW, LANE_ROW, layoutOf, rowAtY, rowsBetween } from './layout'
+import { drawLane } from './draw'
 import { axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type Labels, type LanePoint } from './model'
 
 const labels: Labels = {
@@ -72,9 +73,9 @@ describe('the axes', () => {
     expect(axis.clamp(-200)).toBe(-96)
     expect(axis.clamp(0.004)).toBe(0)
     expect(axis.format(-6)).toBe('−6.0 dB')
-    expect(axis.parse('-12', 0)).toBe(-12)
-    expect(axis.parse('-inf', 0)).toBe(-96)
-    expect(axis.parse('nonsense', 0)).toBeNull()
+    expect(axis.parse('-12')).toBe(-12)
+    expect(axis.parse('-inf')).toBe(-96)
+    expect(axis.parse('nonsense')).toBeNull()
   })
   it('map the pan linearly and read it as the pan control does', () => {
     const axis = axisOf(track, pan, labels)!
@@ -82,7 +83,7 @@ describe('the axes', () => {
     expect(axis.at(0.5)).toBe(0)
     expect(Object.is(axis.at(0.5), -0)).toBe(false)
     expect(axis.format(-0.3)).toBe('L30')
-    expect(axis.parse('R25', 0)).toBe(0.25)
+    expect(axis.parse('R25')).toBe(0.25)
   })
   it('follow the descriptor of a device parameter: scale, range, unit', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'attack' } }, labels)!
@@ -90,7 +91,7 @@ describe('the axes', () => {
     expect(axis.max).toBe(30)
     expect(axis.pos(axis.at(0.5))).toBeCloseTo(0.5, 3)
     expect(axis.format(0.25)).toBe('250 ms')
-    expect(axis.parse('120 ms', 0.25)).toBeCloseTo(0.12, 6)
+    expect(axis.parse('120 ms')).toBeCloseTo(0.12, 6)
   })
   it('name the values of a choice parameter', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'waveform' } }, labels)!
@@ -117,9 +118,14 @@ describe('the value of a lane at a tick', () => {
     expect(valueAt(p, 1500, gainTarget)).toBe(1)
     expect(valueAt(p, 1920, gainTarget)).toBe(0.2)
   })
-  it('interpolates a volume lane by amplitude, like the engine (the middle of -96 to 0 dB is -6 dB)', () => {
+  it("interpolates a volume lane along the fader's travel, like the engine (#389: the middle of -96 to 0 dB is -21 dB)", () => {
     const p = lane(volume, [0, -96], [1000, 0])
-    expect(valueAt(p, 500, volume)).toBeCloseTo(-6.02, 1)
+    // Half of the travel from the bottom to unity (0.39) is -21 dB: not -6 dB (amplitude), not -48 dB (dB).
+    expect(valueAt(p, 500, volume)).toBeCloseTo(-21, 9)
+    expect(valueAt(p, 0, volume)).toBe(-96)
+    expect(valueAt(p, 1000, volume)).toBeCloseTo(0, 9)
+    // A fade down is the same curve backwards.
+    expect(valueAt(lane(volume, [0, 0], [8000, -96]), 4000, volume)).toBeCloseTo(-21, 9)
     // A pan is interpolated in its own units.
     expect(valueAt(lane(pan, [0, -1], [1000, 1]), 250, pan)).toBeCloseTo(-0.5, 9)
   })
@@ -261,5 +267,73 @@ describe('the gestures of a lane', () => {
     for (let i = 0; i < 1000; i++) hitPoint(many, axis, 5000, y, { pxPerTick: 0.1, scrollTick: 0 }, geo)
     expect(performance.now() - started).toBeLessThan(500)
     expect(hitPoint(many, axis, 5000, yOfPos(axis.pos(0), geo), { pxPerTick: 0.1, scrollTick: 0 }, geo)?.tick).toBe(50_000)
+  })
+})
+
+describe('the lane drawn before its first point (#388, #394)', () => {
+  /** A context that records the path of the lane's value line: the `moveTo`/`lineTo` calls made after the row's two own strokes (its bottom line and its default value). */
+  function recorder() {
+    let strokes = 0
+    const line: [string, number, number][] = []
+    const mark = (op: string) => (x: number, y: number) => {
+      if (strokes === 2) line.push([op, x, y])
+    }
+    const noop = () => undefined
+    const ctx = new Proxy(
+      {
+        moveTo: mark('M'),
+        lineTo: mark('L'),
+        stroke: () => strokes++,
+        measureText: () => ({ width: 0 }),
+      },
+      { get: (target, key) => (key in target ? (target as Record<string, unknown>)[key as string] : noop), set: () => true },
+    ) as unknown as CanvasRenderingContext2D
+    return { ctx, line }
+  }
+  const frame = (scrollTick: number) =>
+    ({
+      width: 400,
+      height: 200,
+      view: { pxPerTick: 0.1, scrollTick },
+      totalTicks: 10_000,
+      colors: { bg: '', ruler: '', line: '', barLine: '', text: '' },
+      dpr: 1,
+    }) as unknown as Parameters<typeof drawLane>[1]
+  const scene = (points: LanePoint[]) => ({
+    top: 0,
+    height: 100,
+    axis: axisOf(synthTrack(), volume, labels)!,
+    points,
+    selected: new Set<number>(),
+    color: '#fff',
+    readout: null,
+  })
+
+  it('starts the solid line at bar 1 (the start of the timeline) at the first value, when the first point is later', () => {
+    const { ctx, line } = recorder()
+    drawLane(ctx, frame(0), scene(pts([1000, -12], [2000, 0])))
+    // Held from the left edge (bar 1) to the first point (1000 ticks at 0.1 px per tick = 100 px) at one height.
+    expect(line[0]![0]).toBe('M')
+    expect(line[0]![1]).toBeLessThanOrEqual(0)
+    expect(line[1]).toEqual(['L', 100, line[0]![2]])
+  })
+
+  it('starts at bar 1, not at the edge, when the view shows space before it', () => {
+    const { ctx, line } = recorder()
+    // Scrolled 500 ticks before bar 1: bar 1 is at x = 50, the first point at x = 150.
+    drawLane(ctx, frame(-500), scene(pts([1000, -12], [2000, 0])))
+    expect(line[0]).toEqual(['M', 50, line[0]![2]])
+    expect(line[1]).toEqual(['L', 150, line[0]![2]])
+  })
+
+  it('draws nothing before a first point that is at tick 0, with space before bar 1 in view too', () => {
+    for (const scroll of [0, -500]) {
+      const { ctx, line } = recorder()
+      drawLane(ctx, frame(scroll), scene(pts([0, -12], [2000, 0])))
+      const start = Math.abs(scroll) * 0.1
+      // The line begins on the first point and never goes left of it.
+      expect(line[0]![1]).toBe(start)
+      expect(line.every(([, x]) => x >= start)).toBe(true)
+    }
   })
 })

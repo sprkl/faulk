@@ -168,3 +168,84 @@ fn a_hundred_lanes_cost_little_of_a_block() {
         extra / BUDGET_US * 100.0
     );
 }
+
+/// #378: the ten tracks again, with the test gain effect in the master's chain and, when
+/// `lanes`, ten lanes of 1 000 points on the master (its gain and pan, and eight parameters
+/// of the effect), half of the transitions linear.
+fn master_rig(lanes: bool) -> (Preparer, Engine) {
+    let (p, mut e) = rig(false);
+    let mut p = p;
+    send(
+        &mut p,
+        &mut e,
+        &[M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device: DeviceSlot(0),
+            kind: GAIN.kind_id,
+            state: encode_state(&[]),
+        }],
+    );
+    if !lanes {
+        return (p, e);
+    }
+    for k in 0..10u32 {
+        let target = match k {
+            0 => AutomationTarget::MixerGain,
+            1 => AutomationTarget::MixerPan,
+            2..=5 => AutomationTarget::DeviceParam {
+                device: DeviceSlot(0),
+                param: gain::TRIM,
+            },
+            _ => AutomationTarget::DeviceParam {
+                device: DeviceSlot(0),
+                param: gain::GAIN,
+            },
+        };
+        let points: Vec<AutomationPoint> = (0..1_000i64)
+            .map(|i| AutomationPoint {
+                tick: Tick(i * 40 + i64::from(k)),
+                value: match target {
+                    AutomationTarget::MixerGain => -20.0 + (i % 9) as f32,
+                    AutomationTarget::MixerPan => (i % 5) as f32 / 5.0 - 0.4,
+                    _ => 0.2 + (i % 7) as f32 * 0.1,
+                },
+                curve: if i % 2 == 0 {
+                    Curve::Linear
+                } else {
+                    Curve::Step
+                },
+            })
+            .collect();
+        send(
+            &mut p,
+            &mut e,
+            &[M::AutomationLaneUpload {
+                lane: LaneSlot(k),
+                track: TrackSlot::MASTER,
+                target,
+                first: 0,
+                total: points.len() as u32,
+                points,
+            }],
+        );
+    }
+    (p, e)
+}
+
+#[test]
+#[ignore = "a measure: run it in release with --nocapture"]
+fn ten_master_lanes_cost_little_of_a_block() {
+    let blocks = 750;
+    let (_p0, mut bare) = master_rig(false);
+    let (_p1, mut lanes) = master_rig(true);
+    assert_eq!(lanes.state().lanes.iter().count(), 10);
+    let b = time(&mut bare, blocks);
+    let l = time(&mut lanes, blocks);
+    let extra = (l - b).max(0.0);
+    eprintln!(
+        "per block of {BLOCK} frames ({BUDGET_US:.0} µs budget): {TRACKS} playing tracks and one \
+         master effect {b:.2} µs; with 10 master lanes of 1 000 points {l:.2} µs (+{extra:.2} µs, \
+         {:.2} % of the budget)",
+        extra / BUDGET_US * 100.0
+    );
+}

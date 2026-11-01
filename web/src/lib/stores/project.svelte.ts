@@ -13,8 +13,12 @@ export class ProjectStore {
   view = $state.raw<ProjectView | null>(null)
   canUndo = $state(false)
   canRedo = $state(false)
+  /** Counts the changes of the history (an entry recorded, undone, redone, or the history replaced): the history panel reads the entries again when it moves. */
+  historyRev = $state(0)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
   watch: ((events: readonly ProjectEvent[]) => void) | null = null
+  /** Told of every applied transport command that cues the play position (a stop or a seek, even to where the playhead already stands: #394). */
+  cued: (() => void) | null = null
   /**
    * The automation lanes a swap of a track's instrument took with it (`track.set_instrument`: the lanes of the old instrument go in the
    * same history entry), whoever asked for it: a click, an agent, a redo. Cleared when lanes come back (an undo). `null` before any.
@@ -89,7 +93,8 @@ export class ProjectStore {
       if (event.type === 'track_deleted') gone.push(event.track)
     }
     for (const event of events) {
-      if (event.type !== 'automation_lane_deleted' || gone.includes(event.track)) continue
+      // A lane of the master (`track: null`) is never a swap of an instrument: the master has none.
+      if (event.type !== 'automation_lane_deleted' || !event.track || gone.includes(event.track)) continue
       const track = view.project.tracks[event.track]
       const target = track?.automation[event.lane]?.target
       if (!track || !target || !('device' in target) || track.devices[target.device.device]?.role !== 'instrument') continue
@@ -111,6 +116,7 @@ export class ProjectStore {
       if (event.type === 'history_changed') {
         this.canUndo = event.can_undo
         this.canRedo = event.can_redo
+        this.historyRev++
       } else if (event.type === 'control_change') {
         // A controller on the live input changes nothing in the project: a sweep must not read it again.
       } else if (event.type === 'device_param_changed' && this.setParam(event.device, event.param, event.value)) {

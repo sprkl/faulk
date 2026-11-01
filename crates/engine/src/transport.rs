@@ -90,13 +90,38 @@ impl Segment {
 
     /// The playhead, in fractional ticks, at frame `offset` of the block.
     pub fn position_at(&self, offset: usize) -> f64 {
-        self.origin_tick + (offset as f64 - self.origin_sample) / self.samples_per_tick
+        self.position_at_frame(offset as f64)
+    }
+
+    /// The playhead, in fractional ticks, at a frame of the block that may lie before it
+    /// (a negative frame) or between two samples.
+    pub fn position_at_frame(&self, frame: f64) -> f64 {
+        self.origin_tick + (frame - self.origin_sample) / self.samples_per_tick
     }
 
     /// The fractional position of `tick`, in samples from the block start (not clamped).
     pub fn sample_of(&self, tick: Tick) -> f64 {
         let tick = tick.0.saturating_add(self.shift);
         self.origin_sample + (tick as f64 - self.origin_tick) * self.samples_per_tick
+    }
+
+    /// A one-frame segment at a stopped playhead, for reading automation lanes where the
+    /// clock stands (AM-2, stopped): frame 0 plays `position`, and a tick is one million
+    /// frames from its neighbour, so a point is reached at frame 0 exactly when its tick is
+    /// at or before the playhead.
+    pub fn frozen(position: f64) -> Segment {
+        let position = if position.is_finite() { position } else { 0.0 };
+        let from = Tick(position.floor() as i64);
+        Segment {
+            offset: 0,
+            frames: 1,
+            from,
+            to: Tick(from.0.saturating_add(1)),
+            origin_tick: position,
+            origin_sample: 0.0,
+            samples_per_tick: 1.0e6,
+            shift: 0,
+        }
     }
 
     /// The part of this segment that plays the ticks `[from, to)` (this segment's), seen
@@ -209,6 +234,9 @@ pub struct Transport {
     loop_active: bool,
     /// Wraps taken in the block in progress (bounded by `frames + 1`).
     wraps: usize,
+    /// Cues taken (a `Play` or a `Seek` to a tick) since the construction: a stopped seek to
+    /// the tick where the playhead stands changes nothing else.
+    cues: u64,
 }
 
 impl Transport {
@@ -234,12 +262,19 @@ impl Transport {
             loop_armed: false,
             loop_active: false,
             wraps: 0,
+            cues: 0,
         }
     }
 
     /// Whether the clock is running.
     pub fn is_running(&self) -> bool {
         self.running
+    }
+
+    /// How many cues (a `Play` or a `Seek` to a tick) the clock has taken: the automation
+    /// tells a seek to where the playhead already stands from no seek at all.
+    pub fn cues(&self) -> u64 {
+        self.cues
     }
 
     /// Stopped, playing or recording, for the feedback.
@@ -325,6 +360,9 @@ impl Transport {
         }
         let playback = &mut state.playback;
         let cue = playback.cue.take();
+        if cue.is_some() {
+            self.cues = self.cues.wrapping_add(1);
+        }
         self.recording = playback.recording;
         let loop_changed = self.loop_region != playback.loop_region;
         self.loop_region = playback.loop_region;

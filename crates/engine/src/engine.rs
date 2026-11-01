@@ -38,10 +38,11 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::arrangement;
 use crate::automation::TrackLanes;
-use crate::clip_player::{ClipNotes, ClipPlayer};
+use crate::clip_player::{ClipNotes, ClipPlayer, held_notes_unchanged};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::launcher;
+use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
@@ -150,7 +151,7 @@ pub struct Clip {
 }
 
 /// An automation lane: what it drives and its points (a content snapshot), sorted by tick,
-/// one per tick, finite, a gain lane's in linear gain (the Preparer's work); and the audio
+/// one per tick, finite (the Preparer's work); a gain lane's values are in dB; and the audio
 /// side's state of its reading ([`crate::automation`], AM-2).
 #[derive(Debug)]
 pub struct Lane {
@@ -351,18 +352,14 @@ impl<T> Paged<T> {
 
 /// Makes a lane's points what the audio side reads (AM-2, [`crate::automation`]): finite
 /// values only, sorted by tick, one point per tick (the compiler sends them so; otherwise
-/// which of equal ticks stays is the unstable sort's choice, the same in every build), a
-/// gain lane's dB turned into a linear gain. In place, no allocation, off the audio path.
-fn sanitize_points(points: &mut Vec<AutomationPoint>, target: AutomationTarget) {
+/// which of equal ticks stays is the unstable sort's choice, the same in every build). A gain
+/// lane keeps its dB: the audio side reads them along the fader's travel, which clamps
+/// them to its range ([`crate::fader`]). In place, no allocation, off the audio path.
+fn sanitize_points(points: &mut Vec<AutomationPoint>) {
     points.retain(|p| p.value.is_finite());
     if !points.is_sorted_by(|a, b| a.tick < b.tick) {
         points.sort_unstable_by_key(|p| p.tick);
         points.dedup_by_key(|p| p.tick);
-    }
-    if target == AutomationTarget::MixerGain {
-        for p in points.iter_mut() {
-            p.value = 10f64.powf(f64::from(p.value) / 20.0) as f32;
-        }
     }
 }
 
@@ -550,6 +547,7 @@ pub fn channel_with(
         skipped: 0,
         leaked: 0,
         cut: None,
+        limiter: Limiter::new(rate_of(&setup)),
     };
     Ok((preparer, engine))
 }
@@ -1167,7 +1165,10 @@ impl Preparer {
                 total,
                 points,
             } => {
-                self.existing_track(track)?;
+                // The master's row (#378) is not a track of the table.
+                if !track.is_master() {
+                    self.existing_track(track)?;
+                }
                 if !completes(&self.points, lane.0, first, total, points.len()) {
                     stage(
                         &mut self.points,
@@ -1200,7 +1201,7 @@ impl Preparer {
                 let Some(mut points) = staged else {
                     return Ok(None);
                 };
-                sanitize_points(&mut points, target);
+                sanitize_points(&mut points);
                 value.points = Table::from_vec(points);
                 self.shadow.lanes.commit(lane.0, &growth);
                 RtMsg::LanePut(PagedPut {
@@ -1549,6 +1550,8 @@ pub struct Engine {
     leaked: u32,
     /// The cut an `AllSoundOff` started, if one is running (see [`Cut`]).
     cut: Option<Cut>,
+    /// The output protection (#402): the last stage of every rendered slice.
+    limiter: Limiter,
 }
 
 /// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
@@ -1638,7 +1641,8 @@ impl Engine {
     /// block of the musical clock (TR-1): the orders `begin_block` applied take effect at
     /// the start of the first, the clock cuts the block in segments at its loop wraps, the
     /// graph renders the tracks over them (the timed events of MO-4, [`crate::events`]),
-    /// then the metronome (TR-2) is added to the output, after the master.
+    /// then the metronome (TR-2) is added to the output, after the master, and last the output
+    /// protection ([`crate::limiter`], #402), after the output's meter.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
         let total = left.len().min(right.len());
         let mut start = 0;
@@ -1659,6 +1663,7 @@ impl Engine {
                 segments: self.segments.as_slice(),
                 position: self.transport.position(),
                 frame: self.transport.total_samples(),
+                cues: self.transport.cues(),
             };
             let live: &[LiveEvent] = if first {
                 self.live_block.as_slice()
@@ -1684,6 +1689,10 @@ impl Engine {
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
                 .meter_output(&left[start..end], &right[start..end]);
+            // The output protection (#402), after the meter: the meter shows the level
+            // before it, the speakers and the export get the protected signal.
+            self.limiter
+                .process(&mut left[start..end], &mut right[start..end]);
             self.transport.end_block();
             if cut_done {
                 self.reset_devices();
@@ -1730,6 +1739,8 @@ impl Engine {
     /// Resets every device of every track: voices die, tails (delay lines) are hidden.
     /// Constant time per device ([`Device::reset`]), no allocation.
     fn reset_devices(&mut self) {
+        // The silence a cut leaves does not carry the gain of the overs before it.
+        self.limiter.reset();
         for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
             for entry in track.devices.as_mut_slice().iter_mut().flatten() {
                 entry.device.reset();
@@ -1745,6 +1756,39 @@ impl Engine {
         {
             entry.device.reset();
         }
+    }
+
+    /// The current gain of the output protection ([`crate::limiter`], #402): `1.0` at rest,
+    /// less than `1.0` while limiting. For tests only: the limiter has no observable effect
+    /// beyond the output samples it shapes.
+    pub fn limiter_gain(&self) -> f32 {
+        self.limiter.gain()
+    }
+
+    /// The peak gain reduction of the output protection since [`Engine::reset_limiter_reduction`],
+    /// in `[0, 1]` (`0.0` = never engaged). An offline export reads it to tell the user the mix
+    /// was pushed into the limiter (#402).
+    pub fn limiter_reduction(&self) -> f32 {
+        self.limiter.max_reduction()
+    }
+
+    /// Clears the output protection's peak gain reduction. An offline render calls it before a
+    /// pass so the reported reduction covers that pass only.
+    pub fn reset_limiter_reduction(&mut self) {
+        self.limiter.reset_max_reduction();
+    }
+
+    /// How many stereo frames the protection turned to silence because a sample was non-finite,
+    /// since [`Engine::reset_limiter_silenced`] (frames, not samples). `0` on a clean render; a
+    /// render asserts it is `0` to still catch a NaN/blow-up on a path the engine-level
+    /// `assert_finite` can no longer see (the limiter is last, so it has already silenced it; #402).
+    pub fn limiter_silenced(&self) -> u64 {
+        self.limiter.silenced()
+    }
+
+    /// Clears the protection's silenced-frame counter, before a render pass.
+    pub fn reset_limiter_silenced(&mut self) {
+        self.limiter.reset_silenced();
     }
 
     /// The musical clock (TR-1), as of the start of the next block.
@@ -1788,6 +1832,7 @@ impl Engine {
     pub fn set_sample_rate(&mut self, rate: SampleRate) {
         self.transport.set_sample_rate(rate);
         self.clicker.set_sample_rate(rate);
+        self.limiter.set_sample_rate(rate);
         self.graph.set_sample_rate(rate.hz() as f32);
     }
 
@@ -1898,6 +1943,10 @@ impl Engine {
                 }
                 // The master's strip takes the new state's faders back.
                 self.graph.reset_master();
+                // The limiter is not reset on a project swap: the retiring tracks keep
+                // fading through the same limiter, so a project opened while the previous
+                // one was hot does not produce a gain jump. The release (80 ms) decays the
+                // deficit naturally; the new project's overs are caught on the first sample.
                 Some(Garbage::State(old))
             }
             RtMsg::SetTransport {
@@ -1925,7 +1974,15 @@ impl Engine {
                 None
             }
             RtMsg::SetMaster { gain, pan, mute } => {
+                // A gesture on the master's fader or pan holds the lane that drives it (#378),
+                // as one on a track's does; the mute holds neither.
+                let moved_gain = state.master.gain.to_bits() != gain.to_bits();
+                let moved_pan = state.master.pan.to_bits() != pan.to_bits();
                 state.master = Master { gain, pan, mute };
+                hold_lanes(state, &self.graph, TrackSlot::MASTER, |target| {
+                    (moved_gain && target == AutomationTarget::MixerGain)
+                        || (moved_pan && target == AutomationTarget::MixerPan)
+                });
                 None
             }
             RtMsg::TrackPut(put) => {
@@ -1977,7 +2034,7 @@ impl Engine {
                         t.gain = gain;
                         t.pan = pan;
                         t.mute = mute;
-                        hold_lanes(state, track, |target| {
+                        hold_lanes(state, &self.graph, track, |target| {
                             (moved_gain && target == AutomationTarget::MixerGain)
                                 || (moved_pan && target == AutomationTarget::MixerPan)
                         });
@@ -2022,7 +2079,7 @@ impl Engine {
                     {
                         t.graph.release_notes();
                     }
-                    resend_lanes(state, track, device);
+                    resend_lanes(state, &self.graph, track, device);
                     Some(Garbage::Devices(spare))
                 }
                 None => {
@@ -2073,7 +2130,7 @@ impl Engine {
                     }
                     None => skipped = true,
                 }
-                resend_lanes(state, track, device);
+                resend_lanes(state, &self.graph, track, device);
                 if release && let Some(t) = state.track_mut(track) {
                     t.graph.release_notes();
                 }
@@ -2090,7 +2147,7 @@ impl Engine {
                         entry.device.set_param(param, value);
                         // A gesture holds the lane that drives this parameter (AM-2).
                         let target = AutomationTarget::DeviceParam { device, param };
-                        hold_lanes(state, track, |t| t == target);
+                        hold_lanes(state, &self.graph, track, |t| t == target);
                     }
                     None => skipped = true,
                 }
@@ -2098,16 +2155,39 @@ impl Engine {
             }
             RtMsg::ClipPut(mut put) => {
                 let slot = ClipSlot(put.slot);
-                // A clip replaced while it plays: the player goes on in the new table.
+                // A clip replaced while it plays: the player goes on in the new table
+                // (CL-3). The notes it holds go on sounding when the new table has them
+                // unchanged; otherwise the track releases them.
                 let player = playing_track(state, slot);
                 put.value.on_track = player;
+                let old_slot = slot;
+                // The held notes the new table keeps (read before the put moves the old
+                // table out).
+                let keep = player.is_some()
+                    && match (
+                        state.clips.get(old_slot.0).map(|c| &c.content),
+                        &put.value.content,
+                    ) {
+                        (Some(ClipContent::Notes(old)), ClipContent::Notes(new)) => {
+                            held_notes_unchanged(old, new)
+                        }
+                        _ => false,
+                    };
                 let (spare, out) = state.clips.put(put);
                 skipped = out;
-                if !out
-                    && let Some(t) = player.and_then(|t| state.track_mut(t))
-                    && t.player.clip_changed(slot, false)
-                {
-                    t.graph.release_notes();
+                if !out && let Some(t) = player.and_then(|t| state.track_mut(t)) {
+                    let swap = t.player.clip_changed(slot, false, keep);
+                    if swap.release {
+                        t.graph.release_notes();
+                    }
+                    if swap.kept
+                        && let Some(old) = spare.item.as_deref()
+                        && let ClipContent::Notes(old) = &old.content
+                        && let Some(new) = state.clips.get_mut(slot.0)
+                        && let ClipContent::Notes(new) = &mut new.content
+                    {
+                        new.take_held_from(old);
+                    }
                 }
                 Some(Garbage::Clips(spare))
             }
@@ -2115,7 +2195,7 @@ impl Engine {
                 Ok(old) => {
                     if let Some(c) = &old
                         && let Some(t) = c.on_track.and_then(|t| state.track_mut(t))
-                        && t.player.clip_changed(clip, true)
+                        && t.player.clip_changed(clip, true, false).release
                     {
                         t.graph.release_notes();
                     }
@@ -2168,14 +2248,14 @@ impl Engine {
                 let (spare, out) = state.lanes.put(put);
                 skipped = out;
                 if !out && let Some((track, target)) = lost {
-                    forget_lane(state, track, target);
+                    forget_lane(state, &mut self.graph, track, target);
                 }
                 Some(Garbage::Lanes(spare))
             }
             RtMsg::LaneRemove(lane) => match state.lanes.take(lane.0) {
                 Ok(old) => {
                     if let Some(old) = &old {
-                        forget_lane(state, old.track, old.target);
+                        forget_lane(state, &mut self.graph, old.track, old.target);
                     }
                     Some(Garbage::Lanes(PagedSpare {
                         growth: None,
@@ -2280,8 +2360,12 @@ impl Engine {
 
 /// The lanes of `track`, through the list the last block linked (AM-2,
 /// [`crate::automation`]).
-fn lanes_of(state: &mut State, track: TrackSlot) -> Option<TrackLanes<'_>> {
-    let head = state.track(track).map(|t| t.graph.lanes)?;
+fn lanes_of<'a>(state: &'a mut State, graph: &Graph, track: TrackSlot) -> Option<TrackLanes<'a>> {
+    let head = if track.is_master() {
+        graph.master_lanes.head
+    } else {
+        state.track(track).map(|t| t.graph.lanes)?
+    };
     Some(TrackLanes {
         table: &mut state.lanes,
         head,
@@ -2289,23 +2373,36 @@ fn lanes_of(state: &mut State, track: TrackSlot) -> Option<TrackLanes<'_>> {
 }
 
 /// A manual gesture on `track` holds its lanes whose target `matches`.
-fn hold_lanes(state: &mut State, track: TrackSlot, matches: impl Fn(AutomationTarget) -> bool) {
-    if let Some(mut lanes) = lanes_of(state, track) {
+fn hold_lanes(
+    state: &mut State,
+    graph: &Graph,
+    track: TrackSlot,
+    matches: impl Fn(AutomationTarget) -> bool,
+) {
+    if let Some(mut lanes) = lanes_of(state, graph, track) {
         lanes.hold(track, matches);
     }
 }
 
 /// The device in slot `device` of `track` changed (replaced, switched on or off): its lanes
 /// send their value again.
-fn resend_lanes(state: &mut State, track: TrackSlot, device: DeviceSlot) {
-    if let Some(mut lanes) = lanes_of(state, track) {
+fn resend_lanes(state: &mut State, graph: &Graph, track: TrackSlot, device: DeviceSlot) {
+    if let Some(mut lanes) = lanes_of(state, graph, track) {
         lanes.resend(track, device);
     }
 }
 
 /// A lane of `track` on `target` is gone: a mixer lane gives the strip's field back to the
 /// fader (AM-2); a device keeps the lane's last value.
-fn forget_lane(state: &mut State, track: TrackSlot, target: AutomationTarget) {
+fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: AutomationTarget) {
+    if track.is_master() {
+        match target {
+            AutomationTarget::MixerGain => graph.forget_master_gain(),
+            AutomationTarget::MixerPan => graph.forget_master_pan(),
+            AutomationTarget::DeviceParam { .. } => {}
+        }
+        return;
+    }
     let Some(t) = state.track_mut(track) else {
         return;
     };

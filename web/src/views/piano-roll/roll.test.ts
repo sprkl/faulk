@@ -38,6 +38,7 @@ import {
   endOf,
   lengthFor,
   duplicateOffset,
+  drawStep,
   MAX_BARS,
 } from './roll'
 
@@ -391,9 +392,38 @@ describe('quantize, transpose, copy and paste (PN-2)', () => {
     expect(lengthFor(MAX_BARS * 3840 + 1, 3840, 3840)).toBeNull()
   })
 
-  it('follows the selection by its span when duplicating', () => {
-    expect(duplicateOffset([note(480, 60, 480), note(1440, 62, 480)])).toBe(1440)
-    expect(duplicateOffset([])).toBe(0)
+  it('duplicates by whole bars, counted from the bar of the first note, at least one bar', () => {
+    const bar = 3840
+    // One bar or less: the next bar, whatever the position in the bar.
+    expect(duplicateOffset([note(480, 60, 480), note(1440, 62, 480)], bar)).toBe(bar)
+    expect(duplicateOffset([note(3000, 60, 840)], bar)).toBe(bar)
+    expect(duplicateOffset([note(0, 60, bar)], bar)).toBe(bar)
+    expect(duplicateOffset([note(bar + 100, 60, 10)], bar)).toBe(bar)
+    // Across a bar line the span is measured from the first bar: two bars.
+    expect(duplicateOffset([note(3800, 60, 480), note(bar + 100, 62, 100)], bar)).toBe(2 * bar)
+    expect(duplicateOffset([note(0, 60, bar + 1)], bar)).toBe(2 * bar)
+    // A selection of two bars goes two bars later; another meter changes the bar.
+    expect(duplicateOffset([note(0, 60, 2 * bar)], bar)).toBe(2 * bar)
+    expect(duplicateOffset([note(0, 60, 2000)], 2880)).toBe(2880)
+    expect(duplicateOffset([], bar)).toBe(0)
+  })
+
+  it('draws on a step that Auto never takes below a sixteenth, and keeps a step the musician picked', () => {
+    // Auto at a high zoom is finer than a sixteenth: drawing stops at a sixteenth.
+    expect(drawStep(true, 120)).toBe(240)
+    expect(drawStep(true, 60)).toBe(240)
+    // A coarser Auto step (zoomed out) is kept.
+    expect(drawStep(true, 480)).toBe(480)
+    expect(drawStep(true, 3840)).toBe(3840)
+    // A picked step is used as is, and no snapping stays off.
+    expect(drawStep(false, 120)).toBe(120)
+    expect(drawStep(false, null)).toBeNull()
+    expect(drawStep(true, null)).toBeNull()
+    // A click puts a note on the step, one step long; a drag end is already rounded to the step (700 gives 720, 130 gives 240).
+    const step = drawStep(true, 120)
+    expect(drawnNote(100, null, 60, 100, step, defaultLength(null, step), 3840)).toEqual(note(0, 60, 240, 100))
+    expect(drawnNote(100, 720, 60, 100, step, defaultLength(null, step), 3840)).toEqual(note(0, 60, 720, 100))
+    expect(drawnNote(100, 240, 60, 100, step, defaultLength(null, step), 3840)).toEqual(note(0, 60, 240, 100))
   })
 })
 

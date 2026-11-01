@@ -18,6 +18,7 @@
     onreset,
     entry,
     hint,
+    automated,
     onbegin,
     onend,
   }: {
@@ -32,9 +33,11 @@
     /** Puts the default value back, as one command. */
     onreset: () => void
     /** Typing a value (`Slider`): Enter on the knob and a click on the value readout open the field. */
-    entry?: { text: () => string; commit: (text: string) => boolean }
+    entry?: { text: () => string; commit: (text: string) => boolean | string }
     /** Tooltip: what the knob does. */
     hint?: string
+    /** The tooltip of a knob that an automation lane drives (#388): it marks the knob. */
+    automated?: string
     /** A drag starts and ends: the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
@@ -58,7 +61,7 @@
   }
 </script>
 
-<div class="knob" title={hint}>
+<div class="knob" class:automated={automated !== undefined} title={automated ?? hint}>
   <span class="label">{label}</span>
   <Slider
     bind:this={slider}
@@ -70,6 +73,7 @@
     valueText={display}
     defaultText={defaultDisplay}
     {hint}
+    {automated}
     {onbegin}
     {onend}
     onposition={onchange}
@@ -113,6 +117,9 @@
     color: inherit;
     font: inherit;
     cursor: text;
+  }
+  .automated .value {
+    color: var(--fk-accent-fg);
   }
   button.value:hover {
     background: var(--fk-surface-2);

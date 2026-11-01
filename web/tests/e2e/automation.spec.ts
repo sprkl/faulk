@@ -109,9 +109,18 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   expect(pointsOf(lane).every((p) => p.shape === 'linear')).toBe(true)
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-three-points.png` })
 
-  // Play: the Gain knob of the device panel moves with the lane (the engine plays the lane; the panel shows it).
+  // Stopped at the start, the Gain knob shows the lane's value there (what sounds at Play) and says that a lane drives it (#388);
+  // a seek while stopped moves it, and a knob that no lane drives has no mark.
   const gain = page.getByTestId('device-card').first().getByTestId('param-gain').getByRole('slider')
+  await expect(gain).toHaveAttribute('data-automated', 'true')
+  await expect(gain).toHaveAttribute('title', /Oscillator › Gain/)
+  await expect(page.getByTestId('device-card').first().getByTestId('param-attack').getByRole('slider')).not.toHaveAttribute('data-automated', /.*/)
   const stored = await gain.getAttribute('aria-valuetext')
+  await run(page, { type: 'transport.seek', tick: BAR / 2 })
+  await expect(gain).not.toHaveAttribute('aria-valuetext', stored!)
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(gain).toHaveAttribute('aria-valuetext', stored!)
+  // Play: the Gain knob of the device panel moves with the lane (the engine plays the lane; the panel shows it).
   await page.getByTestId('transport-play').click()
   await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'playing')
   const seenTexts = new Set<string>()
@@ -123,7 +132,7 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-playing.png` })
   await page.getByTestId('transport-stop').click()
   expect(seenTexts.size, `the knob showed ${[...seenTexts].join(' | ')}`).toBeGreaterThan(5)
-  // Stopped, the control shows the project's value again.
+  // Stopped (the playhead goes back to the start), the control shows the lane's value there again.
   await expect(gain).toHaveAttribute('aria-valuetext', stored!)
 
   // A drag of the middle point is ONE group: one undo gives the lane back as it was. (The page may have moved while playing: read the spots again.)
@@ -222,6 +231,29 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   await page.keyboard.press('Control+z')
   expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
 
+  // Stopped, the track list and the mixer show the lane's value at the playhead, marked as driven by a lane, and follow a seek (#388).
+  const listGain = page.getByTestId('track-header').first().getByTestId('track-gain-readout')
+  const listFader = page.getByTestId('track-header').first().getByRole('slider').first()
+  await expect(listGain).toHaveText('0.0')
+  await expect(listFader).toHaveAttribute('data-automated', 'true')
+  await expect(listFader).toHaveAttribute('title', /Mixer › Volume/)
+  await run(page, { type: 'transport.seek', tick: BAR })
+  await expect(listGain).toHaveText('−60.0')
+  await page.getByTestId('nav-mixer').click()
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('−60.0 dB')
+  await expect(page.getByTestId('mixer-fader').first()).toHaveAttribute('data-automated', 'true')
+  await expect(page.getByTestId('mixer-pan').first()).not.toHaveAttribute('data-automated', /.*/)
+  // A fader gesture while stopped holds until the next seek (AM-2): the mixer shows it, the seek gives the lane back.
+  await run(page, { type: 'mixer.set_volume', track: (await tracks(page))[0]![0], gain_db: -12 })
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('−12.0 dB')
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(page.getByTestId('mixer-gain').first()).toHaveText('0.0 dB')
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  const toggle = page.getByTestId('arr-automation-toggle').first()
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
+
   // A note held on the track: the master's level follows the lane when the transport passes the second point.
   await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))
   await expect.poll(() => master(page)).toBeGreaterThan(0.05)
@@ -240,6 +272,56 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   await expect(page.getByTestId('arr-lane')).toHaveCount(1)
   expect(pointsOf((await lanes(page))[0]![1])).toHaveLength(2)
 
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: a lane of the master (#378) is shown on the master fader and played by the engine', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  // A lane on the master's volume, by the command an agent would use: 0 dB for a bar, then -60 dB.
+  await run(page, { type: 'automation.lane.create', master: true, target: { mixer: { param: 'gain' } } })
+  const masterLanes = () =>
+    page.evaluate(() =>
+      Object.keys((window as unknown as { __faulkView(): { project: { master_automation?: object } } }).__faulkView().project.master_automation ?? {}),
+    )
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+  const [laneId] = await masterLanes()
+  await run(page, {
+    type: 'automation.points.add',
+    lane: laneId,
+    points: [
+      { tick: 0, value: 0, shape: 'step' },
+      { tick: BAR, value: -60, shape: 'step' },
+    ],
+  })
+  // The master strip of the mixer shows the lane's value at the playhead, marked as driven, and follows a seek.
+  await page.getByTestId('nav-mixer').click()
+  const strip = page.getByTestId('mixer-master')
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('0.0 dB')
+  await expect(page.getByTestId('mixer-master-fader')).toHaveAttribute('data-automated', 'true')
+  await run(page, { type: 'transport.seek', tick: BAR })
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('−60.0 dB')
+  // A track's fader is not driven by the master's lane.
+  await expect(page.getByTestId('mixer-fader').first()).not.toHaveAttribute('data-automated', /.*/)
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect(strip.getByTestId('mixer-gain')).toHaveText('0.0 dB')
+
+  // The engine really plays it: a note held on the track, the master's level falls at the second point (one bar is two seconds).
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  await page.getByTestId('transport-play').click()
+  await expect.poll(() => master(page), { timeout: 15_000 }).toBeLessThan(loud / 100)
+  await page.getByTestId('transport-stop').click()
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 69, 0]))
+
+  // One undo takes the points back, another the lane.
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await masterLanes()).length).toBe(0)
   expect(seen.errors).toEqual([])
 })
 
@@ -423,5 +505,205 @@ test('automation: stays fluid with 10 000 points in sight', async ({ page }) => 
   await page.keyboard.press('Control+z')
   expect(pointsOf((await lanes(page))[0]![1])).toHaveLength(POINTS)
   expect(pointsOf((await lanes(page))[0]![1])[0]!.tick).toBe(0)
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: master row in the timeline, a fade drawn, level confirmed', async ({ page }) => {
+  // #407: the master row is pinned at the bottom of the arrangement timeline; its lanes are added
+  // from the arrangement's add row or from the mixer's "Automate" button; a drawn lane is played
+  // by the engine (the master's level falls at the second point, one bar in).
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await page.getByTestId('arr-snap').selectOption('beat')
+
+  // The master row is always visible at the bottom of the arrangement, below all tracks.
+  const masterRow = page.getByTestId('arr-master-row')
+  await expect(masterRow).toBeVisible()
+
+  // The master's fold toggle is there but its lanes are collapsed by default.
+  const masterToggle = masterRow.getByTestId('arr-automation-toggle')
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'false')
+  await masterToggle.click()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'true')
+
+  // Add a Volume lane from the master's add-lane row.
+  const masterAddLane = page.getByTestId('arr-add-lane').last()
+  await masterAddLane.selectOption({ label: 'Volume' })
+  // The master's lane appears.
+  const masterLanes = () =>
+    page.evaluate(() =>
+      Object.keys((window as unknown as { __faulkView(): { project: { master_automation?: object } } }).__faulkView().project.master_automation ?? {}),
+    )
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+  await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-target', 'Mixer › Volume')
+
+  // Helper functions for reading master lane data.
+  const masterLaneData = () =>
+    page.evaluate(() => {
+      const view = (window as unknown as { __faulkView(): { project: { master_automation?: Record<string, Lane> } } }).__faulkView()
+      return Object.values(view.project.master_automation ?? {})
+    }) as Promise<Lane[]>
+  async function masterLanePoints() {
+    return (await masterLaneData()).map((l) => l?.points ?? {})
+  }
+
+  // Draw the fade by pointer only: the master's level played at the end of this test is the fade drawn here,
+  // not one added by a command. Click near the top at tick 0 (loud) and near the bottom at BAR (near silence,
+  // the gain axis bottom is MIN_GAIN_DB = -96 dB).
+  await stage(page).getByTestId('timegrid').focus()
+  const masterLaneIndex = (await page.getByTestId('arr-lane').count()) - 1
+  const topSpot = await spot(page, masterLaneIndex)
+  await page.mouse.click(topSpot.x(0) + 1, topSpot.y(0.98))
+  await expect.poll(async () => Object.keys((await masterLanePoints())[0] ?? {}).length).toBe(1)
+  const lowSpot = await spot(page, masterLaneIndex)
+  await page.mouse.click(lowSpot.x(BAR) - 1, lowSpot.y(0.02))
+  await expect.poll(async () => Object.keys((await masterLanePoints())[0] ?? {}).length).toBe(2)
+
+  // Move the second point by pointer to exercise the point-move path on the master lane, then poll for the new tick.
+  // The snap is 'beat', so moving to BAR/2 (a beat boundary) and back to BAR lands on exact ticks.
+  const ticksBefore = Object.keys((await masterLanePoints())[0] ?? {}).sort()
+  const moveSpot = await spot(page, masterLaneIndex)
+  await page.mouse.move(moveSpot.x(BAR), moveSpot.y(0.02))
+  await page.mouse.down()
+  await page.mouse.move(moveSpot.x(BAR / 2), moveSpot.y(0.02), { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(async () => Object.keys((await masterLanePoints())[0] ?? {}).sort()).not.toEqual(ticksBefore)
+  // Move it back to BAR so the fade reaches its bottom exactly at one bar for the level check below.
+  const backSpot = await spot(page, masterLaneIndex)
+  await page.mouse.move(backSpot.x(BAR / 2), backSpot.y(0.02))
+  await page.mouse.down()
+  await page.mouse.move(backSpot.x(BAR), backSpot.y(0.02), { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(async () => (await masterLaneData())[0]?.points[BAR]?.value).toBeLessThan(-40)
+
+  // A step curve set from the toolbar makes the drop sharp at BAR: select all points, then click the step button.
+  await page.keyboard.press('Control+a')
+  await expect(page.getByTestId('arr-curve-step')).toBeEnabled()
+  await page.getByTestId('arr-curve-step').click()
+  await expect.poll(async () => Object.values((await masterLaneData())[0]?.points ?? {}).every((p) => p.shape === 'step')).toBe(true)
+  await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-points', '2')
+
+  // Delete the points by keyboard, then undo: they come back (the point-delete path on a master lane).
+  // The step-curve toolbar click moved the focus off the grid; a box drag over the master lane selects
+  // both points, then the grid is refocused so Delete reaches its handler.
+  const boxSpot = await spot(page, masterLaneIndex)
+  await page.mouse.move(boxSpot.x(0) - 10, boxSpot.y(1) - 6)
+  await page.mouse.down()
+  await page.mouse.move(boxSpot.x(BAR) + 10, boxSpot.y(0) + 6, { steps: 6 })
+  await page.mouse.up()
+  await stage(page).getByTestId('timegrid').focus()
+  await page.keyboard.press('Delete')
+  await expect.poll(async () => Object.keys((await masterLanePoints())[0] ?? {}).length).toBe(0)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => Object.keys((await masterLanePoints())[0] ?? {}).length).toBe(2)
+
+  // Delete the whole lane using the lane-delete button, then undo to bring it back with its 2 points.
+  await page.getByTestId('arr-lane-delete').last().click()
+  await expect.poll(async () => (await masterLanes()).length).toBe(0)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await masterLanes()).length).toBe(1)
+  await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-points', '2')
+
+  // The mixer's "Automate" button navigates to the arrangement AND opens the master lanes.
+  await page.getByTestId('nav-mixer').click()
+  const automateBtn = page.getByTestId('mixer-master-automate-gain')
+  await expect(automateBtn).toBeVisible()
+  // Close the master lanes first, then click Automate: it must reopen them.
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  if ((await masterToggle.getAttribute('aria-expanded')) === 'true') await masterToggle.click()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'false')
+  await page.getByTestId('nav-mixer').click()
+  await automateBtn.click()
+  // We are now in the arrangement view and the master lanes are open.
+  await expect(arr(page)).toBeVisible()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'true')
+
+  // The "Automate" button on a master effect knob creates its lane and navigates to the arrangement.
+  // Set up: add a compressor to the master chain.
+  await page.getByTestId('nav-mixer').click()
+  await page.getByTestId('mixer-master-devices').click()
+  const devPanel = page.getByTestId('bottom-panel')
+  await expect(devPanel).toHaveAttribute('data-panel', 'devices')
+  await devPanel.getByRole('button', { name: /Add Compressor/ }).click()
+  await expect(devPanel.getByTestId('device-card')).toHaveCount(1)
+  // Close the master lanes, then click the Automate button on the first knob of the Compressor.
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  if ((await masterToggle.getAttribute('aria-expanded')) === 'true') await masterToggle.click()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'false')
+  // The Automate button is visible in the devices panel (bottom panel).
+  const automateKnob = devPanel.getByTestId('device-param-automate').first()
+  await expect(automateKnob).toBeVisible()
+  await automateKnob.click()
+  // Clicking opens the arrangement view and unfolds the master lanes.
+  await expect(arr(page)).toBeVisible()
+  await expect(masterToggle).toHaveAttribute('aria-expanded', 'true')
+  // A new master lane exists for the device parameter.
+  const masterLanesAfterDevice = () =>
+    page.evaluate(() => {
+      const v = (window as unknown as { __faulkView(): { project: { master_automation?: object } } }).__faulkView()
+      return Object.keys(v.project.master_automation ?? {})
+    })
+  await expect.poll(async () => (await masterLanesAfterDevice()).length).toBeGreaterThanOrEqual(2)
+  // Clicking again is idempotent: no new lane created (the guard prevents it).
+  await page.getByTestId('nav-mixer').click()
+  await page.getByTestId('mixer-master-devices').click()
+  await expect(devPanel.getByTestId('device-param-automate').first()).toBeVisible()
+  await devPanel.getByTestId('device-param-automate').first().click()
+  await expect.poll(async () => (await masterLanesAfterDevice()).length).toBe(2)
+
+  // The engine plays the fade drawn above: a note held on the track, the master's level is loud before BAR and near silence after.
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  await page.getByTestId('transport-play').click()
+  // Before BAR (first second at 120 BPM): the drawn lane's top point holds a loud level, so it must stay loud.
+  await page.waitForTimeout(500)
+  expect(await master(page)).toBeGreaterThan(loud / 10)
+  // After BAR: the step point drops to the gain axis bottom (near -96 dB), so the level must fall far below loud.
+  await expect.poll(() => master(page), { timeout: 15_000 }).toBeLessThan(loud / 100)
+  await page.getByTestId('transport-stop').click()
+  await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 69, 0]))
+
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: the master row is visible in an empty project, above the welcome message', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await open(page)
+  // With a track, the master row is there and the welcome message is not.
+  await expect(page.getByTestId('arr-master-row')).toBeVisible()
+  await expect(page.getByTestId('arrangement-empty')).toHaveCount(0)
+  // Delete every track: the project is empty, the welcome message shows, and it no longer hides the master row.
+  while ((await page.getByTestId('track-header').count()) > 0) {
+    const header = page.getByTestId('track-header').first()
+    await header.getByTestId('track-more').click()
+    await header.getByTestId('track-delete').click()
+  }
+  const welcome = page.getByTestId('arrangement-empty')
+  const masterRow = page.getByTestId('arr-master-row')
+  await expect(welcome).toBeVisible()
+  await expect(masterRow).toBeVisible()
+  await expect(masterRow.getByTestId('arr-automation-toggle')).toHaveAttribute('aria-expanded', 'false')
+  // The message sits in the tracks area, below the master row, and does not overlap it.
+  const masterBox = (await masterRow.boundingBox())!
+  const welcomeBox = (await welcome.boundingBox())!
+  expect(welcomeBox.y).toBeGreaterThanOrEqual(masterBox.y + masterBox.height - 1)
+  // The master row works with no track: its lane menu adds a lane, and the message stays.
+  await masterRow.getByTestId('arr-automation-toggle').click()
+  await page.getByTestId('arr-add-lane').last().selectOption({ label: 'Volume' })
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
+  await expect(welcome).toBeVisible()
+  // The message stays inside the stage once the master is unfolded, and the ruler stays above the master row.
+  const stageBox = (await stage(page).boundingBox())!
+  expect((await welcome.boundingBox())!.y).toBeLessThan(stageBox.y + stageBox.height)
+  expect((await masterRow.boundingBox())!.y).toBeGreaterThanOrEqual(stageBox.y + 28)
   expect(seen.errors).toEqual([])
 })

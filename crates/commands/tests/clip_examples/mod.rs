@@ -337,7 +337,7 @@ pub fn examples() -> Vec<(Command, State)> {
         on(clip::Command::NotesDuplicate {
             clip: f.clip.clone(),
             notes: vec![n(0, 60, 480, 100)],
-            offset: None,
+            offset: Some(Tick(480)),
         }),
         on(clip::Command::NotesDuplicate {
             clip: f.clip.clone(),

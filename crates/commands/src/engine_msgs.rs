@@ -27,7 +27,7 @@
 //! the chain stays empty. A clip's loop region and its notes' cents, chance and repeat
 //! are sent (CL-2, #225); the engine plays the cents, #192 the chance and the repeat.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use engine::msg::{
     AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
@@ -454,21 +454,44 @@ fn compile_event(
         // names the device's slot. The engine plays it (AM-2, `engine::automation`).
         ProjectEvent::AutomationLaneCreated { track, lane }
         | ProjectEvent::AutomationPointsChanged { track, lane } => {
-            let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
+            let slot = match track {
+                None => TrackSlot::MASTER,
+                Some(t) => match track_slot(sync, t) {
+                    Some(slot) => slot,
+                    None => return,
+                },
+            };
+            let Some(l) = project
+                .lanes(track.as_ref())
+                .and_then(|lanes| lanes.get(lane))
+            else {
                 return;
             };
-            if let Some(l) = t.automation.get(lane) {
-                lane_msgs(track, slot, t, lane, l, sync, out);
+            let devices = match track {
+                None => &project.master_devices,
+                Some(t) => match project.tracks.get(t) {
+                    Some(t) => &t.devices,
+                    None => return,
+                },
+            };
+            if l.points.is_empty() {
+                // A lane with no point does nothing (AM-1): it leaves the engine, as a deleted
+                // one does, and its parameter goes back to the stored value (#394). Never
+                // uploaded empty: an upload would inherit the hold of the restoring `ParamSet`
+                // and stay silent when its points come back.
+                if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                    restore_param(target, project, sync, out);
+                }
+            } else {
+                lane_msgs(track.as_ref(), slot, devices, lane, l, sync, out);
             }
         }
         ProjectEvent::AutomationLaneDeleted { track, lane } => {
-            if let Some(entry) = sync.track.get_mut(track) {
-                entry.lanes.remove(lane);
-            }
-            if let Some(slot) = sync.lanes.release(lane) {
-                out.push(ControlMsg::AutomationLaneRemove {
-                    lane: LaneSlot(slot),
-                });
+            // For a device parameter lane, the stored value comes back so that the engine does
+            // not keep the last value the lane sent (#394); a mixer lane gives its field back
+            // to the fader in the engine (`forget_lane`).
+            if let Some(target) = drop_lane(track.as_ref(), lane, sync, out) {
+                restore_param(target, project, sync, out);
             }
         }
         ProjectEvent::SoloChanged { track, solo } => {
@@ -529,6 +552,7 @@ pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, 
     out.push(set_metronome(project));
     out.push(master(project));
     master_chain_msgs(project, &mut sync, &mut out);
+    master_lane_msgs(project, &mut sync, &mut out);
     for (scene, _) in project.scenes_in_order() {
         if sync.scenes.assign(scene, limits::MAX_SCENES).is_none() {
             sync.overflow += 1;
@@ -572,6 +596,21 @@ fn device_slot(sync: &EngineSlots, track: &TrackId, device: &DeviceId) -> Option
     Some(DeviceSlot(slot as u16))
 }
 
+/// The slot of a device in the chain of a lane's owner: a track's (`Some`) or the master's.
+fn owner_device_slot(
+    sync: &EngineSlots,
+    owner: Option<&TrackId>,
+    device: &DeviceId,
+) -> Option<DeviceSlot> {
+    match owner {
+        Some(track) => device_slot(sync, track, device),
+        None => sync
+            .master_devices
+            .get(device)
+            .map(|slot| DeviceSlot(slot as u16)),
+    }
+}
+
 /// What the engine needs after a track's chain changed (a device inserted, removed, moved,
 /// brought back, or the instrument replaced): the engine runs the chain in slot order and a
 /// device's slot is its index in the chain, as in the snapshot. So a device whose index
@@ -608,14 +647,23 @@ fn sync_chain(
     for (lane_id, lane) in &track.automation {
         if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
         {
-            lane_msgs(track_id, slot, track, lane_id, lane, sync, out);
+            lane_msgs(
+                Some(track_id),
+                slot,
+                &track.devices,
+                lane_id,
+                lane,
+                sync,
+                out,
+            );
         }
     }
 }
 
 /// [`sync_chain`] for the master's chain (#364): the same rule, on the master's slot table.
-/// The master has no lanes to upload again. Note that inserting or moving an effect early in
-/// the chain builds again the ones that follow it (their tails restart), on the whole mix.
+/// The master's lanes that target a device built again are uploaded again, as a track's are
+/// (#378). Note that inserting or moving an effect early in the chain builds again the ones
+/// that follow it (their tails restart), on the whole mix.
 fn sync_master_chain(
     project: &Project,
     sync: &mut EngineSlots,
@@ -624,7 +672,7 @@ fn sync_master_chain(
 ) {
     let chain = project.master_devices_in_order();
     let mut table = std::mem::take(&mut sync.master_devices);
-    sync_devices(
+    let built = sync_devices(
         TrackSlot::MASTER,
         &chain,
         &mut table,
@@ -633,6 +681,36 @@ fn sync_master_chain(
         insert_of,
     );
     sync.master_devices = table;
+    for (lane_id, lane) in &project.master_automation {
+        if matches!(&lane.target, AutomationTarget::Device { device, .. } if built.contains(device))
+        {
+            lane_msgs(
+                None,
+                TrackSlot::MASTER,
+                &project.master_devices,
+                lane_id,
+                lane,
+                sync,
+                out,
+            );
+        }
+    }
+}
+
+/// The messages that bring the master's lanes to an empty engine: after its chain, whose
+/// slots they name.
+fn master_lane_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    for (lane_id, lane) in &project.master_automation {
+        lane_msgs(
+            None,
+            TrackSlot::MASTER,
+            &project.master_devices,
+            lane_id,
+            lane,
+            sync,
+            out,
+        );
+    }
 }
 
 /// The messages that bring the master's chain of an empty engine to the project's.
@@ -784,7 +862,7 @@ fn track_msgs(
         placements_msgs(id, track, sync, out);
     }
     for (lane_id, lane) in &track.automation {
-        lane_msgs(id, slot, track, lane_id, lane, sync, out);
+        lane_msgs(Some(id), slot, &track.devices, lane_id, lane, sync, out);
     }
 }
 
@@ -809,6 +887,7 @@ fn remove_track(id: &TrackId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>)
         }
     }
     for lane in &entry.lanes {
+        sync.lane_targets.remove(lane);
         if let Some(lane) = sync.lanes.release(lane) {
             out.push(ControlMsg::AutomationLaneRemove {
                 lane: LaneSlot(lane),
@@ -865,6 +944,121 @@ fn param_id(device: &Device, key: &str) -> Option<ParamId> {
         .iter()
         .find(|p| p.key == key)
         .map(|p| p.id)
+}
+
+/// Takes a lane out of the engine tables and tells the engine to drop it, when it is there.
+/// Returns the engine target it drove (`None` when the engine did not hold it).
+fn drop_lane(
+    owner: Option<&TrackId>,
+    lane: &LaneId,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) -> Option<(TrackSlot, EngineTarget)> {
+    let target = sync.lane_targets.remove(lane);
+    match owner {
+        None => {
+            sync.master_lanes.remove(lane);
+        }
+        Some(track) => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.remove(lane);
+            }
+        }
+    }
+    if let Some(slot) = sync.lanes.release(lane) {
+        out.push(ControlMsg::AutomationLaneRemove {
+            lane: LaneSlot(slot),
+        });
+    }
+    target
+}
+
+/// A lane that drove `target` is gone: sends the project's stored value of a device parameter
+/// (a mixer field goes back to the fader in the engine). Nothing when another lane still
+/// drives the same parameter (a merged project): the `ParamSet` would hold it.
+fn restore_param(
+    (track_slot, target): (TrackSlot, EngineTarget),
+    project: &Project,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    let EngineTarget::DeviceParam { device, param } = target else {
+        return;
+    };
+    if sync
+        .lane_targets
+        .values()
+        .any(|t| *t == (track_slot, target))
+    {
+        return;
+    }
+    restore_device_param(track_slot, device, param, project, sync, out);
+}
+
+/// Sends the project's stored value for a device parameter to the engine, so that when an
+/// automation lane that was driving it is removed or emptied the engine reverts to the
+/// project's value (#394 point 1). Does nothing if the device no longer exists in the
+/// project (it was removed in the same command, e.g. `device.remove`).
+fn restore_device_param(
+    track_slot: TrackSlot,
+    device_slot: DeviceSlot,
+    param: ParamId,
+    project: &Project,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    // Resolve the DeviceId from the slot the engine holds.
+    let device_id = if track_slot.is_master() {
+        sync.master_devices.id_at(device_slot.0 as u32)
+    } else {
+        sync.tracks
+            .id_at(track_slot.0)
+            .and_then(|tid| sync.track.get(tid))
+            .and_then(|ts| ts.devices.id_at(device_slot.0 as u32))
+    };
+    let Some(device_id) = device_id else {
+        return; // device no longer in the engine table (normal for device.remove)
+    };
+    // Resolve the device's project record to read the stored parameter value.
+    let devices = if track_slot.is_master() {
+        &project.master_devices
+    } else {
+        let Some(track_id) = sync.tracks.id_at(track_slot.0) else {
+            return;
+        };
+        let Some(track) = project.tracks.get(track_id) else {
+            return;
+        };
+        &track.devices
+    };
+    let Some(device) = devices.get(device_id) else {
+        return; // device was removed from the project (e.g. device.remove before lane delete)
+    };
+    // Reverse-resolve the ParamId to its descriptor, then read the stored value; a key the
+    // project does not hold is at the descriptor's default, as the engine built the device.
+    let DeviceSource::Builtin { id, .. } = &device.source else {
+        // Only built-in devices have lanes in the engine today (`lane_msgs` uploads none for a
+        // module: no descriptor yet, MO), so no `lane_targets` entry reaches this point for
+        // another source. When modules get lanes, they need their own default lookup here.
+        return;
+    };
+    let Some(descriptor) = crate::device::registry()
+        .iter()
+        .find(|b| b.descriptor.kind == id)
+        .map(|b| b.descriptor)
+    else {
+        return;
+    };
+    let Some(p) = descriptor.params.iter().find(|p| p.id == param) else {
+        return;
+    };
+    let value = device.params.get(p.key).copied().unwrap_or(p.default);
+    out.push(ControlMsg::ParamSet {
+        track: track_slot,
+        device: device_slot,
+        param,
+        value: finite_f32(value),
+    });
 }
 
 // ---------------------------------------------------------------- clips and arrangement
@@ -992,16 +1186,21 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     }));
 }
 
-/// An automation lane of a track, when the engine has its target.
+/// An automation lane of a track (`owner` is `Some`) or of the master, when the engine has
+/// its target. `track_slot` is the owner's row: the track's, or [`TrackSlot::MASTER`].
 fn lane_msgs(
-    track_id: &TrackId,
+    owner: Option<&TrackId>,
     track_slot: TrackSlot,
-    track: &Track,
+    devices: &BTreeMap<DeviceId, Device>,
     id: &LaneId,
     lane: &AutomationLane,
     sync: &mut EngineSlots,
     out: &mut Vec<ControlMsg>,
 ) {
+    // A lane with no point does nothing (AM-1): the engine does not hold it.
+    if lane.points.is_empty() {
+        return;
+    }
     let target = match &lane.target {
         AutomationTarget::Mixer {
             param: MixerParam::Gain,
@@ -1011,8 +1210,8 @@ fn lane_msgs(
         } => EngineTarget::MixerPan,
         AutomationTarget::Device { device, param } => {
             let (Some(slot), Some(param)) = (
-                device_slot(sync, track_id, device),
-                track.devices.get(device).and_then(|d| param_id(d, param)),
+                owner_device_slot(sync, owner, device),
+                devices.get(device).and_then(|d| param_id(d, param)),
             ) else {
                 return;
             };
@@ -1026,8 +1225,18 @@ fn lane_msgs(
         sync.overflow += 1;
         return;
     };
-    if let Some(entry) = sync.track.get_mut(track_id) {
-        entry.lanes.insert(id.clone());
+    // Store the engine target so that AutomationLaneDeleted can restore the stored value
+    // even after the project has already removed the lane's device (#394).
+    sync.lane_targets.insert(id.clone(), (track_slot, target));
+    match owner {
+        Some(track) => {
+            if let Some(entry) = sync.track.get_mut(track) {
+                entry.lanes.insert(id.clone());
+            }
+        }
+        None => {
+            sync.master_lanes.insert(id.clone());
+        }
     }
     let points: Vec<EnginePoint> = lane
         .points

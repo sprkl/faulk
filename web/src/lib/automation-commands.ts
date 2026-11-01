@@ -8,6 +8,8 @@ import type { AutomationTarget, Command, Point, Tick } from './generated/protoco
 
 /** A lane for a parameter of a track: a device's, or the track's volume or pan. One lane per parameter and track. */
 export const createLane = (track: string, target: AutomationTarget): Command => ({ type: 'automation.lane.create', track, target })
+/** Creates a lane on the master (`master: true` names it; the master is not a track): its volume or pan, or a parameter of an effect of its chain (#378). */
+export const createMasterLane = (target: AutomationTarget): Command => ({ type: 'automation.lane.create', master: true, target })
 export const deleteLane = (lane: string): Command => ({ type: 'automation.lane.delete', lane })
 /** New points (a tick that already holds a point is refused). */
 export const addPoints = (lane: string, points: Point[]): Command => ({ type: 'automation.points.add', lane, points })

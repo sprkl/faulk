@@ -22,6 +22,20 @@ export const validSessionId = (id) => typeof id === "string" && /^[\w-]{1,128}$/
 /** The key of the session in a hook input, or `undefined`. */
 export const sessionKey = (input) => (validSessionId(input?.session_id) ? input.session_id : undefined);
 
+/**
+ * The subagent a hook input comes from: Claude Code adds `agent_id` to the
+ * input of every hook that fires inside a subagent, which shares the lead's
+ * `session_id`. Absent for the lead's own calls. An id that is present but
+ * malformed is not honored (`undefined`): the call is then attributed to the
+ * lead, the stricter side.
+ */
+export const agentKey = (input) => (validSessionId(input?.agent_id) ? input.agent_id : undefined);
+
+/** A subagent with no hook event for this long, and no call in progress, is no longer running. */
+export const AGENT_IDLE_MS = 20 * 60 * 1000;
+/** A call in progress (a Pre hook without its Post) counts for this long at most. */
+export const AGENT_CALL_MS = 60 * 60 * 1000;
+
 /** Checkout holding the session's state: the project directory's, else the input's `cwd`'s. */
 export function stateRoot(input) {
   for (const dir of [process.env.CLAUDE_PROJECT_DIR, input?.cwd]) {
@@ -71,11 +85,37 @@ export function sessionState(state, key) {
   const dir = sessionDir(state, key);
   const baselinePath = (root) => join(dir, `baseline-${rootId(root)}.json`);
   // One marker per checkout and per branch (or commit) the session wrote on.
-  const writerPath = (root, ref) => join(dir, `wrote-${rootId(root)}-${rootId(String(ref ?? "(none)"))}.json`);
-  const writerPattern = (root) => new RegExp(`^wrote-${root ? rootId(root) : "[0-9a-f]{16}"}-[0-9a-f]{16}\\.json$`);
+  // The lead's markers have no agent suffix; a subagent's carry the hash of its id.
+  const writerPath = (root, ref, agent) =>
+    join(dir, `wrote-${rootId(root)}-${rootId(String(ref ?? "(none)"))}${agent ? `-${rootId(agent)}` : ""}.json`);
+  const writerPattern = (root) =>
+    new RegExp(`^wrote-${root ? rootId(root) : "[0-9a-f]{16}"}-[0-9a-f]{16}(?:-[0-9a-f]{16})?\\.json$`);
+  const agentPath = (agent) => join(dir, `agent-${rootId(agent)}.json`);
+  const agentCallPath = (agent, call) => join(dir, `call-${rootId(agent)}-${safeId(call)}.json`);
   const movePath = (root) => join(dir, `moved-${rootId(root)}.json`);
   const prePath = (toolUseId, root) => join(dir, `pre-${safeId(toolUseId)}-${rootId(root)}.json`);
   const listed = (pattern) => (existsSync(dir) ? readdirSync(dir).filter((name) => pattern.test(name)) : []);
+  const agentRunning = (agent, now = Date.now()) => {
+    const record = read(agentPath(agent));
+    const seen = Date.parse(record?.at);
+    if (!Number.isFinite(seen) || record.ended === true) {
+      return false;
+    }
+    if (now - seen < AGENT_IDLE_MS) {
+      return true;
+    }
+    return listed(new RegExp(`^call-${rootId(agent)}-`)).some((name) => {
+      const started = Date.parse(read(join(dir, name))?.at);
+      return Number.isFinite(started) && now - started < AGENT_CALL_MS;
+    });
+  };
+  const launchPath = (toolUseId) => join(dir, `launch-${safeId(toolUseId)}.json`);
+  const endAgent = (agent) => {
+    write(agentPath(agent), { agent, first: read(agentPath(agent))?.first, ended: true });
+    for (const name of listed(new RegExp(`^call-${rootId(agent)}-`))) {
+      rmSync(join(dir, name), { force: true });
+    }
+  };
   return {
     /** `{ fingerprint }`, `{}` when unreadable, `null` when the checkout was never seen. */
     baseline: (root) => read(baselinePath(root)),
@@ -87,12 +127,47 @@ export function sessionState(state, key) {
       write(movePath(root), { root, move });
     },
     lastMove: (root) => read(movePath(root)),
-    /** Wrote in this checkout on `ref`, or on any ref when `ref` is undefined. */
-    isWriter: (root, ref) =>
-      ref === undefined ? listed(writerPattern(root)).length > 0 : existsSync(writerPath(root, ref)),
+    /**
+     * Wrote in this checkout on `ref`, or on any ref when `ref` is undefined.
+     * `agent`: the subagent whose calls are asked about; without it, the
+     * lead's own (a subagent's marker never stands for the lead's).
+     */
+    isWriter: (root, ref, agent) =>
+      ref === undefined
+        ? listed(writerPattern(root)).some((name) => (read(join(dir, name))?.agent ?? undefined) === agent)
+        : existsSync(writerPath(root, ref, agent)),
     /** `ref`: the branch (or commit, on a detached head) the session wrote on. Keeps the first time. */
-    markWriter: (root, tool, ref) => write(writerPath(root, ref), { root, ref: ref ?? null, tool }, true),
-    /** Every `{ root, ref, at }` the session wrote on. */
+    markWriter: (root, tool, ref, agent) =>
+      write(writerPath(root, ref, agent), { root, ref: ref ?? null, tool, ...(agent ? { agent } : {}) }, true),
+    /**
+     * The subagent is alive: called by each hook event it fires. `call`: the
+     * id of its tool call, started (`done` false: before the call) or ended.
+     * A call in progress keeps the agent running however long it takes.
+     */
+    touchAgent: (agent, call, done = false) => {
+      const previous = read(agentPath(agent));
+      // `first`: when this run of the agent began (a resumed agent starts a new one).
+      const first = previous?.ended !== true && typeof previous?.first === "string" ? previous.first : new Date().toISOString();
+      write(agentPath(agent), { agent, first });
+      if (typeof call === "string") {
+        const path = agentCallPath(agent, call);
+        if (done) {
+          rmSync(path, { force: true });
+        } else {
+          write(path, { agent });
+        }
+      }
+    },
+    /** The subagent has ended (its own stop let it through, or the lead's call that launched it returned), until it fires an event again. */
+    endAgent,
+    /**
+     * Whether the subagent is still running: it has not ended and either fired
+     * a hook event less than `AGENT_IDLE_MS` before `now` or has a call in
+     * progress (started less than `AGENT_CALL_MS` before `now`; a call that
+     * never ends, denied by another hook or interrupted, stops counting then).
+     */
+    agentRunning,
+    /** Every `{ root, ref, at, agent? }` the session wrote on. */
     writers: () =>
       listed(writerPattern())
         .map((name) => read(join(dir, name)))
@@ -104,7 +179,33 @@ export function sessionState(state, key) {
           .filter((root) => typeof root === "string"),
       ),
     ],
-    savePre: (toolUseId, root, snapshot) => write(prePath(toolUseId, root), { root, ...snapshot }),
+    savePre: (toolUseId, root, snapshot, agent) =>
+      write(prePath(toolUseId, root), { root, ...snapshot, ...(agent ? { agent } : {}) }),
+    /** The lead is about to launch a subagent (its Agent or Task call): remembers when. */
+    noteLaunch: (toolUseId) => write(launchPath(toolUseId), {}),
+    /**
+     * The lead's Agent or Task call returned: the subagents that fired their
+     * first event since it started have finished (a foreground call returns
+     * when its agent does), calls without a Post included. One that is in
+     * fact still running (a background launch, a parallel call) is running
+     * again at its next event: a block. The opposite error is possible: an
+     * agent whose run began before the call (a background agent continued in
+     * the foreground) is not ended by it, and stays exempt while it is quiet.
+     */
+    endLaunched: (toolUseId) => {
+      const started = Date.parse(read(launchPath(toolUseId))?.at);
+      rmSync(launchPath(toolUseId), { force: true });
+      if (!Number.isFinite(started)) {
+        return;
+      }
+      for (const name of listed(/^agent-[0-9a-f]{16}\.json$/)) {
+        const record = read(join(dir, name));
+        const first = Date.parse(record?.first);
+        if (typeof record?.agent === "string" && Number.isFinite(first) && first >= started) {
+          endAgent(record.agent);
+        }
+      }
+    },
     /** The snapshots taken before this tool call, removed once read. */
     takePre: (toolUseId) => {
       const snapshots = [];
@@ -124,6 +225,11 @@ export function sessionState(state, key) {
      */
     dropPending: () => {
       for (const name of listed(/^pre-/)) {
+        // The snapshot of a call a running subagent is making is not pending: its Post is coming.
+        const agent = read(join(dir, name))?.agent;
+        if (typeof agent === "string" && agentRunning(agent)) {
+          continue;
+        }
         rmSync(join(dir, name), { force: true });
       }
     },

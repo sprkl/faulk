@@ -16,7 +16,7 @@ import {
   type ParamDescriptor,
 } from '../../../lib/devices'
 import { chainOf, type ChainEntry } from '../../../lib/project/chain'
-import { gainAt, positionOf as faderPosition } from '../../../lib/project/fader'
+import { exactDbAt, gainAt, positionOf as faderPosition } from '../../../lib/project/fader'
 import { MAX_GAIN_DB, MIN_GAIN_DB, formatGain, formatPan } from '../../../lib/project/tracks'
 import { parseGain, parsePan, parseParam } from '../../../lib/value-entry'
 
@@ -91,8 +91,8 @@ export interface Axis {
   home: number
   /** The text of a value, with its unit. */
   format: (value: number) => string
-  /** The value a typed text means, or null when it is unreadable. `shown` is the value the field opened on. */
-  parse: (text: string, shown: number) => number | null
+  /** The value a typed text means, or null when it is unreadable. */
+  parse: (text: string) => number | null
 }
 
 function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels: Labels): Axis {
@@ -110,7 +110,7 @@ function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels
       }
       return formatValue(param, value)
     },
-    parse: (text, shown) => parseParam(param, text, shown),
+    parse: (text) => parseParam(param, text),
   }
 }
 
@@ -231,12 +231,9 @@ export function lanesOf(track: Pick<Track, 'devices' | 'automation'>, labels: La
 
 // --- the value of a lane at a tick (the engine's rule, AM-2) -----------------------------------------
 
-const toAmplitude = (db: number): number => (db <= MIN_GAIN_DB ? 0 : Math.pow(10, db / 20))
-const toDb = (amplitude: number): number => (amplitude <= 0 ? MIN_GAIN_DB : Math.max(MIN_GAIN_DB, 20 * Math.log10(amplitude)))
-
 /**
  * The value a lane has at `tick`: before the first point the first, after the last the last; between two points a
- * straight line (`linear`, which is by amplitude for a volume lane: the engine interpolates the gain, not the dB) or
+ * straight line (`linear`, which for a volume lane is a line along the fader's travel, the lane's own axis: the engine interpolates the position of the fader, not the amplitude and not the dB, #389) or
  * the earlier value held (`step`). The shape of a point is that of the transition that follows it.
  */
 export function valueAt(points: readonly LanePoint[], tick: number, target: AutomationTarget): number | null {
@@ -248,6 +245,9 @@ export function valueAt(points: readonly LanePoint[], tick: number, target: Auto
   const b = points[next]
   if (!b || a.shape === 'step' || b.tick === a.tick) return a.value
   const t = (tick - a.tick) / (b.tick - a.tick)
-  if ('mixer' in target && target.mixer.param === 'gain') return toDb(toAmplitude(a.value) + (toAmplitude(b.value) - toAmplitude(a.value)) * t)
+  if ('mixer' in target && target.mixer.param === 'gain') {
+    const pa = faderPosition(a.value)
+    return exactDbAt(pa + (faderPosition(b.value) - pa) * t)
+  }
   return a.value + (b.value - a.value) * t
 }

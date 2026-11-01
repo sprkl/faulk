@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   blockReason,
+  exemptAgentMarker,
+  isAgentWorktreePath,
   canDefer,
   missingEvidence,
   requiredEvidence,
@@ -206,5 +208,36 @@ describe("messages", () => {
     assert.match(reason, /run\.mjs \.scratch\/judge-dredd\/<issue>-delivery\.md/);
     assert.match(reason, /record\.mjs reviewed --brief/);
     assert.match(reason, /record\.mjs deferred --reason/);
+  });
+});
+
+describe("subagent worktrees (#392)", () => {
+  const yes = { marker: { agent: "a1" }, running: true, agentWorktree: true, sameRepository: true, leadRoot: false };
+
+  it("recognizes the folder Claude Code gives an isolated subagent, and nothing else", () => {
+    for (const ok of ["C:/p/.claude/worktrees/agent-a958391d8b68fbdfa", "/p/.claude/worktrees/agent-x1/", "C:\\p\\.claude\\worktrees\\agent-x1"]) {
+      assert.equal(isAgentWorktreePath(ok), true, ok);
+    }
+    for (const no of [
+      "/p",
+      "/p/.claude/worktrees/feat-x",
+      "/p/.claude/worktrees/agent-x/sub",
+      "/p/worktrees/agent-x",
+      "/p/.claude/agent-x",
+      "/p/.claude/worktrees/agent-",
+      "/p/.claude/worktrees/agentx",
+    ]) {
+      assert.equal(isAgentWorktreePath(no), false, no);
+    }
+  });
+
+  it("exempts a marker only when every condition holds", () => {
+    assert.equal(exemptAgentMarker(yes), true);
+    assert.equal(exemptAgentMarker({ ...yes, marker: {} }), false, "the lead's own marker");
+    assert.equal(exemptAgentMarker({ ...yes, marker: undefined }), false);
+    for (const key of ["running", "agentWorktree", "sameRepository"]) {
+      assert.equal(exemptAgentMarker({ ...yes, [key]: false }), false, key);
+    }
+    assert.equal(exemptAgentMarker({ ...yes, leadRoot: true }), false, "a checkout the lead works in");
   });
 });

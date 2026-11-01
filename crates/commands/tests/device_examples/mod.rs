@@ -304,7 +304,8 @@ pub fn examples() -> Vec<(Command, State)> {
 /// A state where one lane, with two points, targets the track's instrument.
 fn with_instrument_lane(c: &Chain) -> State {
     let create = Command::Automation(automation::Command::LaneCreate {
-        track: c.track.clone(),
+        track: Some(c.track.clone()),
+        master: false,
         target: AutomationTarget::Device {
             device: c.synth.clone(),
             param: "gain".into(),

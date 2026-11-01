@@ -91,6 +91,110 @@ fn every_example_meets_the_contract_keeps_the_project_valid_and_undoes_exactly()
     }
 }
 
+/// The state with a gain lane on every track and one on the master, to see what a command
+/// does to them (#390, #394).
+fn with_lanes(from: &State) -> State {
+    use ::project::{AutomationLane, AutomationPoint, AutomationTarget, IdGenerator, LaneId};
+    use ::project::{MixerParam, Shape};
+    let mut ids = IdGenerator::new(1_680_000_000_000, 0x00AA_0000_0000_0000_0000);
+    let mut state = from.clone();
+    let lane = |ids: &mut IdGenerator| {
+        let points = [(0, -6.0), (960, 0.0)]
+            .into_iter()
+            .map(|(tick, value)| {
+                (
+                    Tick(tick),
+                    AutomationPoint {
+                        value,
+                        shape: Shape::Linear,
+                    },
+                )
+            })
+            .collect();
+        (
+            LaneId::generate(ids),
+            AutomationLane {
+                target: AutomationTarget::Mixer {
+                    param: MixerParam::Gain,
+                },
+                points,
+            },
+        )
+    };
+    for track in state.project.tracks.values_mut() {
+        let (id, l) = lane(&mut ids);
+        track.automation.insert(id, l);
+    }
+    let (id, l) = lane(&mut ids);
+    state.project.master_automation.insert(id, l);
+    state.project.validate().expect("the lanes are valid");
+    state
+}
+
+/// The lanes of the whole project, by owner (`None` is the master).
+type OwnedLanes = Vec<(
+    Option<TrackId>,
+    std::collections::BTreeMap<::project::LaneId, ::project::AutomationLane>,
+)>;
+
+fn all_lanes(state: &State) -> OwnedLanes {
+    let mut all: OwnedLanes = state
+        .project
+        .tracks
+        .iter()
+        .map(|(id, t)| (Some(id.clone()), t.automation.clone()))
+        .collect();
+    all.push((None, state.project.master_automation.clone()));
+    all
+}
+
+#[test]
+fn no_arrangement_command_touches_a_lane() {
+    // The nine commands of the module, each from its examples, with lanes on every track
+    // and on the master: the lanes, the events and the undo leave them as they are
+    // (#390, #394; the spec of AM-1 lists these names).
+    let mut seen = std::collections::BTreeSet::new();
+    for (command, from) in examples() {
+        let from = with_lanes(&from);
+        let before = all_lanes(&from);
+        let mut state = from.clone();
+        let mut ctx = context();
+        let outcome = run(&command, &mut state, &mut ctx).unwrap();
+        seen.insert(command.name());
+        assert_eq!(all_lanes(&state), before, "{}", command.name());
+        assert!(
+            !outcome.events.iter().any(|e| matches!(
+                e,
+                ProjectEvent::AutomationLaneCreated { .. }
+                    | ProjectEvent::AutomationLaneDeleted { .. }
+                    | ProjectEvent::AutomationPointsChanged { .. }
+            )),
+            "{}: {:?}",
+            command.name(),
+            outcome.events
+        );
+        let Undo::Inverse(inverse) = outcome.undo else {
+            panic!("{}: no inverse", command.name())
+        };
+        inverse.apply(&mut state, &mut ctx).unwrap();
+        assert_eq!(all_lanes(&state), before, "{} undone", command.name());
+    }
+    let expected: std::collections::BTreeSet<&str> = [
+        "arrangement.place",
+        "arrangement.move",
+        "arrangement.resize",
+        "arrangement.split",
+        "arrangement.delete",
+        "arrangement.duplicate",
+        "arrangement.place_from_slot",
+        "arrangement.place_scene",
+        "arrangement.restore",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(seen, expected, "the examples cover the whole module");
+}
+
 #[test]
 fn a_placement_on_free_ground_carves_nothing() {
     let f = fx();

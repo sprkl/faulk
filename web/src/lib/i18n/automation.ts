@@ -15,6 +15,8 @@ export const automation = defineFeature(
     'automation.addLane': 'Add a lane…',
     'automation.addLaneFor': 'Add an automation lane to {name}',
     'automation.valueNow': 'Value at the play position',
+    'automation.mark':
+      'Automated: the lane {lane} sets this value. A change made here lasts until the lane’s next point while playing, or until the next play or seek when stopped.',
     'automation.laneHint':
       'Click to add a point, drag a point to move it, drag on an empty part to select several. Delete removes the selected points. Hold Ctrl or Cmd to skip snapping. Double-click a point to type its value.',
     'automation.curves': 'Curve of the selected points',
@@ -31,6 +33,12 @@ export const automation = defineFeature(
     'automation.instrumentLanes': 'Changing the instrument removes its automation lanes ({n}). Undo brings them back.',
     'automation.instrumentLanesRemoved': 'The automation lanes of the previous instrument were removed ({n}). Undo brings them back.',
     'automation.dismiss': 'Dismiss',
+    'automation.showMaster': 'Show the automation lanes of Master',
+    'automation.hideMaster': 'Hide the automation lanes of Master',
+    'automation.addLaneForMaster': 'Add an automation lane to Master',
+    'automation.automate': 'Automate',
+    'automation.automateHint': 'Create an automation lane for this parameter and open it in the arrangement.',
+    'automation.automateParam': 'Automate: {param}',
   },
   {
     'automation.show': 'Afficher les couloirs d’automation de {name}',
@@ -44,6 +52,8 @@ export const automation = defineFeature(
     'automation.addLane': 'Ajouter un couloir…',
     'automation.addLaneFor': 'Ajouter un couloir d’automation à {name}',
     'automation.valueNow': 'Valeur à la position de lecture',
+    'automation.mark':
+      'Automatisé : le couloir {lane} impose cette valeur. Un changement fait ici dure jusqu’au prochain point du couloir pendant la lecture, ou jusqu’à la prochaine lecture ou au prochain déplacement de la tête à l’arrêt.',
     'automation.laneHint':
       'Clique pour ajouter un point, glisse un point pour le déplacer, glisse sur une partie vide pour en sélectionner plusieurs. Suppr efface les points sélectionnés. Maintiens Ctrl ou Cmd pour ignorer l’aimantation. Double-clique un point pour taper sa valeur.',
     'automation.curves': 'Courbe des points sélectionnés',
@@ -60,5 +70,11 @@ export const automation = defineFeature(
     'automation.instrumentLanes': 'Changer d’instrument supprime ses couloirs d’automation ({n}). Annuler les rend.',
     'automation.instrumentLanesRemoved': 'Les couloirs d’automation de l’instrument précédent ont été supprimés ({n}). Annuler les rend.',
     'automation.dismiss': 'Fermer',
+    'automation.showMaster': 'Afficher les couloirs d’automation du Master',
+    'automation.hideMaster': 'Masquer les couloirs d’automation du Master',
+    'automation.addLaneForMaster': 'Ajouter un couloir d’automation au Master',
+    'automation.automate': 'Automatiser',
+    'automation.automateHint': 'Créer un couloir d’automation pour ce paramètre et l’ouvrir dans l’arrangement.',
+    'automation.automateParam': 'Automatiser : {param}',
   },
 )
