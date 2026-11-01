@@ -172,6 +172,28 @@ impl ArrangementPlayer {
         &mut self.cursor
     }
 
+    /// Makes the arrangement hold `clip` with the notes `cursor` holds, as if it had
+    /// delivered them: the state [`crate::clip_player::Swap::shared`] names, which the
+    /// player's own flow does not produce (the arrangement is released before the grid
+    /// starts the clip), so a test builds it (#443).
+    #[cfg(feature = "testing")]
+    pub(crate) fn mirror_for_tests(
+        &mut self,
+        clip: ClipSlot,
+        cursor: &Cursor,
+        alias: Option<(u32, u32)>,
+    ) {
+        self.active = Some(Active {
+            placement: PlacementSlot(0),
+            clip,
+        });
+        self.cursor = cursor.clone();
+        if let Some((note, voice)) = alias {
+            self.cursor.aliases_mut().clear();
+            self.cursor.aliases_mut().push(note, voice);
+        }
+    }
+
     /// The cursor, to read the voices of its notes.
     pub(crate) fn cursor(&self) -> &Cursor {
         &self.cursor

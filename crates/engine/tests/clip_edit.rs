@@ -831,3 +831,134 @@ fn a_thousand_random_edits_leave_no_stuck_note_and_no_double_start() {
         assert_nothing_held(0);
     }
 }
+
+// ------------------------------------------- a clip held by the grid and the arrangement
+
+/// The grid plays clip 0 and the arrangement holds its sounding notes too (`Swap::shared`,
+/// which the player's own flow never produces: a test builds it), a live note sounds on
+/// top; returns the rig.
+fn shared_clip(pads: Vec<Note>, alias: Option<(u32, u32)>) -> Rig {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), pads));
+    r.run(500 * F, 128);
+    assert!(
+        r.e.state_mut()
+            .track_mut(TrackSlot(0))
+            .unwrap()
+            .player
+            .share_playing_clip_for_tests(alias),
+        "a clip plays"
+    );
+    r.send(&[M::NoteOn {
+        track: TrackSlot(0),
+        pitch: 72,
+        velocity: 100,
+    }]);
+    r.run(128, 128);
+    r
+}
+
+/// The live note (voice key + 1) sounded and was never ended.
+fn assert_live_note_spared() {
+    assert!(
+        events(0).iter().any(|e| e.1 && e.2 == 73 && e.3 == 72),
+        "{:?}",
+        events(0)
+    );
+    assert!(
+        events(0).iter().all(|e| e.2 != 73 || e.1),
+        "the live note is never ended: {:?}",
+        events(0)
+    );
+}
+
+#[test]
+fn an_edit_of_a_clip_held_by_the_grid_and_the_arrangement_ends_its_notes_and_spares_the_live_ones()
+{
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, None);
+    let changed: Vec<Note> = (0..30).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    // One note-off per pad, at the swap, under its own voice: not one per cursor.
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 30, "{ended:?}");
+    assert_live_note_spared();
+    r.send(&[M::AllNotesOff {
+        track: TrackSlot(0),
+    }]);
+    r.run(128, 128);
+    assert_nothing_held(0);
+}
+
+#[test]
+fn removing_a_clip_held_by_the_grid_and_the_arrangement_ends_its_notes_and_spares_the_live_ones() {
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, None);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .count();
+    assert_eq!(ended, 30);
+    assert_live_note_spared();
+}
+
+#[test]
+fn a_shared_clip_with_more_notes_than_the_track_can_end_is_released_by_the_track() {
+    // The accepted limit (64 notes to end at once): the track releases all, once.
+    let crowd: Vec<Note> = (0..100).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(crowd, None);
+    let changed: Vec<Note> = (0..100).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert_eq!(all_notes_offs(), vec![at]);
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn removing_a_shared_clip_whose_cursors_name_a_note_differently_ends_it_under_both_voices() {
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, Some((0, 500)));
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 31, "{ended:?}");
+    assert!(ended.iter().any(|e| e.2 == 500 && e.3 == 20));
+    assert_live_note_spared();
+}
+
+#[test]
+fn a_shared_clip_whose_cursors_name_a_note_differently_ends_it_under_both_voices() {
+    // The arrangement's cursor carried note 0 under voice 500: the note is ended under its
+    // own voice (129, the grid's) and under 500; the others once; the live note is spared.
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, Some((0, 500)));
+    let changed: Vec<Note> = (0..30).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 31, "{ended:?}");
+    assert!(ended.iter().any(|e| e.2 == 129 && e.3 == 20));
+    assert!(ended.iter().any(|e| e.2 == 500 && e.3 == 20));
+    assert_live_note_spared();
+}

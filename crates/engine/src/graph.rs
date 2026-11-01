@@ -246,6 +246,13 @@ impl TrackGraph {
 
     /// Releases every note of the track at the next rendered block: the notes a MIDI
     /// effect held under its own voice ids would never get their note-off otherwise.
+    ///
+    /// It cuts the notes played live too, so it is for the cases that must: a chain that
+    /// changed (the instrument that sounded is gone or replaced), the panic cut
+    /// (`reset_devices`), a schedule dropped with notes held, and the fallbacks of an edited
+    /// clip that have more notes to end than [`ORPHAN_ROOM`] (#443; a limit the memory
+    /// budget accepts). An edited clip's notes are otherwise ended one by one with
+    /// [`TrackGraph::end_note`], which leaves the live notes alone.
     pub(crate) fn release_notes(&mut self) {
         self.release = true;
     }

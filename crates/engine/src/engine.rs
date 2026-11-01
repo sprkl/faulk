@@ -1461,6 +1461,35 @@ impl Ending {
         !self.overflow
     }
 
+    /// Like [`Ending::push`], except that a note already given (same voice and key) is
+    /// not given twice: the notes of a clip held by both of the player's cursors have the
+    /// same voice under both unless one of them carried them.
+    fn push_new(&mut self, note: crate::clip_player::Orphan) -> bool {
+        if self.notes.iter().take(self.len).any(|&n| n == note) {
+            return !self.overflow;
+        }
+        self.push(note)
+    }
+
+    /// Gives the notes of `old` that its cursors held to this list. With `shared` (the grid
+    /// and the arrangement both hold notes of the clip, [`crate::clip_player::Swap`]) a note
+    /// may have been delivered by either: it is ended under the voice of each cursor, which
+    /// is the same voice unless one of them carried it (#443). `false` when there are more
+    /// than the room.
+    fn collect_held(
+        &mut self,
+        old: &ClipNotes,
+        shared: bool,
+        voices: &crate::events::Aliases,
+        arrangement_voices: &crate::events::Aliases,
+    ) -> bool {
+        if !shared {
+            return old.held_voices(voices, |o| self.push(o));
+        }
+        old.held_voices(voices, |o| self.push_new(o))
+            && old.held_voices(arrangement_voices, |o| self.push_new(o))
+    }
+
     /// Gives the notes to the track to end; `false` (nothing given) when they are more than
     /// it can take.
     fn hand_to(&self, graph: &mut crate::graph::TrackGraph) -> bool {
@@ -1487,8 +1516,14 @@ fn swap_notes(
     // Too many sounding notes to look at: nothing is carried, the track releases all.
     let too_many =
         old.is_some_and(|o| o.held_count() as usize > crate::clip_player::MAX_HELD_NOTES);
-    // The voices of the notes held, before the cursor starts over or goes on.
-    let Some(voices) = state.track_mut(track).map(|t| t.player.voices_of(slot)) else {
+    // The voices of the notes held, before the cursor starts over or goes on (the
+    // arrangement's too, for a clip both cursors hold).
+    let Some((voices, arrangement_voices)) = state.track_mut(track).map(|t| {
+        (
+            t.player.voices_of(slot),
+            t.player.arrangement_voices_of(slot),
+        )
+    }) else {
         return;
     };
     let Some(swap) = state
@@ -1500,7 +1535,6 @@ fn swap_notes(
     let mut ending = Ending::default();
     let mut carrying = false;
     if let Some(old) = old
-        && !swap.shared
         && !too_many
     {
         if swap.kept
@@ -1518,7 +1552,7 @@ fn swap_notes(
             cursor.set_carried(carried);
             carrying = true;
         } else if swap.release {
-            old.held_voices(&voices, |o| ending.push(o));
+            ending.collect_held(old, swap.shared, &voices, &arrangement_voices);
         }
     }
     let Some(t) = state.track_mut(track) else {
@@ -1527,9 +1561,10 @@ fn swap_notes(
     if !(swap.kept || swap.release) {
         return;
     }
-    if swap.shared || (swap.release && too_many) || !ending.hand_to(&mut t.graph) {
-        // Too many notes to end one by one (or voices that cannot be told apart): the
-        // cursor starts over, nothing is carried, the track releases all its notes.
+    if (swap.release && too_many) || !ending.hand_to(&mut t.graph) {
+        // Too many notes to end one by one (a limit the memory budget accepts,
+        // `limits_fit_under_the_wasm32_cap`): the cursor starts over, nothing is carried,
+        // the track releases all its notes, those played live included.
         if carrying {
             *t.player.carrier(swap) = crate::events::Cursor::default();
             if let Some(new) = state.clips.get_mut(slot.0)
@@ -1860,6 +1895,10 @@ impl Engine {
 
     /// Resets every device of every track: voices die, tails (delay lines) are hidden.
     /// Constant time per device ([`Device::reset`]), no allocation.
+    ///
+    /// The track's `release_notes` here is the whole point, not a limit: this is the end of
+    /// an `AllSoundOff` (the panic cut), which silences everything, notes played live
+    /// included, and [`Device::reset`] has just killed every voice anyway (#443).
     fn reset_devices(&mut self) {
         // The silence a cut leaves does not carry the gain of the overs before it.
         self.limiter.reset();
@@ -2342,6 +2381,7 @@ impl Engine {
                     {
                         // The voices of the notes held, before the cursor starts over.
                         let voices = t.player.voices_of(clip);
+                        let arrangement_voices = t.player.arrangement_voices_of(clip);
                         let swap = t.player.clip_changed(clip, true, false);
                         if swap.release
                             && let ClipContent::Notes(notes) = &c.content
@@ -2351,10 +2391,15 @@ impl Engine {
                             let mut ending = Ending::default();
                             let too_many =
                                 notes.held_count() as usize > crate::clip_player::MAX_HELD_NOTES;
-                            if !swap.shared && !too_many {
-                                notes.held_voices(&voices, |o| ending.push(o));
+                            if !too_many {
+                                ending.collect_held(
+                                    notes,
+                                    swap.shared,
+                                    &voices,
+                                    &arrangement_voices,
+                                );
                             }
-                            if swap.shared || too_many || !ending.hand_to(&mut t.graph) {
+                            if too_many || !ending.hand_to(&mut t.graph) {
                                 t.graph.release_notes();
                             }
                         }
