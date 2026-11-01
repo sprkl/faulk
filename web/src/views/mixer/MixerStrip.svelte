@@ -150,7 +150,7 @@
         class:implied
         type="button"
         aria-pressed={mixer?.mute ?? false}
-        aria-label={t('tracks.mute', { name })}
+        aria-label={implied && !mixer?.mute ? `${t('tracks.mute', { name })}. ${t('tracks.implied')}` : t('tracks.mute', { name })}
         title={t('tracks.mute', { name })}
         data-testid="mixer-mute"
         data-implied={implied ? 'true' : undefined}

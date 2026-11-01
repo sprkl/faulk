@@ -1143,7 +1143,7 @@
                     class:implied
                     type="button"
                     aria-pressed={muted}
-                    aria-label={t('tracks.mute', { name })}
+                    aria-label={implied && !muted ? `${t('tracks.mute', { name })}. ${t('tracks.implied')}` : t('tracks.mute', { name })}
                     title={implied && !muted ? t('tracks.implied') : t('tracks.mute', { name })}
                     data-testid="arr-mute"
                     data-implied={implied && !muted ? 'true' : undefined}

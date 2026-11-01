@@ -23,6 +23,8 @@ export class MeterStore {
 
   private readonly bank = new MeterBank()
   private lastReportAt = 0
+  /** The report the strips were last fed from, to feed them again when the tracks change. */
+  private lastReport: NonNullable<EngineStore['feedback']> | null = null
   /** The last report fed: one that comes back (the engine restarted, no new report yet) is old news, not a fresh signal. */
   private seen: object | null = null
 
@@ -70,14 +72,22 @@ export class MeterStore {
       // The clock is the page's, taken when the report arrives: a report carries none.
       $effect(() => {
         const current = this.engine.started ? this.engine.feedback : null
-        // Read so that a track added or removed feeds again.
-        void this.project.tracks
         const now = performance.now()
         untrack(() => {
           const report = current !== null && current === this.seen ? null : current
           if (current) this.seen = current
-          if (report) this.lastReportAt = now
+          if (report) {
+            this.lastReportAt = now
+            this.lastReport = report
+          }
           this.feed(report, now)
+        })
+      })
+      // A track added or removed: the strips follow the tracks at once, from the last report, never from silence.
+      $effect(() => {
+        void this.project.tracks
+        untrack(() => {
+          if (this.lastReport && performance.now() - this.lastReportAt <= STALE_MS) this.feed(this.lastReport, performance.now())
         })
       })
       $effect(() => {

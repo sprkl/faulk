@@ -93,6 +93,8 @@ test('mute, solo, arm and the implied mute are letters and shapes on every lane'
   expect(await contrast(solo(0))).toBeGreaterThanOrEqual(4.5)
   await expect(mute(2)).toHaveAttribute('data-implied', 'true')
   await expect(mute(2)).toContainText('Silenced by a solo')
+  // And in its accessible name, which an aria-label would otherwise replace.
+  await expect(mute(2)).toHaveAccessibleName(/Mute .*\. Silenced by a solo/)
   await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
   await expect(rows.nth(2).locator('.head')).toHaveCSS('opacity', '0.4')
   await expect(mute(0)).not.toHaveAttribute('data-implied', 'true')
@@ -100,13 +102,14 @@ test('mute, solo, arm and the implied mute are letters and shapes on every lane'
   await page.getByTestId('nav-mixer').click()
   await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAttribute('data-implied', 'true')
   await expect(page.getByTestId('mixer-mute').nth(2)).toHaveCSS('border-top-style', 'dashed')
+  await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAccessibleName(/Silenced by a solo/)
   await page.getByTestId('nav-arrangement').click()
   await page.screenshot({ path: `${SHOTS}/arrangement-states-${page.viewportSize()?.width ?? 0}.png` })
 
-  // Greyscale: the same page, no hue left; the letters, the strike and the underline are still there.
-  await page.addStyleTag({ content: 'html { filter: grayscale(1) }' })
-  await page.screenshot({ path: `${SHOTS}/arrangement-states-grey.png` })
+  // No hue needed: the states are letters and line shapes, still there on the page (the screenshot is kept for a look in greyscale).
   await expect(mute(1)).toHaveCSS('text-decoration-line', 'line-through')
+  await expect(solo(0)).toHaveCSS('text-decoration-line', 'underline')
+  await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
   expect(errors).toEqual([])
 })
 
@@ -132,7 +135,7 @@ test('the selected track has a 2px light outline and text that is AA', async ({ 
 test('the master meter is in the top bar of every view, and a clip stays until it is reset by click or keyboard', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
-  for (const view of ['arrangement', 'grid', 'mixer']) {
+  for (const view of ['arrangement', 'grid', 'mixer', 'play']) {
     await page.getByTestId(`nav-${view}`).click()
     await expect(page.getByTestId('top-meter')).toBeVisible()
   }

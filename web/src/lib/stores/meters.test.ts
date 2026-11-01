@@ -58,11 +58,20 @@ describe('MeterStore', () => {
   })
 
   it('drops the strip of a deleted track', () => {
-    const meters = store(['a', 'b'])
+    const ids = ['a', 'b']
+    const project = {
+      tracks: ids.map((id) => ({ id })),
+      view: { slots: { epoch: 1, tracks: { a: 0, b: 1 } } },
+    } as unknown as ProjectStore
+    const meters = new MeterStore(project, {} as EngineStore)
     meters.feed(report([meter(1.5), meter(0.2)], meter(0.1)), 0)
-    const fewer = store(['b'])
-    fewer.feed(report([meter(0.2)], meter(0.1)), 0)
-    expect(fewer.snaps.has('a')).toBe(false)
     expect(meters.snaps.has('a')).toBe(true)
+    expect(meters.snap('a').clipped).toBe(true)
+    // The track is deleted: the next feed drops its strip, clip and all.
+    ;(project as unknown as { tracks: { id: string }[] }).tracks = [{ id: 'b' }]
+    meters.feed(report([meter(0.2)], meter(0.1)), 33)
+    expect(meters.snaps.has('a')).toBe(false)
+    expect(meters.snap('a').clipped).toBe(false)
+    expect(meters.snaps.has('b')).toBe(true)
   })
 })

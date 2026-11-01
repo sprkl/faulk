@@ -997,11 +997,12 @@
     opacity: 0.45;
     cursor: default;
   }
+  /* On: a fill in the text colour (one voice: the violet is for the selection, the focus, the main action and Boost). */
   button[aria-pressed='true'],
   button[aria-checked='true'] {
-    background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-text);
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .step {
     width: 24px;
