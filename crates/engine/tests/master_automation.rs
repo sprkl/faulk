@@ -10,6 +10,7 @@
 //! At 120 BPM and 48 kHz a tick is exactly 25 frames and a bar (3 840 ticks) 96 000 frames.
 
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
+use engine::automation::Manual;
 use engine::device::DeviceSetup;
 use engine::device::testing::{GAIN, TONE, gain};
 use engine::engine::{Engine, Preparer, channel};
@@ -720,8 +721,12 @@ fn a_master_mute_holds_no_lane() {
         mute: true,
     }]);
     r.run(40 * block);
+    // The lane is still free: a lane held by the mute would show here, whatever its level.
+    let manual = |e: &Engine| e.state().lanes.get(0).unwrap().run.manual();
+    assert_eq!(manual(&r.e), Manual::Free);
     r.master(1.0, 0.0);
     r.run(40 * block);
+    assert_eq!(manual(&r.e), Manual::Free);
     r.check();
     let reference = reference(block, r.at);
     assert_levels(&r.left, &reference, start..mute, |_| gain_of(-20.0));

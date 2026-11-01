@@ -9,7 +9,7 @@ import type { FeedbackReport } from '../engine/feedback'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
 import { applyEffects, type EffectPorts } from './effects'
-import { setMasterVolume, setVolume } from '../track-commands'
+import { setMasterVolume, setPan, setVolume } from '../track-commands'
 import { AutomatedValues } from './automated.svelte'
 import { EngineStore } from './engine.svelte'
 import { ProjectStore } from './project.svelte'
@@ -323,6 +323,43 @@ describe('a gesture that leaves the value as the project holds it (#417)', () =>
     expect(s.automated.mixer('master', 'pan')).toBeUndefined()
     s.stop(300)
     expect(s.automated.mixer('master', 'pan')).toBe(-0.5)
+  })
+
+  it('holds the pan of a track, the volume of the master and a parameter of a master effect the same way', () => {
+    const s = session()
+    // The pan of the track.
+    s.run(createLane(s.track, { mixer: { param: 'pan' } }))
+    s.run(addPoints(s.lane(), [{ tick: 0, value: -0.5, shape: 'step' }]))
+    s.play(100)
+    expect(s.automated.mixer(s.track, 'pan')).toBe(-0.5)
+    s.saved()
+    s.run(setPan(s.track, s.project.tracks[0]!.track.mixer.pan))
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.automated.mixer(s.track, 'pan')).toBeUndefined()
+    // The master's volume.
+    s.run(createMasterLane({ mixer: { param: 'gain' } }))
+    const volume = Object.keys(s.project.view!.project.master_automation!)[0]!
+    s.run(addPoints(volume, [{ tick: 0, value: -12, shape: 'step' }]))
+    s.stop(100)
+    expect(s.automated.mixer('master', 'gain')).toBe(-12)
+    s.saved()
+    s.run(setMasterVolume(s.project.view!.project.master.gain_db ?? null))
+    expect(tagsOf(s.sent())).toEqual([HOLD_MIX])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.mixer('master', 'gain')).toBeUndefined()
+    // A parameter of a master effect.
+    s.run(insertMasterEffect('faulk.compressor', 0))
+    const effect = Object.keys(s.project.view!.project.master_devices!)[0]!
+    s.run(createMasterLane({ device: { device: effect, param: 'threshold' } }))
+    const lane = Object.keys(s.project.view!.project.master_automation!).find((id) => id !== volume)!
+    s.run(addPoints(lane, [{ tick: 0, value: -20, shape: 'step' }]))
+    s.stop(110)
+    expect(s.automated.device(effect, 'threshold')).toBe(-20)
+    s.saved()
+    s.run(setDeviceParam(effect, 'threshold', s.project.view!.project.master_devices![effect]!.params['threshold']!))
+    expect(tagsOf(s.sent())).toEqual([PARAM_SET])
+    expect(s.core.dirty()).toBe(false)
+    expect(s.automated.device(effect, 'threshold')).toBeUndefined()
   })
 
   it('does not hold a control no lane with a point drives', () => {

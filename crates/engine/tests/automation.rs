@@ -1417,3 +1417,32 @@ fn a_hold_mix_on_an_unknown_track_is_refused_and_one_on_a_track_without_lanes_ch
     assert_levels(&r.left, &reference, before + 240..stale, |_| 0.5);
     assert_levels(&r.left, &reference, stale + 240 + block..r.at, |_| 1.0);
 }
+
+#[test]
+fn a_hold_mix_in_the_batch_of_the_lane_upload_does_not_hold_the_new_lane() {
+    // The list of lanes a gesture holds is the last block's: a lane uploaded in the same batch
+    // of messages plays on (the rule of every gesture, #417 keeps it).
+    let block = 128;
+    let mut r = Rig::new(block, 1);
+    r.play(0);
+    r.run(4 * block);
+    r.p.handle(M::AutomationLaneUpload {
+        lane: LaneSlot(0),
+        track: TrackSlot(0),
+        target: AutomationTarget::MixerGain,
+        first: 0,
+        total: 1,
+        points: vec![pt(0, -20.0, Curve::Step)],
+    })
+    .unwrap();
+    r.p.handle(M::HoldMix {
+        track: TrackSlot(0),
+        gain: Some(1.0),
+        pan: None,
+    })
+    .unwrap();
+    r.p.flush();
+    r.run(4 * block);
+    assert_eq!(r.e.state().lanes.get(0).unwrap().run.manual(), Manual::Free);
+    r.check();
+}
