@@ -783,6 +783,10 @@ test('automation: a fader gesture equal to the stored value holds the lane in th
   await run(page, { type: 'mixer.set_volume', track, gain_db: stored })
   await expect.poll(() => master(page)).toBeGreaterThan(loud / 2)
   await expect(listGain).toHaveText('0.0')
+  // The track is deleted and restored by an undo: its lane is a new one in the engine, which plays it, and the page lets go of its hold (#425).
+  await run(page, { type: 'track.delete', track })
+  await run(page, { type: 'history.undo' })
+  await expect(listGain).toHaveText('−60.0')
   // A seek gives the lane the hand back.
   await run(page, { type: 'transport.seek', tick: 0 })
   await expect.poll(() => master(page)).toBeLessThan(loud / 100)
