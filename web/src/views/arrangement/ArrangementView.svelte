@@ -52,6 +52,7 @@
   import {
     blocksOf,
     clampScrollY,
+    maxScrollY,
     copyShift,
     hitBlock,
     isFree,
@@ -903,19 +904,62 @@
   // The window loses the pointer: nothing may stay half done.
   const silence = () => cancel()
 
-  // A plain vertical wheel scrolls the lanes; the grid keeps Shift and Ctrl for time and zoom.
+  // A plain vertical wheel scrolls the lanes, over the grid or over the track headers; the grid keeps Shift and Ctrl for time and zoom.
   $effect(() => {
-    const element = stage
-    if (!element) return
+    const elements = [stage, heads].filter((e): e is HTMLDivElement => !!e)
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey || event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
       event.preventDefault()
       const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stageH : 1
       scrollY = clampScrollY(y0 + event.deltaY * scale, layout.total, stageH)
     }
-    element.addEventListener('wheel', onWheel, { passive: false })
-    return () => element.removeEventListener('wheel', onWheel)
+    for (const element of elements) element.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      for (const element of elements) element.removeEventListener('wheel', onWheel)
+    }
   })
+
+  // The headers column never scrolls on its own: a focus or a `scrollIntoView` that moves it is turned into the view's one vertical scroll.
+  let heads: HTMLDivElement | undefined = $state()
+  function onHeadsScroll() {
+    const element = heads
+    if (!element || element.scrollTop === 0) return
+    scrollY = clampScrollY(y0 + element.scrollTop, layout.total, stageH)
+    element.scrollTop = 0
+  }
+
+  // A focus in the headers brings its row into view, up as well as down (the column cannot scroll up on its own: it is moved by a transform).
+  function onHeadsFocus(event: FocusEvent) {
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    // After the frame: the column's own scroll (a focus below the window) has been folded into `scrollY` by then.
+    requestAnimationFrame(() => {
+      const column = heads
+      if (!column || !target.isConnected) return
+      const row = target.closest('.row, .lane-head, .add-head') ?? target
+      const box = row.getBoundingClientRect()
+      const area = column.getBoundingClientRect()
+      const top = area.top + RULER_HEIGHT
+      if (box.top < top) scrollY = clampScrollY(y0 - (top - box.top), layout.total, stageH)
+      else if (box.bottom > area.bottom) scrollY = clampScrollY(y0 + (box.bottom - area.bottom), layout.total, stageH)
+    })
+  }
+
+  // The vertical scrollbar is a native one beside the grid; its content is the rows, so its range is the view's.
+  let vbar: HTMLDivElement | undefined = $state()
+  const overflowing = $derived(layout.total > stageH - RULER_HEIGHT)
+  $effect(() => {
+    const element = vbar
+    if (!element) return
+    if (Math.abs(element.scrollTop - y0) > SYNC_PX) element.scrollTop = y0
+  })
+  function onVBarScroll() {
+    const element = vbar
+    if (!element) return
+    const expected = Math.min(y0, element.scrollHeight - element.clientHeight)
+    if (Math.abs(element.scrollTop - expected) <= SYNC_PX) return
+    scrollY = clampScrollY(element.scrollTop, layout.total, stageH)
+  }
 </script>
 
 <svelte:window
@@ -999,14 +1043,14 @@
     >
   </div>
 
-  <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
+  <div class="board" class:scrolls={overflowing} style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
     {#if entries.length === 0}
       <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
       <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
         {t('arrangement.empty')}
       </p>
     {/if}
-    <div class="heads" data-testid="arr-heads">
+    <div class="heads" bind:this={heads} onscroll={onHeadsScroll} onfocusin={onHeadsFocus} data-testid="arr-heads">
       <div class="slide" style:transform="translateY({-y0}px)">
         {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
           {#if row.kind === 'track'}
@@ -1211,6 +1255,24 @@
         {/if}
       {/if}
     </div>
+    {#if overflowing}
+      <div
+        class="vbar"
+        bind:this={vbar}
+        onscroll={onVBarScroll}
+        data-testid="arr-vscrollbar"
+        role="scrollbar"
+        aria-controls="arr-stage-grid"
+        aria-orientation="vertical"
+        aria-valuemin="0"
+        aria-valuemax={Math.round(maxScrollY(layout.total, stageH))}
+        aria-valuenow={Math.round(y0)}
+        tabindex="0"
+        aria-label={t('arrangement.scrollRows')}
+      >
+        <div style:height="{layout.total}px" style:width="1px"></div>
+      </div>
+    {/if}
     <div class="corner"></div>
     <div
       class="hbar"
@@ -1334,6 +1396,9 @@
     flex: 1;
     min-height: 0;
   }
+  .board.scrolls {
+    grid-template-columns: var(--head) minmax(0, 1fr) auto;
+  }
   .heads {
     overflow: hidden;
     padding-top: var(--ruler);
@@ -1427,6 +1492,35 @@
   }
   @supports not selector(::-webkit-scrollbar) {
     .hbar {
+      scrollbar-width: auto;
+      scrollbar-color: var(--fk-text-muted) var(--fk-surface);
+    }
+  }
+  /* Beside the grid, under the ruler: always a visible bar, as the horizontal one. */
+  .vbar {
+    grid-column: 3;
+    grid-row: 1;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    width: 13px;
+    margin-top: var(--ruler);
+    /* Its content (all the rows) must not size the grid row: the bar takes the height of the stage. */
+    contain: size;
+    border-left: 1px solid var(--fk-line);
+  }
+  .vbar::-webkit-scrollbar {
+    width: 12px;
+  }
+  .vbar::-webkit-scrollbar-track {
+    background: var(--fk-surface);
+  }
+  .vbar::-webkit-scrollbar-thumb {
+    border: 2px solid var(--fk-surface);
+    border-radius: 6px;
+    background: var(--fk-text-muted);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .vbar {
       scrollbar-width: auto;
       scrollbar-color: var(--fk-text-muted) var(--fk-surface);
     }
