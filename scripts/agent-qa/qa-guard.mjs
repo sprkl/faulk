@@ -64,6 +64,10 @@ function judgeRef(root, session, marker, current, ctx) {
         session.dropWriter(root, marker.ref, marker.agent);
         return {};
       }
+      if (marker.warned === true) {
+        return {};
+      }
+      session.markWarned(root, marker.ref, marker.agent);
       return {
         warning: `This session wrote code on ${marker.ref} in ${root}, which no longer exists: the end-of-turn guard cannot check it.`,
       };

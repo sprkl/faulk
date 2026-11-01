@@ -394,9 +394,10 @@ describe("Stop hook: what blocks", () => {
       assert.match(output.systemMessage, WARNING);
       assert.equal(output.systemMessage.match(/which no longer exists/g).length, 1);
       assert.equal(markerFiles(root).length, 2);
+      assert.equal(stop(root), null); // not repeated at the next turn
     });
 
-    it("keeps warning for a marker written without a commit", () => {
+    it("warns once for a marker written without a commit", () => {
       const root = wroteAndLeft();
       const [name] = markerFiles(root);
       const path = qa(root, "sessions", "s1", name);

@@ -80,6 +80,22 @@ function write(path, value, exclusive = false) {
   }
 }
 
+/**
+ * Rewrites a marker with `patch`, keeping its `at`. Written beside then renamed:
+ * a concurrent hook never reads a truncated marker. Best effort (the rename can
+ * fail on Windows while another hook reads the file): it must never abort a
+ * judgement, and the next call tries again.
+ */
+function patchMarker(path, marker, patch) {
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify({ ...marker, ...patch })}\n`);
+    renameSync(temp, path);
+  } catch {
+    rmSync(temp, { force: true });
+  }
+}
+
 /** A session's view of the checkouts. */
 export function sessionState(state, key) {
   const dir = sessionDir(state, key);
@@ -148,13 +164,19 @@ export function sessionState(state, key) {
     noteTip: (root, ref, agent, tip) => {
       const path = writerPath(root, ref, agent);
       const marker = read(path);
-      if (typeof marker?.root !== "string" || typeof tip !== "string" || marker.tip === tip) {
+      if (typeof marker?.root !== "string" || typeof tip !== "string" || (marker.tip === tip && marker.warned !== true)) {
         return;
       }
-      // Written beside then renamed: a concurrent hook never reads a truncated marker.
-      const temp = `${path}.${process.pid}.tmp`;
-      writeFileSync(temp, `${JSON.stringify({ ...marker, tip })}\n`);
-      renameSync(temp, path);
+      // The branch exists: a later loss deserves its own warning.
+      patchMarker(path, marker, { tip, warned: false });
+    },
+    /** The "branch no longer exists" warning was shown for this marker: it is not repeated at later stops. */
+    markWarned: (root, ref, agent) => {
+      const path = writerPath(root, ref, agent);
+      const marker = read(path);
+      if (typeof marker?.root === "string" && marker.warned !== true) {
+        patchMarker(path, marker, { warned: true });
+      }
     },
     /** The session no longer needs this marker: its branch is settled. */
     dropWriter: (root, ref, agent) => rmSync(writerPath(root, ref, agent), { force: true }),
