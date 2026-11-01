@@ -25,8 +25,10 @@ import {
   fingerprintOf,
   hookRoots,
   isBranchName,
+  mergedIntoDevelop,
   readRecord,
   refFingerprint,
+  refTip,
   reviewPath,
   samePath,
   stashesSince,
@@ -43,6 +45,10 @@ import { blockReason, exemptAgentMarker, isAgentWorktreePath, stopDecision } fro
  */
 function judgeRef(root, session, marker, current, ctx) {
   const onIt = marker.ref === null || marker.ref === current;
+  if (marker.ref !== null) {
+    // Remember the branch's last known commit while it exists (see below).
+    session.noteTip(root, marker.ref, marker.agent, refTip(root, marker.ref));
+  }
   let files;
   let fingerprint;
   if (onIt) {
@@ -51,6 +57,13 @@ function judgeRef(root, session, marker, current, ctx) {
   } else {
     fingerprint = refFingerprint(root, marker.ref);
     if (fingerprint === undefined) {
+      // A branch deleted after its pull request was merged: its last known
+      // commit is in develop, nothing is left to check. Markers written
+      // without a commit, or whose commit is not in develop, still warn.
+      if (mergedIntoDevelop(root, marker.tip)) {
+        session.dropWriter(root, marker.ref, marker.agent);
+        return {};
+      }
       return {
         warning: `This session wrote code on ${marker.ref} in ${root}, which no longer exists: the end-of-turn guard cannot check it.`,
       };
@@ -195,7 +208,8 @@ try {
     session.dropPending();
   }
   const results = roots.flatMap((root) => judge(root, session, ctx));
-  warnings.push(...results.map((result) => result.warning).filter(Boolean));
+  // One warning per distinct text: several markers of a branch (lead and agents) say the same.
+  warnings.push(...new Set(results.map((result) => result.warning).filter(Boolean)));
   const reasons = results.map((result) => result.reason).filter(Boolean);
   if (session && ctx.agent && reasons.length === 0) {
     // Its own stop let the subagent through: it has ended.
