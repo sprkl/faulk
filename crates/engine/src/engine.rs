@@ -1786,7 +1786,7 @@ impl Engine {
         self.limiter.silenced()
     }
 
-    /// Clears the protection's silenced-sample counter, before a render pass.
+    /// Clears the protection's silenced-frame counter, before a render pass.
     pub fn reset_limiter_silenced(&mut self) {
         self.limiter.reset_silenced();
     }

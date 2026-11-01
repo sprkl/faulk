@@ -194,7 +194,13 @@ fn the_sound_comes_back_after_the_cut() {
     rig.note_on(64);
     rig.secs(0.3);
     assert!(peak(&rig.left[at..]) > 0.1, "a new note plays after a cut");
-    assert!(rig.left.iter().all(|s| s.is_finite()));
+    // `is_finite` on the output is vacuous (the output protection of #402 zeroes non-finite
+    // samples): the limiter's silenced-frame counter is the real no-NaN guard.
+    assert_eq!(
+        rig.host.engine().limiter_silenced(),
+        0,
+        "a note after the cut produced a non-finite sample"
+    );
 }
 
 #[test]

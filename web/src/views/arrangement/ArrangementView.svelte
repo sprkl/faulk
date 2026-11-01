@@ -838,15 +838,16 @@
     else run(createLane(trackId, option.target))
   }
 
-  // The mixer or the devices panel requests, once, that the master's lanes be unfolded (`ui.showMasterLanes()`).
-  // The request is a one-shot flag: this effect reads and clears it, adding MASTER to `open` exactly once.
+  // The mixer or the devices panel requests, once, that an owner's lanes be unfolded (`ui.showLanes()`).
+  // The request is a one-shot value: this effect reads and clears it, adding the owner to `open` exactly once
+  // (an owner that no longer exists, a deleted track, is ignored and the request is cleared all the same).
   // It fires both when the request arrives while the view is alive and when the view mounts with a pending
-  // request (Automate clicked elsewhere, then navigation brought the user here). Because the flag is consumed,
-  // a user who folds the master and comes back is not overridden.
+  // request (Automate clicked elsewhere, then navigation brought the user here). Because the request is
+  // consumed, a user who folds the owner and comes back is not overridden.
   $effect(() => {
-    if (ui.openMasterLanes && untrack(() => ui.takeMasterLanesRequest())) {
-      if (!open.has(MASTER)) open = new Set([...open, MASTER])
-    }
+    if (ui.openLanes === null) return
+    const owner = untrack(() => ui.takeLanesRequest())
+    if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
   })
 
   // The window loses the pointer: nothing may stay half done.

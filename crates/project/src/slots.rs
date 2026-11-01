@@ -20,6 +20,7 @@
 
 use crate::ids::{ClipId, DeviceId, LaneId, PlacementId, SceneId, TrackId};
 use crate::time::Tick;
+use engine::msg::{AutomationTarget, TrackSlot};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Ids of one kind and their slots.
@@ -164,6 +165,11 @@ pub struct EngineSlots {
     pub placements: SlotTable<PlacementId>,
     pub scenes: SlotTable<SceneId>,
     pub lanes: SlotTable<LaneId>,
+    /// The engine target (track slot + automation target) of every lane currently in the
+    /// engine, by lane id (#394). Stored so that when a lane is deleted its target can be
+    /// read even after the project has already removed it (e.g. `device.remove` removes the
+    /// device before the `AutomationLaneDeleted` event is compiled).
+    pub lane_targets: BTreeMap<LaneId, (TrackSlot, AutomationTarget)>,
     /// Where `transport.play` starts: the marker, or the position a `transport.pause` left
     /// the playhead on, 0 at first.
     pub cue: Tick,

@@ -15,6 +15,8 @@ export class ProjectStore {
   canRedo = $state(false)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
   watch: ((events: readonly ProjectEvent[]) => void) | null = null
+  /** Told of every applied transport command that cues the play position (a stop or a seek, even to where the playhead already stands: #394). */
+  cued: (() => void) | null = null
   /**
    * The automation lanes a swap of a track's instrument took with it (`track.set_instrument`: the lanes of the old instrument go in the
    * same history entry), whoever asked for it: a click, an agent, a redo. Cleared when lanes come back (an undo). `null` before any.
