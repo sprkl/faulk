@@ -477,10 +477,10 @@ impl Cursor {
         Read::Full(at)
     }
 
-    /// The run this cursor reads is replaced by another (CL-3) that holds, at the same
-    /// indices, the notes this cursor holds: the cursor goes on in the new run, without a
-    /// jump, so that those notes are not released and their note-offs (the new run's) end
-    /// them. `false` when the cursor cannot (a release or a part-delivered group is in
+    /// The run this cursor reads is replaced by another (CL-3) that holds the notes this
+    /// cursor holds (the caller matches them and gives the cursor their voices,
+    /// [`Cursor::aliases_mut`]): the cursor goes on in the new run, without a jump, so that
+    /// those notes are not released and their note-offs (the new run's) end them. `false` when the cursor cannot (a release or a part-delivered group is in
     /// progress, a read was cut, nothing was read yet): the caller starts it over.
     pub fn keep_through_swap(&mut self) -> bool {
         if self.releasing || self.group_end > self.next || self.resume.is_some() {

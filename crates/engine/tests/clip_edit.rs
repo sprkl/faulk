@@ -655,6 +655,19 @@ fn removing_a_clip_whose_notes_moved_ends_each_under_its_own_voice() {
     assert_nothing_held_after_stop(&mut r);
 }
 
+#[test]
+fn removing_a_clip_with_more_sounding_notes_than_the_track_can_end_releases_the_track() {
+    let crowd: Vec<Note> = (0..100).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd));
+    r.run(500 * F, 128);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "{:?}", all_notes_offs());
+    assert_nothing_held(0);
+}
+
 fn assert_nothing_held_after_stop(r: &mut Rig) {
     r.send(&[M::Stop]);
     r.run(512, 128);

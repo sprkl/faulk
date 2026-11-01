@@ -244,5 +244,16 @@ fn clip_swap_added_cost_at_the_limit() {
         &crowd_held,
         true,
     );
+    // The pass over the held words that `apply` makes before each swap (`held_count`).
+    let table = ClipNotes::try_new(&spread).unwrap();
+    let t0 = Instant::now();
+    let mut sum = 0;
+    for _ in 0..rounds {
+        sum += std::hint::black_box(&table).held_count();
+    }
+    println!(
+        "1M notes, held_count: {:.1} us (mean of {rounds}, {sum})",
+        t0.elapsed().as_nanos() as f64 / f64::from(rounds) / 1000.0
+    );
     let _ = ClipNotes::try_new(&[]).unwrap().len();
 }
