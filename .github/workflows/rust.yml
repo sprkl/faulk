@@ -5,6 +5,10 @@ on:
     branches: [develop, main]
   pull_request:
 
+# Least privilege: a job that needs more says so itself.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -14,6 +18,8 @@ jobs:
     # Nothing runs on a push to develop or main: the code was tested in its pull request.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Observed 49-61 min (full suite on a release pull request); a hung job must not run for the 6 h default.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +97,8 @@ jobs:
     # Nothing runs on a push to develop or main: the code was tested in its pull request.
     if: github.event_name == 'pull_request'
     runs-on: windows-latest
+    # Observed 8-15 min.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:

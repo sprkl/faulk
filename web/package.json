@@ -1,6 +1,7 @@
 {
   "name": "faulk-web",
   "private": true,
+  "license": "MIT",
   "version": "0.0.0",
   "type": "module",
   "packageManager": "pnpm@11.3.0",

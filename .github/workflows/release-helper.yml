@@ -54,6 +54,10 @@ on:
         required: false
         default: ''
 
+# Least privilege: a job that needs more says so itself (`release` writes contents).
+permissions:
+  contents: read
+
 concurrency:
   group: release-helper-${{ github.ref }}-${{ inputs.version }}-${{ inputs.mirror }}
   cancel-in-progress: false
@@ -68,6 +72,8 @@ jobs:
   # ---------------------------------------------------------------------------
   version:
     runs-on: ubuntu-latest
+    # A few seconds.
+    timeout-minutes: 10
     outputs:
       value: ${{ steps.resolve.outputs.value }}
       pack: ${{ steps.resolve.outputs.pack }}
