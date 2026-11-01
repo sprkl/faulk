@@ -98,6 +98,11 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 /// that multiply their notes beyond it meet CT-5's overflow safety net.
 pub const TRACK_INPUT_EVENTS: usize = NOTE_ROOM;
 
+/// Sounding notes of an edited clip that a track ends by their own note-off at the next
+/// block ([`TrackGraph::end_note`], CL-3): more than this fall back on a release of every
+/// note of the track.
+pub const ORPHAN_ROOM: usize = 64;
+
 /// Frames a fade lasts at `sample_rate` (at least 1).
 pub fn fade_frames(sample_rate: f32) -> u32 {
     let frames = (FADE_SECONDS * f64::from(sample_rate)).round();
@@ -164,6 +169,10 @@ pub struct TrackGraph {
     /// enabled or disabled): the next rendered block releases every note of the track
     /// first.
     release: bool,
+    /// Notes of an edited clip that no table can end any more, as `voice | key << 24`: the
+    /// next rendered block ends each with its own note-off, the live notes untouched.
+    orphans: [u32; ORPHAN_ROOM],
+    orphan_len: usize,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
     /// message fills it (the automation is read from its lanes, [`crate::automation`]);
     /// tests set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
@@ -192,6 +201,8 @@ impl TrackGraph {
         TrackGraph {
             mixer: Mixer::new(),
             release: false,
+            orphans: [0; ORPHAN_ROOM],
+            orphan_len: 0,
             schedule: None,
             meter: MeterAcc {
                 peak: [0.0; 2],
@@ -237,6 +248,23 @@ impl TrackGraph {
     /// effect held under its own voice ids would never get their note-off otherwise.
     pub(crate) fn release_notes(&mut self) {
         self.release = true;
+    }
+
+    /// Ends the note `(voice, key)` of an edited clip by its own note-off at the next
+    /// rendered block (CL-3). With no room left the track releases every note instead.
+    pub(crate) fn end_note(&mut self, voice: VoiceId, key: u8) {
+        match self.orphans.get_mut(self.orphan_len) {
+            Some(slot) => {
+                *slot = voice.get() | u32::from(key.min(127)) << 24;
+                self.orphan_len += 1;
+            }
+            None => self.release = true,
+        }
+    }
+
+    /// Notes that [`TrackGraph::end_note`] can still take before the next rendered block.
+    pub(crate) fn orphan_room(&self) -> usize {
+        ORPHAN_ROOM - self.orphan_len.min(ORPHAN_ROOM)
     }
 
     /// Whether a release waits for the next rendered block.
@@ -906,9 +934,23 @@ fn render_track(
     left.fill(0.0);
     right.fill(0.0);
     sink.clear();
+    let mut ended = core::mem::take(&mut track.graph.orphan_len);
     if core::mem::take(&mut track.graph.release) {
-        // Before the live notes: they reach the chain as it is now and play.
+        // Before the live notes: they reach the chain as it is now and play. It ends the
+        // notes of an edited clip too.
         sink.push_note(Event::AllNotesOff { offset: 0 });
+        ended = 0;
+    }
+    // The notes of an edited clip that nothing else ends, before the live notes (the sink
+    // keeps their room).
+    for &packed in track.graph.orphans.iter().take(ended) {
+        if let Some(voice) = VoiceId::new(packed & 0x00FF_FFFF) {
+            sink.push_note(Event::NoteOff {
+                offset: 0,
+                voice,
+                key: (packed >> 24) as u8,
+            });
+        }
     }
     let reads = input.is_some();
     let mut clips = None;

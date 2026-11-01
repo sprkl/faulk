@@ -167,6 +167,16 @@ impl ArrangementPlayer {
         self.active.is_some_and(|a| a.clip == slot)
     }
 
+    /// The cursor, after a swap that kept the held notes ([`ClipPlayer::carrier`]).
+    pub(crate) fn cursor_mut(&mut self) -> &mut Cursor {
+        &mut self.cursor
+    }
+
+    /// The cursor, to read the voices of its notes.
+    pub(crate) fn cursor(&self) -> &Cursor {
+        &self.cursor
+    }
+
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When the
     /// player reads it, its cursor starts over (the next read is a jump into the new table)
     /// and, when removed, the placement stops. With `keep` the cursor goes on in the new
