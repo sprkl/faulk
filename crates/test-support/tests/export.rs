@@ -46,6 +46,10 @@ fn the_song_is_rendered_from_bar_one_to_the_end_of_its_last_placement() {
         "{}",
         exported.peak
     );
+    // The whole render path (synth, track and master strips, summing) is finite: the output
+    // protection silenced nothing. This is the engine-level "no NaN" check the DoD asks for,
+    // through the one seam the limiter leaves (its own assert_finite on the output is vacuous).
+    assert_eq!(exported.silenced, 0, "the render had a non-finite sample");
 }
 
 #[test]
@@ -285,25 +289,46 @@ fn every_format_and_rate_writes_a_valid_file_of_the_same_sound() {
 }
 
 #[test]
-fn a_signal_over_full_scale_is_clipped_in_integers_and_kept_in_floats() {
+fn a_signal_over_full_scale_is_limited_in_every_format_like_what_is_heard() {
     let mut state = demo_song(2, None);
     // Gain staging that overloads the output: the master 24 dB up.
     state.project.master.gain_db = 24.0;
-    let int = export_native(
-        &state,
+    for depth in [
+        ExportBitDepth::Pcm16,
+        ExportBitDepth::Pcm24,
+        ExportBitDepth::Float32,
+    ] {
+        let file = export_native(&state, settings(ExportRegion::Song, depth, 48_000));
+        // The output protection (#402) holds every format under -0.3 dBFS: nothing clips,
+        // the floats included, and the file is as loud as the ceiling allows.
+        assert_eq!(file.clipped, 0, "{depth:?}");
+        assert!(
+            file.peak > 0.9 && file.peak <= engine::limiter::CEILING,
+            "{depth:?}: {}",
+            file.peak
+        );
+        // The mix was pushed hard into the limiter: the export reports a real gain reduction
+        // (the dialog warns the user). 24 dB over the ceiling is well past a dB of reduction.
+        let reduction_db = -20.0 * (1.0 - file.reduction).log10();
+        assert!(
+            reduction_db > 1.0,
+            "{depth:?}: only {reduction_db:.2} dB of gain reduction reported for a +24 dB mix"
+        );
+        // A hot but finite mix is clamped, never silenced: the counter stays 0.
+        assert_eq!(file.silenced, 0, "{depth:?}: a finite mix was silenced");
+        let r = file.render();
+        assert!(r.peak() <= engine::limiter::CEILING, "{depth:?}");
+        r.assert_clean();
+    }
+
+    // A mix that stays under the ceiling never engages the limiter, so the reported reduction
+    // is exactly 0: the dialog shows no warning.
+    let quiet = demo_song(2, None);
+    let file = export_native(
+        &quiet,
         settings(ExportRegion::Song, ExportBitDepth::Pcm24, 48_000),
     );
-    assert!(int.clipped > 0, "peak {}", int.peak);
-    assert!(int.peak > 1.0);
-    let r = int.render();
-    assert!(r.peak() <= 1.0);
-    r.assert_finite();
-    let float = export_native(
-        &state,
-        settings(ExportRegion::Song, ExportBitDepth::Float32, 48_000),
-    );
-    assert_eq!(float.clipped, 0);
-    assert!(float.render().peak() > 1.0, "the floats are kept");
+    assert_eq!(file.reduction, 0.0, "a quiet mix must report no reduction");
 }
 
 #[test]

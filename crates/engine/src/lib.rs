@@ -17,6 +17,7 @@ pub mod fader;
 pub mod graph;
 pub mod host;
 pub mod launcher;
+pub mod limiter;
 pub mod metronome;
 pub mod mixer;
 pub mod msg;

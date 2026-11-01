@@ -75,6 +75,12 @@ impl Rig {
     fn skipped(&self) -> u32 {
         self.host.engine().skipped()
     }
+
+    /// Non-finite samples the output protection (#402) silenced. The `is_finite` checks on the
+    /// render output are vacuous (the limiter is the last stage); this is the real no-NaN guard.
+    fn silenced(&self) -> u64 {
+        self.host.engine().limiter_silenced()
+    }
 }
 
 fn squeeze() -> Vec<u8> {
@@ -121,6 +127,11 @@ fn a_master_effect_changes_the_sum_and_a_bypassed_or_removed_one_leaves_it_bit_f
         "the chain did not act"
     );
     assert!(treated.left.iter().all(|s| s.is_finite()));
+    assert_eq!(
+        treated.silenced(),
+        0,
+        "the master chain produced a non-finite sample"
+    );
 
     let mut bypassed = Rig::new();
     bypassed.send(&[
@@ -269,6 +280,11 @@ fn the_chain_grows_past_its_first_row_and_runs_in_slot_order() {
     play(&mut rig);
     assert_eq!((rig.rejected(), rig.skipped()), (0, 0));
     assert!(rig.left.iter().all(|s| s.is_finite()));
+    assert_eq!(
+        rig.silenced(),
+        0,
+        "the master chain produced a non-finite sample"
+    );
     assert!(rms(&rig.left[9600..]) > 0.01);
     // Slot order is run order: a compressor before a loud echo and the same pair swapped do
     // not give the same sound.
@@ -290,6 +306,11 @@ fn the_chain_grows_past_its_first_row_and_runs_in_slot_order() {
     ba.send(&[loud_echo(0), compressor_on_master(1)]);
     play(&mut ba);
     assert!(ab.left.iter().chain(&ba.left).all(|s| s.is_finite()));
+    assert_eq!(
+        (ab.silenced(), ba.silenced()),
+        (0, 0),
+        "a chain order produced a non-finite sample"
+    );
     assert_ne!(
         ab.left, ba.left,
         "the order of the chain is the order of the run"

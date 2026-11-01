@@ -175,6 +175,14 @@ impl Rig {
 
     fn check(&self) {
         assert_eq!(self.p.rejected(), 0, "the preparer rejected a message");
+        // The `is_finite` check below is vacuous on the render output since the output protection
+        // (#402) silences non-finite samples; `limiter_silenced` is the real no-NaN guard — a
+        // master gain lane that produced NaN at an odd block size would make it non-zero.
+        assert_eq!(
+            self.e.limiter_silenced(),
+            0,
+            "the output protection silenced a non-finite sample: the master automation produced NaN"
+        );
         for (i, s) in self.left.iter().chain(&self.right).enumerate() {
             assert!(s.is_finite(), "sample {i} is {s}");
             assert!(*s == 0.0 || s.abs() >= f32::MIN_POSITIVE, "denormal at {i}");

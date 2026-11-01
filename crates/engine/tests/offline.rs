@@ -239,8 +239,9 @@ fn the_header_is_what_a_reader_expects() {
 }
 
 #[test]
-fn integer_formats_round_and_clip() {
-    // The synth at full gain into a master far above 0 dB clips; 16 bits count it.
+fn integer_formats_round_and_the_output_protection_keeps_the_ceiling() {
+    // The synth at full gain into a master far above 0 dB: the output protection (#402)
+    // holds the file under its ceiling, so nothing reaches full scale and nothing clips.
     let loud = stream(0, master(4.0, false));
     for (format, scale) in [
         (SampleFormat::Pcm16, 32_767.0f32),
@@ -261,12 +262,12 @@ fn integer_formats_round_and_clip() {
         }
         file.extend_from_slice(offline.pcm());
         assert!(
-            offline.peak() > 1.0,
-            "{format:?}: the test needs an overload ({})",
+            offline.peak() > 0.9 && offline.peak() <= engine::limiter::CEILING,
+            "{format:?}: the overload is limited at the ceiling ({})",
             offline.peak()
         );
-        assert!(offline.clipped() > 0, "{format:?}");
-        // No sample is past full scale, and the clipped ones sit exactly on it.
+        assert_eq!(offline.clipped(), 0, "{format:?}");
+        // No sample is past the ceiling, and the limited ones sit on it.
         let bytes = format.bits() as usize / 8;
         let max = file
             .chunks_exact(bytes)
@@ -280,6 +281,10 @@ fn integer_formats_round_and_clip() {
             })
             .max()
             .unwrap();
-        assert_eq!(max as f32, scale, "{format:?}");
+        assert_eq!(
+            max as f32,
+            (engine::limiter::CEILING * scale).round(),
+            "{format:?}"
+        );
     }
 }

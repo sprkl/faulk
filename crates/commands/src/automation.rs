@@ -43,6 +43,7 @@
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::device::{descriptor_of, registry};
 use crate::macros::domain;
+use crate::query::{LaneSummary, PageInfo};
 use engine::device::ParamDescriptor;
 use project::limits::{MAX_LANES, MAX_LANES_PER_TRACK, MAX_POINTS, MAX_POINTS_PER_LANE, MAX_TICK};
 use project::{
@@ -214,6 +215,63 @@ domain! {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         remove: Vec<Tick>,
     } => {};
+
+    /// List automation lanes, without their points (`automation.lane.points` reads them):
+    /// each with its identifier, its owner track (`null` for the master's), its target
+    /// (a device parameter or the owner's `gain` or `pan`) and how many points it holds.
+    /// Name `track` for one track's lanes or `master: true` for the master's, not both
+    /// (refused with `invalid`); with neither, every lane of the project: the master's
+    /// first, then each track's in display order, a track's lanes in the order of their
+    /// identifiers. Refused with `not_found` for an unknown track. Paged: `offset` (lanes to
+    /// skip, 0 by default) and `limit` (lanes to return, 1 to 1000, 100 by default; any
+    /// other limit is refused with `invalid`, never clamped); the answer's `page` gives the
+    /// `total`, the `offset` used and the `next_offset` of the next page, `null` after the
+    /// last one. A query: changes nothing and never enters the history.
+    "automation.lane.list" (kind = "query", undo = "none", destructive = false)
+    LaneList {
+        /// Only this track's lanes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<TrackId>,
+        /// `true` for only the master's lanes.
+        #[serde(default, skip_serializing_if = "is_false")]
+        master: bool,
+        /// Lanes to skip, 0 by default.
+        offset: Option<u32>,
+        /// Lanes to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The lanes of this page.
+        lanes: Vec<LaneSummary>,
+        /// Where this page sits in the list.
+        page: PageInfo,
+    };
+
+    /// Read the points of one automation lane in tick order, a page at a time: each point
+    /// has its `tick` (0 to 2^40, 960 per quarter note), its `value` in the parameter's unit
+    /// (dB for a gain lane) and its `shape` (`linear` or `step`, the transition to the next
+    /// point). The answer also gives the lane's summary (owner, target, point count). Paged:
+    /// `offset` (points to skip, 0 by default) and `limit` (points to return, 1 to 1000, 100
+    /// by default; any other limit is refused with `invalid`, never clamped); the answer's
+    /// `page` gives the `total`, the `offset` used and the `next_offset` of the next page,
+    /// `null` after the last one. An `offset` past the end gives an empty page. Refused with
+    /// `not_found` for an unknown lane. A query: changes nothing and never enters the
+    /// history.
+    "automation.lane.points" (kind = "query", undo = "none", destructive = false)
+    LanePoints {
+        /// The lane whose points are read.
+        lane: LaneId,
+        /// Points to skip, 0 by default.
+        offset: Option<u32>,
+        /// Points to return, 1 to 1000, 100 by default.
+        limit: Option<u32>,
+    } => {
+        /// The lane's summary.
+        lane: LaneSummary,
+        /// The points of this page, in tick order.
+        points: Vec<Point>,
+        /// Where this page sits in the lane's point list.
+        page: PageInfo,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -281,6 +339,29 @@ pub(crate) fn apply_with(
     ctx: &mut Context,
 ) -> Result<Out, CommandError> {
     match command {
+        Command::LaneList {
+            track,
+            master,
+            offset,
+            limit,
+        } => {
+            let (lanes, page) =
+                crate::query::lane_list(&state.project, track.as_ref(), *master, *offset, *limit)?;
+            Ok(crate::query::answer(Output::LaneList { lanes, page }))
+        }
+        Command::LanePoints {
+            lane,
+            offset,
+            limit,
+        } => {
+            let (lane, points, page) =
+                crate::query::lane_points(&state.project, lane, *offset, *limit)?;
+            Ok(crate::query::answer(Output::LanePoints {
+                lane,
+                points,
+                page,
+            }))
+        }
         Command::LaneCreate {
             track,
             master,

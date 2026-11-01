@@ -221,6 +221,31 @@ fn live_commands_reach_the_engine_and_the_session_is_seen() {
 }
 
 #[test]
+fn queries_neither_mark_the_project_dirty_nor_enter_the_history() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    assert!(!h.dirty());
+    let before = h.view();
+    for command in [
+        json!({"type": "project.get"}),
+        json!({"type": "track.list"}),
+        json!({"type": "track.get", "track": SYNTH_TRACK}),
+        json!({"type": "scene.list"}),
+        json!({"type": "transport.get"}),
+        json!({"type": "automation.lane.list"}),
+        json!({"type": "device.describe", "kind": "faulk.osc_synth"}),
+    ] {
+        let (report, bytes) = h.run(command.clone());
+        assert_eq!(report["status"], "applied", "{command}");
+        assert!(report["output"].is_object(), "{command}");
+        assert!(bytes.is_empty(), "{command}: nothing for the engine");
+    }
+    assert!(!h.dirty(), "a query is not a change to save");
+    assert_eq!(h.core().undo_depth(), 0);
+    assert_eq!(h.view(), before);
+}
+
+#[test]
 fn a_snapshot_moves_to_the_next_epoch() {
     let h = Handle::new(KIND_SINGLE_SYNTH);
     let (setup, a) = h.call0(pw_setup);
