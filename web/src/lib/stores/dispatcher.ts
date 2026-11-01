@@ -435,6 +435,7 @@ export class Dispatcher {
       loadFolderVersion: () => void this.storage?.loadDisk(),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
+      cued: () => this.project.cued?.(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
