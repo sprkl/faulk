@@ -356,10 +356,12 @@
     background: var(--fk-bg);
     cursor: default;
   }
+  /* The selection: a 2px light outline and a tint, with secondary text that stays AA on it. */
   .header.selected {
+    --fk-text-muted: var(--fk-text-muted-on-tint);
     background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
-    border-left-color: var(--track-color);
+    outline: 2px solid var(--fk-text);
+    outline-offset: -1px;
   }
   .header {
     position: relative;

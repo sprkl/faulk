@@ -15,6 +15,7 @@ import { AutomatedValues } from './automated.svelte'
 import { Dispatcher } from './dispatcher'
 import { EngineStore } from './engine.svelte'
 import { KeyboardPlayer } from './keyboard-player.svelte'
+import { MeterStore } from './meters.svelte'
 import { ProjectStore } from './project.svelte'
 import { UiStore } from './ui.svelte'
 
@@ -22,6 +23,7 @@ export { Dispatcher } from './dispatcher'
 export { EngineStore, type HelperState } from './engine.svelte'
 export { AutomatedValues } from './automated.svelte'
 export { KeyboardPlayer } from './keyboard-player.svelte'
+export { MASTER_METER, MeterStore } from './meters.svelte'
 export { ProjectStore } from './project.svelte'
 export { ProjectStorage } from '../storage/storage.svelte'
 export { UiStore } from './ui.svelte'
@@ -39,6 +41,8 @@ export interface Stores {
   keys: KeyboardPlayer
   /** What the lanes drive at the play position (AM-4): the controls show it while the transport runs. */
   automated: AutomatedValues
+  /** The levels every meter of the page shows, and the latched CLIP of each. */
+  meters: MeterStore
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
@@ -80,6 +84,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     audioExport,
     keys: new KeyboardPlayer(project, engine, ui, dispatcher),
     automated: new AutomatedValues(project, engine, ui),
+    meters: new MeterStore(project, engine),
   }
 }
 

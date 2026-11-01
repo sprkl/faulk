@@ -121,8 +121,8 @@
     display: flex;
   }
   .choice.automated .segmented {
-    background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
+    border-style: dotted;
+    border-color: var(--fk-text-muted);
   }
   .segmented {
     display: inline-flex;
@@ -146,7 +146,7 @@
     background: var(--fk-surface-2);
   }
   button[aria-checked='true'] {
-    background: var(--fk-accent-tint);
-    color: var(--fk-accent-fg);
+    background: var(--fk-text);
+    color: var(--fk-bg);
   }
 </style>

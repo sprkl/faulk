@@ -4,14 +4,15 @@
    * (`src/views/transport/`), engine state (mode, latency, voices; or the start button), language switch.
    */
   import { resolve } from '$app/paths'
+  import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import Monogram from '../../lib/components/Monogram.svelte'
-  import { useStores } from '../../lib/stores'
+  import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
   import { viewsIn } from '../registry'
   import Transport from '../transport/Transport.svelte'
   import ProjectMenu from './ProjectMenu.svelte'
 
-  const { engine, ui, dispatcher, keys } = useStores()
+  const { engine, ui, dispatcher, keys, meters } = useStores()
   const t = ui.t
 
   const latency = $derived(
@@ -52,6 +53,18 @@
         {/if}
         <span class="value" data-testid="latency">{latency}</span>
       </span>
+      <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
+      <div class="master-meter">
+        <LevelMeter
+          snap={meters.snap(MASTER_METER)}
+          orientation="horizontal"
+          label={t('meter.master')}
+          clipLabel={t('meter.clip')}
+          resetLabel={t('meter.reset', { name: t('mixer.master') })}
+          onreset={() => meters.reset(MASTER_METER)}
+          testid="top-meter"
+        />
+      </div>
       <span class="value muted" data-testid="voices">{t('engine.voices', { n: engine.voices })}</span>
       {#if load}<span class="value muted" data-testid="engine-load">{load}</span>{/if}
       <!-- The computer keyboard plays in every view (#361): the instrument view shows its octave and its panic button itself. -->
@@ -139,6 +152,9 @@
     .views button {
       padding: 0 6px;
     }
+    .engine {
+      gap: 4px;
+    }
     button.ghost {
       padding: 0 var(--fk-space-3);
     }
@@ -168,6 +184,15 @@
     color: var(--fk-text-muted);
     white-space: nowrap;
   }
+  .master-meter :global(.meter) {
+    --len: 96px;
+  }
+  /* The bar is full at this width: the master meter shrinks so that the row does not wrap. */
+  @media (max-width: 1399px) {
+    .master-meter :global(.meter) {
+      --len: 18px;
+    }
+  }
   button.primary,
   button.ghost {
     height: 30px;
@@ -196,5 +221,14 @@
   }
   button.ghost:hover {
     background: var(--fk-surface-2);
+  }
+  /* The base rules above would override the first block of this width: the bar is full here, so the engine group and the language button are tighter. */
+  @media (max-width: 1399px) {
+    .engine {
+      gap: 4px;
+    }
+    button.ghost {
+      padding: 0 8px;
+    }
   }
 </style>

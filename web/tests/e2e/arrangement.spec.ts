@@ -14,7 +14,7 @@ const startAudio = (page: Page) =>
     .getByTestId('engine-state')
     .getByRole('button', { name: /Start audio|Démarrer/ })
     .click()
-const meterDb = async (page: Page) => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))
+const meterDb = async (page: Page) => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow'))
 const transport = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
 

@@ -19,8 +19,6 @@ export const mixer = defineFeature(
     'mixer.noDevice': 'No device',
     'mixer.unknownDevice': 'Module',
     'mixer.level': 'Level of {name}',
-    'mixer.peak': 'Highest peak of {name}. Click to reset.',
-    'mixer.clip': 'CLIP',
   },
   {
     'mixer.empty': 'Aucune piste pour l’instant. Ajoute-en une dans la liste des pistes pour voir sa tranche.',
@@ -34,7 +32,5 @@ export const mixer = defineFeature(
     'mixer.noDevice': 'Aucun device',
     'mixer.unknownDevice': 'Module',
     'mixer.level': 'Niveau de {name}',
-    'mixer.peak': 'Pic le plus haut de {name}. Clique pour le remettre à zéro.',
-    'mixer.clip': 'CLIP',
   },
 )

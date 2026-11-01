@@ -5,7 +5,7 @@ import { fakeWebMidi, watch } from './support'
 // it encoded, the project store is fed by its events. Real worklet, real engine, real core.
 
 const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-const meterDb = async (page: Page) => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))
+const meterDb = async (page: Page) => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow'))
 const SILENCE_DB = -60
 
 test('a played key makes sound and a synth change reaches the project store', async ({ page }) => {

@@ -163,7 +163,7 @@
   </button>
   <button
     class="tool"
-    class:on={playing}
+    class:playing
     disabled={!ready}
     aria-pressed={playing}
     aria-label={t('transport.play')}
@@ -171,7 +171,9 @@
     data-testid="transport-play"
     onclick={press(() => run(play()))}
   >
-    <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5 L12 7 L3 12.5 Z" fill="var(--fk-play)" /></svg>
+    <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"
+      ><path d="M3 1.5 L12 7 L3 12.5 Z" fill={playing ? 'var(--fk-play)' : 'currentColor'} /></svg
+    >
   </button>
   <button
     class="tool"
@@ -345,12 +347,17 @@
   .tool {
     position: relative;
   }
-  .tool.on {
-    background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-accent-fg);
+  /*
+   * One voice: the on state of a toggle is a fill and a frame in the text colour with a dot in the
+   * corner (never a hue); playback running is the one green, with its triangle; violet stays for
+   * selection, focus, the main action and Boost.
+   */
+  .tool.on,
+  .tool.on:hover:not(:disabled) {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
-  /* The on state is also a glyph, a dot in the corner, never the colour alone. */
   .tool.on::after {
     content: '';
     position: absolute;
@@ -360,6 +367,14 @@
     height: 5px;
     border-radius: 50%;
     background: currentColor;
+  }
+  .tool.playing,
+  .tool.playing:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--fk-play) 22%, transparent);
+    border-color: var(--fk-play);
+  }
+  .tool.playing::after {
+    content: none;
   }
   .tool:disabled {
     opacity: 0.45;

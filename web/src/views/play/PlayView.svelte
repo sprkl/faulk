@@ -1,13 +1,13 @@
 <script lang="ts">
-  import Meter from '../../lib/components/Meter.svelte'
+  import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
-  import { useStores } from '../../lib/stores'
+  import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
 
   const stores = useStores()
-  const { engine, ui, dispatcher } = stores
+  const { engine, ui, dispatcher, meters } = stores
   const t = ui.t
 
   let code = $state('')
@@ -107,7 +107,15 @@
     <section class="panel level">
       <h2 class="label">{t('meter.label')}</h2>
       <div class="meter-box">
-        <Meter peak={engine.peak} label={t('meter.label')} clipLabel={t('meter.clip')} />
+        <LevelMeter
+          snap={meters.snap(MASTER_METER)}
+          label={t('meter.label')}
+          clipLabel={t('meter.clip')}
+          resetLabel={t('meter.reset', { name: t('mixer.master') })}
+          onreset={() => meters.reset(MASTER_METER)}
+          readout
+          testid="play-meter"
+        />
       </div>
     </section>
 
@@ -274,5 +282,8 @@
     align-items: center;
     gap: var(--fk-space-1);
     margin-left: auto;
+  }
+  .meter-box :global(.meter) {
+    --len: 96px;
   }
 </style>

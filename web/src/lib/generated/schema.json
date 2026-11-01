@@ -1095022,7 +1095022,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 11,
+  "protocol_version": 12,
   "server_message": {
     "$defs": {
       "MidiInput": {

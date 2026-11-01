@@ -6,16 +6,17 @@
    */
   import { onDestroy } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
+  import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { deviceText, labelKey } from '../../lib/devices'
-  import { useStores } from '../../lib/stores'
+  import { MASTER_METER, useStores } from '../../lib/stores'
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
-  const { ui, dispatcher, automated, project } = useStores()
+  const { ui, dispatcher, automated, project, meters } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -23,6 +24,9 @@
   const bypassed = $derived(!entry.device.enabled)
   const isEffect = $derived(entry.effectIndex !== null)
   const actions = $derived(cardActions(chain, entry))
+  // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
+  const reduces = $derived(entry.kind === 'faulk.compressor')
+  const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
 
   // A knob drag is one history group: one undo takes it back whole.
   const gesture = createGesture((command) => dispatcher.run(command))
@@ -100,6 +104,9 @@
       {/if}
     </div>
   </header>
+  {#if reduces}
+    <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
+  {/if}
   {#if descriptor}
     <div class="params">
       {#each descriptor.params as param (param.key)}
@@ -188,8 +195,8 @@
     cursor: default;
   }
   .actions button[aria-pressed='true'] {
-    background: var(--fk-accent-tint);
-    color: var(--fk-accent-fg);
+    background: var(--fk-text);
+    color: var(--fk-bg);
   }
   .params {
     display: flex;

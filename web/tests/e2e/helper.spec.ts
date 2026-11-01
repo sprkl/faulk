@@ -86,7 +86,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   // The Web engine caught up by snapshot: a key sounds again.
   await page.keyboard.down('KeyA')
-  await expect.poll(async () => Number(await page.getByRole('meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
+  await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
   await page.keyboard.up('KeyA')
 
   const origin = new URL(baseURL!).origin
