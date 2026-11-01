@@ -50,8 +50,9 @@ async function spot(page: Page, lane: number) {
   }
 }
 
-async function open(page: Page, width = 1600, midi = false) {
+async function open(page: Page, width = 1600, midi = false, lang = 'en') {
   await page.setViewportSize({ width, height: 900 })
+  if (lang !== 'en') await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
@@ -231,6 +232,28 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   await page.keyboard.press('Control+z')
   expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
 
+  // A value past the range is limited and the editor says so (#421); an unreadable one changes nothing and the field says so.
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('20')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limited to 6.0 dB')
+  expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(6)
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('-200')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limited to −∞ dB')
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('loud')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-error')).toHaveText('Value not recognised')
+  expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
+  await page.getByTestId('value-input').press('Escape')
+  await expect(page.getByTestId('value-note')).toHaveCount(0, { timeout: 5000 })
+
   // Stopped, the track list and the mixer show the lane's value at the playhead, marked as driven by a lane, and follow a seek (#388).
   const listGain = page.getByTestId('track-header').first().getByTestId('track-gain-readout')
   const listFader = page.getByTestId('track-header').first().getByRole('slider').first()
@@ -322,6 +345,32 @@ test('automation: a lane of the master (#378) is shown on the master fader and p
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await masterLanes()).length).toBe(0)
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: a limited or unreadable typed value says so in French (#421)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true, 'fr')
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await page.getByTestId('arr-snap').selectOption('beat')
+  await addLane(page, 'Volume')
+  const [laneId] = (await lanes(page))[0]!
+  await run(page, { type: 'automation.points.add', lane: laneId, points: [{ tick: 0, value: 0, shape: 'step' }] })
+  await expect(page.getByTestId('arr-lane').first()).toHaveAttribute('data-points', '1')
+  await stage(page).getByTestId('timegrid').focus()
+  const g = await spot(page, 0)
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('20')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limité à 6.0 dB')
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('fort')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-error')).toHaveText('Valeur non reconnue')
   expect(seen.errors).toEqual([])
 })
 
