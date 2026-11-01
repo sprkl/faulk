@@ -37,7 +37,7 @@ export const RULES = [
   // Views.
   [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
-  [/^web\/src\/views\/history\//, ['history']],
+  [/^web\/src\/views\/history\//, ['history', 'history-cost']],
   [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'mixer', 'mixer-sound', 'master-chain', 'master-pan']],
   [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'master-chain', 'master-pan']],

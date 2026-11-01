@@ -14,12 +14,18 @@
   const { project, dispatcher, ui } = useStores()
   const t = ui.t
 
-  const entries = $derived.by(() => {
+  /** Rows drawn at first, and added by each click on "older entries": drawing every row of a long history made each edit cost many frames (#432). */
+  const PAGE = 200
+  let shown = $state(PAGE)
+
+  const all = $derived.by(() => {
     void project.historyRev
     const { undo: done, redo: undone } = dispatcher.history()
     // The last of the redo list is the next one redone (the oldest undone): newest first reads it backwards, the undone entries on top.
     return [...undone.map((entry) => ({ entry, undone: true })), ...done.toReversed().map((entry) => ({ entry, undone: false }))]
   })
+  const entries = $derived(all.slice(0, shown))
+  const hidden = $derived(all.length - entries.length)
 
   /** The label of an entry: its first command's, translated; a command without one shows its name in words. */
   function label(name: string): string {
@@ -58,6 +64,11 @@
           <time class="when" datetime={entry.at > 0 ? new Date(entry.at).toISOString() : undefined}>{time(entry.at)}</time>
         </li>
       {/each}
+      {#if hidden > 0}
+        <li class="more">
+          <button class="ghost" type="button" onclick={() => (shown += PAGE)} data-testid="history-older">{t('history.older', { count: hidden })}</button>
+        </li>
+      {/if}
     </ol>
   {/if}
 </div>
@@ -90,6 +101,9 @@
     gap: var(--fk-space-3);
     padding: var(--fk-space-1) var(--fk-space-3);
     border-bottom: 1px solid var(--fk-line);
+  }
+  .more {
+    padding: var(--fk-space-2) var(--fk-space-3);
   }
   .row.undone {
     opacity: 0.55;
