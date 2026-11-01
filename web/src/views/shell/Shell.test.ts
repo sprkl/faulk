@@ -48,7 +48,8 @@ describe('the shell', () => {
 
   it('shows the chosen panel view and marks only its tab as pressed', () => {
     for (const view of viewsIn('panel')) {
-      const stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL)
+      // The instrument view holds no pressed button of its own, so the tab is the only one.
+      const stores = createStores('play', DEFAULT_PANEL)
       stores.ui.showPanel(view.id)
       const { body } = render(Shell, { props: { stores } })
       expect(body).toContain(`data-panel="${view.id}"`)

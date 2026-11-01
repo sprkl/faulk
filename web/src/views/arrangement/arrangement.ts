@@ -8,7 +8,7 @@
 import type { Note, Placement, TickLoop } from '../../lib/generated/protocol'
 import { snapTick, tickToX, type View } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT } from '../../lib/components/timegrid/render'
-import { NO_COLOR, type TrackEntry } from '../../lib/project/tracks'
+import { trackColor, type TrackEntry } from '../../lib/project/tracks'
 import { CLIP_ROW, rowAtY, type Layout, type Row } from './automation/layout'
 
 /** The height of a track's row of clips, in CSS pixels. */
@@ -59,7 +59,7 @@ function blocksOfTrack(entry: TrackEntry): Block[] {
       offset: span.offset,
       end: placement.start + span.length,
       name: clip.name.trim(),
-      color: clip.color ?? entry.track.color ?? NO_COLOR,
+      color: clip.color ?? trackColor(entry.track.color, entry.index),
       clipLength: length,
       looping: looping ?? null,
       notes,

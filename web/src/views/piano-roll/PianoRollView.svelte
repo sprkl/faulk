@@ -164,8 +164,10 @@
   // View state.
   let tool = $state<Tool>('draw')
   let snap = $state<SnapSetting>('auto')
-  let view = $state<View>({ pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(0)
+  // Zoom and scroll of the clip come back when the panel returns to the roll (it is torn down when another tab is shown).
+  const left = ui.recall<{ clip: string | null; view: View; scrollY: number }>('piano-roll')
+  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(left?.scrollY ?? 0)
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
@@ -285,7 +287,7 @@
   })
 
   // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
-  let openedFor: string | null = null
+  let openedFor: string | null = left?.clip ?? null
   $effect(() => {
     const id = edited?.id ?? null
     if (id === openedFor) return
@@ -329,7 +331,10 @@
     }, wait)
   }
 
-  onDestroy(() => sound(null))
+  onDestroy(() => {
+    ui.remember('piano-roll', { clip: openedFor, view, scrollY })
+    sound(null)
+  })
 
   // --- gestures ---------------------------------------------------------------------------------
 
@@ -787,7 +792,7 @@
       </div>
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
-        <select data-testid="roll-snap" bind:value={snap}>
+        <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
           {#each SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}

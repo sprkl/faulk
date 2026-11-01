@@ -26,6 +26,12 @@ const previewPort = Number(process.env.FAULK_E2E_PREVIEW_PORT) || 4180
 const wanted = (process.env.FAULK_E2E_PROJECTS || 'dev,preview').split(',').map((s) => s.trim())
 for (const name of wanted) if (name !== 'dev' && name !== 'preview') throw new Error(`FAULK_E2E_PROJECTS: unknown project "${name}"`)
 
+/**
+ * The app opens on the arrangement (#475), or on the view used last. Most specs were written when it opened on the
+ * Instrument view: they start there, as a visitor who used it last would (`ux-quick-wins.spec.ts` starts fresh).
+ */
+const onInstrument = (origin: string) => ({ cookies: [], origins: [{ origin, localStorage: [{ name: 'faulk.view', value: 'play' }] }] })
+
 export default defineConfig({
   testDir: 'tests/e2e',
   workers: 1,
@@ -35,8 +41,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: { channel, locale: 'en-US', trace: 'retain-on-failure' },
   projects: [
-    { name: 'dev', use: { baseURL: `http://localhost:${devPort}` } },
-    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}` } },
+    { name: 'dev', use: { baseURL: `http://localhost:${devPort}`, storageState: onInstrument(`http://localhost:${devPort}`) } },
+    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}`, storageState: onInstrument(`http://localhost:${previewPort}`) } },
   ].filter((p) => wanted.includes(p.name)),
   webServer: [
     ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),

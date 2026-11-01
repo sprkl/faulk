@@ -7,6 +7,8 @@
  */
 
 import type { Component } from 'svelte'
+import { storage } from '../lib/stores/storage'
+import { VIEW_KEY } from '../lib/stores/ui.svelte'
 import type { MessageKey } from '../lib/i18n/index'
 import ArrangementView from './arrangement/ArrangementView.svelte'
 import DevicesView from './devices/DevicesView.svelte'
@@ -47,10 +49,21 @@ export function viewsIn<P extends ViewPlace>(place: P) {
   return views.filter((view): view is Extract<(typeof views)[number], { place: P }> => view.place === place)
 }
 
-/** The views shown when none is chosen. */
-export const DEFAULT_VIEW: MainViewId = 'play'
+/** The view shown when none was chosen before. */
+export const DEFAULT_VIEW: MainViewId = 'arrangement'
 export const DEFAULT_PANEL: PanelViewId = 'devices'
 
 export function viewById(id: string): ViewDef | undefined {
   return views.find((view) => view.id === id)
+}
+
+/** The main view the user chose last time, when it still exists; else the default view. */
+export function startView(): MainViewId {
+  let id: string | null = null
+  try {
+    id = storage()?.getItem(VIEW_KEY) ?? null
+  } catch {
+    // Storage refused: the default.
+  }
+  return viewsIn('main').find((view) => view.id === id)?.id ?? DEFAULT_VIEW
 }

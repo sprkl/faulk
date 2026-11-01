@@ -19,6 +19,9 @@ function write(key: string, value: string) {
   }
 }
 
+/** localStorage key of the main view shown last (the page's preference, not the project). */
+export const VIEW_KEY = 'faulk.view'
+
 /**
  * State of the page itself, not of the project or the engine: language and the views shown.
  * Switching views is not a command for now; whether the view shown becomes one is CT-4's call
@@ -55,6 +58,24 @@ export class UiStore {
 
   show(view: MainViewId) {
     this.view = view
+    write(VIEW_KEY, view)
+  }
+
+  /**
+   * Each view's zoom and scroll, kept while another view is shown (a view is torn down when it is left).
+   * Not reactive and not stored: the session's memory, so the view reads it once when it opens.
+   */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive on purpose: read once when a view opens
+  private readonly memory = new Map<string, unknown>()
+
+  /** A view hands its zoom and scroll over when it closes. */
+  remember<T>(id: string, state: T) {
+    this.memory.set(id, state)
+  }
+
+  /** What the view left when it closed, or `undefined` on its first opening. */
+  recall<T>(id: string): T | undefined {
+    return this.memory.get(id) as T | undefined
   }
 
   showPanel(panel: PanelViewId) {
