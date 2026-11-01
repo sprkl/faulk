@@ -1032,3 +1032,49 @@ fn a_pause_keeps_the_marker_so_stop_goes_back_to_it() {
             .is_err()
     );
 }
+
+#[test]
+fn insert_time_sends_the_track_table_the_master_lane_and_the_loop_once_and_so_does_its_undo() {
+    let (mut s, synth, _) = synced();
+    run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": 3840}}),
+    );
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "automation.lane.create", "master": true,
+               "target": {"mixer": {"param": "gain"}}}),
+    );
+    let Output::Automation(commands::automation::Output::LaneCreate { lane }) = out else {
+        panic!()
+    };
+    run(
+        &mut s,
+        json!({"type": "automation.points.add", "lane": lane,
+               "points": [{"tick": 0, "value": 0.0}, {"tick": 7680, "value": -6.0}]}),
+    );
+    run(
+        &mut s,
+        json!({"type": "transport.set_loop", "loop_region": {"start": 0, "end": 7680}}),
+    );
+    let counts = |msgs: &[ControlMsg]| {
+        (
+            msgs.iter()
+                .filter(|m| matches!(m, ControlMsg::TrackPlacementsUpload { .. }))
+                .count(),
+            msgs.iter()
+                .filter(|m| matches!(m, ControlMsg::AutomationLaneUpload { .. }))
+                .count(),
+            msgs.iter()
+                .filter(|m| matches!(m, ControlMsg::SetTransport { .. }))
+                .count(),
+        )
+    };
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.insert_time", "at": 0, "length": 3840}),
+    );
+    assert_eq!(counts(&msgs), (1, 1, 1), "{msgs:?}");
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(counts(&msgs), (1, 1, 1), "{msgs:?}");
+}

@@ -35,7 +35,7 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
   [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'mixer', 'mixer-sound', 'master-chain', 'master-pan']],
@@ -55,7 +55,7 @@ export const RULES = [
   [/^web\/src\/routes\/\[lang=lang\]\//, ['navigation', 'isolation']],
   [/^web\/src\/routes\/dev\//, ['timegrid']],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
-  [/^web\/src\/lib\/components\/timegrid\//, ['arrangement', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid']],
+  [/^web\/src\/lib\/components\/timegrid\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid']],
   [/^web\/src\/lib\/engine\/(helper-client|helper-copy|native-engine|local-access)\./, ['helper', 'local-access']],
   // Anything else under the web app (stores, engine, i18n, components, styles, generated types,
   // routes, config, lockfile), the Rust crates and the build inputs: the whole suite.

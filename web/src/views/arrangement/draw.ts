@@ -23,6 +23,8 @@ export interface ArrangementFrame {
   /** The loop region (the one being dragged, else the project's). */
   loop: LoopRegion | null
   loopOn: boolean
+  /** The time selection (Shift+drag on the ruler), the range that Insert and Delete bars act on. */
+  timeSel: LoopRegion | null
   /** The name of a clip without one. */
   fallbackName: string
 }
@@ -152,6 +154,19 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
   }
   for (const ghost of scene.ghosts) drawBlock(ghost, true, true)
   ctx.restore()
+
+  // The time selection: a band over the whole height.
+  if (scene.timeSel) {
+    const x0 = tickToX(scene.timeSel.start, view)
+    const x1 = tickToX(scene.timeSel.end, view)
+    ctx.fillStyle = colors.accent
+    ctx.globalAlpha = 0.14
+    ctx.fillRect(x0, 0, x1 - x0, height)
+    ctx.globalAlpha = 0.8
+    ctx.fillRect(x0, 0, 1, height)
+    ctx.fillRect(x1 - 1, 0, 1, height)
+    ctx.globalAlpha = 1
+  }
 
   // The loop region on the ruler: a band, with its two ends marked.
   if (loop) {

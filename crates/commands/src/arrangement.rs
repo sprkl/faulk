@@ -36,22 +36,50 @@
 //!   weigh on the limits and the engine. The undo brings it back with its notes. A clip of
 //!   the launch grid stays. `arrangement.place` refuses a clip of the grid: copying or
 //!   linking it is `arrangement.place_from_slot` (AR-5, founder's decision 11).
+//! - **Inserting and deleting time (#396).** `arrangement.insert_time` and
+//!   `arrangement.delete_time` shift the whole timeline of the project, every track and the
+//!   master together, in one history entry:
+//!   - a placement that starts at or after the cut moves; one that straddles the insertion
+//!     point is split there (the right part is a new placement of the same clip, it resumes
+//!     the clip where the left part stops); a deletion cuts the placements at both edges and
+//!     removes what lies between them (a clip of the arrangement only that loses its last
+//!     placement goes with it, as for `arrangement.delete`);
+//!   - the points of every automation lane (the tracks' and the master's) follow: a point at
+//!     or after the insertion point moves; a deletion removes the points inside the deleted
+//!     range and moves the later ones back. A lane stays continuous: the last point before
+//!     the cut links straight to the first one after it (a ramp that straddles an insertion
+//!     stretches over the inserted time);
+//!   - the loop region follows: a boundary at or after the cut moves (an end exactly at the
+//!     insertion point stays), a boundary inside a deleted range falls to its start; a loop
+//!     that is left empty is cleared and switched off;
+//!   - the tempo and the time-signature maps hold one point at tick 0 (the project format
+//!     refuses others), so there is nothing of them to move; the playhead and the launch grid
+//!     are not on the timeline and stay.
+//!
+//!   A track that holds an audio placement refuses the whole command (audio arrangement comes
+//!   with the import, like every other arrangement command), so nothing moves. The playhead
+//!   stays at its tick.
+//!   Everything is checked first (a placement or a point that would pass 2^40, a limit): a
+//!   refusal changes nothing. The inverse is `arrangement.restore_time`.
 //! - Every command is atomic: it is checked entirely before anything changes. A command
 //!   that would change nothing changes nothing and leaves no history entry.
 //! - The inverse of every command is `arrangement.restore`, computed from what actually
 //!   changed (the placements, and the clips that were created or removed), so an undo
 //!   gives back the carved neighbours exactly, with their identifiers.
 
+use crate::automation::{self, Point};
 use crate::clip::{
     ClipSnapshot, check_loop, check_name, check_note_limits, check_slot, check_total, invalid,
     locate, midi_ref, midi_track, not_found, project_notes, snapshot,
 };
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
-use project::limits::{MAX_CLIPS_PER_TRACK, MAX_PLACEMENTS, MAX_PLACEMENTS_PER_TRACK, MAX_TICK};
+use project::limits::{
+    MAX_CLIPS_PER_TRACK, MAX_PLACEMENTS, MAX_PLACEMENTS_PER_TRACK, MAX_POINTS, MAX_TICK,
+};
 use project::{
-    Clip, ClipContent, ClipId, IdGenerator, Note, Placement, PlacementId, Project, SceneId, Span,
-    Tick, Track, TrackId,
+    AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, Note, Placement,
+    PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -105,6 +133,26 @@ pub struct TrackEdit {
     pub clips: Vec<ClipRecord>,
     /// Clips of the track to remove; no placement may be left on them.
     pub remove_clips: Vec<ClipId>,
+}
+
+/// The points of one automation lane, written whole by `arrangement.restore_time`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LanePoints {
+    /// A lane of a track or of the master.
+    pub lane: LaneId,
+    /// All the points the lane holds afterwards, at most one per tick.
+    pub points: Vec<Point>,
+}
+
+/// The loop settings as `arrangement.restore_time` writes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LoopState {
+    /// The loop region, `null` for none.
+    pub loop_region: Option<TickLoop>,
+    /// Whether the transport loops; only with a region.
+    pub loop_enabled: bool,
 }
 
 domain! {
@@ -278,6 +326,83 @@ domain! {
         clips_removed: u32,
     };
 
+    /// Insert `length` ticks of empty time at the timeline tick `at`, in every track and in
+    /// the master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).
+    /// A placement that starts at or after `at` moves `length` ticks later; one that
+    /// straddles `at` is split there, the right part (a new placement of the same clip, so
+    /// linked) moving later and resuming the clip where the left part stops (a clip without
+    /// a loop that ended before `at` leaves no right part). The points of every automation
+    /// lane at or after `at` move too (a ramp that straddles `at` stretches), and so do the
+    /// loop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time
+    /// signature hold one point at tick 0 and do not move; the playhead and the launch grid
+    /// do not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less
+    /// than 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,
+    /// and with `limit` when the splits pass the placement limits. Changes nothing (no
+    /// history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.
+    "arrangement.insert_time" (kind = "edit", undo = "inverse", destructive = false)
+    InsertTime { at: Tick, length: Tick } => {
+        /// How many placements were split at `at`.
+        split: u32,
+        /// How many placements moved (the right parts of the splits included).
+        shifted: u32,
+        /// How many automation points moved.
+        points_shifted: u32,
+        /// Whether the loop region changed.
+        loop_changed: bool,
+    };
+
+    /// Delete the time `[from, to)` ticks from every track and from the master,
+    /// and close the gap, in one history entry. Placements are cut at both edges: what lies
+    /// inside is removed (a placement that straddles the whole range is split in two, the
+    /// right part a new placement resuming the clip where the range ends), what starts at or
+    /// after `to` moves `to - from` ticks earlier; a clip of the arrangement only
+    /// that loses its last placement is deleted with it (the undo brings it back with its
+    /// notes). The points of every automation lane inside the range are removed and the
+    /// later ones move back, so the last point before the cut links straight to the first
+    /// one after it (a `step` point keeps holding its value up to the cut, then the next
+    /// value applies: the lane is not smoothed). The loop region follows (a boundary inside
+    /// the range falls to `from`;
+    /// a loop left empty is cleared and switched off). Tempo and time signature hold one
+    /// point at tick 0 and do not move; the playhead and the launch grid do not move.
+    /// Refused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or
+    /// passes 2^40, and with `limit` when the cuts pass the placement limits.
+    /// Changes nothing (no history entry) when nothing lies at or after `from`. Undo:
+    /// `arrangement.restore_time`.
+    "arrangement.delete_time" (kind = "edit", undo = "inverse", destructive = false)
+    DeleteTime { from: Tick, to: Tick } => {
+        /// How many placements were removed.
+        removed: u32,
+        /// How many placements were shortened, trimmed at the front or split.
+        cut: u32,
+        /// How many placements moved earlier.
+        shifted: u32,
+        /// How many automation points were removed.
+        points_removed: u32,
+        /// How many automation points moved earlier.
+        points_shifted: u32,
+        /// Whether the loop region changed.
+        loop_changed: bool,
+        /// How many clips of the arrangement lost their last placement and were deleted.
+        clips_removed: u32,
+    };
+
+    /// The inverse of `arrangement.insert_time` and `arrangement.delete_time`: write the
+    /// placements as `arrangement.restore` does (`edits`, may be empty here), replace the
+    /// points of the named automation lanes by exactly those given (`lanes`, a value kept as
+    /// it is, within the parameter's range) and put the loop settings back (`transport`,
+    /// absent: untouched), in one history entry and all or nothing. Refused when nothing is
+    /// given, when a lane is unknown or listed twice, when a point is out of range, when the
+    /// loop is on without a region, or for any reason `arrangement.restore` refuses.
+    /// Undo: the restore of what it changed.
+    "arrangement.restore_time" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreTime {
+        edits: Vec<TrackEdit>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<LanePoints>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transport: Option<LoopState>,
+    } => {};
+
     /// Write the placements of one or more tracks exactly as given, without the overlap
     /// rule: the inverse of every arrangement command, which brings back what it carved,
     /// with the identifiers. Per track: `put` creates or replaces placements by
@@ -408,6 +533,77 @@ impl TrackWork {
         }
     }
 
+    /// Opens `length` ticks at `at`: a placement that straddles `at` is split there (the
+    /// right part is new and resumes the clip where the left part stops; nothing is left
+    /// of a clip without a loop that had ended), the ones from `at` on move later.
+    /// Returns `(split, shifted)`.
+    fn open_gap(
+        &mut self,
+        ids: &mut IdGenerator,
+        at: i64,
+        length: i64,
+    ) -> Result<(u32, u32), CommandError> {
+        let (mut split, mut shifted) = (0usize, 0usize);
+        let mut out = Placements::new();
+        for (id, p) in std::mem::take(&mut self.placements) {
+            let (s, l, o) = extent(&p)?;
+            let e = s.saturating_add(l);
+            if e <= at {
+                out.insert(id, p);
+            } else if s >= at {
+                check_extent(s.saturating_add(length), l, "length")?;
+                out.insert(id, shaped(&p.clip, s + length, l, o));
+                shifted += 1;
+            } else {
+                out.insert(id, shaped(&p.clip, s, at - s, o));
+                split += 1;
+                let resume = self
+                    .geo
+                    .get(&p.clip)
+                    .and_then(|g| g.position(o.saturating_add(at - s)));
+                if let Some(offset) = resume {
+                    check_extent(at.saturating_add(length), e - at, "length")?;
+                    out.insert(
+                        PlacementId::generate(ids),
+                        shaped(&p.clip, at + length, e - at, offset),
+                    );
+                    shifted += 1;
+                }
+            }
+        }
+        self.placements = out;
+        Ok((count(split), count(shifted)))
+    }
+
+    /// Removes `[start, end)` and closes the gap: the placements are cut at both edges (the
+    /// rule of [`TrackWork::carve`]), the ones from `end` on move earlier. Returns
+    /// `(removed, cut, shifted)`.
+    fn close_gap(
+        &mut self,
+        ids: &mut IdGenerator,
+        start: i64,
+        end: i64,
+    ) -> Result<(u32, u32, u32), CommandError> {
+        let before: Vec<PlacementId> = self.placements.keys().cloned().collect();
+        let touched = self.carve(ids, start, end)?;
+        let removed = before
+            .iter()
+            .filter(|id| !self.placements.contains_key(*id))
+            .count();
+        let mut shifted = 0usize;
+        for p in self.placements.values_mut() {
+            if p.start.get() >= end {
+                p.start = Tick(p.start.get() - (end - start));
+                shifted += 1;
+            }
+        }
+        Ok((
+            count(removed),
+            touched.saturating_sub(count(removed)),
+            count(shifted),
+        ))
+    }
+
     fn put(&mut self, id: PlacementId, clip: &ClipId, start: i64, length: i64, offset: i64) {
         self.placements
             .insert(id, shaped(clip, start, length, offset));
@@ -510,7 +706,29 @@ fn commit(
 /// restore gives back exactly what it is told).
 fn commit_with(
     state: &mut State,
+    works: Works,
+    output: impl FnOnce(u32) -> Output,
+    drop_unused: bool,
+) -> Result<Out, CommandError> {
+    commit_time(state, works, Extra::default(), output, drop_unused)
+}
+
+/// What a time edit (`arrangement.insert_time`, `delete_time`, `restore_time`) changes
+/// besides the placements: the whole point tables of automation lanes, and the loop.
+#[derive(Default)]
+struct Extra {
+    lanes: BTreeMap<LaneId, BTreeMap<Tick, AutomationPoint>>,
+    /// The loop region and whether the loop is on, when they change.
+    transport: Option<(Option<LoopRegion>, bool)>,
+}
+
+/// [`commit_with`] for an edit that also changes automation lanes and the loop: all of it
+/// is checked before anything is written, and the inverse is one `arrangement.restore_time`
+/// (a plain `arrangement.restore` when only placements changed).
+fn commit_time(
+    state: &mut State,
     mut works: Works,
+    extra: Extra,
     output: impl FnOnce(u32) -> Output,
     drop_unused: bool,
 ) -> Result<Out, CommandError> {
@@ -616,7 +834,47 @@ fn commit_with(
         changed_tracks.push(work.track.clone());
         inverse.push(edit);
     }
-    if inverse.is_empty() {
+    // The lanes: the points as they are now go in the inverse; the limits are checked on
+    // the tables as they will be.
+    let mut lane_inverse = Vec::new();
+    let mut lane_writes = Vec::new();
+    let mut points = automation::points_in(state);
+    for (id, table) in &extra.lanes {
+        let owner = project
+            .lane_owner(id)
+            .ok_or_else(|| not_found("lane", id))?;
+        let held = project
+            .lanes(owner.as_ref())
+            .and_then(|lanes| lanes.get(id))
+            .ok_or_else(|| not_found("lane", id))?;
+        if held.points == *table {
+            continue;
+        }
+        check_total(
+            "automation points",
+            table.len(),
+            0,
+            project::limits::MAX_POINTS_PER_LANE,
+        )?;
+        points = points
+            .saturating_sub(held.points.len())
+            .saturating_add(table.len());
+        lane_inverse.push(LanePoints {
+            lane: id.clone(),
+            points: automation::points_of(&held.points),
+        });
+        lane_writes.push((owner, id.clone(), table.clone()));
+    }
+    check_total("automation points", points, 0, MAX_POINTS)?;
+    let current = &project.transport;
+    let loop_inverse = extra
+        .transport
+        .filter(|new| *new != (current.loop_region, current.loop_enabled))
+        .map(|_| LoopState {
+            loop_region: as_tick_loop(current.loop_region),
+            loop_enabled: current.loop_enabled,
+        });
+    if inverse.is_empty() && lane_inverse.is_empty() && loop_inverse.is_none() {
         return Ok(Outcome {
             output,
             undo: Undo::None,
@@ -646,11 +904,48 @@ fn commit_with(
             .into_iter()
             .map(|track| ProjectEvent::ArrangementChanged { track }),
     );
+    for (owner, id, table) in lane_writes {
+        if let Some(lane) = state
+            .project
+            .lanes_mut(owner.as_ref())
+            .and_then(|lanes| lanes.get_mut(&id))
+        {
+            lane.points = table;
+        }
+        events.push(ProjectEvent::AutomationPointsChanged {
+            track: owner,
+            lane: id,
+        });
+    }
+    if let (Some((region, enabled)), Some(_)) = (extra.transport, &loop_inverse) {
+        state.project.transport.loop_region = region;
+        state.project.transport.loop_enabled = enabled;
+        events.push(ProjectEvent::LoopChanged {
+            region: as_tick_loop(region),
+            enabled,
+        });
+    }
+    let undo = if lane_inverse.is_empty() && loop_inverse.is_none() {
+        Command::Restore { edits: inverse }
+    } else {
+        Command::RestoreTime {
+            edits: inverse,
+            lanes: lane_inverse,
+            transport: loop_inverse,
+        }
+    };
     Ok(Outcome {
         output,
-        undo: Undo::Inverse(Box::new(Command::Restore { edits: inverse })),
+        undo: Undo::Inverse(Box::new(undo)),
         events,
         control: vec![],
+    })
+}
+
+fn as_tick_loop(region: Option<LoopRegion>) -> Option<TickLoop> {
+    region.map(|r| TickLoop {
+        start: r.start(),
+        end: r.end(),
     })
 }
 
@@ -723,6 +1018,13 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             by,
         } => duplicate(state, ctx, placements, *linked, *by),
         Command::Restore { edits } => restore(state, edits),
+        Command::InsertTime { at, length } => insert_time(state, ctx, at.get(), length.get()),
+        Command::DeleteTime { from, to } => delete_time(state, ctx, from.get(), to.get()),
+        Command::RestoreTime {
+            edits,
+            lanes,
+            transport,
+        } => restore_time(state, edits, lanes, *transport),
     }
 }
 
@@ -1141,10 +1443,15 @@ fn duplicate(
 }
 
 fn restore(state: &mut State, edits: &[TrackEdit]) -> Result<Out, CommandError> {
-    let project = &state.project;
     if edits.is_empty() {
         return Err(invalid("edits", "name at least one track"));
     }
+    let works = restore_works(&state.project, edits)?;
+    commit_with(state, works, |_| Output::Restore {}, false)
+}
+
+/// The tracks of a restore as they will be, checked entirely.
+fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, CommandError> {
     let mut tracks = HashSet::new();
     let mut fresh: HashSet<project::Id> = HashSet::new();
     let mut works = Works::new();
@@ -1288,5 +1595,274 @@ fn restore(state: &mut State, edits: &[TrackEdit]) -> Result<Out, CommandError> 
         }
         works.insert(edit.track.clone(), work);
     }
-    commit_with(state, works, |_| Output::Restore {}, false)
+    Ok(works)
+}
+
+/// `[start, start + length)` lies in `[0, 2^40]`, with a length of at least 1.
+fn check_cut(start: i64, length: i64, field: &str) -> Result<(), CommandError> {
+    match start.checked_add(length) {
+        Some(end) if start >= 0 && length >= 1 && end <= MAX_TICK => Ok(()),
+        _ => Err(invalid(
+            field,
+            format!("the cut lies in [0, {MAX_TICK}] ticks, with a length of at least 1"),
+        )),
+    }
+}
+
+/// A track-by-track plan of a time edit: the tracks that hold placements are worked on, the
+/// others are left alone.
+fn time_works(
+    project: &Project,
+    mut edit: impl FnMut(&mut TrackWork) -> Result<(), CommandError>,
+) -> Result<Works, CommandError> {
+    let mut works = Works::new();
+    for (id, track) in &project.tracks {
+        if track.placements.is_empty() {
+            continue;
+        }
+        let mut work = TrackWork::new(project, id)?;
+        edit(&mut work)?;
+        works.insert(id.clone(), work);
+    }
+    Ok(works)
+}
+
+type Table = BTreeMap<Tick, AutomationPoint>;
+
+/// Every automation lane of the project, the master's first.
+fn all_lanes(project: &Project) -> impl Iterator<Item = (&LaneId, &project::AutomationLane)> + '_ {
+    project
+        .master_automation
+        .iter()
+        .chain(project.tracks.values().flat_map(|t| t.automation.iter()))
+}
+
+/// The lanes whose points `map` changes, with their new tables, and the sums of the
+/// `(removed, moved)` counts that `map` returns.
+fn time_lanes(
+    project: &Project,
+    map: impl Fn(&Table) -> Result<(Table, u32, u32), CommandError>,
+) -> Result<(BTreeMap<LaneId, Table>, u32, u32), CommandError> {
+    let (mut removed, mut moved) = (0u32, 0u32);
+    let mut lanes = BTreeMap::new();
+    for (id, lane) in all_lanes(project) {
+        let (table, r, m) = map(&lane.points)?;
+        if table != lane.points {
+            lanes.insert(id.clone(), table);
+        }
+        removed = removed.saturating_add(r);
+        moved = moved.saturating_add(m);
+    }
+    Ok((lanes, removed, moved))
+}
+
+fn insert_time(
+    state: &mut State,
+    ctx: &mut Context,
+    at: i64,
+    length: i64,
+) -> Result<Out, CommandError> {
+    check_cut(at, length, "length")?;
+    let project = &state.project;
+    let (mut split, mut shifted) = (0u32, 0u32);
+    let works = time_works(project, |work| {
+        let (s, m) = work.open_gap(&mut ctx.ids, at, length)?;
+        split = split.saturating_add(s);
+        shifted = shifted.saturating_add(m);
+        Ok(())
+    })?;
+    let (lanes, _, points_shifted) = time_lanes(project, |points| {
+        let mut table = Table::new();
+        let mut moved = 0u32;
+        for (tick, point) in points {
+            let t = tick.get();
+            if t >= at {
+                let to = t
+                    .checked_add(length)
+                    .filter(|n| *n <= MAX_TICK)
+                    .ok_or_else(|| {
+                        invalid(
+                            "length",
+                            format!("an automation point would pass {MAX_TICK} ticks"),
+                        )
+                    })?;
+                table.insert(Tick(to), *point);
+                moved += 1;
+            } else {
+                table.insert(*tick, *point);
+            }
+        }
+        Ok((table, 0, moved))
+    })?;
+    let transport = match project.transport.loop_region {
+        None => None,
+        Some(region) => {
+            let (s, e) = (region.start().get(), region.end().get());
+            let s = if s >= at { s + length } else { s };
+            let e = if e > at { e + length } else { e };
+            if e > MAX_TICK {
+                return Err(invalid(
+                    "length",
+                    format!("the loop region would pass {MAX_TICK} ticks"),
+                ));
+            }
+            Some((
+                LoopRegion::new(Tick(s), Tick(e)),
+                project.transport.loop_enabled,
+            ))
+        }
+    };
+    let loop_changed = transport.is_some_and(|t| t.0 != project.transport.loop_region);
+    commit_time(
+        state,
+        works,
+        Extra { lanes, transport },
+        |_| Output::InsertTime {
+            split,
+            shifted,
+            points_shifted,
+            loop_changed,
+        },
+        true,
+    )
+}
+
+fn delete_time(
+    state: &mut State,
+    ctx: &mut Context,
+    start: i64,
+    end: i64,
+) -> Result<Out, CommandError> {
+    if end <= start {
+        return Err(invalid("to", "`to` must be after `from`"));
+    }
+    check_cut(start, end - start, "to")?;
+    let length = end - start;
+    let project = &state.project;
+    let (mut removed, mut cut, mut shifted) = (0u32, 0u32, 0u32);
+    let works = time_works(project, |work| {
+        let (r, c, m) = work.close_gap(&mut ctx.ids, start, end)?;
+        removed = removed.saturating_add(r);
+        cut = cut.saturating_add(c);
+        shifted = shifted.saturating_add(m);
+        Ok(())
+    })?;
+    let (lanes, points_removed, points_shifted) = time_lanes(project, |points| {
+        let mut table = Table::new();
+        let (mut gone, mut moved) = (0u32, 0u32);
+        for (tick, point) in points {
+            let t = tick.get();
+            if t < start {
+                table.insert(*tick, *point);
+            } else if t < end {
+                gone += 1;
+            } else {
+                table.insert(Tick(t - length), *point);
+                moved += 1;
+            }
+        }
+        Ok((table, gone, moved))
+    })?;
+    // A boundary inside the range falls to its start; a loop left empty is cleared and
+    // switched off (a loop needs a region).
+    let transport = project.transport.loop_region.map(|region| {
+        let fall = |x: i64| {
+            if x <= start {
+                x
+            } else if x >= end {
+                x - length
+            } else {
+                start
+            }
+        };
+        let moved = LoopRegion::new(
+            Tick(fall(region.start().get())),
+            Tick(fall(region.end().get())),
+        );
+        (moved, project.transport.loop_enabled && moved.is_some())
+    });
+    let loop_changed = transport.is_some_and(|t| {
+        t.0 != project.transport.loop_region || t.1 != project.transport.loop_enabled
+    });
+    commit_time(
+        state,
+        works,
+        Extra { lanes, transport },
+        |clips_removed| Output::DeleteTime {
+            removed,
+            cut,
+            shifted,
+            points_removed,
+            points_shifted,
+            loop_changed,
+            clips_removed,
+        },
+        true,
+    )
+}
+
+fn restore_time(
+    state: &mut State,
+    edits: &[TrackEdit],
+    lanes: &[LanePoints],
+    transport: Option<LoopState>,
+) -> Result<Out, CommandError> {
+    if edits.is_empty() && lanes.is_empty() && transport.is_none() {
+        return Err(invalid(
+            "edits",
+            "give placements, lanes or the loop to restore",
+        ));
+    }
+    let works = if edits.is_empty() {
+        Works::new()
+    } else {
+        restore_works(&state.project, edits)?
+    };
+    let mut tables = BTreeMap::new();
+    for l in lanes {
+        let table = automation::verbatim_table(state, &l.lane, &l.points)?;
+        if tables.insert(l.lane.clone(), table).is_some() {
+            return Err(invalid("lanes", format!("lane {} is listed twice", l.lane)));
+        }
+    }
+    let transport = match transport {
+        None => None,
+        Some(LoopState {
+            loop_region,
+            loop_enabled,
+        }) => {
+            let region = match loop_region {
+                None => None,
+                Some(l) => {
+                    if l.start.get() < 0 || l.end.get() > MAX_TICK {
+                        return Err(invalid(
+                            "transport",
+                            format!("a loop is within 0 to {MAX_TICK} ticks"),
+                        ));
+                    }
+                    Some(
+                        LoopRegion::new(l.start, l.end)
+                            .ok_or_else(|| invalid("transport", "a loop needs start < end"))?,
+                    )
+                }
+            };
+            if loop_enabled && region.is_none() {
+                return Err(invalid(
+                    "transport",
+                    "the loop cannot be on without a region",
+                ));
+            }
+            Some((region, loop_enabled))
+        }
+    };
+    commit_time(
+        state,
+        works,
+        Extra {
+            lanes: tables,
+            transport,
+        },
+        |_| Output::RestoreTime {},
+        false,
+    )
 }

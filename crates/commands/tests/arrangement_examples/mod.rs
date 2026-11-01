@@ -191,6 +191,51 @@ pub fn examples() -> Vec<(Command, State)> {
             linked,
         }));
     }
+    // Time inserted and deleted across the tracks, and the restore of a time edit that
+    // also moved an automation lane and the loop.
+    all.push(on(arrangement::Command::InsertTime {
+        at: Tick(1000),
+        length: Tick(3840),
+    }));
+    all.push(on(arrangement::Command::DeleteTime {
+        from: Tick(1000),
+        to: Tick(5000),
+    }));
+    {
+        let mut state = f.state.clone();
+        let mut ids = ::project::IdGenerator::new(1_700_000_000_000, 0x00CC_0000_0000_0000_0000);
+        let lane = ::project::LaneId::generate(&mut ids);
+        state
+            .project
+            .tracks
+            .get_mut(&f.track)
+            .unwrap()
+            .automation
+            .insert(
+                lane,
+                ::project::AutomationLane {
+                    target: ::project::AutomationTarget::Mixer {
+                        param: ::project::MixerParam::Gain,
+                    },
+                    points: std::collections::BTreeMap::from([(
+                        Tick(6000),
+                        ::project::AutomationPoint {
+                            value: -6.0,
+                            shape: ::project::Shape::Linear,
+                        },
+                    )]),
+                },
+            );
+        state.project.transport.loop_region = ::project::LoopRegion::new(Tick(2000), Tick(8000));
+        let (state, restore) = after(
+            state,
+            &a(arrangement::Command::InsertTime {
+                at: Tick(1000),
+                length: Tick(3840),
+            }),
+        );
+        all.push((restore, state));
+    }
     // The inverse of an edit that creates a clip, and of one that carves: the restores.
     for command in [
         arrangement::Command::Duplicate {

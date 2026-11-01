@@ -20,6 +20,10 @@ export const duplicatePlacements = (placements: string[], linked: boolean, by?: 
 export const placeFromSlot = (clip: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_from_slot', clip, start, linked })
 /** The same for every clip of a scene, each on its own track: one command, one history entry. */
 export const placeScene = (scene: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_scene', scene, start, linked })
+/** Opens `length` ticks of empty time at a tick, in every track and the master (#396): one command, one history entry. */
+export const insertTime = (at: Tick, length: Tick): Command => ({ type: 'arrangement.insert_time', at, length })
+/** Deletes the time `[from, to)` from every track and the master and closes the gap (#396). */
+export const deleteTime = (from: Tick, to: Tick): Command => ({ type: 'arrangement.delete_time', from, to })
 /** The start of the bar a tick lies in: where a clip sent from the grid is put. */
 export const barStart = (tick: number, bar: number): number => (bar > 0 ? Math.floor(Math.max(0, tick) / bar) * bar : 0)
 /** A one-bar clip put in the arrangement of a track, from a tick. */

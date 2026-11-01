@@ -452,7 +452,7 @@ impl Rule {
 }
 
 /// Who owns a lane: a track (`Some`) or the master (`None`).
-type Owner = Option<TrackId>;
+pub(crate) type Owner = Option<TrackId>;
 
 /// The owner a command names: `track` or `master: true`, exactly one of the two.
 fn owner_of(track: &Option<TrackId>, master: bool) -> Result<Owner, CommandError> {
@@ -725,7 +725,7 @@ fn lane_restore(
 }
 
 /// The points of the whole project.
-fn points_in(state: &State) -> usize {
+pub(crate) fn points_in(state: &State) -> usize {
     state
         .project
         .tracks
@@ -737,6 +737,41 @@ fn points_in(state: &State) -> usize {
 
 fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+/// The points `arrangement.restore_time` writes into a lane, checked like
+/// `automation.points.restore` checks them (a tick in range, a finite value within the
+/// parameter's range, one point per tick, the per-lane limit), by tick.
+pub(crate) fn verbatim_table(
+    state: &State,
+    lane: &LaneId,
+    points: &[Point],
+) -> Result<BTreeMap<Tick, AutomationPoint>, CommandError> {
+    let owner = owner_of_lane(state, lane)?;
+    let rule = rule_of_lane(state, &owner, lane)?;
+    if points.len() > MAX_POINTS_PER_LANE {
+        return Err(limit("automation points", MAX_POINTS_PER_LANE));
+    }
+    let mut table = BTreeMap::new();
+    for p in points {
+        check_tick(p.tick)?;
+        let point = AutomationPoint {
+            value: rule.verbatim(p.value)?,
+            shape: p.shape,
+        };
+        if table.insert(p.tick, point).is_some() {
+            return Err(invalid(
+                "points",
+                format!("tick {} appears twice", p.tick.get()),
+            ));
+        }
+    }
+    Ok(table)
+}
+
+/// A lane's points as the commands give them, in tick order.
+pub(crate) fn points_of(table: &BTreeMap<Tick, AutomationPoint>) -> Vec<Point> {
+    as_points(table)
 }
 
 fn check_tick(tick: Tick) -> Result<(), CommandError> {
