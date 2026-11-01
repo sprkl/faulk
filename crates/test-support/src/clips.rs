@@ -119,6 +119,59 @@ pub fn two_tracks(second: bool) -> Scenario {
     s.into_scenario()
 }
 
+/// When the note is added in [`pad_edit`].
+pub const PAD_EDIT_SECS: f32 = 0.5;
+/// How long the pad of [`pad_edit`] sounds: 3000 ticks, 1.5625 s at 120 BPM.
+pub const PAD_END_SECS: f32 = 1.5625;
+/// The length of the render of [`pad_edit`].
+pub const PAD_RENDER_SECS: f32 = 2.5;
+
+/// A one-bar loop with a long note (a pad) on the first track, launched at once; at
+/// [`PAD_EDIT_SECS`], while the pad sounds, `clip.notes_add` adds a short note that ranks
+/// before it in the clip (#434: the pad keeps sounding, it is not cut).
+pub fn pad_edit() -> Scenario {
+    let fixture = testing::fixture();
+    let mut s = Session::from_state(fixture.state.clone(), testing::context());
+    let Output::Scene(scene::Output::Create { scene }) =
+        s.exec(Command::Scene(scene::Command::Create {
+            name: Some("A".into()),
+        }))
+    else {
+        panic!("a scene")
+    };
+    let Output::Clip(clip::Output::Create { clip, .. }) =
+        s.exec(Command::Clip(clip::Command::Create {
+            track: fixture.track.clone(),
+            at: clip::ClipTarget::Slot { scene },
+            length: Some(Tick(3840)),
+            name: None,
+        }))
+    else {
+        panic!("a clip")
+    };
+    s.run(Command::Clip(clip::Command::NotesAdd {
+        clip: clip.clone(),
+        notes: vec![n(0, 48, 3000, 100)],
+    }));
+    s.run(Command::Clip(clip::Command::SetLoop {
+        clip: clip.clone(),
+        looping: Some(TickLoop {
+            start: Tick(0),
+            end: Tick(3840),
+        }),
+    }));
+    s.run(Command::Launch(launch::Command::Clip {
+        clip: clip.clone(),
+    }));
+    s.render_secs(PAD_EDIT_SECS);
+    s.run(Command::Clip(clip::Command::NotesAdd {
+        clip,
+        notes: vec![n(0, 30, 100, 100)],
+    }));
+    s.render_secs(PAD_RENDER_SECS - PAD_EDIT_SECS);
+    s.into_scenario()
+}
+
 /// When scene B takes over from scene A in [`scene_grid`]: the bar line after its launch.
 pub const SCENE_SWITCH_SECS: f32 = 2.0;
 /// When `StopAll` takes effect in [`scene_grid`]: the bar line after its order.

@@ -574,11 +574,12 @@ fn a_clip_removed_or_replaced_while_it_plays_leaves_no_stuck_note() {
         upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 60)]),
     );
     r.run(25 * 500, 128);
-    // Replaced: the old table's note is ended by a release, the new one plays on.
+    // Replaced: the old table's note is ended by the track with its own note-off (CL-3),
+    // the new one plays on.
     r.send(&[upload(0, 3840, Some((0, 3840)), vec![note(1000, 100, 62)])]);
     let at = r.frames;
     r.run(25 * 1000, 128);
-    assert!(events(0).contains(&(at, false, 0, 255, 0)), "released");
+    assert!(events(0).contains(&(at, false, 129, 60, 0)), "ended");
     assert_eq!(ons(0).last().unwrap().1, 62);
     assert_nothing_held(0);
     let clip = r.e.state().clip(ClipSlot(0)).unwrap();

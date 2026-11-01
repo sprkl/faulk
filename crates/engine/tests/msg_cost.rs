@@ -158,16 +158,46 @@ fn per_message_and_per_growth_cost() {
     );
 }
 
-/// CL-3: what a `ClipPut` over a playing clip adds to `apply`, at the table's limit and in
-/// the worst case (every note of the old table held): the comparison of the held notes and
-/// the copy of the held bits.
+/// CL-3: what a `ClipPut` over a playing clip adds to `apply`, at the table's limit: the
+/// search of the sounding notes in the new table and the aliases (`carry_held_from`).
 #[test]
 #[ignore = "prints numbers, run in release by hand"]
 fn clip_swap_added_cost_at_the_limit() {
-    use engine::clip_player::{ClipNotes, held_notes_unchanged};
-    use engine::events::Events;
+    use engine::clip_player::{ClipNotes, MAX_CARRIED_NOTES};
+    use engine::events::{Aliases, Events};
     let count = limits::MAX_NOTES_PER_CLIP as usize;
-    let notes: Vec<Note> = (0..count)
+    let rounds = 50;
+    let run = |label: &str, notes: &[Note], held: &[usize], shift: bool| {
+        let mut total = 0f64;
+        for _ in 0..rounds {
+            let mut old = ClipNotes::try_new(notes).unwrap();
+            for &i in held {
+                old.held_bits_mut()[i / 32] |= 1 << (i % 32);
+            }
+            let mut moved: Vec<Note> = Vec::new();
+            if shift {
+                moved.push(Note {
+                    start: Tick(0),
+                    length: Tick(1),
+                    pitch: 1,
+                    ..Note::default()
+                });
+                moved.extend_from_slice(notes);
+            }
+            let mut new = ClipNotes::try_new(if shift { &moved } else { notes }).unwrap();
+            let t0 = Instant::now();
+            let mut orphans = 0;
+            let (before, mut now) = (Aliases::default(), Aliases::default());
+            let carried = new.carry_held_from(&old, &before, &mut now, |_| orphans += 1);
+            total += t0.elapsed().as_nanos() as f64;
+            assert_eq!(carried as usize + orphans, held.len());
+        }
+        println!(
+            "{label}: {:.1} us (mean of {rounds})",
+            total / f64::from(rounds) / 1000.0
+        );
+    };
+    let spread: Vec<Note> = (0..count)
         .map(|i| Note {
             start: Tick(i as i64),
             length: Tick(100),
@@ -176,34 +206,27 @@ fn clip_swap_added_cost_at_the_limit() {
             ..Note::default()
         })
         .collect();
-    let mut old = ClipNotes::try_new(&notes).unwrap();
-    let mut new = ClipNotes::try_new(&notes).unwrap();
-    old.held_bits_mut().iter_mut().for_each(|w| *w = u32::MAX);
-    let rounds = 50;
-    let (mut cmp_ns, mut copy_ns) = (0f64, 0f64);
-    for _ in 0..rounds {
-        let t0 = Instant::now();
-        assert!(held_notes_unchanged(&old, &new));
-        let t1 = Instant::now();
-        new.take_held_from(&old);
-        let t2 = Instant::now();
-        cmp_ns += (t1 - t0).as_nanos() as f64;
-        copy_ns += (t2 - t1).as_nanos() as f64;
-    }
-    println!(
-        "{count} notes all held: compare {:.1} us, copy {:.1} us (mean of {rounds})",
-        cmp_ns / f64::from(rounds) / 1000.0,
-        copy_ns / f64::from(rounds) / 1000.0
+    let few: Vec<usize> = (0..8).map(|k| 1000 + k).collect();
+    let many: Vec<usize> = (0..MAX_CARRIED_NOTES).map(|k| 1000 + 3 * k).collect();
+    run("1M notes, 8 held, same table", &spread, &few, false);
+    run("1M notes, 8 held, a note added before", &spread, &few, true);
+    run(
+        "1M notes, 256 held, a note added before",
+        &spread,
+        &many,
+        true,
     );
-    // A realistic pad: 8 held notes among the same table.
-    old.held_bits_mut().iter_mut().for_each(|w| *w = 0);
-    old.held_bits_mut()[3] = 0xFF;
-    let t0 = Instant::now();
-    for _ in 0..rounds {
-        assert!(held_notes_unchanged(&old, &new));
-    }
-    println!(
-        "8 held notes: compare {:.2} us",
-        (Instant::now() - t0).as_nanos() as f64 / f64::from(rounds) / 1000.0
-    );
+    // The worst case of the scan: every note on one tick.
+    let crowd: Vec<Note> = (0..count)
+        .map(|i| Note {
+            start: Tick(0),
+            length: Tick(100),
+            pitch: (i % 128) as u8,
+            velocity: 100,
+            ..Note::default()
+        })
+        .collect();
+    let crowd_held: Vec<usize> = (0..MAX_CARRIED_NOTES).map(|k| 500_000 + k).collect();
+    run("1M notes on one tick, 256 held", &crowd, &crowd_held, true);
+    let _ = ClipNotes::try_new(&[]).unwrap().len();
 }
