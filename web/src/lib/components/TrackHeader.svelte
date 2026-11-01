@@ -297,7 +297,7 @@
           aria-label={t('tracks.arm', { name: label })}
           title={t('tracks.armHint', { name: label })}
           data-testid="track-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
         >
       {/if}
       <GainControl
@@ -510,9 +510,9 @@
     color: #131211;
   }
   .arm[aria-pressed='true'] {
-    background: var(--fk-rec);
-    border-color: var(--fk-rec);
-    color: #131211;
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .readout {
     border: 0;

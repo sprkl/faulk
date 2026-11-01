@@ -171,7 +171,7 @@
           aria-label={t('tracks.arm', { name })}
           title={t('tracks.armHint', { name })}
           data-testid="mixer-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>R</button
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
         >
       {/if}
     </div>
@@ -340,9 +340,9 @@
     color: #131211;
   }
   .arm[aria-pressed='true'] {
-    background: var(--fk-rec);
-    border-color: var(--fk-rec);
-    color: #131211;
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .levels {
     display: flex;

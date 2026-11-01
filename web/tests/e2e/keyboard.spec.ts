@@ -34,14 +34,14 @@ const selectedHeader = (page: Page) => page.locator('[data-testid=track-header][
 const TEXTS = {
   en: {
     mute: (name: string) => `Mute ${name}`,
-    arm: (name: string) => `Arm ${name}`,
+    arm: (name: string) => `Live input on ${name}`,
     octave: (n: number) => `Octave ${n}`,
     target: (name: string) => `Playing ${name}.`,
     armed: 'and the armed tracks.',
   },
   fr: {
     mute: (name: string) => `Couper ${name}`,
-    arm: (name: string) => `Armer ${name}`,
+    arm: (name: string) => `Entrée en direct sur ${name}`,
     octave: (n: number) => `Octave ${n}`,
     target: (name: string) => `Tu joues sur ${name}.`,
     armed: 'et sur les pistes armées.',
