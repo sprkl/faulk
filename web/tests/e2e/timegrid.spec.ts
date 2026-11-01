@@ -19,6 +19,15 @@ const num = async (page: Page, attribute: string) => Number(await grid(page).get
 const scrollTick = (page: Page) => num(page, 'data-scroll-tick')
 const zoom = (page: Page) => num(page, 'data-px-per-tick')
 const hoverTick = async (page: Page) => Number(await page.getByTestId('hover').getAttribute('data-tick'))
+/**
+ * The readout follows the pointer on the page's own schedule (the browser delivers a pointer move with the next frame,
+ * then the grid reports it through an effect), so a read right after a move can still show the previous position, or
+ * nothing at all (an empty attribute reads as tick 0, which is also a tick). Waits until it shows a position.
+ */
+const hoverShown = async (page: Page) => {
+  await expect(page.getByTestId('hover')).not.toHaveAttribute('data-tick', '')
+  return hoverTick(page)
+}
 
 async function open(page: Page) {
   const seen = watch(page)
@@ -93,7 +102,7 @@ test.describe('time grid', () => {
     const seen = await open(page)
     await page.getByTestId('snap').selectOption('off')
     await pointAt(page, 300)
-    const before = await hoverTick(page)
+    const before = await hoverShown(page)
     const z0 = await zoom(page)
     await page.keyboard.down('Control')
     await page.mouse.wheel(0, -300)
@@ -102,7 +111,7 @@ test.describe('time grid', () => {
     // The tick under the pointer stayed under it.
     await pointAt(page, 301)
     await pointAt(page, 300)
-    expect(Math.abs((await hoverTick(page)) - before)).toBeLessThanOrEqual(2 / (await zoom(page)))
+    await expect.poll(async () => Math.abs((await hoverTick(page)) - before) <= 2 / (await zoom(page))).toBe(true)
     await page.keyboard.down('Control')
     for (let i = 0; i < 40; i++) await page.mouse.wheel(0, -500)
     await expect.poll(() => zoom(page)).toBe(1)
@@ -110,7 +119,7 @@ test.describe('time grid', () => {
     const width = (await grid(page).boundingBox())!.width
     await expect.poll(async () => (await zoom(page)) * TOTAL).toBeCloseTo(Math.floor(width), -1)
     await page.keyboard.up('Control')
-    expect(await scrollTick(page)).toBe(0)
+    await expect.poll(() => scrollTick(page)).toBe(0)
     expect(seen.errors).toEqual([])
   })
 
@@ -133,12 +142,14 @@ test.describe('time grid', () => {
     await grid(page).focus()
     await page.keyboard.press('ArrowRight')
     const width = (await grid(page).boundingBox())!.width
-    expect(await scrollTick(page)).toBeCloseTo(6000 + width / 10 / 0.1, 3)
+    await expect.poll(() => scrollTick(page)).toBeCloseTo(6000 + width / 10 / 0.1, 3)
     await page.keyboard.press('ArrowLeft')
     await expect.poll(() => scrollTick(page)).toBeCloseTo(6000, 3)
     await page.keyboard.press('Home')
     await expect.poll(() => scrollTick(page)).toBe(0)
     await page.keyboard.press('ArrowLeft')
+    // Nothing to see when a key changes nothing: let two frames pass, so that a key handled late would have shown.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     expect(await scrollTick(page)).toBe(0)
     await page.keyboard.down('Shift')
     await page.mouse.wheel(0, 10_000_000)
@@ -159,7 +170,7 @@ test.describe('time grid', () => {
       await page.getByTestId('snap').selectOption(setting)
       await pointAt(page, 199)
       await pointAt(page, 200)
-      expect(await hoverTick(page), setting).toBe(tick)
+      await expect.poll(() => hoverTick(page), setting).toBe(tick)
     }
     // 3/8: a beat of 480 ticks, a bar of 1440; 215 px is tick 2150.
     await page.getByTestId('numerator').fill('3')
@@ -168,7 +179,7 @@ test.describe('time grid', () => {
       await page.getByTestId('snap').selectOption(setting)
       await pointAt(page, 214)
       await pointAt(page, 215)
-      expect(await hoverTick(page), `3/8 ${setting}`).toBe(tick)
+      await expect.poll(() => hoverTick(page), `3/8 ${setting}`).toBe(tick)
     }
     // The pointer leaving the grid clears the readout.
     await page.mouse.move(5, 5)

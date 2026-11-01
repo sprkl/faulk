@@ -26,17 +26,23 @@ const run = (page: Page, command: object) => page.evaluate((c) => (window as unk
  * Sends a command as an agent does, with no click behind it. A click keeps the page's "user activation" for a
  * few seconds, and the checks click all the time, so the activation is switched off for this one command.
  */
-const runWithoutClick = (page: Page, command: object) =>
-  page.evaluate(async (c) => {
+const runWithoutClick = async (page: Page, command: object) => {
+  // The command's outcome is a notice or a question. A previous one still on screen would end the wait at once.
+  await expect(page.locator('[data-testid=storage-notice], [data-testid=confirm]')).toHaveCount(0)
+  await page.evaluate(async (c) => {
     Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
     try {
       ;(window as unknown as Faulk).__faulkRun(c)
-      // The storage looks at the activation after a first await: keep it off until it has.
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      // The storage looks at the activation after some awaits, however long a loaded machine takes to get there: keep it
+      // off until the outcome is on screen (a clock would be a guess; with a click-free refusal the notice is that outcome).
+      const outcome = '[data-testid=storage-notice], [data-testid=confirm]'
+      const end = performance.now() + 30_000
+      while (!document.querySelector(outcome) && performance.now() < end) await new Promise((resolve) => setTimeout(resolve, 20))
     } finally {
       delete (navigator as unknown as Record<string, unknown>).userActivation
     }
   }, command)
+}
 const stored = (page: Page) => page.evaluate(() => (window as unknown as Faulk).__faulkStored())
 
 async function addTrack(page: Page, item: string) {
