@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-01T21:20:00+01:00",
+  "title": "Design System: Faulk",
+  "extensions": {
+    "colorMeta": {
+      "ultraviolet": { "role": "primary", "displayName": "Ultraviolet", "canonical": "oklch(0.52 0.26 285)", "tonalRamp": ["#1d0b4d", "#2e1478", "#4c1ebc", "#6633f4", "#8164f7", "#9c92ff", "#c4bcff", "#ede9ff"] },
+      "paper": { "role": "neutral", "displayName": "Paper", "tonalRamp": ["#131211", "#22201e", "#34312e", "#4f4b47", "#6e6964", "#8f8a85", "#dad6d2", "#fdfcfc"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "tonalRamp": ["#131211", "#1a1917", "#22201e", "#34312e", "#4f4b47", "#6e6964", "#8f8a85", "#ece9e6"] },
+      "play-green": { "role": "state", "displayName": "Play Green (triangle)" },
+      "rec-red": { "role": "state", "displayName": "Rec Red (disc, pulse; CLIP hatching)" },
+      "solo-yellow": { "role": "state", "displayName": "Solo Yellow (letter S)" },
+      "mute-blue": { "role": "state", "displayName": "Mute Blue (letter M, track at 40 %)" },
+      "track-01": { "role": "track", "displayName": "Track hue 01", "canonical": "oklch(0.74 0.13 h), h every 22.5 degrees" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Site hero only, uppercase." },
+      "headline": { "displayName": "Headline", "purpose": "Site section titles, uppercase." },
+      "title": { "displayName": "Title", "purpose": "App panel and dialog titles." },
+      "body": { "displayName": "Body", "purpose": "All app text." },
+      "body-site": { "displayName": "Site body", "purpose": "Long site copy, about 620px wide." },
+      "label": { "displayName": "Label", "purpose": "One-to-three-word uppercase app labels." },
+      "value": { "displayName": "Value", "purpose": "Every number and unit in the app, tabular figures." }
+    },
+    "shadows": [
+      { "name": "float", "value": "0 12px 32px rgb(19 18 17 / 0.18)", "purpose": "Menus, popovers and dialogs only; work areas stay flat." }
+    ],
+    "motion": [
+      { "name": "dur-fast", "value": "80ms", "purpose": "Immediate feedback on controls." },
+      { "name": "dur-panel", "value": "160ms", "purpose": "Panels opening and closing; nothing decorative during playback." }
+    ],
+    "breakpoints": [
+      { "name": "app-floor", "value": "1280px" },
+      { "name": "app-target", "value": "1440px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action of a surface.",
+      "html": "<button class=\"ds-btn-primary\">Start audio</button>",
+      "css": ".ds-btn-primary { background: var(--fk-accent, #6633f4); color: #fdfcfc; border: none; border-radius: 999px; height: 32px; padding: 0 16px; font: 600 13px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; transition: background 80ms; } .ds-btn-primary:hover { background: var(--fk-accent-strong, #4c1ebc); } .ds-btn-primary:focus-visible { outline: 2px solid #9c92ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Bordered Button",
+      "kind": "button",
+      "refersTo": "button-bordered",
+      "description": "Secondary actions.",
+      "html": "<button class=\"ds-btn-bordered\">Share</button>",
+      "css": ".ds-btn-bordered { background: transparent; color: #ece9e6; border: 1px solid #34312e; border-radius: 999px; height: 32px; padding: 0 14px; font: 500 13px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; transition: border-color 80ms; } .ds-btn-bordered:hover { border-color: #8f8a85; } .ds-btn-bordered:focus-visible { outline: 2px solid #9c92ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Segmented Views",
+      "kind": "nav",
+      "refersTo": "segmented-tab-active",
+      "description": "View switcher in the top bar.",
+      "html": "<div class=\"ds-seg\"><button class=\"ds-seg-on\">Arrangement</button><button>Grid</button><button>Mixer</button></div>",
+      "css": ".ds-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid #34312e; border-radius: 999px; background: #131211; } .ds-seg button { background: transparent; border: none; color: #8f8a85; border-radius: 999px; padding: 4px 10px; font: 500 13px/1.2 'Geist Variable', Geist, sans-serif; cursor: pointer; } .ds-seg button:hover { color: #ece9e6; } .ds-seg .ds-seg-on { background: #ece9e6; color: #131211; } .ds-seg button:focus-visible { outline: 2px solid #9c92ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Value Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Draggable numeric field (tempo, length).",
+      "html": "<input class=\"ds-field\" value=\"124.00\" aria-label=\"Tempo\">",
+      "css": ".ds-field { background: #131211; color: #ece9e6; border: 1px solid #34312e; border-radius: 8px; height: 32px; width: 80px; padding: 0 8px; font: 400 12px/1 'Geist Mono Variable', 'Geist Mono', monospace; font-variant-numeric: tabular-nums; text-align: right; } .ds-field:focus-visible { outline: none; border-color: #9c92ff; }"
+    },
+    {
+      "name": "Engine Indicator",
+      "kind": "chip",
+      "refersTo": "engine-pill-boost",
+      "description": "Permanent Web or Boost state with latency and load.",
+      "html": "<span class=\"ds-engine ds-engine-web\">● WEB 42 ms · CPU 18 %</span> <span class=\"ds-engine ds-engine-boost\">⚡ BOOST 5.3 ms · CPU 22 %</span>",
+      "css": ".ds-engine { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 12px; font: 400 12px/1.4 'Geist Mono Variable', 'Geist Mono', monospace; font-variant-numeric: tabular-nums; } .ds-engine-web { background: #22201e; color: #ece9e6; border: 1px solid #34312e; } .ds-engine-boost { background: #6633f4; color: #fdfcfc; }"
+    },
+    {
+      "name": "Track Header",
+      "kind": "custom",
+      "refersTo": "track-header",
+      "description": "One compact row: colour bar, name, type, M S R letters.",
+      "html": "<div class=\"ds-track\"><span class=\"ds-track-bar\"></span><span class=\"ds-track-name\">Bass<small>MIDI · Oscillator</small></span><button aria-pressed=\"false\">M</button><button aria-pressed=\"true\" class=\"ds-solo\">S</button><button aria-pressed=\"false\">R</button></div>",
+      "css": ".ds-track { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 0; background: #1a1917; border-radius: 2px; color: #ece9e6; font: 400 13px/1.2 'Geist Variable', Geist, sans-serif; width: 240px; } .ds-track-bar { width: 3px; align-self: stretch; background: #f08098; } .ds-track-name { flex: 1; display: flex; gap: 6px; align-items: baseline; } .ds-track-name small { color: #8f8a85; font-size: 11px; } .ds-track button { width: 22px; height: 22px; border-radius: 2px; border: 1px solid #34312e; background: #22201e; color: #8f8a85; font: 600 11px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; } .ds-track .ds-solo { background: #efcc36; color: #131211; border-color: #efcc36; } .ds-track button:focus-visible { outline: 2px solid #9c92ff; outline-offset: 1px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Swiss Instrument",
+    "overview": "Faulk looks like a precision instrument: typographic, frank, every control where the hand expects it, labelled in plain words, with a single ultraviolet signal for what matters now. The instrument is dressed in sound matter: soft, grainy gradients that belong to sound only, never to chrome. The site speaks loudly; the app disappears behind the music during long sessions on large monitors.",
+    "keyCharacteristics": [
+      "One accent, ultraviolet, used franchly on the site and as a rare signal in the app (selection, focus, main action, Boost).",
+      "Warm neutrals from paper (#fdfcfc) to ink (#131211); no cold greys.",
+      "Three families: Archivo (display, wide and black), Geist (interface), Geist Mono with tabular figures (every value: BPM, dB, Hz, positions).",
+      "Every state has a glyph or a letter, never colour alone.",
+      "Grain is the signature of sound, not a decoration."
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Ultraviolet is the only accent. In the app it marks selection, focus, the main action and Boost, nothing else; if two ultraviolet things compete on one screen, one of them is wrong.", "section": "colors" },
+      { "name": "The Glyph Rule", "body": "No state is carried by colour alone: every engine state has its glyph or letter, the clip indicator adds hatching and a word. Red is reserved for recording and saturation, green for playback, which is why the accent is violet.", "section": "colors" },
+      { "name": "The Track Is Not A State Rule", "body": "Track hues name tracks; they never signal mute, solo, selection or error.", "section": "colors" },
+      { "name": "The Typography As Architecture Rule", "body": "On the site, giant uppercase titles structure the page; in the app, type becomes discreet and functional, and uppercase is reserved for labels of one to three words.", "section": "typography" },
+      { "name": "The Mono For Numbers Rule", "body": "Any value that changes or lines up with others is in Geist Mono with tabular figures.", "section": "typography" },
+      { "name": "The Room To Breathe Rule", "body": "Professionals have large screens: show the panels they need side by side instead of hiding them behind tabs, and spend extra width on more timeline, not bigger chrome.", "section": "layout" },
+      { "name": "The Flat Workspace Rule", "body": "Work areas (timeline, piano roll, mixer) never cast or receive shadows; only things that float above them do.", "section": "elevation" },
+      { "name": "The Square Work Rule", "body": "Anything the user edits on a timeline or a grid is near-square (2px); roundness signals something you press, not something you edit.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep ultraviolet (#6633f4) for selection, focus, the main action and Boost in the app.",
+      "Do give every state a glyph or a letter in addition to its colour, and write CLIP on saturation.",
+      "Do set every number in Geist Mono with tabular figures (12px in the app).",
+      "Do use the 16 DS-0.1 track hues (the code still ships 8 different, older colours in `web/src/lib/project/tracks.ts`).",
+      "Do design for large monitors: comfort density by default (28px rows), panels side by side, extra width to the timeline.",
+      "Do keep grain for sound: sound objects of modules, the site's stage, empty states.",
+      "Do keep chrome still during playback; motion in the app is functional feedback under 100 ms (80ms fast, 160ms panels)."
+    ],
+    "donts": [
+      "Don't set app text in uppercase beyond one-to-three-word labels.",
+      "Don't use decorative 3D volumes or grain on chrome, buttons or panels.",
+      "Don't animate anything decorative in the app while the transport runs.",
+      "Don't use track hues to mean a state, or red and green for anything but recording, saturation and playback.",
+      "Don't add shadows to work areas; only floating layers get the float shadow.",
+      "Don't name or imitate another DAW in UI copy or design notes."
+    ]
+  }
+}
