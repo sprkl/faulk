@@ -116,6 +116,20 @@ describe('hit test', () => {
     expect(hitBlock(blocks, plain(3), 200, y + 3 * LANE_HEIGHT, view, 0)).toBeNull()
   })
 
+  it('uses each track row its own height', () => {
+    const tall = layoutOf(
+      [{ id: 't0' }, { id: 't1' }],
+      new Set(),
+      () => [],
+      (id) => (id === 't0' ? 120 : 28),
+    )
+    // Deep in the tall first row: still its block.
+    expect(hitBlock(blocks, tall, 200, RULER_HEIGHT + 100, view, 0)?.block.id).toBe('p1')
+    // The second row starts at 120 and is 28 high: its inset leaves 20 px of block.
+    expect(hitBlock(blocks, tall, 150, RULER_HEIGHT + 120 + 14, view, 0)?.block.id).toBe('q1')
+    expect(hitBlock(blocks, tall, 150, RULER_HEIGHT + 120 + 26, view, 0)).toBeNull()
+  })
+
   it('follows the scroll of the grid and of the lanes', () => {
     expect(hitBlock(blocks, plain(3), 100, y - 10, { pxPerTick: 0.1, scrollTick: 960 }, 10)?.block.id).toBe('p1')
     expect(hitBlock(blocks, plain(3), 50, y, { pxPerTick: 0.1, scrollTick: 3840 }, 0)?.block.id).toBe('p2')

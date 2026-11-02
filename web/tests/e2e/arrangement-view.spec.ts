@@ -7,7 +7,8 @@ import { watch } from './support'
 // view's data attributes (the project store's view).
 
 const RULER = 28
-const LANE = 64
+/** The height of a track's row: the `lane` token (#471). */
+const LANE = 44
 const BAR = 3840
 
 interface Block {
@@ -368,7 +369,8 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  for (let i = 0; i < 6; i++) {
+  // Ten tracks at the lane height (#471) reach past the window by more than the scrolls below.
+  for (let i = 0; i < 10; i++) {
     await page.getByTestId('add-track').click()
     await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
   }

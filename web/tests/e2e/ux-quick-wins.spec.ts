@@ -51,12 +51,15 @@ test('the colour of a track is chosen from the palette, with the keyboard or the
   await page.getByTestId('add-track').click()
   await page.getByRole('menuitem', { name: 'Oscillator', exact: true }).click()
 
-  const chips = page.locator('[data-testid=track-header] .chip')
-  const colours = async () => chips.evaluateAll((els) => els.map((el) => getComputedStyle(el).backgroundColor).slice(0, 2))
+  // The colour bar of each track's row (#471).
+  const chips = page.locator('[data-testid=track-header] [data-testid=track-grip]')
+  const colours = async () => chips.evaluateAll((els) => els.map((el) => getComputedStyle(el, '::before').backgroundColor).slice(0, 2))
   // New tracks take the first hues of the palette, none of them the grey of the secondary texts.
   await expect.poll(colours).toEqual(['rgb(240, 128, 152)', 'rgb(241, 138, 118)'])
 
-  const header = page.getByTestId('track-header').first()
+  // The colour is chosen in the inspector of the selected track (#471).
+  await page.getByTestId('arr-track').first().click()
+  const header = page.getByTestId('track-inspector')
   const trigger = header.getByTestId('track-color')
   await trigger.click()
   const hues = page.getByTestId('track-hue')

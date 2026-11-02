@@ -19,7 +19,7 @@ async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   await page.getByTestId('nav-mixer').click()
   await expect(page.getByTestId('mixer')).toBeVisible()
 }

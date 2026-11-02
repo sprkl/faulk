@@ -8,7 +8,7 @@
    *
    * Input: Ctrl or Cmd + wheel zooms around the pointer; Shift + wheel (or a horizontal wheel)
    * scrolls; a plain vertical wheel is left to the host (tracks scroll vertically). With the grid
-   * focused: arrows scroll (Shift for a page), + and - zoom, Home goes to the start.
+   * focused: arrows scroll (Shift for a page), Ctrl or Cmd + plus and minus zoom (the bare keys too), Home goes to the start.
    */
   import type { Signature } from '../../../views/transport/time'
   import {
@@ -203,12 +203,18 @@
   }
 
   function onkeydown(event: KeyboardEvent) {
+    // Ctrl or Cmd with plus or minus zooms the grid while it has the focus (#471), instead of the page; the bare keys
+    // still do (no other key of the grid's is a digit or a sign, so they collide with nothing).
+    const zoom = event.key === '+' || event.key === '=' ? KEY_ZOOM : event.key === '-' || event.key === '_' ? 1 / KEY_ZOOM : null
+    if (zoom !== null && !event.altKey) {
+      set(zoomAt(clamped, zoom, width / 2, width, totalTicks))
+      event.preventDefault()
+      return
+    }
     if (event.altKey || event.ctrlKey || event.metaKey) return
     const step = event.shiftKey ? width : width / 10
     if (event.key === 'ArrowRight') set(scrollBy(clamped, step, width, totalTicks))
     else if (event.key === 'ArrowLeft') set(scrollBy(clamped, -step, width, totalTicks))
-    else if (event.key === '+' || event.key === '=') set(zoomAt(clamped, KEY_ZOOM, width / 2, width, totalTicks))
-    else if (event.key === '-' || event.key === '_') set(zoomAt(clamped, 1 / KEY_ZOOM, width / 2, width, totalTicks))
     else if (event.key === 'Home') set({ ...clamped, scrollTick: 0 })
     else return
     event.preventDefault()

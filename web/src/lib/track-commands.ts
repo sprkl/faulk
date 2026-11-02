@@ -3,7 +3,7 @@ import type { Command, TrackKind } from './generated/protocol'
 /**
  * The commands of the track list: each action of a track header is one of them. Colours and
  * names are the user's; a track created without a name shows a default name in the page's
- * language (`TrackHeader`), never one stored.
+ * language (`TrackInspector`, `LaneHeader`), never one stored.
  */
 export const createTrack = (kind: TrackKind, instrument: string | null, color: string): Command =>
   kind === 'midi' ? { type: 'track.create', kind, instrument, color } : { type: 'track.create', kind, color }

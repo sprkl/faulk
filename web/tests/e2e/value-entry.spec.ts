@@ -14,7 +14,7 @@ async function start(page: Page, lang: 'en' | 'fr' = 'en') {
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
 }
 
 const field = (page: Page) => page.getByTestId('value-input')
@@ -139,7 +139,7 @@ test('the mixer: fader and pan take a typed value, silence included', async ({ p
 test('the track list: volume and pan take a typed value', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
-  const header = page.getByTestId('track-header').first()
+  const header = page.getByTestId('track-inspector')
   const volume = header.getByRole('slider', { name: /^Volume of/ })
   const pan = header.getByRole('slider', { name: /^Pan of/ })
 
