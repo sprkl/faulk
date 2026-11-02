@@ -71,6 +71,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidNoRoom': 'No room for a note here',
     'pianoRoll.saidVelocity': 'Velocity {n}',
     'pianoRoll.saidVelocityLimit': 'Velocity already at {n}',
+    'pianoRoll.saidVelocityBlocked': 'Velocity unchanged: another note would be doubled',
+    'pianoRoll.saidNoSelection': 'No note selected',
     'pianoRoll.keyboard': 'Keyboard of the piano roll',
     'pianoRoll.velocity': 'Velocity of the notes',
     'pianoRoll.velocityHint':
@@ -145,6 +147,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidNoRoom': 'Pas de place pour une note ici',
     'pianoRoll.saidVelocity': 'Vélocité {n}',
     'pianoRoll.saidVelocityLimit': 'Vélocité déjà à {n}',
+    'pianoRoll.saidVelocityBlocked': 'Vélocité inchangée : une autre note serait en double',
+    'pianoRoll.saidNoSelection': 'Aucune note sélectionnée',
     'pianoRoll.keyboard': 'Clavier du piano roll',
     'pianoRoll.velocity': 'Vélocité des notes',
     'pianoRoll.velocityHint':

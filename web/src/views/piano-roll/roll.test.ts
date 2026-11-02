@@ -235,6 +235,9 @@ describe('move and resize', () => {
     const close = [note(0, 60, 480, 120), note(0, 60, 480, 125)]
     expect(stepVelocity(close, close, 10).map((c) => c.to.velocity)).toEqual([122, 127])
     expect(stepVelocity([], [], 10)).toEqual([])
+    // A note that stays, unselected, at the value the step would give: refused as a whole, nothing sent.
+    const blocked = [note(0, 60, 480, 100), note(0, 60, 480, 110)]
+    expect(stepVelocity(blocked, [blocked[0]!], 10)).toEqual([])
   })
 
   it('reads a velocity from a position, the top being the loudest', () => {

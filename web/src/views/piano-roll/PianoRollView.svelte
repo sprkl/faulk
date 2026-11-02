@@ -68,6 +68,8 @@
     resizeNotes,
     shiftVelocity,
     stepVelocity,
+    MAX_VELOCITY,
+    MIN_VELOCITY,
     stillApplies,
     fits,
     toggled,
@@ -675,10 +677,15 @@
 
   /** Page Up and Page Down (#494): the velocity of `chosen` by `delta`, one `clip.notes.update`, the value said. */
   function changeVelocity(chosen: readonly Note[], delta: number, focused: Note | null) {
-    if (!edited || chosen.length === 0) return
+    if (!edited) return
+    if (chosen.length === 0) return announce(t('pianoRoll.saidNoSelection'))
     const changes = stepVelocity(notes, chosen, delta)
     const reference = focused ?? chosen[0]!
-    if (changes.length === 0) return announce(t('pianoRoll.saidVelocityLimit', { n: reference.velocity }))
+    if (changes.length === 0) {
+      // At the limit, or refused: another note of the clip would become the same note.
+      const atLimit = chosen.every((n) => (delta > 0 ? n.velocity >= MAX_VELOCITY : n.velocity <= MIN_VELOCITY))
+      return announce(atLimit ? t('pianoRoll.saidVelocityLimit', { n: reference.velocity }) : t('pianoRoll.saidVelocityBlocked'))
+    }
     run(updateNotes(edited.id, changes))
     picked = afterChanges(new Set(chosen.map(noteKey)), changes)
     const now = changes.find((c) => noteKey(c.from) === noteKey(reference))?.to ?? reference
