@@ -260,3 +260,19 @@ export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | '
   if (key === 'y' && !event.shiftKey) return 'redo'
   return null
 }
+
+/**
+ * The layout shortcuts (#472), all with Alt alone (never Ctrl: the browser takes Ctrl+digit for its tabs; never a bare
+ * letter: the keys play). By position, so the layout does not matter: Alt+1, Alt+2, Alt+3 show the main views in the
+ * registry's order (Arrangement, Grid, Mixer), Alt+M maximises the bottom panel or gives it back its size. Not in a
+ * text field. Playing ignores any Alt event (`ignoreKeyEvent`), so none of these plays a note.
+ */
+const PANEL_CODE = 'KeyM'
+export function layoutShortcut(
+  event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>,
+): { view: number } | 'panel' | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || isTextTarget(event.target)) return null
+  const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code)
+  if (digit) return { view: Number(digit[1]) - 1 }
+  return event.code === PANEL_CODE ? 'panel' : null
+}

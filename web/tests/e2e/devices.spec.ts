@@ -84,13 +84,19 @@ for (const lang of ['en', 'fr'] as const) {
     await panel.getByRole('button', { name: x.add('Echo'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(2)
     const echo = card(page, 'Echo')
-    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(6)
+    // Synced, its default: the note value shows, the free time does not (#472), so five of the six parameters.
+    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(5)
     // Its controls: the mode and the note value are choices, the feedback is shown as a percentage.
+    const quarter = echo.getByRole('radio', { name: '1/4', exact: true })
+    await quarter.click()
+    await expect(quarter).toHaveAttribute('aria-checked', 'true')
     const free = echo.getByRole('radio', { name: lang === 'en' ? 'Free' : 'Libre', exact: true })
     await free.click()
     await expect(free).toHaveAttribute('aria-checked', 'true')
-    const quarter = echo.getByRole('radio', { name: '1/4', exact: true })
-    await quarter.click()
+    await expect(echo.getByTestId('param-time')).toBeVisible()
+    await expect(echo.locator('[data-testid^=param-]')).toHaveCount(5)
+    // The note value is back with the synced mode, and kept what was chosen.
+    await echo.getByRole('radio', { name: lang === 'en' ? 'Synced' : 'Au tempo', exact: true }).click()
     await expect(quarter).toHaveAttribute('aria-checked', 'true')
     await expect(echo.getByTestId('param-feedback').getByRole('slider')).toHaveAttribute('aria-valuetext', /%/)
     await expect(echo.getByTestId('param-division').getByRole('radio')).toHaveCount(10)
@@ -110,8 +116,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(2)
-    // Back through the three control changes, then the insertion.
-    for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
+    // Back through the four control changes, then the insertion.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
 
     // Reverb (DV-4): inserted from the browser, one control per parameter, a knob moves, removed,

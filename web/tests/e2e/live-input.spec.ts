@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // RE-1 (#85): the live MIDI input goes to the selected track and to the armed ones, and a note held
 // while the selection or the arming changes still ends. Real worklet, engine and project core; the
@@ -27,7 +27,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    await page.getByRole('radio', { name: 'E2E Keys' }).check()
+    await chooseMidiInput(page, 'E2E Keys')
     await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
 
     // A second track, selected on creation: the first one is neither selected nor armed.

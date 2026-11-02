@@ -27,7 +27,7 @@ function session() {
   const project = new ProjectStore()
   project.show(core.project())
   const engine = new EngineStore()
-  const ui = new UiStore('play', 'devices')
+  const ui = new UiStore('arrangement', 'devices')
   ui.lang = 'en'
   const automated = new AutomatedValues(project, engine, ui)
   /** The engine bytes the last command produced: what the compiler sends to the engine. */

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 /** The helper's address (`src/lib/engine/helper-client.ts`). */
 export const HELPER_HOST = '127.0.0.1'
@@ -170,4 +170,12 @@ export function timingMode(strict: number[]): string {
   return STRICT_TIMING
     ? `timing: STRICT, median of ${STRICT_RUNS} runs against ${strict.join(' / ')}`
     : `timing: ceiling (10x) ${strict.map((n) => n * 10).join(' / ')}; strict budgets ${strict.join(' / ')} with FAULK_E2E_STRICT_TIMING=1`
+}
+
+/** Picks a MIDI input in the engine dialog (the engine pill opens it, #472) and closes the dialog again. */
+export async function chooseMidiInput(page: Page, name: string) {
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('dialog').getByRole('radio', { name }).check()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toBeHidden()
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // MO-5 (#58): the engine's report in the real page. The hidden `feedback` element carries the
 // decoded report as data attributes (the mixer and the transport views, MX-3 and TR-4, will draw
@@ -17,7 +17,7 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  await chooseMidiInput(page, 'E2E Keys')
 }
 
 test('the meters move with a note, per track and on the output, and fall back at silence', async ({ page }) => {

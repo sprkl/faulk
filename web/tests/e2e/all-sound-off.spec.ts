@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // #331: a double-click on Stop cuts all sound at once. A note played into an Echo at its highest
 // feedback keeps ringing after the note ends and after Stop; the double-click brings the master
@@ -26,7 +26,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    await page.getByRole('radio', { name: 'E2E Keys' }).check()
+    await chooseMidiInput(page, 'E2E Keys')
     await expect(page.getByTestId('track-header')).toHaveCount(1)
 
     // An Echo after the synth, at its highest feedback and fully wet.

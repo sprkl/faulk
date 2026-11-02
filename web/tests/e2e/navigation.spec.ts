@@ -41,7 +41,7 @@ async function overflows(page: Page, { viewMayScroll = false } = {}): Promise<st
 
 // The views the shell must offer. Adding a view needs no edit here; removing one from the registry
 // is a product decision that must edit this list too, instead of passing unnoticed.
-const REQUIRED = ['arrangement', 'devices', 'grid', 'mixer', 'piano-roll', 'play']
+const REQUIRED = ['arrangement', 'devices', 'grid', 'keyboard', 'mixer', 'piano-roll']
 
 test('the test sees the registry', () => {
   expect(defs.map((d) => d.id)).toEqual(expect.arrayContaining(REQUIRED))
@@ -108,11 +108,11 @@ test('a note held on the computer keyboard goes on when the view changes, and en
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('voices')).toHaveText('Voices: 0')
-  await page.getByTestId('nav-play').click()
+  await page.getByTestId('nav-grid').click()
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toHaveText('Voices: 1')
   // The keyboard plays in every view: changing view with the key still down keeps the note, the key ends it.
-  const other = main.find((id) => id !== 'play')!
+  const other = main.find((id) => id !== 'grid')!
   await page.getByTestId(`nav-${other}`).click()
   await expect(page.getByTestId('view')).toHaveAttribute('data-view', other)
   await expect(page.getByTestId('voices')).toHaveText('Voices: 1')

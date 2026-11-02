@@ -141,6 +141,7 @@ for (const lang of ['en', 'fr'] as const) {
       // Select, and the computer keyboard plays the selected track.
       await header(page, 'Synth').getByTestId('track-name').click()
       await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
+      await page.getByTestId('panel-keyboard').click()
       await expect(page.getByTestId('keys-target')).toContainText('Synth')
       await page.keyboard.down('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)

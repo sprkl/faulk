@@ -6,11 +6,15 @@ export const shell = defineFeature(
   {
     'app.home': 'Faulk home page',
     panic: 'All notes off',
-    'lang.switch': 'Français',
+    'lang.title': 'Language',
+    'lang.en': 'English',
+    'lang.fr': 'Français',
   },
   {
     'app.home': 'Page d’accueil de Faulk',
     panic: 'Couper toutes les notes',
-    'lang.switch': 'English',
+    'lang.title': 'Langue',
+    'lang.en': 'English',
+    'lang.fr': 'Français',
   },
 )

@@ -57,6 +57,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
     await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
+    await page.getByTestId('panel-keyboard').click()
     await expect(page.getByTestId('keys-target')).toHaveText(x.target('Synth'))
     await expect(page.getByText(x.octave(4), { exact: true })).toBeVisible()
 

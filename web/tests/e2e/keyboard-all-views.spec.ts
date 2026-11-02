@@ -33,10 +33,10 @@ async function silent(page: Page, what: string, press: () => Promise<void>) {
   expect(await trackPeak(page), `${what}: no note`).toBeLessThan(0.001)
 }
 
-test('the keyboard plays in the instrument, arrangement, grid, mixer views and with the roll and devices panels', async ({ page }) => {
+test('the keyboard plays in the arrangement, grid and mixer views and with the roll and devices panels', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
-  for (const view of ['play', 'arrangement', 'grid', 'mixer']) {
+  for (const view of ['arrangement', 'grid', 'mixer']) {
     await page.getByTestId(`nav-${view}`).click()
     await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
     await playsA(page, view)
@@ -49,21 +49,20 @@ test('the keyboard plays in the instrument, arrangement, grid, mixer views and w
   expect(errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
 })
 
-test('outside the instrument view, Z and X step the octave, shown in the top bar, and the panic button stops the notes', async ({ page }) => {
+test('Z and X step the octave, shown in the top bar and in the keyboard tab, and the panic button stops the notes', async ({ page }) => {
   await start(page)
   await page.getByTestId('nav-arrangement').click()
+  await page.getByTestId('panel-keyboard').click()
   const octave = page.getByTestId('keys-octave')
+  const bar = page.getByTestId('keys-octave-bar')
   await expect(octave).toHaveText('Octave 4')
+  await expect(bar).toHaveText('Oct 4')
   await page.keyboard.press('KeyX')
   await expect(octave).toHaveText('Octave 5')
+  await expect(bar).toHaveText('Oct 5')
   await page.keyboard.press('KeyZ')
   await page.keyboard.press('KeyZ')
   await expect(octave).toHaveText('Octave 3')
-  // The instrument view shows its own octave and panic button: the top bar leaves them to it.
-  await page.getByTestId('nav-play').click()
-  await expect(page.getByTestId('keys-octave')).toHaveCount(0)
-  await expect(page.getByText('Octave 3', { exact: true })).toBeVisible()
-  await page.getByTestId('nav-arrangement').click()
   await page.keyboard.down('KeyA')
   await expect.poll(() => trackPeak(page)).toBeGreaterThan(0.05)
   await page.getByTestId('panic').click()

@@ -7,6 +7,7 @@ export const keys = defineFeature(
     'keys.title': 'Computer keyboard',
     'keys.help': 'A W S E D F T G Y H U J K play notes (by key position). Z / X change octave.',
     'keys.octave': 'Octave {n}',
+    'keys.octaveShort': 'Oct {n}',
     'keys.target': 'Playing {name}.',
     'keys.noTarget': 'Select a MIDI track to play.',
     'keys.targetArmed': 'Playing {name} and the armed tracks.',
@@ -17,6 +18,7 @@ export const keys = defineFeature(
     'keys.typingHintShortcuts': 'The letters play nothing. Press the key left of 1 (` or ²) to play notes with them.',
   },
   {
+    'keys.octaveShort': 'Oct {n}',
     'keys.title': 'Clavier de l’ordinateur',
     'keys.help': 'Les touches de la rangée du milieu jouent les notes (par position : Q Z S E D F T G Y H U J K en AZERTY). W / X changent d’octave.',
     'keys.octave': 'Octave {n}',

@@ -231,6 +231,7 @@
     align-items: center;
     gap: var(--fk-space-2);
     width: 112px;
+    min-height: 0;
     padding: var(--fk-space-2);
     border: 1px solid var(--fk-line);
     border-top: 4px solid var(--track-color);
@@ -376,5 +377,8 @@
   }
   .gain {
     min-width: 8ch;
+  }
+  .levels :global(.meter) {
+    --len: var(--fader-len, 168px);
   }
 </style>

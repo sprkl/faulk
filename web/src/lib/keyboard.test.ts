@@ -14,6 +14,7 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
+import { layoutShortcut } from './keyboard'
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
@@ -432,6 +433,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'F2',
         'F2',
       ],
+      'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
       'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/ExportDialog.svelte': ['Escape'],
@@ -524,5 +526,29 @@ describe('the keys are shared in every view (#361)', () => {
   it('4. otherwise the key plays: on the page, on a view or on a clicked control', () => {
     expect(playsNote(event({}))).toBe(true)
     expect(playsNote(event({ target: fixture('<div tabindex="0" role="application"></div>') }))).toBe(true)
+  })
+})
+
+describe('layout shortcuts (#472)', () => {
+  const alt = { altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null }
+  it('Alt+1 to Alt+9 (digit row or numpad) pick the nth main view, Alt+M the bottom panel', () => {
+    expect(layoutShortcut({ ...alt, code: 'Digit1' })).toEqual({ view: 0 })
+    expect(layoutShortcut({ ...alt, code: 'Numpad3' })).toEqual({ view: 2 })
+    expect(layoutShortcut({ ...alt, code: 'KeyM' })).toBe('panel')
+  })
+  it('needs Alt alone: no bare key, no Ctrl, Cmd or Shift, no repeat, nothing in a text field', () => {
+    expect(layoutShortcut({ ...alt, altKey: false, code: 'Digit1' })).toBeNull()
+    expect(layoutShortcut({ ...alt, altKey: false, code: 'KeyM' })).toBeNull()
+    for (const held of ['ctrlKey', 'metaKey', 'shiftKey', 'repeat'] as const) expect(layoutShortcut({ ...alt, [held]: true, code: 'Digit2' }), held).toBeNull()
+    expect(layoutShortcut({ ...alt, code: 'KeyA' })).toBeNull()
+    expect(layoutShortcut({ ...alt, code: 'Digit0' })).toBeNull()
+    const input = document.createElement('input')
+    input.type = 'text'
+    expect(layoutShortcut({ ...alt, code: 'KeyM', target: input })).toBeNull()
+  })
+  it('never plays a note: playing ignores every Alt event', () => {
+    for (const code of ['Digit1', 'Digit2', 'Digit3', 'KeyM']) {
+      expect(ignoreKeyEvent({ ...alt, code } as never), code).toBe(true)
+    }
   })
 })
