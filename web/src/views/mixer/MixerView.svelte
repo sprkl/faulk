@@ -5,7 +5,7 @@
    * and never leaves the screen. The faders grow with the height. The meters come from the shared meter store
    * (`stores/meters.svelte.ts`). Every control is a command (`MixerStrip`, `createTrack`).
    */
-  import { INSTRUMENTS, nextColor } from '../../lib/project/tracks'
+  import { INSTRUMENTS } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { createTrack, selectTrack } from '../../lib/track-commands'
   import MixerStrip from './MixerStrip.svelte'
@@ -20,7 +20,7 @@
   function add(instrument: string) {
     menuOpen = false
     const before = new Set(project.tracks.map((entry) => entry.id))
-    dispatcher.run(createTrack('midi', instrument, nextColor(project.tracks.length)))
+    dispatcher.run(createTrack('midi', instrument))
     const created = project.tracks.find((entry) => !before.has(entry.id))
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()

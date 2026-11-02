@@ -22,7 +22,7 @@ export const layout = defineFeature(
   {
     'views.nav': 'Vues',
     'views.arrangement': 'Arrangement',
-    'views.devices': 'Devices',
+    'views.devices': 'Appareils',
     'views.grid': 'Grille',
     'views.mixer': 'Mixeur',
     'views.pianoRoll': 'Piano roll',
