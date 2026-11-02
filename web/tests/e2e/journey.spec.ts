@@ -170,6 +170,28 @@ test('journey: under reduced motion the track plays with no visualiser', async (
   await context.close()
 })
 
+test('journey: reduced motion switched on during playback drops the visualiser, the track plays on, and it comes back once switched off', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeCdn(page)
+  await page.goto('/en/journey')
+  const first = players(page).nth(0)
+  const play = first.locator('button[data-fk-play]')
+  await play.click()
+  await expect(page.locator('canvas.fk-live-canvas')).toHaveCount(1)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('canvas.fk-live-canvas')).toHaveCount(0)
+  await expect(first).toHaveAttribute('data-state', 'playing')
+  const t = await first.locator('audio').evaluate((a: HTMLAudioElement) => a.currentTime)
+  await expect.poll(() => first.locator('audio').evaluate((a: HTMLAudioElement) => a.currentTime)).toBeGreaterThan(t)
+  // Back to motion: the next play brings the visualiser back.
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await play.click()
+  await expect(first).toHaveAttribute('data-state', 'paused')
+  await play.click()
+  await expect(page.locator('canvas.fk-live-canvas')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
 test('journey: an audio file that fails says so and offers the link', async ({ page }) => {
   await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) => route.fulfill({ status: 404, body: '' }))
   await page.goto('/en/journey')

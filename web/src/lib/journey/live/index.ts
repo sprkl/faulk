@@ -164,7 +164,11 @@ class Player {
     }
     Promise.all([import('./viz'), context.resume()])
       .then(([{ createViz }]) => {
-        if (reduced() || context.state !== 'running') return
+        if (reduced() || context.state !== 'running') {
+          // Not now: a later play tries again (reduced motion switched off, the context allowed to start).
+          this.vizFailed = false
+          return
+        }
         this.viz = createViz(this.stage!, this.audio, context)
         this.vizFailed = false
         if (!this.audio.paused) this.viz.start()
