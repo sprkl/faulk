@@ -1,0 +1,191 @@
+<script lang="ts">
+  /**
+   * The Clips panel (#473): the pool of the selected track, every clip it has, wherever it is used (its placements, its
+   * launch-grid slot) or nowhere (a clip that lost its last placement stays in its track). A linked clip (used more than
+   * once) is marked. A row is dragged onto a lane of the arrangement or a cell of the grid, or sent there by its
+   * buttons; every action is a command (`lib/clip-pool.ts` picks which, by the founder's decision 11: a copy of a clip
+   * already used, the clip itself with Alt).
+   */
+  import LinkMark from '../../lib/components/LinkMark.svelte'
+  import { barStart } from '../../lib/arrangement-commands'
+  import { CLIP_DRAG_TYPE, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import { deleteClip } from '../../lib/clip-commands'
+  import { useStores } from '../../lib/stores'
+  import { barTicks } from '../transport/time'
+
+  const { project, dispatcher, ui, engine } = useStores()
+  const t = ui.t
+
+  const trackId = $derived(project.view?.session.selected_track ?? null)
+  const track = $derived(trackId ? (project.view?.project.tracks[trackId] ?? null) : null)
+  const pool = $derived(project.view && trackId ? poolOf(project.view.project, trackId) : [])
+  const free = $derived(project.view && trackId ? freeScene(project.view.project, trackId) : null)
+
+  function where(entry: PoolClip): string {
+    const parts: string[] = []
+    if (entry.slot) parts.push(t('clips.grid', { scene: project.view?.project.scenes[entry.slot]?.name || '·' }))
+    if (entry.placements.length > 0) parts.push(t('clips.placements', { n: entry.placements.length }))
+    return parts.length > 0 ? parts.join(' · ') : t('clips.unused')
+  }
+
+  /** The bar the play position is in, as the grid sends its clips. */
+  function playheadBar(): number {
+    const signature = project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 }
+    return barStart(engine.started ? (engine.feedback?.playheadTick ?? 0) : 0, barTicks(signature))
+  }
+
+  function place(entry: PoolClip, linked: boolean) {
+    const command = placeCommand(entry, playheadBar(), linked)
+    if (command) dispatcher.run(command)
+  }
+
+  function toGrid(entry: PoolClip, linked: boolean) {
+    if (!free) return
+    const command = gridCommand(entry, free, linked)
+    if (command) dispatcher.run(command)
+  }
+
+  function onDragStart(event: DragEvent, entry: PoolClip) {
+    if (!event.dataTransfer || !trackId) return
+    event.dataTransfer.effectAllowed = 'copyMove'
+    event.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ clip: entry.id, track: trackId }))
+    event.dataTransfer.setData('text/plain', entry.clip.name)
+  }
+
+  function onKey(event: KeyboardEvent, entry: PoolClip) {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      place(entry, event.altKey)
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      dispatcher.run(deleteClip(entry.id))
+    }
+  }
+</script>
+
+<div class="clips" data-testid="clips-panel">
+  {#if !track}
+    <p class="empty">{t('clips.noTrack')}</p>
+  {:else if pool.length === 0}
+    <p class="empty">{t('clips.empty', { track: track.name })}</p>
+  {:else}
+    <ul class="list" aria-label={t('clips.label', { track: track.name })}>
+      {#each pool as entry (entry.id)}
+        <li class="row" class:unused={entry.uses === 0} data-testid="pool-clip" data-clip={entry.id} data-uses={entry.uses}>
+          <span
+            class="handle"
+            role="button"
+            tabindex="0"
+            draggable={entry.midi}
+            title={t('clips.dragHint')}
+            aria-label={t('clips.row', { name: entry.clip.name, where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
+            data-testid="pool-handle"
+            ondragstart={(event) => onDragStart(event, entry)}
+            onkeydown={(event) => onKey(event, entry)}
+          >
+            <span class="swatch" style:background={entry.clip.color ?? 'currentColor'} aria-hidden="true"></span>
+            <span class="name">{entry.clip.name || t('clips.audio')}</span>
+          </span>
+          {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
+          <span class="where">{where(entry)}</span>
+          <span class="actions">
+            <button
+              class="ghost"
+              type="button"
+                            disabled={!entry.midi}
+              title={t('clips.placeHint')}
+              data-testid="pool-place"
+              onclick={(event) => place(entry, event.altKey)}>{t('clips.place')}</button
+            >
+            <button
+              class="ghost"
+              type="button"
+                            disabled={!entry.midi || !free}
+              title={free ? t('clips.toGridHint') : t('clips.noFreeSlot')}
+              data-testid="pool-grid"
+              onclick={(event) => toGrid(entry, event.altKey)}>{t('clips.toGrid')}</button
+            >
+            <button
+              class="ghost"
+              type="button"
+                            title={t('clips.deleteHint')}
+              data-testid="pool-delete"
+              onclick={() => dispatcher.run(deleteClip(entry.id))}>{t('clips.delete')}</button
+            >
+          </span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</div>
+
+<style>
+  .clips {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+  .list {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow: auto;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: var(--fk-space-3);
+    padding: var(--fk-space-1) var(--fk-space-3);
+    border-bottom: 1px solid var(--fk-line);
+  }
+  .handle {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    min-width: 0;
+    cursor: grab;
+  }
+  .handle:focus-visible {
+    outline: 2px solid var(--fk-accent);
+    outline-offset: -2px;
+  }
+  .swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row.unused .name {
+    font-style: italic;
+  }
+  .linked {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-1);
+    font-size: 0.85em;
+  }
+  .where {
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+  }
+  .actions {
+    display: flex;
+    gap: var(--fk-space-1);
+  }
+  .empty {
+    margin: 0;
+    padding: var(--fk-space-4);
+    color: var(--fk-text-muted);
+  }
+</style>

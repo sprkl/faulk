@@ -17,6 +17,8 @@ import {
   resizeTo,
   resized,
   rowAt,
+  passesOf,
+  clipPosition,
   splittable,
   type Block,
 } from './arrangement'
@@ -194,10 +196,12 @@ describe('resize', () => {
   it('keeps the start edge inside the clip and the timeline', () => {
     // A placement of the 1920-long clip b, which has a loop: no upper bound but the end.
     expect(resizeTo(p3, 'start', 8900, null)).toBe(8900)
-    // The start cannot go before tick 0 nor, without a loop, show past the last tick of the clip (3840).
+    // The start cannot go before the clip's first tick nor tick 0; a clip without a loop repeats (#473), so the start
+    // may go past its last tick, up to the end.
     const far: Block = { ...get('p1'), start: 3000, end: 9000, length: 6000, offset: 1000 }
     expect(resizeTo(far, 'start', 0, null)).toBe(2000)
-    expect(resizeTo(far, 'start', 8000, null)).toBe(3000 + 3840 - 1000 - 1)
+    expect(resizeTo(far, 'start', 8000, null)).toBe(8000)
+    expect(resized(far, 'start', 8000)).toMatchObject({ start: 8000, offset: (1000 + 5000) % 3840 })
     const deep: Block = { ...far, start: 500, offset: 2000 }
     expect(resizeTo(deep, 'start', 0, null)).toBe(0)
   })
@@ -221,16 +225,31 @@ describe('split', () => {
     expect(splittable([p1, get('q1')], 2000).map((b) => b.id)).toEqual(['p1', 'q1'])
   })
 
-  it('refuses where a clip without a loop has ended, and not where its loop goes on', () => {
+  it('cuts anywhere inside a block: a clip repeats, its loop or the whole clip (#473)', () => {
     expect(playsAt(short, 3839)).toBe(true)
-    expect(playsAt(short, 3840)).toBe(false)
-    expect(splittable([short], 5000)).toEqual([])
+    expect(playsAt(short, 3840)).toBe(true)
+    expect(splittable([short], 5000).map((b) => b.id)).toEqual(['s'])
     expect(splittable([looped], 5000).map((b) => b.id)).toEqual(['l'])
+    expect(playsAt({ ...p1, offset: 3000 }, 1000)).toBe(true)
   })
 
-  it('counts the offset', () => {
-    expect(playsAt({ ...p1, offset: 3000 }, 1000)).toBe(false)
-    expect(playsAt({ ...p1, offset: 3000 }, 500)).toBe(true)
+  it('counts the passes and draws a boundary at each repeat', () => {
+    // The whole clip (3840) twice in 7680.
+    expect(passesOf(short)).toEqual([
+      { at: 0, from: 0 },
+      { at: 3840, from: 0 },
+    ])
+    // From an offset: the first pass is shorter.
+    expect(passesOf({ ...short, offset: 1000 }).map((p) => p.at)).toEqual([0, 2840, 6680])
+    // A loop [480, 1920): the first pass to 1920, then every 1440.
+    expect(passesOf(looped).map((p) => p.at)).toEqual([0, 1920, 3360, 4800, 6240])
+    expect(passesOf({ ...p1, end: p1.start + 100, length: 100 })).toHaveLength(1)
+  })
+
+  it('finds the clip position round the clip or its loop', () => {
+    expect(clipPosition(short, 5000)).toBe(5000 - 3840)
+    expect(clipPosition(looped, 1920)).toBe(480)
+    expect(clipPosition(looped, 3400)).toBe(480 + ((3400 - 1920) % 1440))
   })
 })
 

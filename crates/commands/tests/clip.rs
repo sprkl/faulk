@@ -1367,6 +1367,12 @@ fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_c
     assert!(matches!(out.undo, Undo::None));
     assert!(out.events.is_empty());
     assert_eq!(state, two);
+    // Out of the grid with no placement: the clip stays in its track's pool (#473).
+    let mut pooled = two.clone();
+    run(&mv(&f.clip, None, None), &mut pooled, &mut context()).unwrap();
+    let clip = &pooled.project.tracks[&f.track].clips[&f.clip];
+    assert_eq!(clip.slot, None);
+    pooled.project.validate().unwrap();
     // Refusals, each leaving the state intact.
     let refuse = |command: Command, code: &str| {
         let err = check_refusal(&command, &two, &context()).unwrap();
@@ -1374,7 +1380,6 @@ fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_c
     };
     refuse(mv(&f.clip, None, Some(&f.scene_b)), "invalid"); // slot taken
     refuse(mv(&f.clip, None, Some(&ghost_scene)), "not_found"); // no such scene
-    refuse(mv(&f.clip, None, None), "invalid"); // out of the grid with no placement
     refuse(mv(&f.placed, Some(&other), Some(&f.scene_free)), "invalid"); // placed clips stay
     refuse(
         mv(&f.clip, Some(&f.audio_track), Some(&f.scene_free)),

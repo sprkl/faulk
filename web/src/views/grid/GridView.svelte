@@ -21,6 +21,8 @@
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
+  import LinkMark from '../../lib/components/LinkMark.svelte'
+  import { CLIP_DRAG_TYPE, gridCommand, poolOf } from '../../lib/clip-pool'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
 
@@ -73,6 +75,15 @@
   const counts = $derived(clipCounts(clips))
   /** Where each clip of the grid sits, by clip. */
   const homes = $derived(clipHomes(clips))
+  /** The grid clips that the arrangement plays too: linked clips (#473), marked in their cell. */
+  const linked = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt whole on each change of the project
+    const out = new Set<string>()
+    for (const track of Object.values(project.view?.project.tracks ?? {})) {
+      for (const placement of Object.values(track?.placements ?? {})) if (placement && homes.has(placement.clip)) out.add(placement.clip)
+    }
+    return out
+  })
   /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
   const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
   const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
@@ -321,6 +332,33 @@
     )
     if (scene) run(duplicateClip(id, scene, null))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
+  }
+
+  // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
+  /** The empty cell a clip of the pool is dragged over. */
+  let poolOver = $state<string | null>(null)
+  function onPoolDragOver(event: DragEvent, key: string, midi: boolean) {
+    if (!midi || !event.dataTransfer?.types.includes(CLIP_DRAG_TYPE)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
+    poolOver = key
+  }
+  function onPoolDrop(event: DragEvent, track: string, scene: string) {
+    poolOver = null
+    const raw = event.dataTransfer?.getData(CLIP_DRAG_TYPE)
+    if (!raw || !project.view) return
+    let dragged: { clip?: unknown; track?: unknown }
+    try {
+      dragged = JSON.parse(raw) as { clip?: unknown; track?: unknown }
+    } catch {
+      return
+    }
+    // Only a cell of the clip's own track takes it (a clip changes track with clip.move, from the grid).
+    if (dragged.track !== track || typeof dragged.clip !== 'string') return
+    event.preventDefault()
+    const entry = poolOf(project.view.project, track).find((c) => c.id === dragged.clip)
+    const command = entry && gridCommand(entry, scene, event.altKey)
+    if (command) run(command)
   }
 
   /** The bar the play position is in: where a clip or a scene sent to the arrangement is put. */
@@ -774,13 +812,15 @@
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
-                  aria-label={cell.launchable
+                  aria-label={(cell.launchable
                     ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) })
-                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })}
+                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })) + (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
+                  data-linked={linked.has(cell.id) ? 'true' : undefined}
                   title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
                 >
                   <Glyph kind={state} />
                   <span class="cname">{clipName}</span>
+                  {#if linked.has(cell.id)}<LinkMark />{/if}
                 </button>
                 {#if renamingClip === cell.id}
                   <input
@@ -856,7 +896,11 @@
                   data-midi={midi}
                   data-ti={entry.index}
                   data-si={si}
+                  data-pool-drop={poolOver === key ? 'true' : undefined}
                   aria-label={midi ? t('grid.cellEmptyCreate', { track: label, scene: name }) : t('grid.cellEmpty', { track: label, scene: name })}
+                  ondragover={(event) => onPoolDragOver(event, key, midi)}
+                  ondragleave={() => poolOver === key && (poolOver = null)}
+                  ondrop={(event) => onPoolDrop(event, entry.id, sc.id)}
                 ></button>
               </div>
             {/if}
@@ -1069,6 +1113,10 @@
     background: none;
     color: var(--track-color, var(--fk-text-muted));
     text-align: left;
+  }
+  .cell[data-pool-drop='true'] {
+    outline: 2px dashed var(--fk-accent);
+    outline-offset: -3px;
   }
   .cname {
     min-width: 0;

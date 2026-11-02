@@ -7,7 +7,7 @@
 import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
-import { BLOCK_INSET, laneHeight, laneTop, type Block } from './arrangement'
+import { BLOCK_INSET, cycleOf, laneHeight, laneTop, passesOf, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
@@ -119,13 +119,10 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const rowH = Math.min(4, span / (high - low + 1))
       ctx.fillStyle = block.color
       ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k
-      // The clip is shown from its offset; a clip with a loop goes round it where the block outlasts it
-      // (a few passes at most: a long block of a short loop is a texture, not a score).
-      const cycle = block.looping ? block.looping.end : block.clipLength
-      const loopStart = block.looping ? block.looping.start : 0
-      let at = block.start
-      let from = block.offset
-      for (let pass = 0; pass < 64 && at < block.end; pass++) {
+      // The clip is shown from its offset and goes round its loop, or round the whole clip, where the block
+      // outlasts it (#473; a few passes at most: a long block of a short loop is a texture, not a score).
+      const cycle = cycleOf(block).end
+      for (const { at, from } of passesOf(block, 64)) {
         const upto = Math.min(cycle, from + (block.end - at))
         for (const note of notes) {
           const s = Math.max(note.start, from)
@@ -136,12 +133,27 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
           if (nx > width || nx + nw < 0) continue
           ctx.fillRect(nx, top + ((high - note.pitch) * (span - rowH)) / Math.max(1, high - low), nw, Math.max(1.5, rowH - 1))
         }
-        if (!block.looping || upto <= from) break
-        at += upto - from
-        from = loopStart
       }
       ctx.restore()
     }
+    // The repeat boundaries (#473): a line where each pass after the first starts, so the clip's length reads
+    // as the distance between them and the block's as the block.
+    const passes = passesOf(block, 256)
+    if (passes.length > 1 && w > 6) {
+      ctx.save()
+      ctx.globalAlpha = (ghost ? 0.5 : 0.75) * k
+      ctx.fillStyle = block.color
+      for (const { at } of passes.slice(1)) {
+        const bx = Math.round(tickToX(at, view))
+        if (bx <= x0 + 1 || bx >= x0 + w - 1) continue
+        ctx.fillRect(bx, y + 1, 1, h - 2)
+        // A notch at the top, so the boundary reads apart from a grid line under it.
+        ctx.fillRect(bx - 2, y + 1, 5, 2)
+      }
+      ctx.restore()
+    }
+    // A linked clip (used more than once) carries a link mark after its name (#473); a copy has none.
+    const linked = block.uses > 1
     // The name.
     if (w > 28) {
       ctx.globalAlpha = k
@@ -151,7 +163,9 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       ctx.beginPath()
       ctx.rect(x0 + 1, y + 1, w - 2, 14)
       ctx.clip()
-      ctx.fillText(block.name || scene.fallbackName, x0 + 5, y + 3)
+      const label = block.name || scene.fallbackName
+      ctx.fillText(label, x0 + 5, y + 3)
+      if (linked) drawLink(ctx, x0 + 5 + ctx.measureText(label).width + 4, y + 4)
       ctx.restore()
     }
     ctx.globalAlpha = 1
@@ -190,4 +204,16 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.fillRect(x1 - 2, 0, 2, RULER_HEIGHT)
     ctx.globalAlpha = 1
   }
+}
+
+/** The link mark of a linked clip: two interlocked rounded links, 11 by 7 px, drawn in the current fill colour's stroke. */
+function drawLink(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.save()
+  ctx.strokeStyle = ctx.fillStyle
+  ctx.lineWidth = 1.25
+  ctx.beginPath()
+  ctx.roundRect(x + 0.5, y + 1.5, 6, 5, 2.5)
+  ctx.roundRect(x + 4.5, y + 1.5, 6, 5, 2.5)
+  ctx.stroke()
+  ctx.restore()
 }

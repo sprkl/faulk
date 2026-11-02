@@ -1561,10 +1561,6 @@ type: "launch.back_track_to_arrangement"
  */
 export type ArrangementOutput = ({
 /**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
-/**
  * How many other placements were carved.
  */
 overwritten: number
@@ -1575,19 +1571,11 @@ placement: string
 type: "arrangement.place"
 } | {
 /**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
-/**
  * How many other placements were carved.
  */
 overwritten: number
 type: "arrangement.move"
 } | {
-/**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
 /**
  * How many other placements were carved.
  */
@@ -1601,10 +1589,6 @@ placement: string
 type: "arrangement.split"
 } | {
 /**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
-/**
  * How many placements were deleted.
  */
 deleted: number
@@ -1616,10 +1600,6 @@ type: "arrangement.delete"
  * Items: Identifier of a clip.
  */
 clips: string[]
-/**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
 /**
  * How many other placements were carved.
  */
@@ -1637,10 +1617,6 @@ type: "arrangement.duplicate"
  */
 clip?: (string | null)
 /**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
-/**
  * How many other placements were carved.
  */
 overwritten: number
@@ -1656,10 +1632,6 @@ type: "arrangement.place_from_slot"
  * Items: Identifier of a clip.
  */
 clips: string[]
-/**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
 /**
  * How many other placements were carved.
  */
@@ -1690,10 +1662,6 @@ shifted: number
 split: number
 type: "arrangement.insert_time"
 } | {
-/**
- * How many clips of the arrangement lost their last placement and were deleted.
- */
-clips_removed: number
 /**
  * How many placements were shortened, trimmed at the front or split.
  */

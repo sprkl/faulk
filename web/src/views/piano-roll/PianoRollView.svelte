@@ -155,6 +155,7 @@
       {
         grid: (id) => t('pianoRoll.originGrid', { scene: sceneLabel(id) }),
         arrangement: (at) => t('pianoRoll.originArrangement', { n: Math.floor(at / bar) + 1 }),
+        pool: () => t('pianoRoll.originPool'),
       },
       start,
     )

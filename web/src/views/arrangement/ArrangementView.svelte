@@ -52,6 +52,7 @@
   import { liveTick, settle } from '../piano-roll/playhead'
   import { PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
+  import { CLIP_DRAG_TYPE, placeCommand, poolOf } from '../../lib/clip-pool'
   import {
     blocksOf,
     clampScrollY,
@@ -62,6 +63,7 @@
     lastEnd,
     moveDelta,
     moved,
+    passesOf,
     resizeTo,
     resized,
     laneHeight,
@@ -907,6 +909,49 @@
     run(createClipAt(entry.id, start, bar))
   }
 
+  // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
+  /** The clip a drag from the pool carries, when it is one; only its own track's lane takes it. */
+  function poolDrag(event: DragEvent): { clip: string; track: string } | null {
+    const raw = event.dataTransfer?.getData(CLIP_DRAG_TYPE)
+    if (!raw) return null
+    try {
+      const v = JSON.parse(raw) as { clip?: unknown; track?: unknown }
+      return typeof v.clip === 'string' && typeof v.track === 'string' ? { clip: v.clip, track: v.track } : null
+    } catch {
+      return null
+    }
+  }
+  /** The track of the clip row under a drop, when it is a MIDI track's. */
+  function dropRow(event: DragEvent): string | null {
+    const { y } = local(event)
+    if (y < RULER_HEIGHT) return null
+    const where = rowAt(layout, y, y0)
+    if (!where || where.kind !== 'track') return null
+    const entry = entries[where.track]
+    return entry && isMidi(entry.track) ? entry.id : null
+  }
+  function onDragOver(event: DragEvent) {
+    // The data is hidden until the drop: the type says it is a clip; its track is checked on drop.
+    if (!event.dataTransfer?.types.includes(CLIP_DRAG_TYPE) || dropRow(event) === null) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
+  }
+  function onDrop(event: DragEvent) {
+    const dragged = poolDrag(event)
+    const track = dropRow(event)
+    if (!dragged || track === null || dragged.track !== track || !project.view) return
+    event.preventDefault()
+    const entry = poolOf(project.view.project, track).find((c) => c.id === dragged.clip)
+    if (!entry) return
+    const { x } = local(event)
+    const start = Math.max(0, snapTick(xToTick(x, shown), step))
+    const command = placeCommand(entry, start, event.altKey)
+    if (command) {
+      select(track)
+      run(command)
+    }
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
     const mod = (event.ctrlKey || event.metaKey) && !event.altKey
@@ -995,8 +1040,13 @@
     const entry = entries[b.row]
     const name = b.name || t('arrangement.clipDefault')
     const where = barsOf(b)
-    const base = t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })
-    return selectedIds.has(b.id) ? `${base}, ${t('arrangement.clipSelected')}` : base
+    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
+    // A linked clip and a repeated content are said (#473), as they are drawn.
+    if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
+    const passes = passesOf(b).length
+    if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
+    if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
+    return parts.join(', ')
   }
   /** The cells drawn: the clips in sight, and the one in the tab order wherever it is (so that Tab still finds it). */
   const shownItems = $derived.by(() => {
@@ -1574,6 +1624,8 @@
       onpointercancel={() => finish(false)}
       onlostpointercapture={() => gesture && finish(false)}
       ondblclick={onDoubleClick}
+      ondragover={onDragOver}
+      ondrop={onDrop}
       oncontextmenu={onContextMenu}
       onkeydown={onKeyDown}
       onkeydowncapture={handScroll}
