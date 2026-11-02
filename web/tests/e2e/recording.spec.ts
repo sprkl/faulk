@@ -181,6 +181,9 @@ test('records a simulated MIDI controller into the arrangement, in French; an un
   await record(page).click()
   await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
   await page.waitForTimeout(200)
+  // The target stays the one of the start while the play position moves on.
+  await page.waitForTimeout(2100)
+  await expect(page.getByTestId('transport-record-target')).toHaveText('À la mesure 1')
   for (const pitch of [60, 64, 67, 72]) {
     await send(page, [0x90, pitch, 90])
     await page.waitForTimeout(120)
@@ -191,7 +194,8 @@ test('records a simulated MIDI controller into the arrangement, in French; an un
   await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
   const v1 = await view(page)
   const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
-  expect(placement.start).toBe(0)
+  // Played in the second bar (after more than 2 s at 120 BPM): the clip starts at that bar.
+  expect(placement.start).toBe(3840)
   expect(notesOf(v1, track, placement.clip).map((n) => n.pitch)).toEqual([60, 64, 67, 72])
   expect(await done(page)).toBe(before + 1)
   await page.keyboard.press('Control+z')
