@@ -106,3 +106,27 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return p.min === 0 && p.max <= 1 ? `${Math.round(value * 100)} %` : `${+value.toFixed(2)}`
   }
 }
+
+/**
+ * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
+ * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
+ * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode.
+ */
+export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
+  'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
+}
+
+/** The parameters of a device to show now, given the value of each parameter (`valueOf` falls back to the default). */
+export function shownParams(device: DeviceDescriptor, valueOf: (key: string) => number | undefined): readonly ParamDescriptor[] {
+  const rules = SHOWN_IN_MODE[device.kind]
+  if (!rules) return device.params
+  return device.params.filter((param) => {
+    const rule = rules[param.key]
+    if (!rule) return true
+    const by = device.params.find((p) => p.key === rule.by)
+    if (!by) return true
+    const value = valueOf(rule.by) ?? by.default
+    const chosen = choices(by).find((choice) => choice.value === value)
+    return chosen ? rule.values.includes(chosen.key) : true
+  })
+}

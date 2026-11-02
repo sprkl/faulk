@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // #365: typing a value into a continuous control, in a real browser. Enter on a focused control or a
 // click on its readout opens a field; Enter applies by the existing command (one history entry),
@@ -13,7 +13,7 @@ async function start(page: Page, lang: 'en' | 'fr' = 'en') {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-header')).toHaveCount(1)
 }
 

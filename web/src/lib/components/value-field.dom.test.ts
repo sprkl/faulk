@@ -39,7 +39,7 @@ let app: ReturnType<typeof mount> | null
 let changes: number[]
 
 function setup(value: number) {
-  const stores = { ui: new UiStore('play', 'devices'), dispatcher: {} } as unknown as Stores
+  const stores = { ui: new UiStore('arrangement', 'devices'), dispatcher: {} } as unknown as Stores
   app = mount(ParamControl as never, {
     target: host,
     props: { device, param: time, value, onchange: (v: number) => changes.push(v) },

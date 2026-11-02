@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Response } from '@playwright/test'
-import { fakeWebMidi, foreignRequests, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, foreignRequests, watch } from './support'
 
 // AU-0: the whole site is cross-origin isolated (COOP same-origin + COEP require-corp from
 // vercel.json), so that the DAW has SharedArrayBuffer and shared wasm memory for the engine channel
@@ -153,7 +153,7 @@ test.describe('the DAW (/app)', () => {
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toContainText('Web')
-    await page.getByRole('radio', { name: 'E2E Keys' }).check()
+    await chooseMidiInput(page, 'E2E Keys')
     const send = (bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
     await send([0x90, 60, 100])
     // The voice count comes back from the engine in the AudioWorklet.
