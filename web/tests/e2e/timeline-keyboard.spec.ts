@@ -72,6 +72,15 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   mkdirSync(SHOTS, { recursive: true })
   await page.screenshot({ path: `${SHOTS}/timeline-keyboard-focus.png` })
 
+  // Alt+Up has no command (a clip stays on its track): it says so, and again on a second press (the text changes, so it is read again).
+  await page.keyboard.press('Alt+ArrowUp')
+  const said = page.getByTestId('arr-said')
+  await expect(said).toHaveText(/stays on its track/)
+  const first = await said.evaluate((e) => e.textContent)
+  await page.keyboard.press('Alt+ArrowUp')
+  await expect.poll(() => said.evaluate((e) => e.textContent)).not.toBe(first)
+  await expect(said).toHaveText(/stays on its track/)
+
   // Alt+Right moves the selected clips by the snap step (a bar at this zoom), as one command, and says so.
   const before = await blocks(page)
   await page.keyboard.press('Alt+ArrowRight')
@@ -81,14 +90,17 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
-  // Delete removes the selection and says so; the focus goes to a neighbour.
-  await focused.focus()
-  await page.keyboard.press('Escape')
+  // Delete removes the selection (two clips here) and says so; the focus goes to the clip that stays, not to a deleted one.
   await cells.first().focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-selected-count', '2')
   await page.keyboard.press('Delete')
-  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '2')
-  await expect(page.getByTestId('arr-said')).toHaveText(/deleted/i)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
+  await expect(page.getByTestId('arr-said')).toHaveText(/deleted: 2/i)
   await expect(focused).toHaveCount(1)
+  await expect(focused).toHaveAccessibleName(/Track 2/)
 
   // Enter opens the clip in the piano roll.
   await page.keyboard.press('Enter')

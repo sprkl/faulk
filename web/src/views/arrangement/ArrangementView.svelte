@@ -1047,7 +1047,10 @@
     }
     if (key.kind === 'delete') {
       const chosen = selection.length > 0 && selectedIds.has(current.id) ? selection : [current]
-      const next = stepItem(items, current, 'right') ?? stepItem(items, current, 'left')
+      // The neighbour that stays: the clips deleted with this one are skipped.
+      const gone = new Set(chosen.map((b) => b.id))
+      const left = items.filter((i) => i.id === current.id || !gone.has(i.id))
+      const next = stepItem(left, current, 'right') ?? stepItem(left, current, 'left') ?? stepItem(left, current, 'down') ?? stepItem(left, current, 'up')
       run(deletePlacements(chosen.map((b) => b.id)))
       picked = new Set()
       announce(t('arrangement.saidDeleted', { n: chosen.length }))
@@ -1055,7 +1058,8 @@
       return
     }
     if (key.kind === 'move') {
-      if (key.direction === 'up' || key.direction === 'down') return
+      // No command moves a clip to another track: say so rather than nothing.
+      if (key.direction === 'up' || key.direction === 'down') return announce(t('arrangement.saidSameTrack'))
       const chosen = selectedIds.has(current.id) ? selection : [current]
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
       const sign = key.direction === 'left' ? -1 : 1

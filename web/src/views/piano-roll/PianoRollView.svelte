@@ -581,7 +581,10 @@
     }
     if (action.kind === 'delete') {
       const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
-      const next = stepItem(noteItems, current, 'right', true) ?? stepItem(noteItems, current, 'left', true)
+      // The neighbour that stays: the notes deleted with this one are skipped.
+      const gone = new Set(chosen.map(noteKey))
+      const left = noteItems.filter((i) => i.id === current.id || !gone.has(i.id))
+      const next = stepItem(left, current, 'right', true) ?? stepItem(left, current, 'left', true)
       run(removeNotes(edited.id, [...chosen]))
       picked = new Set()
       announce(t('pianoRoll.saidDeleted', { n: chosen.length }))

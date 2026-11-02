@@ -1,6 +1,7 @@
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
+import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
@@ -137,7 +138,7 @@ export class UiStore {
   setLaneHeight(track: string, height: number | null) {
     const next = { ...this.laneHeights }
     if (height === null) delete next[track]
-    else next[track] = height
+    else next[track] = clampClipRow(height)
     this.laneHeights = next
   }
 
