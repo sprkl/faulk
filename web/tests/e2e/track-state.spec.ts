@@ -19,12 +19,12 @@ async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   await chooseMidiInput(page, 'E2E Keys')
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   for (let i = 0; i < 2; i++) {
     await page.getByTestId('add-track').click()
     await page.getByTestId('add-track-menu').getByRole('menuitem').first().click()
   }
-  await expect(page.getByTestId('track-header')).toHaveCount(3)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '3')
   await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('arr-track')).toHaveCount(3)
 }
@@ -121,10 +121,8 @@ test('the selected track has a 2px light outline and text that is AA', async ({ 
   await expect(row).toHaveCSS('outline-width', '2px')
   await expect(row).toHaveCSS('outline-style', 'solid')
   expect(await contrast(row.locator('.track-name'))).toBeGreaterThanOrEqual(4.5)
-  // The track list's header too: its name and its secondary text.
-  const header = page.getByTestId('track-header').nth(1)
-  await expect(header).toHaveCSS('outline-width', '2px')
-  expect(await contrast(header.locator('.meta').first())).toBeGreaterThanOrEqual(4.5)
+  // The row's secondary text (the kind) too.
+  expect(await contrast(row.locator('.kind'))).toBeGreaterThanOrEqual(4.5)
   await page.getByTestId('nav-mixer').click()
   const strip = page.getByTestId('mixer-strip').nth(1)
   await expect(strip).toHaveCSS('outline-width', '2px')

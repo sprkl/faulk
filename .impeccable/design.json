@@ -79,9 +79,9 @@
       "name": "Track Header",
       "kind": "custom",
       "refersTo": "track-header",
-      "description": "One compact row: colour bar, name, type, M S In letters and a meter.",
+      "description": "One row per track in the arrangement, at the lane height (44px comfort, 28px compact, resizable per track): colour bar, name, type, M S In letters, meter (dashed M for an implied mute); volume, pan and devices in the inspector of the selected track.",
       "html": "<div class=\"ds-track\"><span class=\"ds-track-bar\"></span><span class=\"ds-track-name\">Bass<small>MIDI · Oscillator</small></span><button aria-pressed=\"false\">M</button><button aria-pressed=\"true\" class=\"ds-solo\">S</button><button aria-pressed=\"false\">In</button></div>",
-      "css": ".ds-track { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 0; background: #1a1917; border-radius: 2px; color: #ece9e6; font: 400 13px/1.2 'Geist Variable', Geist, sans-serif; width: 240px; } .ds-track-bar { width: 3px; align-self: stretch; background: #f08098; } .ds-track-name { flex: 1; display: flex; gap: 6px; align-items: baseline; } .ds-track-name small { color: #8f8a85; font-size: 11px; } .ds-track button { width: 22px; height: 22px; border-radius: 2px; border: 1px solid #34312e; background: #22201e; color: #8f8a85; font: 600 11px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; } .ds-track .ds-solo { background: #efcc36; color: #131211; border-color: #efcc36; } .ds-track button:focus-visible { outline: 2px solid #9c92ff; outline-offset: 1px; }"
+      "css": ".ds-track { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 6px 0 0; background: #1a1917; border-radius: 2px; color: #ece9e6; font: 400 13px/1.2 'Geist Variable', Geist, sans-serif; width: 240px; } .ds-track-bar { width: 3px; align-self: stretch; background: #f08098; } .ds-track-name { flex: 1; display: flex; gap: 6px; align-items: baseline; } .ds-track-name small { color: #8f8a85; font-size: 11px; } .ds-track button { width: 22px; height: 22px; border-radius: 2px; border: 1px solid #34312e; background: #22201e; color: #8f8a85; font: 600 11px/1 'Geist Variable', Geist, sans-serif; cursor: pointer; } .ds-track .ds-solo { background: #efcc36; color: #131211; border-color: #efcc36; } .ds-track button:focus-visible { outline: 2px solid #9c92ff; outline-offset: 1px; }"
     }
   ],
   "narrative": {
@@ -109,7 +109,7 @@
       "Do give every state a glyph or a letter in addition to its colour, and write CLIP on saturation.",
       "Do set every number in Geist Mono with tabular figures (12px in the app).",
       "Do use the 16 DS-0.1 track hues (the code still ships 8 different, older colours in `web/src/lib/project/tracks.ts`).",
-      "Do design for large monitors: comfort density by default (28px rows), panels side by side, extra width to the timeline.",
+      "Do design for large monitors: comfort density by default (28px rows, 44px lanes), panels side by side, extra width to the timeline.",
       "Do keep grain for sound: sound objects of modules, the site's stage, empty states.",
       "Do keep chrome still during playback; motion in the app is functional feedback under 100 ms (80ms fast, 160ms panels)."
     ],

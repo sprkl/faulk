@@ -40,13 +40,13 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { MASTER_COLOR, isMidi, trackColor, trackLabel } from '../../lib/project/tracks'
+  import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { armTrack, beginGroup, endGroup, selectTrack, setMute, setSolo } from '../../lib/track-commands'
+  import { beginGroup, endGroup, moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
@@ -82,7 +82,8 @@
     yOfPos,
     type Delta,
   } from './automation/gestures'
-  import { layoutOf, rowsBetween, type Row } from './automation/layout'
+  import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
+  import LaneHeader from './LaneHeader.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
   const { project, engine, ui, dispatcher, meters } = useStores()
@@ -206,7 +207,46 @@
   })
   /** The lanes each unfolded track (and the master) shows. */
   const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
-  const layout = $derived(layoutOf(allEntries, open, (id) => (shownLanes.get(id) ?? []).map((l) => l.id)))
+  /** The master row's height: the `row` token (28 px), the lowest a track's row goes. */
+  const MASTER_ROW = CLIP_ROW_MIN
+  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own (#471).
+  let laneBase = $state(CLIP_ROW)
+  const layout = $derived(
+    layoutOf(
+      allEntries,
+      open,
+      (id) => (shownLanes.get(id) ?? []).map((l) => l.id),
+      // The master holds no clips: its row stays at the control line's height, so that 16 tracks and the master fit at 1080p.
+      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeights[id]),
+      laneBase,
+    ),
+  )
+  // Read again when the density changes (`data-density` on the page's root or body), so that the compact rows follow.
+  $effect(() => {
+    const read = () => (laneBase = clampClipRow(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fk-lane'))))
+    read()
+    const observer = new MutationObserver(read)
+    for (const node of [document.documentElement, document.body]) observer.observe(node, { attributes: true, attributeFilter: ['data-density'] })
+    return () => observer.disconnect()
+  })
+
+  // --- reordering by drag: a row's colour bar picks it up, dropping it on another row puts it at that row's place
+  // (one `track.move` on release; nothing is sent while the pointer moves). The inspector's Move up and Move down are the keyboard's way.
+  let dragId = $state<string | null>(null)
+  let overId = $state<string | null>(null)
+  const drag: DragHooks = {
+    start: (id) => (dragId = id),
+    over: (id) => {
+      if (dragId) overId = id
+    },
+    drop: (id) => {
+      const moving = dragId
+      dragId = overId = null
+      const to = entries.find((entry) => entry.id === id)
+      if (moving && to && moving !== id) run(moveTrack(moving, to.index))
+    },
+    end: () => (dragId = overId = null),
+  }
   /** A lane shown, by its id, with its track (or the master). */
   const laneRefs = $derived.by(() => {
     // A new map each time the lanes change: the derived value is what is reactive.
@@ -946,7 +986,7 @@
     element.scrollTop = 0
   }
 
-  // A focus in the headers brings its row into view, up as well as down (the column cannot scroll up on its own: it is moved by a transform).
+  // A focus in the headers brings its row into view, up as well as down (the column cannot scroll up on its own: it is moved by an offset).
   function onHeadsFocus(event: FocusEvent) {
     const target = event.target
     if (!(target instanceof HTMLElement)) return
@@ -958,8 +998,9 @@
       const box = row.getBoundingClientRect()
       const area = column.getBoundingClientRect()
       const top = area.top + RULER_HEIGHT
-      if (box.top < top) scrollY = clampScrollY(y0 - (top - box.top), layout.total, stageH)
-      else if (box.bottom > area.bottom) scrollY = clampScrollY(y0 + (box.bottom - area.bottom), layout.total, stageH)
+      // Whole pixels: the scrollbar beside the rows holds whole pixels, and the rows must stay level with it.
+      if (box.top < top) scrollY = clampScrollY(Math.floor(y0 - (top - box.top)), layout.total, stageH)
+      else if (box.bottom > area.bottom) scrollY = clampScrollY(Math.ceil(y0 + (box.bottom - area.bottom)), layout.total, stageH)
     })
   }
 
@@ -969,7 +1010,8 @@
   $effect(() => {
     const element = vbar
     if (!element) return
-    if (Math.abs(element.scrollTop - y0) > SYNC_PX) element.scrollTop = y0
+    // To the pixel: the rows are 44 px high (#471), so a focus can land a pixel off, which the bar must still show.
+    if (Math.abs(element.scrollTop - y0) >= 0.5) element.scrollTop = y0
   })
   function onVBarScroll() {
     const element = vbar
@@ -979,6 +1021,30 @@
     scrollY = clampScrollY(element.scrollTop, layout.total, stageH)
   }
 </script>
+
+{#snippet fold(id: string, lanes: number, label: string)}
+  <button
+    class="fold"
+    class:has={lanes > 0}
+    aria-expanded={open.has(id)}
+    aria-label={label}
+    title={lanes > 0 ? `${label} · ${t('automation.lanes', { n: lanes })}` : undefined}
+    data-testid="arr-automation-toggle"
+    onclick={() => toggleOpen(id)}
+  >
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+      ><path
+        d={open.has(id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      /></svg
+    >
+    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
+  </button>
+{/snippet}
 
 <svelte:window
   onblur={silence}
@@ -1069,7 +1135,7 @@
       </p>
     {/if}
     <div class="heads" bind:this={heads} onscroll={onHeadsScroll} onfocusin={onHeadsFocus} data-testid="arr-heads">
-      <div class="slide" style:transform="translateY({-y0}px)">
+      <div class="slide" style:top="{-y0}px">
         {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
           {#if row.kind === 'track'}
             {@const entry = allEntries[row.track]!}
@@ -1093,103 +1159,23 @@
                     testid="arr-master-meter"
                   />
                 </div>
-                <button
-                  class="fold"
-                  class:has={lanes > 0}
-                  aria-expanded={open.has(MASTER)}
-                  aria-label={t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')}
-                  title={lanes > 0
-                    ? `${t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')} · ${t('automation.lanes', { n: lanes })}`
-                    : undefined}
-                  data-testid="arr-automation-toggle"
-                  onclick={() => toggleOpen(MASTER)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                    ><path
-                      d={open.has(MASTER) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    /></svg
-                  >
-                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                </button>
+                {@render fold(MASTER, lanes, t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster'))}
               </div>
             {:else}
               {@const trackEntry = entries[row.track]!}
-              {@const name = trackLabel(trackEntry, t)}
-              {@const muted = trackEntry.track.mixer.mute}
-              {@const soloed = project.soloed.includes(trackEntry.id)}
-              {@const armed = project.armed.includes(trackEntry.id)}
-              {@const implied = project.silencedBySolo(trackEntry.id)}
-              <div
-                class="row"
-                class:silent={muted || implied}
-                class:selected={project.selected?.id === trackEntry.id}
-                title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
-                style:height="{row.height}px"
-                class:off={detached.has(trackEntry.id)}
-                data-detached={detached.has(trackEntry.id) ? 'true' : undefined}
+              <LaneHeader
+                entry={trackEntry}
+                height={row.height}
+                base={laneBase}
+                selected={project.selected?.id === trackEntry.id}
+                soloed={project.soloed.includes(trackEntry.id)}
+                armed={project.armed.includes(trackEntry.id)}
+                implied={project.silencedBySolo(trackEntry.id)}
+                detached={detached.has(trackEntry.id)}
+                {drag}
+                dragging={dragId === trackEntry.id}
+                dropTarget={dragId !== null && overId === trackEntry.id && dragId !== trackEntry.id}
               >
-                <button
-                  class="head"
-                  class:on={project.selected?.id === trackEntry.id}
-                  style:--swatch={trackColor(trackEntry.track.color, trackEntry.index)}
-                  aria-pressed={project.selected?.id === trackEntry.id}
-                  aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
-                  data-testid="arr-track"
-                  onclick={() => select(trackEntry.id)}
-                >
-                  <span class="swatch"></span>
-                  <span class="track-name">{trackLabel(trackEntry, t)}</span>
-                </button>
-                <div class="states" role="group" aria-label={t('arrangement.states', { name })}>
-                  <button
-                    class="state mute"
-                    class:implied
-                    type="button"
-                    aria-pressed={muted}
-                    aria-label={implied && !muted ? `${t('tracks.mute', { name })}. ${t('tracks.implied')}` : t('tracks.mute', { name })}
-                    title={implied && !muted ? t('tracks.implied') : t('tracks.mute', { name })}
-                    data-testid="arr-mute"
-                    data-implied={implied && !muted ? 'true' : undefined}
-                    onclick={() => run(setMute(trackEntry.id, !muted))}
-                    >M{#if implied && !muted}<span class="sr-only"> {t('tracks.implied')}</span>{/if}</button
-                  >
-                  <button
-                    class="state solo"
-                    type="button"
-                    aria-pressed={soloed}
-                    aria-label={t('tracks.solo', { name })}
-                    title={t('tracks.solo', { name })}
-                    data-testid="arr-solo"
-                    onclick={() => run(setSolo(trackEntry.id, !soloed))}>S</button
-                  >
-                  {#if trackEntry.track.kind === 'midi'}
-                    <button
-                      class="state arm"
-                      type="button"
-                      aria-pressed={armed}
-                      aria-label={t('tracks.arm', { name })}
-                      title={t('tracks.armHint', { name })}
-                      data-testid="arr-arm"
-                      onclick={() => run(armTrack(trackEntry.id, !armed))}>In</button
-                    >
-                  {/if}
-                </div>
-                <div class="lane-meter">
-                  <LevelMeter
-                    snap={meters.snap(trackEntry.id)}
-                    orientation="horizontal"
-                    label={t('mixer.level', { name })}
-                    clipLabel={t('meter.clip')}
-                    resetLabel={t('meter.reset', { name })}
-                    onreset={() => meters.reset(trackEntry.id)}
-                    testid="arr-meter"
-                  />
-                </div>
                 {#if detached.has(trackEntry.id)}
                   <button
                     class="back"
@@ -1201,30 +1187,8 @@
                     <span aria-hidden="true">↩</span>
                   </button>
                 {/if}
-                <button
-                  class="fold"
-                  class:has={lanes > 0}
-                  aria-expanded={open.has(trackEntry.id)}
-                  aria-label={t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })}
-                  title={lanes > 0
-                    ? `${t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })} · ${t('automation.lanes', { n: lanes })}`
-                    : undefined}
-                  data-testid="arr-automation-toggle"
-                  onclick={() => toggleOpen(trackEntry.id)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                    ><path
-                      d={open.has(trackEntry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    /></svg
-                  >
-                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                </button>
-              </div>
+                {@render fold(trackEntry.id, lanes, t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) }))}
+              </LaneHeader>
             {/if}
           {:else if row.kind === 'lane'}
             {@const ref = laneRefs.get(row.lane ?? '')}
@@ -1486,76 +1450,15 @@
     border-right: 1px solid var(--fk-line);
     background: var(--fk-surface);
   }
+  /* Moved by its offset, not a transform: a transform would hold the rows' fixed layers (the volume field) inside the column. */
   .slide {
-    will-change: transform;
+    position: relative;
   }
   .row {
     display: flex;
     align-items: stretch;
     border-bottom: 1px solid var(--fk-line);
     box-sizing: border-box;
-  }
-  /* A track the grid holds: the lane label is dimmed and a return button sits beside it (never the dimming alone). */
-  .row.off .head {
-    opacity: 0.6;
-  }
-  /* A muted track, or one a solo silences: the name and the meter at 40 %; its M says which (letters and a dashed frame, never the dimming alone). */
-  .row.silent .head,
-  .row.silent .lane-meter {
-    opacity: 0.4;
-  }
-  /* The selected track: a 2px light outline inside its header and a tint. */
-  .row.selected {
-    outline: 2px solid var(--fk-text);
-    outline-offset: -2px;
-  }
-  .states {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 2px;
-    padding: 0 var(--fk-space-1);
-  }
-  .state {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-work);
-    background: transparent;
-    font-family: var(--fk-font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .state:hover {
-    background: var(--fk-surface-2);
-  }
-  .state.mute[aria-pressed='true'] {
-    background: var(--fk-mute);
-    border-color: var(--fk-mute);
-    color: #131211;
-    text-decoration: line-through;
-  }
-  .state.mute.implied:not([aria-pressed='true']) {
-    border-style: dashed;
-    border-color: var(--fk-mute);
-    color: var(--fk-mute);
-  }
-  .state.solo[aria-pressed='true'] {
-    background: var(--fk-solo);
-    border-color: var(--fk-solo);
-    color: #131211;
-    text-decoration: underline;
-  }
-  /* Live input on: the neutral inverted fill of the other strips (red is for recording, which this is not). */
-  .state.arm {
-    width: 26px;
-  }
-  .state.arm[aria-pressed='true'] {
-    background: var(--fk-text);
-    border-color: var(--fk-text);
-    color: var(--fk-bg);
   }
   .lane-meter {
     display: flex;
@@ -1603,12 +1506,6 @@
     background: transparent;
     text-align: left;
   }
-  .head.on {
-    --fk-text-muted: var(--fk-text-muted-on-tint);
-    background: var(--fk-accent-tint);
-    color: var(--fk-text);
-    font-weight: 600;
-  }
   .swatch {
     flex: none;
     width: 4px;
@@ -1617,18 +1514,10 @@
     border-radius: 2px;
     background: var(--swatch);
   }
-  .label,
-  .track-name {
+  .label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  /* The name the user gave: normal case, the text colour (the global .label is for captions). */
-  .track-name {
-    min-width: 0;
-    color: var(--fk-text);
-    font-size: 12px;
-    font-weight: 600;
   }
   .hbar {
     overflow-x: scroll;

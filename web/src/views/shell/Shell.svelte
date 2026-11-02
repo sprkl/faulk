@@ -112,6 +112,15 @@
     document.documentElement.lang = ui.lang
   })
 
+  // The skip link (#471): the first stop of the keyboard, past the top bar and the track column, to the timeline (in the
+  // arrangement) or to the main view. It moves the focus itself: a hash alone would not reach a canvas widget.
+  let mainArea = $state<HTMLElement | null>(null)
+  function skipToMain(event: MouseEvent) {
+    event.preventDefault()
+    const target = mainArea?.querySelector<HTMLElement>('[data-testid="timegrid"]') ?? mainArea
+    target?.focus()
+  }
+
   /** Leaving with changes no folder holds loses them: the browser asks first (its own words). */
   function onBeforeUnload(event: BeforeUnloadEvent) {
     if (!storage.unsaved) return
@@ -130,6 +139,7 @@
 <svelte:document onvisibilitychange={onVisibility} />
 
 <div class="shell">
+  <a class="skip" href="#fk-main" data-testid="skip-link" onclick={skipToMain}>{ui.t(ui.view === 'arrangement' ? 'shell.skipTimeline' : 'shell.skipMain')}</a>
   <TopBar />
   <StorageBanners />
   <ExportDialog />
@@ -153,7 +163,7 @@
   {/if}
   <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
-    <main class="main" aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
+    <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       <current.component />
     </main>
     <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
@@ -167,6 +177,29 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* Out of sight until the keyboard reaches it; then over the top bar's left corner, in the focus colour. */
+  .skip {
+    position: fixed;
+    top: var(--fk-space-2);
+    left: var(--fk-space-2);
+    z-index: 60;
+    padding: var(--fk-space-2) var(--fk-space-3);
+    border-radius: var(--fk-radius-pill);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    box-shadow: var(--fk-shadow-float);
+    font-weight: 600;
+    text-decoration: none;
+    transform: translateY(calc(-100% - var(--fk-space-4)));
+  }
+  .skip:focus-visible {
+    transform: none;
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: 2px;
+  }
+  .main:focus {
+    outline: none;
   }
   .notice {
     flex-shrink: 0;

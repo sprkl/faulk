@@ -9,6 +9,8 @@ import { watch } from './support'
 // request for what that leaves unverified.
 
 const state = (page: Page) => page.getByTestId('save-state')
+// The tracks are the arrangement's rows (#471): these tests start on the arrangement, the app's default view.
+test.use({ storageState: { cookies: [], origins: [] } })
 const tracks = (page: Page) => page.getByTestId('track-header')
 
 async function addTrack(page: Page, item: string) {

@@ -16,6 +16,7 @@
     label,
     commit,
     onclose,
+    typed = false,
   }: {
     /** The control the field belongs to: it sits under it. */
     anchor: HTMLElement
@@ -27,6 +28,11 @@
     commit: (text: string) => boolean
     /** The field is done; `refocus` when the control should take the focus back (a key ended it, not a click elsewhere). */
     onclose: (refocus: boolean) => void
+    /**
+     * The field was opened by typing its first characters (a digit on a selected lane, #471): `initial` is that entry, not the
+     * displayed value, so it is applied even unchanged and the caret goes after it instead of selecting it.
+     */
+    typed?: boolean
   } = $props()
 
   const { ui } = useStores()
@@ -56,7 +62,7 @@
   /** Applies the text; false when it is unreadable (the field stays open and says so). */
   function apply(): boolean {
     // The text the field opened with is no entry: the displayed value is rounded, applying it would overwrite a finer value.
-    if (text === initial) return true
+    if (text === initial && !typed) return true
     if (commit(text)) return true
     invalid = true
     // The message goes after about two seconds (or at the next keystroke); the field stays marked invalid.
@@ -88,7 +94,8 @@
 
   onMount(() => {
     input?.focus()
-    input?.select()
+    if (typed) input?.setSelectionRange(text.length, text.length)
+    else input?.select()
     // An unreadable text keeps the field open past the blur; a press elsewhere then drops it.
     const away = (event: PointerEvent) => {
       if (invalid && !(event.target as Element | null)?.closest('[data-value-field]')) finish(false)

@@ -3,7 +3,7 @@ import type { Command, TrackKind } from './generated/protocol'
 /**
  * The commands of the track list: each action of a track header is one of them. Colours and
  * names are the user's; a track created without a name shows a default name in the page's
- * language (`TrackHeader`), never one stored. Without `color`, the command stores the next free hue of
+ * language (`TrackInspector`, `LaneHeader`), never one stored. Without `color`, the command stores the next free hue of
  * the palette with the track (the same for the UI and for an agent), so a colour never follows the order.
  */
 export const createTrack = (kind: TrackKind, instrument: string | null, color?: string): Command =>

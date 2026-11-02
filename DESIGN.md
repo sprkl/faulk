@@ -97,6 +97,8 @@ spacing:
   "12": "48px"
   row: "28px"
   row-compact: "22px"
+  lane: "44px"
+  lane-compact: "28px"
   control: "32px"
   control-compact: "26px"
 components:
@@ -148,7 +150,7 @@ components:
     textColor: "{colors.ink-text}"
     typography: "{typography.body}"
     rounded: "{rounded.work}"
-    height: "{spacing.row}"
+    height: "{spacing.lane}"
   clip:
     textColor: "{colors.ink}"
     typography: "{typography.label}"
@@ -225,7 +227,7 @@ A warm, near-monochrome ink-and-paper ramp with one ultraviolet voice and a four
 
 ## Layout
 
-The app is a fixed desktop workspace for large monitors (1440 px wide and up; a laptop is the floor; no tablet or phone layout). A top bar carries project, views, transport and the permanent engine indicator; a track column sits on the left; the main area holds the current view; a resizable bottom panel holds devices, piano roll and history. Spacing follows a 4px base (4, 8, 12, 16, 20, 24, 32, 48). Rows are 28px and controls 32px in the default comfort density, 22px and 26px in compact density (`data-density="compact"`), the setting for very large projects.
+The app is a fixed desktop workspace for large monitors (1440 px wide and up; a laptop is the floor; no tablet or phone layout). A top bar carries project, views, transport and the permanent engine indicator; a track column sits on the left; the main area holds the current view; a resizable bottom panel holds devices, piano roll and history. Spacing follows a 4px base (4, 8, 12, 16, 20, 24, 32, 48). Rows are 28px and controls 32px in the default comfort density, 22px and 26px in compact density (`data-density="compact"`), the setting for very large projects. A track's row in the arrangement (a lane) is its own token, `lane`: 44px in comfort, 28px in compact (`--fk-lane`), so that 16 tracks fit on a 1080p screen with the bottom panel at about 220px; each track's row can be made higher or lower by its bottom edge (28 to 176px), and the control line inside it stays at the `row` height. The master's row, which holds no clips, stays at the `row` height (28px).
 
 The site uses a 12-column grid, generous vertical rhythm and full-bleed sections; it adapts down to phone width.
 
@@ -269,8 +271,9 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 - **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count; CPU load, driver and the amber helper-lost state are not shipped yet.
 
 ### Track header and clips
-- **Track header:** one compact row with the track colour as a 3px bar, name, type, M, S and In toggles (letters, so state is not colour alone; In is live input, neutral inverted fill when on) and a level meter; fader and pan live in the mixer and the chain, not in the header. A track silenced by another track's solo shows a dashed M (implied mute).
-- **Today:** the left track column still shows large cards with volume and pan sliders, and the arrangement lane headers (276px wide for now) carry the letters and the meter; one row per lane comes with #471.
+- **Track header:** one row per track in the arrangement, at the `lane` height: the track colour as a 3px bar (also the grip that reorders the track), the name in normal case with the type and instrument under it (in the accessible name only below 40px), M, S and In toggles (letters, so state is not colour alone; In is live input, neutral inverted fill when on), and a level meter. A track silenced by another track's solo shows a dashed M (implied mute). No fader or pan in the row: the volume shows on hover and on focus, and is typed on the selected row (a digit starts the entry, Enter or F2 open it). The row's bottom edge sets its height.
+- **Inspector:** the left column shows the selected track only: colour, name, type, actions (rename, move, duplicate, delete), volume, pan and a summary of its devices; it follows the selection. Fader and pan also live in the mixer.
+- **Today:** the R toggle is labelled In (live input) until recording ships; the per-track height is kept for the session, not saved with the project.
 - **Clips:** 2px radius, filled with the track hue at full brightness, label in ink, content (notes or waveform) drawn in darker ink inside; the selected clip gets a light outline; a recording clip is rec red with its pulse.
 
 ### Audio controls
@@ -288,7 +291,7 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 - **Do** give every state a glyph or a letter in addition to its colour, and write CLIP on saturation.
 - **Do** set every number in Geist Mono with tabular figures (12px in the app).
 - **Do** use the 16 DS-0.1 track hues (the code still ships 8 different, older colours in `web/src/lib/project/tracks.ts`).
-- **Do** design for large monitors: comfort density by default (28px rows), panels side by side, extra width to the timeline.
+- **Do** design for large monitors: comfort density by default (28px rows, 44px lanes), panels side by side, extra width to the timeline.
 - **Do** keep grain for sound: sound objects of modules, the site's stage, empty states.
 - **Do** keep chrome still during playback; motion in the app is functional feedback under 100 ms (80ms fast, 160ms panels).
 

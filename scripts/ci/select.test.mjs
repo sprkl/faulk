@@ -52,7 +52,7 @@ test('a view change writes the targeted end-to-end plan: its specs, the smoke te
   assert.equal(r.status, 0)
   assert.equal(outputs.e2e, 'dev')
   assert.equal(outputs.e2e_all, 'false')
-  assert.equal(outputs.e2e_specs, 'tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
+  assert.equal(outputs.e2e_specs, 'tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
   assert.ok(outputs.e2e_smoke.includes('tests/e2e/export-audio.spec.ts') && outputs.e2e_smoke_grep.includes('export-audio'))
   assert.equal(outputs.e2e_shards, '[1]')
   assert.equal(outputs.e2e_shard_total, '1')

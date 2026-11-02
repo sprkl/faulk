@@ -16,7 +16,8 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  await expect(page.locator('[data-testid=track-header][aria-current=true]')).toBeVisible()
+  // The selected track's inspector (#471: the left column shows the selected track only).
+  await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
 
 /** The bar is one row: its height is the minimum, every child sits inside it, and the page does not scroll sideways. */

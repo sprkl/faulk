@@ -44,7 +44,7 @@ test('opening a project folder stops the old project, shows the new one and its 
   const hook = await page.evaluate(() => typeof (window as unknown as { __faulkOpen?: unknown }).__faulkOpen)
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
   await chooseMidiInput(page, 'E2E Keys')
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
 
   // A key is held on the old project: it sounds.
   await send(page, [0x90, 69, 127])
@@ -62,7 +62,7 @@ test('opening a project folder stops the old project, shows the new one and its 
     reason: 'corrupt',
   })
   await expect(page.getByRole('status').filter({ hasText: 'damaged or incomplete' })).toBeVisible()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   // Nothing was touched: the note still sounds (polled over the synth's release) and the keyboard stays selected.
   await page.waitForTimeout(600)
   expect(await master(page)).toBeGreaterThan(0.05)
@@ -73,7 +73,9 @@ test('opening a project folder stops the old project, shows the new one and its 
   // The reference song with a session that solos its bass: the old note is gone with the old project.
   const session = { path: '.faulk/session.json', bytes: text(JSON.stringify({ selected_track: BASS, solo: [BASS], midi_input: null })) }
   expect(await open(page, 'song', [...song, session])).toEqual({ status: 'opened', name: 'Song "one"' })
-  await expect(page.getByTestId('track-header')).toHaveCount(2)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '2')
+  // The tracks are listed as the arrangement's rows (#471).
+  await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('track-header').first()).toContainText('Bass')
   await expect(page.getByRole('button', { name: 'Solo Bass', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Solo Drums', exact: true })).toHaveAttribute('aria-pressed', 'false')

@@ -4,8 +4,18 @@
  * The rows are in the page's coordinates: `top` counts from the first row, under the ruler.
  */
 
-/** The height of a track's row of clips, in CSS pixels. */
-export const CLIP_ROW = 64
+/** The default height of a track's row of clips, in CSS pixels: the `lane` token of DESIGN.md (comfort density, #471). */
+export const CLIP_ROW = 44
+/** The lowest a track's row may be made: the `lane-compact` token. */
+export const CLIP_ROW_MIN = 28
+/** The highest a track's row may be made. */
+export const CLIP_ROW_MAX = 176
+
+/** A track row's height, whole and between the bounds; an unreadable value gives the default. */
+export function clampClipRow(height: number, fallback: number = CLIP_ROW): number {
+  if (!Number.isFinite(height)) return fallback
+  return Math.min(CLIP_ROW_MAX, Math.max(CLIP_ROW_MIN, Math.round(height)))
+}
 /** The height of a lane's row. */
 export const LANE_ROW = 84
 /** The height of the row that adds a lane. */
@@ -28,22 +38,35 @@ export interface Layout {
   rows: readonly Row[]
   /** The top of each track's row of clips. */
   trackTop: readonly number[]
+  /** The height of each track's row of clips. */
+  trackHeight: readonly number[]
   /** The height of all the rows. */
   total: number
 }
 
 /**
  * The rows of the tracks, in order. `lanes` gives the ids of the lanes a track shows, in the order they are drawn; only
- * the tracks in `open` use it.
+ * the tracks in `open` use it. `heightOf` gives the height of a track's row of clips (the user's, kept by the page), else
+ * `base` (the `lane` token); either is clamped to the bounds.
  */
-export function layoutOf(entries: readonly { id: string }[], open: ReadonlySet<string>, lanes: (trackId: string) => readonly string[]): Layout {
+export function layoutOf(
+  entries: readonly { id: string }[],
+  open: ReadonlySet<string>,
+  lanes: (trackId: string) => readonly string[],
+  heightOf: (trackId: string) => number | undefined = () => undefined,
+  base: number = CLIP_ROW,
+): Layout {
   const rows: Row[] = []
   const trackTop: number[] = []
+  const trackHeight: number[] = []
+  const fallback = clampClipRow(base)
   let top = 0
   entries.forEach((entry, track) => {
+    const height = clampClipRow(heightOf(entry.id) ?? fallback, fallback)
     trackTop.push(top)
-    rows.push({ kind: 'track', track, trackId: entry.id, top, height: CLIP_ROW })
-    top += CLIP_ROW
+    trackHeight.push(height)
+    rows.push({ kind: 'track', track, trackId: entry.id, top, height })
+    top += height
     if (!open.has(entry.id)) return
     for (const lane of lanes(entry.id)) {
       rows.push({ kind: 'lane', track, trackId: entry.id, lane, top, height: LANE_ROW })
@@ -52,7 +75,7 @@ export function layoutOf(entries: readonly { id: string }[], open: ReadonlySet<s
     rows.push({ kind: 'add', track, trackId: entry.id, top, height: ADD_ROW })
     top += ADD_ROW
   })
-  return { rows, trackTop, total: top }
+  return { rows, trackTop, trackHeight, total: top }
 }
 
 /** The index of the row under `y` (counted from the first row), or -1 above the first row or under the last. */

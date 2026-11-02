@@ -9,6 +9,8 @@ export const shell = defineFeature(
     'lang.title': 'Language',
     'lang.en': 'English',
     'lang.fr': 'Français',
+    'shell.skipTimeline': 'Skip to the timeline',
+    'shell.skipMain': 'Skip to the main view',
   },
   {
     'app.home': 'Page d’accueil de Faulk',
@@ -16,5 +18,7 @@ export const shell = defineFeature(
     'lang.title': 'Langue',
     'lang.en': 'English',
     'lang.fr': 'Français',
+    'shell.skipTimeline': 'Aller à la timeline',
+    'shell.skipMain': 'Aller à la vue principale',
   },
 )

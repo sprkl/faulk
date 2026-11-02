@@ -7,7 +7,7 @@
 import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
-import { BLOCK_INSET, LANE_HEIGHT, laneTop, type Block } from './arrangement'
+import { BLOCK_INSET, laneHeight, laneTop, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
@@ -35,6 +35,8 @@ export interface ArrangementFrame {
 export const SILENT_ALPHA = 0.4
 
 const NOTE_MIN_PX = 1.5
+/** The height of a clip (inside its row) from which its notes are drawn under its name rather than across it. */
+const NAME_ROOM = 30
 const pitchRanges = new WeakMap<readonly Note[], [number, number]>()
 
 function pitchRange(notes: readonly Note[]): [number, number] {
@@ -89,7 +91,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     const x1 = tickToX(block.end, view)
     if (x1 < 0 || x0 > width) return
     const y = laneTop(scene.layout, block.row, scene.scrollY) + BLOCK_INSET
-    const h = LANE_HEIGHT - 2 * BLOCK_INSET
+    const h = laneHeight(scene.layout, block.row) - 2 * BLOCK_INSET
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)
     const k = scene.silent.has(block.track) ? SILENT_ALPHA : 1
@@ -110,8 +112,10 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       ctx.rect(x0 + 1, y + 1, w - 2, h - 2)
       ctx.clip()
       const [low, high] = pitchRange(notes)
-      const top = y + 16
-      const span = Math.max(1, h - 20)
+      // Under the name when the row has room for both; a low row (the compact height) draws them across it, the name on top.
+      const roomy = h >= NAME_ROOM
+      const top = y + (roomy ? 16 : 2)
+      const span = Math.max(1, h - (roomy ? 20 : 4))
       const rowH = Math.min(4, span / (high - low + 1))
       ctx.fillStyle = block.color
       ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k

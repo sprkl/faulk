@@ -166,6 +166,20 @@ export class UiStore {
     return owner
   }
 
+  /**
+   * The height the user gave each track's row in the arrangement (px, by track id), #471. View state of the session:
+   * neither in the project (an agent has no use for it, and saving it would be a project change) nor in `localStorage`
+   * (track ids belong to one project). Missing: the `lane` token's height.
+   */
+  laneHeights = $state<Readonly<Record<string, number>>>({})
+
+  setLaneHeight(track: string, height: number | null) {
+    const next = { ...this.laneHeights }
+    if (height === null) delete next[track]
+    else next[track] = height
+    this.laneHeights = next
+  }
+
   setPanelHeight(panel: PanelViewId, height: number) {
     this.panelMaximized = false
     this.panelHeights = { ...this.panelHeights, [panel]: height }

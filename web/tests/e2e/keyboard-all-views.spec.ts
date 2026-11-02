@@ -13,7 +13,7 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  await expect(page.locator('[data-testid=track-header][aria-current=true]')).toBeVisible()
+  await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
 
 /** A, held a moment: the selected track sounds, then it falls silent. */

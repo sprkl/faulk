@@ -28,6 +28,8 @@ for (const lang of ['en', 'fr'] as const) {
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
     await chooseMidiInput(page, 'E2E Keys')
+    // The tracks are selected and armed on their rows in the arrangement (#471).
+    await page.getByTestId('nav-arrangement').click()
     await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
 
     // A second track, selected on creation: the first one is neither selected nor armed.

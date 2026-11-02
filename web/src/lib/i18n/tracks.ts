@@ -1,5 +1,5 @@
 /**
- * The track list and the track headers (`src/views/tracks/`, `src/lib/components/TrackHeader.svelte`).
+ * The track column and its inspector of the selected track (`src/views/tracks/`), and the arrangement's track rows.
  * A device name (Oscillator, Drums) is not here: it comes from the device's descriptor, one English
  * name never translated.
  */
@@ -45,6 +45,12 @@ export const tracks = defineFeature(
     'tracks.volume': 'Volume of {name}',
     'tracks.pan': 'Pan of {name}',
     'tracks.panShort': 'Pan',
+    'tracks.volumeShort': 'Vol',
+    'tracks.inspector': 'Inspector of {name}',
+    'tracks.noSelection': 'Select a track to see its volume, pan and devices.',
+    'tracks.devices': 'Devices',
+    'tracks.noDevices': 'No device yet.',
+    'tracks.showDevices': 'Show the devices',
     'tracks.actions': 'Actions for {name}',
     'tracks.menu.rename': 'Rename',
     'tracks.menu.moveUp': 'Move up',
@@ -93,6 +99,12 @@ export const tracks = defineFeature(
     'tracks.volume': 'Volume de {name}',
     'tracks.pan': 'Panoramique de {name}',
     'tracks.panShort': 'Pan',
+    'tracks.volumeShort': 'Vol',
+    'tracks.inspector': 'Inspecteur de {name}',
+    'tracks.noSelection': 'Sélectionne une piste pour voir son volume, son pan et ses devices.',
+    'tracks.devices': 'Devices',
+    'tracks.noDevices': 'Aucun device pour l’instant.',
+    'tracks.showDevices': 'Afficher les devices',
     'tracks.actions': 'Actions pour {name}',
     'tracks.menu.rename': 'Renommer',
     'tracks.menu.moveUp': 'Monter',

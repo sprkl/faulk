@@ -31,6 +31,10 @@ const TEXTS = {
   },
 } as const
 
+// The tracks are the arrangement's rows and the left column is the inspector of the selected track (#471): these tests
+// start on the arrangement, the app's default view.
+test.use({ storageState: { cookies: [], origins: [] } })
+
 const header = (page: Page, name: string) => page.getByTestId('track-header').filter({ has: page.getByRole('button', { name, exact: true }) })
 const names = (page: Page) => page.getByTestId('track-name').allInnerTexts()
 
@@ -48,10 +52,12 @@ async function horizontalOverflow(page: Page): Promise<string[]> {
   })
 }
 
-/** Delete a track from the `⋯` menu of its header. */
+/** Delete a track: select its row, then the `⋯` menu of the inspector. */
 async function removeTrack(header: Locator) {
-  await header.getByTestId('track-more').click()
-  await header.getByTestId('track-delete').click()
+  await header.getByTestId('arr-track').click()
+  const inspector = header.page().getByTestId('track-inspector')
+  await inspector.getByTestId('track-more').click()
+  await inspector.getByTestId('track-delete').click()
 }
 
 async function addTrack(page: Page, item: string) {
@@ -90,14 +96,15 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('stream-error')).toHaveCount(0)
       await expect(page.locator('[data-testid=track-header][aria-current=true]')).toHaveCount(1)
 
-      // Rename from the keyboard: F2 on the name, type, Enter; the keyboard stays on the name.
-      await header(page, x.track(2)).getByTestId('track-name').focus()
+      // Rename from the keyboard: F2 on the inspector's name, type, Enter; the keyboard stays on the name.
+      await header(page, x.track(2)).getByTestId('arr-track').click()
+      await page.getByTestId('inspector-name').focus()
       await page.keyboard.press('F2')
       await expect(page.getByRole('textbox', { name: x.rename, exact: true })).toBeFocused()
       await page.keyboard.type('Kit')
       await page.keyboard.press('Enter')
       expect(await names(page)).toEqual(['Synth', 'Kit', x.track(3)])
-      await expect(header(page, 'Kit').getByTestId('track-name')).toBeFocused()
+      await expect(page.getByTestId('inspector-name')).toBeFocused()
       // Escape gives the edit up.
       await page.keyboard.press('F2')
       await page.keyboard.type(' and more')
@@ -114,8 +121,10 @@ for (const lang of ['en', 'fr'] as const) {
         .click()
       await expect(page.locator('.solo[aria-pressed=true]')).toHaveCount(2)
 
-      // Volume and pan: a value, and a drag that one undo takes back whole.
-      const volume = kit.getByRole('slider', { name: x.volume('Kit'), exact: true })
+      // Volume and pan, in the inspector of the selected track: a value, and a drag that one undo takes back whole.
+      const inspector = page.getByTestId('track-inspector')
+      await expect(page.getByTestId('inspector-name')).toHaveText('Kit')
+      const volume = inspector.getByRole('slider', { name: x.volume('Kit'), exact: true })
       // On the mixer's curve: 14 steps down from 0 dB are -12 dB, and Home is silence.
       await volume.focus()
       await volume.press('Delete')
@@ -123,7 +132,7 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(volume).toHaveAttribute('aria-valuetext', '−12.0 dB')
       await volume.press('Home')
       await expect(volume).toHaveAttribute('aria-valuetext', '−∞ dB')
-      const pan = kit.getByRole('slider', { name: x.pan('Kit'), exact: true })
+      const pan = inspector.getByRole('slider', { name: x.pan('Kit'), exact: true })
       for (let i = 0; i < 12; i++) await pan.press('ArrowRight')
       await expect(pan).toHaveAttribute('aria-valuetext', 'R48')
       await volume.dblclick()
@@ -141,6 +150,7 @@ for (const lang of ['en', 'fr'] as const) {
       // Select, and the computer keyboard plays the selected track.
       await header(page, 'Synth').getByTestId('track-name').click()
       await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
+      await expect(page.getByTestId('inspector-name')).toHaveText('Synth')
       await page.getByTestId('panel-keyboard').click()
       await expect(page.getByTestId('keys-target')).toContainText('Synth')
       await page.keyboard.down('KeyA')
@@ -163,9 +173,6 @@ for (const lang of ['en', 'fr'] as const) {
       await header(page, x.track(3)).getByTestId('track-name').click()
       await page.keyboard.down('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
-      await header(page, 'Kit')
-        .getByRole('slider', { name: x.pan('Kit'), exact: true })
-        .press('ArrowLeft')
       await header(page, 'Kit')
         .getByRole('button', { name: x.solo('Kit'), exact: true })
         .click()
@@ -199,7 +206,7 @@ for (const lang of ['en', 'fr'] as const) {
       // Deleting every track leaves an empty list that says so; undo brings the last one back.
       for (let n = 3; n > 0; n--) await removeTrack(page.getByTestId('track-header').first())
       await expect(page.getByTestId('tracks-empty')).toBeVisible()
-      await expect(page.getByTestId('keys-target')).toBeVisible()
+      await expect(page.getByTestId('track-inspector')).toHaveCount(0)
       await page.keyboard.press('Control+z')
       await expect(page.getByTestId('track-header')).toHaveCount(1)
 

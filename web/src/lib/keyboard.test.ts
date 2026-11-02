@@ -412,8 +412,8 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
-      'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
+      'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',
@@ -440,6 +440,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],
       'views/shell/StorageBanners.svelte': ['Escape'],
+      'views/tracks/TrackInspector.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/tracks/TrackList.svelte': ['Escape'],
       'views/transport/Transport.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'Space'],
     })
