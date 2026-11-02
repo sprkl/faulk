@@ -22,7 +22,7 @@ Dark, warm, nocturnal instrumental electronic music, made on hardware (FM synth,
   - Arc, in the recent work: a rising intro, a break around the middle, the densest moment late (70–95 %), then a very short ending.
   - Tracks run 3½ to 7 minutes. Default to the arc; use the plateau when the brief asks for something hypnotic, live or long.
 - **Mix**:
-  - bass and sub dominate: 58–89 % of the energy below 250 Hz, most tracks 65–80 %;
+  - bass and sub dominate: 58–89 % of the energy below 250 Hz (median about 73 %);
   - presence (2–6 kHz) and air together stay under 5 %;
   - crest factor 11–16 dB: dynamic, not squashed;
   - the level varies a lot from track to track.
@@ -51,6 +51,6 @@ Dark, warm, nocturnal instrumental electronic music, made on hardware (FM synth,
 ## Confidence
 
 - **Measured**: the tempo family, the key and mode family, the band balance, the energy curves and the form, the swing proxy, the dynamics.
-- **Estimated**: the chords (chroma templates can confuse relative chords) and the half-time readings.
+- **Estimated**: the chords and their cycle length (chroma templates can confuse relative chords) and the half-time readings.
 - **Not measured**: melodies, sound design details, effects. Treat the melody line as an assumption until the producer confirms it.
-- **Chosen, not measured**: every figure under Moves to try and Avoid (the 3–8 kHz element, the 55–70 % peak, the 16-bar exit, the 4- or 8-bar B section, the four-chord limit, the fill and hat figures).
+- **Chosen, not measured**: the figures under Moves to try and Avoid (the 3–8 kHz element, the 55–70 % peak, the 16-bar exit, the 4- or 8-bar B section, the four-chord limit, the fill and hat figures), and the defaults set for the producer: arc by default, four or five roles.
