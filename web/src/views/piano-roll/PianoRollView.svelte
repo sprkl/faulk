@@ -916,6 +916,7 @@
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}
+    data-taking={taking.length}
     data-selected-count={chosenNotes.length}
     data-clip-length={clipLength}
     data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
