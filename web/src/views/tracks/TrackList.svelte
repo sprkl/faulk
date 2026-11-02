@@ -5,7 +5,7 @@
    * track comes back that way. Every action is a command through the dispatcher.
    */
   import TrackHeader from '../../lib/components/TrackHeader.svelte'
-  import { INSTRUMENTS, nextColor, OFFER_AUDIO_TRACK, type DragHooks } from '../../lib/project/tracks'
+  import { INSTRUMENTS, OFFER_AUDIO_TRACK, type DragHooks } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { createTrack, moveTrack, redo, selectTrack, undo } from '../../lib/track-commands'
 
@@ -29,7 +29,7 @@
   function add(kind: 'midi' | 'audio', instrument: string | null) {
     menuOpen = false
     const before = new Set(project.tracks.map((entry) => entry.id))
-    dispatcher.run(createTrack(kind, instrument, nextColor(project.tracks.length)))
+    dispatcher.run(createTrack(kind, instrument))
     const created = project.tracks.find((entry) => !before.has(entry.id))
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()

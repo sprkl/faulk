@@ -25,6 +25,7 @@ fn lane_project(points: usize) -> (Project, TrackId, LaneId) {
     let mut ids = IdGenerator::for_tests();
     let mut project = Project::new(ProjectId::generate(&mut ids), "Lanes");
     let mut track = Track::new(TrackKind::Midi, "T", OrderKey::first());
+    track.color = Some(project::Rgb::new(1, 2, 3));
     let lane = LaneId::generate(&mut ids);
     track.automation.insert(
         lane.clone(),
@@ -976,9 +977,62 @@ fn std_fs_refuses_paths_that_lead_out_of_the_folder() {
 /// the project then opens as it is.
 #[test]
 fn opening_names_the_unnamed_clips_and_the_next_save_keeps_them() {
+    opening_colors_the_uncolored_tracks_by_position();
+    names_the_unnamed_clips();
+}
+
+/// #479: a folder saved before track colours were stored opens with each uncoloured track
+/// holding the hue of its position, writes nothing, and keeps it after the next save.
+fn opening_colors_the_uncolored_tracks_by_position() {
+    use project::colors::palette_hue;
+    let mut ids = IdGenerator::for_tests();
+    let mut project = Project::new(ProjectId::generate(&mut ids), "Old");
+    let mut key = OrderKey::first();
+    let mut tracks = Vec::new();
+    for i in 0..3 {
+        let mut track = Track::new(TrackKind::Midi, "T", key.clone());
+        if i == 1 {
+            track.color = Some(project::Rgb::new(1, 2, 3));
+        }
+        let id = TrackId::generate(&mut ids);
+        project.tracks.insert(id.clone(), track);
+        tracks.push(id);
+        key = OrderKey::between(Some(&key), None).unwrap();
+    }
+    let (mut fs, _) = save_all(&project);
+    let _ = fs.take_log();
+
+    let opened = open_default(&fs);
+    assert_eq!(opened.report.colored_tracks, 2);
+    assert_eq!(fs.take_log(), vec![], "opening writes nothing");
+    let color = |i: usize| opened.project.tracks[&tracks[i]].color;
+    assert_eq!(color(0), Some(palette_hue(0)));
+    assert_eq!(
+        color(1),
+        Some(project::Rgb::new(1, 2, 3)),
+        "a stored colour is kept"
+    );
+    assert_eq!(color(2), Some(palette_hue(2)));
+
+    let mut state = opened.state;
+    save(
+        &mut fs,
+        &opened.project,
+        &mut state,
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    let again = open_default(&fs);
+    assert_eq!(again.report.colored_tracks, 0);
+    assert_eq!(again.project, opened.project);
+}
+
+fn names_the_unnamed_clips() {
     let mut ids = IdGenerator::for_tests();
     let mut project = Project::new(ProjectId::generate(&mut ids), "Old");
     let mut track = Track::new(TrackKind::Midi, "T", OrderKey::first());
+    track.color = Some(project::Rgb::new(1, 2, 3));
     let clip = |name: &str| Clip {
         name: name.to_owned(),
         color: None,

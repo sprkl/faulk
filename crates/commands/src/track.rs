@@ -55,7 +55,8 @@ domain! {
     /// plays `instrument`, the type id of a built-in instrument (`faulk.osc_synth`, the
     /// default); an audio track plays the clip player and takes no `instrument`. `name`
     /// is optional (trimmed, at most 200 characters; empty by default) and so is `color`
-    /// (`#rrggbb`). Refused with `limit` only at the project's safety limit of tracks.
+    /// (`#rrggbb`; by default the first of the sixteen palette hues no track has yet, stored
+    /// with the track so that it never changes when other tracks move). Refused with `limit` only at the project's safety limit of tracks.
     /// Undo: `track.delete`.
     "track.create" (kind = "edit", undo = "inverse", destructive = false)
     Create {
@@ -101,7 +102,8 @@ domain! {
         previous: String,
     };
 
-    /// Set the colour of a track, `#rrggbb`, or `null` for none. Undo: set the previous
+    /// Set the colour of a track, `#rrggbb`, or `null` for none (the page then shows the hue of the
+    /// track's position, which moves with the order: prefer a colour). Undo: set the previous
     /// colour back.
     "track.set_color" (kind = "edit", undo = "inverse", destructive = false)
     SetColor {
@@ -199,7 +201,8 @@ domain! {
     /// devices, clips, placements and automation lanes. The clips are new, independent
     /// clips with the same content, each with the next name ("Clip 2" gives "Clip 3").
     /// `name` is optional (trimmed, at most 200
-    /// characters): the copy has the source's name by default. The copy is never muted
+    /// characters): the copy has the source's name and colour by default
+    /// (recolour it with `track.set_color`). The copy is never muted
     /// (volume and pan are copied); solo and arming are session state of the source and
     /// are not copied. Refused with `limit` at
     /// the safety limit of tracks, notes or automation points. Undo: `track.delete` of
@@ -494,7 +497,7 @@ fn create(
     let track_id = TrackId::generate(&mut ctx.ids);
     let device_id = DeviceId::generate(&mut ctx.ids);
     let mut track = Track::new(kind, name, order);
-    track.color = color;
+    track.color = Some(color.unwrap_or_else(|| state.project.next_track_color()));
     track.devices.insert(device_id.clone(), device);
     state.project.tracks.insert(track_id.clone(), track);
     Ok(Outcome {
