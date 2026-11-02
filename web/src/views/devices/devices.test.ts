@@ -37,7 +37,7 @@ const builtin = (id: string) => ({ builtin: { id, version: 1 } })
 const effect: Device = { order: 'b', role: 'effect', enabled: false, params: { depth: 0.5 }, source: builtin('faulk.fake_fx') }
 const instrument: Device = { order: 'a', role: 'instrument', enabled: true, params: {}, source: builtin('faulk.fake_synth') }
 
-const stores = () => createStores('play', 'devices')
+const stores = () => createStores('arrangement', 'devices')
 
 describe('the device browser', () => {
   it('lists the effects of the registry it is given, and an empty state when there is none', () => {

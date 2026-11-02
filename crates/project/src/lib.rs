@@ -15,6 +15,7 @@
 //! build on, not the file format.
 
 pub mod blob;
+pub mod colors;
 pub mod file;
 pub mod ids;
 pub mod limits;

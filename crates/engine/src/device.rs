@@ -480,6 +480,13 @@ pub trait Device: Send {
     fn voices(&self) -> u32 {
         0
     }
+
+    /// The gain this device takes off the signal after the last block, in decibels (>= 0,
+    /// finite), for the visual feedback (#469); 0 for a device that does not reduce gain. It reads
+    /// a field: no allocation, no lock.
+    fn gain_reduction_db(&self) -> f32 {
+        0.0
+    }
 }
 
 /// Builds a device off the audio path, with fallible allocations only.

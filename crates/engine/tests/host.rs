@@ -455,7 +455,7 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     session.host.write_feedback();
     let mut bytes = vec![0xAA; 3];
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
-    assert_eq!(bytes.len(), 56 + 3 * 16, "header, two tracks, the output");
+    assert_eq!(bytes.len(), 56 + 3 * 20, "header, two tracks, the output");
     assert_eq!(bytes[0], engine::msg::FEEDBACK_VERSION);
     let decoded = engine::host::decode_feedback(&bytes).unwrap();
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
@@ -481,7 +481,7 @@ fn rendering_and_reporting_with_tracks_never_allocates() {
     let mut session = two_tracks(0.7);
     session.send(&[M::Play { from: Tick(0) }]);
     session.host.render(128);
-    let mut bytes = Vec::with_capacity(limits::MAX_TRACKS as usize * 16 + 64);
+    let mut bytes = Vec::with_capacity(limits::MAX_TRACKS as usize * 20 + 64);
     // 2 000 blocks: many reports (every 1 600 frames), with the clock running.
     assert_no_alloc(|| {
         for block in 0..2_000u32 {
@@ -613,7 +613,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
     assert_eq!(
         bytes.len(),
-        56 + 2 * 16 + 16,
+        56 + 2 * 20 + 16,
         "header, a track and the output, a cell"
     );
     assert_eq!(&bytes[44..48], &1u32.to_le_bytes());
@@ -651,7 +651,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     // The anchor travels as a little-endian i64 after the cell's first eight bytes.
     let mut anchored = bytes.clone();
     for anchor in [3840i64, -960, i64::MAX, i64::MIN] {
-        let at = 56 + 2 * 16 + 8;
+        let at = 56 + 2 * 20 + 8;
         anchored[at..at + 8].copy_from_slice(&anchor.to_le_bytes());
         let cells = engine::host::decode_feedback(&anchored)
             .unwrap()
@@ -663,7 +663,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     many[44..48].copy_from_slice(&3u32.to_le_bytes());
     assert!(engine::host::decode_feedback(&many).is_none());
     let mut unknown = bytes.clone();
-    let state_at = 56 + 2 * 16 + 6;
+    let state_at = 56 + 2 * 20 + 6;
     for state in [0u8, 6, 255] {
         unknown[state_at] = state;
         assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
@@ -685,9 +685,9 @@ fn the_launch_grid_states_travel_in_the_report() {
             anchor: Tick(0),
         }]
     );
-    assert_eq!(held[56 + 2 * 16 + 6], ClipState::Held as u8);
+    assert_eq!(held[56 + 2 * 20 + 6], ClipState::Held as u8);
     // A report with no cell (what an older engine writes) decodes with none.
-    let mut none = bytes[..56 + 2 * 16].to_vec();
+    let mut none = bytes[..56 + 2 * 20].to_vec();
     none[44..48].copy_from_slice(&0u32.to_le_bytes());
     assert!(
         engine::host::decode_feedback(&none)
@@ -695,4 +695,95 @@ fn the_launch_grid_states_travel_in_the_report() {
             .active_clips
             .is_empty()
     );
+}
+
+// ------------------------------------------------------------ gain reduction (#469)
+
+/// The slot of the compressor in a strip: after the synth on the track, first on the master.
+fn compressor_slot(track: TrackSlot) -> DeviceSlot {
+    DeviceSlot(if track == TrackSlot::MASTER { 0 } else { 1 })
+}
+
+/// A track with the synth and a Compressor on it, and a Compressor on the master, both at a
+/// threshold the synth's note exceeds; a compressor can be left disabled.
+fn compressed(track_on: bool, master_on: bool) -> Session {
+    use engine::devices::compressor::{DESCRIPTOR as COMPRESSOR, RATIO, THRESHOLD};
+    let mut session = two_tracks(1.0);
+    let mut msgs = Vec::new();
+    for (track, on) in [(TrackSlot(1), track_on), (TrackSlot::MASTER, master_on)] {
+        let device = compressor_slot(track);
+        msgs.push(M::DeviceInsert {
+            track,
+            device,
+            kind: COMPRESSOR.kind_id,
+            state: Vec::new(),
+        });
+        for (param, value) in [(THRESHOLD, -60.0), (RATIO, 20.0)] {
+            msgs.push(M::ParamSet {
+                track,
+                device,
+                param: ParamId(param),
+                value,
+            });
+        }
+        if !on {
+            msgs.push(M::DeviceSetEnabled {
+                track,
+                device,
+                enabled: false,
+            });
+        }
+    }
+    session.send(&msgs);
+    for _ in 0..200 {
+        session.host.render(128);
+    }
+    session
+}
+
+#[test]
+fn a_compressor_over_its_threshold_reports_its_gain_reduction_on_its_strip() {
+    // On the track only: the track reports a reduction, the master (no enabled compressor) none.
+    let mut session = compressed(true, false);
+    let report = report_of(&mut session);
+    assert!(
+        report.meters[1].gain_reduction_db > 6.0,
+        "{:?}",
+        report.meters[1]
+    );
+    assert!(report.meters[1].gain_reduction_db <= 60.0);
+    assert_eq!(report.master.gain_reduction_db, 0.0);
+    assert_eq!(report.meters[0].gain_reduction_db, 0.0, "an empty slot");
+    // On the master only: the disabled compressor of the track reports nothing.
+    let mut session = compressed(false, true);
+    let report = report_of(&mut session);
+    assert_eq!(report.meters[1].gain_reduction_db, 0.0);
+    assert!(report.master.gain_reduction_db > 6.0, "{:?}", report.master);
+    // No compressor: no reduction.
+    let mut plain = two_tracks(1.0);
+    let report = report_of(&mut plain);
+    assert_eq!(report.meters[1].gain_reduction_db, 0.0);
+    assert_eq!(report.master.gain_reduction_db, 0.0);
+}
+
+#[test]
+fn the_reduction_travels_in_the_report_bytes() {
+    let mut session = compressed(true, true);
+    session.host.write_feedback();
+    for _ in 0..12 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    let decoded = engine::host::decode_feedback(&bytes).unwrap();
+    assert!(decoded.meters[1].gain_reduction_db > 6.0);
+    assert!(decoded.master.gain_reduction_db > 6.0);
+    // The track's reduction is the fifth float of its meter (the slot 0 meter comes first).
+    let at = 56 + 20 + 16;
+    let wire = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    assert_eq!(wire, decoded.meters[1].gain_reduction_db);
+    // A report of the previous version is refused by its first byte.
+    bytes[0] = 3;
+    assert!(engine::host::decode_feedback(&bytes).is_none());
 }

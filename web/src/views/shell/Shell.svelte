@@ -7,13 +7,14 @@
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
-  import { historyShortcut, saveShortcut } from '../../lib/keyboard'
+  import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
-  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById } from '../registry'
+  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
+  import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
@@ -22,7 +23,7 @@
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(startView(), DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
-  const { engine, ui, dispatcher, storage, keys } = provideStores(stores)
+  const { engine, ui, dispatcher, storage, keys, meters } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
@@ -30,10 +31,17 @@
   let bodyHeight = $state(0)
   const stored = $derived(ui.panelHeights[ui.panel])
   const panelRow = $derived(
-    ui.panelCollapsed ? 'auto' : stored === undefined ? undefined : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
+    ui.panelFolded
+      ? 'auto'
+      : ui.panelMaximized && bodyHeight > 0
+        ? `${panelMax(ui.panel, bodyHeight)}px`
+        : stored === undefined
+          ? undefined
+          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
   )
 
   onMount(() => {
+    const stopMeters = meters.start()
     void dispatcher.checkHelper()
     // The project of last time comes back (or a banner offers it).
     void storage.restore()
@@ -51,6 +59,7 @@
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     return () => {
+      stopMeters()
       stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
     }
@@ -62,6 +71,18 @@
       // The browser would offer to save the page as a file.
       event.preventDefault()
       dispatcher.run(save === 'save' ? saveCommand() : saveAsCommand())
+      return
+    }
+    const layout = layoutShortcut(event)
+    // No layout shortcut while a menu or a dialog has the keyboard (the pairing field is a text field and is left out already).
+    // Nor while a modal dialog is open, whatever holds the focus (a click on its text leaves it on the body).
+    if (layout && !(event.target as Element | null)?.closest?.('[role="dialog"], [role="menu"]') && !document.querySelector('[aria-modal="true"]')) {
+      event.preventDefault()
+      if (layout === 'panel') ui.toggleMaximized()
+      else {
+        const view = viewsIn('main')[layout.view]
+        if (view) ui.show(view.id)
+      }
       return
     }
     const action = historyShortcut(event)
@@ -91,6 +112,15 @@
     document.documentElement.lang = ui.lang
   })
 
+  // The skip link (#471): the first stop of the keyboard, past the top bar and the track column, to the timeline (in the
+  // arrangement) or to the main view. It moves the focus itself: a hash alone would not reach a canvas widget.
+  let mainArea = $state<HTMLElement | null>(null)
+  function skipToMain(event: MouseEvent) {
+    event.preventDefault()
+    const target = mainArea?.querySelector<HTMLElement>('[data-testid="timegrid"]') ?? mainArea
+    target?.focus()
+  }
+
   /** Leaving with changes no folder holds loses them: the browser asks first (its own words). */
   function onBeforeUnload(event: BeforeUnloadEvent) {
     if (!storage.unsaved) return
@@ -109,20 +139,22 @@
 <svelte:document onvisibilitychange={onVisibility} />
 
 <div class="shell">
+  <a class="skip" href="#fk-main" data-testid="skip-link" onclick={skipToMain}>{ui.t(ui.view === 'arrangement' ? 'shell.skipTimeline' : 'shell.skipMain')}</a>
   <TopBar />
   <StorageBanners />
   <ExportDialog />
+  <EngineDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
   {#if engine.streamError}
     <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
   {/if}
-  <!-- The instrument view shows pairing state in its own panels; elsewhere, here. -->
-  {#if engine.pendingPairCode && !engine.started && ui.view !== 'play'}
+
+  {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>
   {/if}
-  {#if engine.pairingMessage && ui.view !== 'play'}
+  {#if engine.pairingMessage && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
   {#if engine.refusal}
@@ -131,7 +163,7 @@
   {/if}
   <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
-    <main class="main" aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
+    <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       <current.component />
     </main>
     <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
@@ -145,6 +177,29 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* Out of sight until the keyboard reaches it; then over the top bar's left corner, in the focus colour. */
+  .skip {
+    position: fixed;
+    top: var(--fk-space-2);
+    left: var(--fk-space-2);
+    z-index: 60;
+    padding: var(--fk-space-2) var(--fk-space-3);
+    border-radius: var(--fk-radius-pill);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    box-shadow: var(--fk-shadow-float);
+    font-weight: 600;
+    text-decoration: none;
+    transform: translateY(calc(-100% - var(--fk-space-4)));
+  }
+  .skip:focus-visible {
+    transform: none;
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: 2px;
+  }
+  .main:focus {
+    outline: none;
   }
   .notice {
     flex-shrink: 0;
@@ -182,7 +237,7 @@
   /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
   .body[data-panel='piano-roll'] {
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
-    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(360px, 1.2fr));
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
   }
   .main {
     grid-area: main;

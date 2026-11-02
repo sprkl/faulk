@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Command, ProjectView, RunReport } from './generated/protocol'
 import { coreModule, ProjectCore } from './project/core'
-import { sortedTracks } from './project/tracks'
+import { sortedTracks, TRACK_COLORS } from './project/tracks'
 import * as commands from './track-commands'
 
 let module: WebAssembly.Module
@@ -37,6 +37,17 @@ describe('the commands of the track headers', () => {
     const sources = tracks.map((e) => JSON.stringify(Object.values(e.track.devices).map((d) => d?.source)))
     expect(sources[0]).toContain('faulk.osc_synth')
     expect(sources[1]).toContain('faulk.drums')
+  })
+
+  it('stores a colour at creation, so reordering and deleting tracks changes no other colour', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    for (let i = 0; i < 4; i++) run(core, commands.createTrack('midi', null))
+    const first = sortedTracks(project(core))
+    const colors = new Map(first.map((e) => [e.id, e.track.color]))
+    expect(first.map((e) => e.track.color)).toEqual(TRACK_COLORS.slice(0, 4))
+    run(core, commands.moveTrack(first[3].id, 0))
+    run(core, commands.deleteTrack(first[1].id))
+    for (const e of sortedTracks(project(core))) expect(e.track.color).toBe(colors.get(e.id))
   })
 
   it('runs every other action, and each edit undoes to the project it started from', () => {

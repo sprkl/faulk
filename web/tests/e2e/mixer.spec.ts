@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { best, fakeWebMidi, mainThreadMeter, watch } from './support'
+import { best, chooseMidiInput, fakeWebMidi, mainThreadMeter, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
 // control goes through the dispatcher as a command, and the meters are the engine's own report.
@@ -18,8 +18,8 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await chooseMidiInput(page, 'E2E Keys')
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   await page.getByTestId('nav-mixer').click()
   await expect(page.getByTestId('mixer')).toBeVisible()
 }
@@ -311,8 +311,8 @@ test('32 strips with every meter moving: render cost', async ({ page }) => {
   }
 
   const mixer = await measure('mixer view, 32 strips', true)
-  await page.getByTestId('nav-play').click()
-  const baseline = await measure('play view, 32 tracks (baseline)', false)
+  await page.getByTestId('nav-grid').click()
+  const baseline = await measure('grid view, 32 tracks (baseline)', false)
   console.log(`mixer-cost extra JavaScript busy share ${((mixer.share - baseline.share) * 100).toFixed(2)} points`)
 
   // A ceiling that catches an order-of-magnitude regression on a shared runner, not a budget. The frame

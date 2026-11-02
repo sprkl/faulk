@@ -15,7 +15,7 @@ async function start(page: Page) {
   await expect(mode(page)).toHaveText(/Typing: notes|Saisie : notes/)
   await page.getByTestId('engine-state').getByRole('button').click()
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  await expect(page.locator('[data-testid=track-header][aria-current=true]')).toBeVisible()
+  await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
 
 test('musical typing: the letters play notes only while the mode is on, one key toggles it', async ({ page }) => {

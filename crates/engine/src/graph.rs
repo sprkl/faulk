@@ -113,12 +113,18 @@ pub fn fade_frames(sample_rate: f32) -> u32 {
     }
 }
 
+/// The largest gain reduction a meter reports, in decibels (a bound for the page's scale).
+const MAX_REDUCTION_DB: f32 = 60.0;
+
 /// A meter accumulated between two reports (MO-5): the peak and the sum of squares of each
 /// channel. No allocation: four floats.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MeterAcc {
     peak: [f32; 2],
     squares: [f32; 2],
+    /// The largest gain reduction a device of the strip reported at the end of a block of the
+    /// period, in decibels (#469).
+    reduction: f32,
 }
 
 impl MeterAcc {
@@ -132,6 +138,14 @@ impl MeterAcc {
         if a.is_finite() && a > 1e-18 {
             self.peak[i] = self.peak[i].max(a);
             self.squares[i] += a * a;
+        }
+    }
+
+    /// Keeps the largest gain reduction of the period; a negative or non-finite one counts as none.
+    #[inline]
+    pub(crate) fn note_reduction(&mut self, db: f32) {
+        if db.is_finite() && db > self.reduction {
+            self.reduction = db.min(MAX_REDUCTION_DB);
         }
     }
 
@@ -153,6 +167,7 @@ impl MeterAcc {
             peak_r: self.peak[1],
             rms_l: (self.squares[0] / n).sqrt(),
             rms_r: (self.squares[1] / n).sqrt(),
+            gain_reduction_db: self.reduction,
         };
         *self = MeterAcc::default();
         m
@@ -207,6 +222,7 @@ impl TrackGraph {
             meter: MeterAcc {
                 peak: [0.0; 2],
                 squares: [0.0; 2],
+                reduction: 0.0,
             },
             lanes: NO_LANE,
             lane_count: 0,
@@ -526,6 +542,11 @@ impl Graph {
                 right,
             );
             voices = voices.saturating_add(track_voices(track));
+            // After the whole block: the reduction the strip's compressors ended it with.
+            track
+                .graph
+                .meter
+                .note_reduction(chain_reduction(track.devices.as_slice()));
         }
         self.voices = voices;
 
@@ -562,6 +583,9 @@ impl Graph {
         self.retiring = kept;
 
         self.master_pass(state, clock, &ctx, left, right);
+        // The master pass has several paths (with or without lanes): the reduction is read once, after any of them.
+        self.master_meter
+            .note_reduction(chain_reduction(state.master_devices.as_slice()));
     }
 
     /// The master's strip over the sum (module doc), with the timed parameters of the
@@ -858,6 +882,16 @@ impl Graph {
         }
         (used, self.master_meter.take(frames))
     }
+}
+
+/// The largest gain reduction of the enabled devices of a chain, in decibels (0 for none; a
+/// disabled device is out of the chain and counts for nothing).
+fn chain_reduction(devices: &[Option<Box<DeviceEntry>>]) -> f32 {
+    devices
+        .iter()
+        .flatten()
+        .filter(|d| d.enabled)
+        .fold(0.0f32, |m, d| m.max(d.device.gain_reduction_db()))
 }
 
 /// Voices sounding in the enabled devices of `track`.

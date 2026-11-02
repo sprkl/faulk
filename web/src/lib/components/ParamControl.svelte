@@ -61,6 +61,21 @@
     data-testid="param-{param.key}"
     title={automated ?? hint}
   >
+    {#if automated !== undefined}
+      <svg
+        class="auto-glyph"
+        width="12"
+        height="12"
+        viewBox="0 0 12 12"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        data-testid="automated-glyph"><path d="M1 9 L4 4 L7 8 L11 2" /></svg
+      >
+    {/if}
     <div role="radiogroup" aria-label={label} class="segmented">
       {#each choices(param) as choice (choice.value)}
         <button
@@ -118,11 +133,23 @@
 
 <style>
   .choice {
+    position: relative;
     display: flex;
   }
+  .auto-glyph {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 1;
+    padding: 1px;
+    border-radius: 50%;
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    pointer-events: none;
+  }
   .choice.automated .segmented {
-    background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
+    border-style: dotted;
+    border-color: var(--fk-text-muted);
   }
   .segmented {
     display: inline-flex;
@@ -146,7 +173,7 @@
     background: var(--fk-surface-2);
   }
   button[aria-checked='true'] {
-    background: var(--fk-accent-tint);
-    color: var(--fk-accent-fg);
+    background: var(--fk-text);
+    color: var(--fk-bg);
   }
 </style>

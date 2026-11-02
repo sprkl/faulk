@@ -26,6 +26,7 @@ function report(tracks: number, edit?: (view: DataView) => void, cells: Cell[] =
     view.setFloat32(at + 4, 0.05 * (i + 1), true)
     view.setFloat32(at + 8, 0.02 * (i + 1), true)
     view.setFloat32(at + 12, 0.01 * (i + 1), true)
+    view.setFloat32(at + 16, 3 * (i + 1), true)
   }
   edit?.(view)
   return buffer
@@ -64,6 +65,19 @@ describe('decodeFeedback', () => {
     expect(r.master.peakL).toBeCloseTo(0.4)
     expect(peakOf(r.master)).toBeCloseTo(0.4)
     expect(peakOf(r.tracks[0])).toBeCloseTo(0.1)
+    // The gain reduction is the fifth float of each meter, the output's included.
+    expect(r.tracks.map((m) => m.gainReductionDb)).toEqual([3, 6, 9])
+    expect(r.master.gainReductionDb).toBe(12)
+  })
+
+  it('reads a corrupt reduction (negative, not a number) as none', () => {
+    const at = FEEDBACK_HEADER_BYTES
+    expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, -4, true)))!.tracks[0].gainReductionDb).toBe(0)
+    expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
+  })
+
+  it('refuses a report of the previous layout (version 3, 16 bytes a meter)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 3)))).toBeNull()
   })
 
   it('reads a negative playhead (a count-in) and an unknown transport as stopped', () => {

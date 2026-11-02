@@ -56,9 +56,13 @@ for (const lang of ['en', 'fr'] as const) {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByTestId('inspector-name')).toHaveText('Synth')
+    await page.getByTestId('panel-keyboard').click()
     await expect(page.getByTestId('keys-target')).toHaveText(x.target('Synth'))
     await expect(page.getByText(x.octave(4), { exact: true })).toBeVisible()
+    // The tracks are selected, armed and muted on their rows in the arrangement (#471); the keyboard plays in every view.
+    await page.getByTestId('nav-arrangement').click()
+    await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
 
     // The oscillator track sounds at octave 4 (A is C4).
     await page.keyboard.down('KeyA')

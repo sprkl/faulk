@@ -24,12 +24,12 @@ test('a changed spec runs itself and nothing else', () => {
 
 test('a view maps to its specs', () => {
   const r = pick(['web/src/views/mixer/MixerFader.svelte'])
-  assert.deepEqual(r.specs, ['automation', 'continuous', 'master-chain', 'master-pan', 'mixer', 'mixer-sound'])
+  assert.deepEqual(r.specs, ['automation', 'continuous', 'layout-4', 'master-chain', 'master-pan', 'mixer', 'mixer-sound', 'track-state'])
   assert.equal(r.all, false)
 })
 
 test('several files add up, a shared file widens to the whole suite', () => {
-  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement', 'track-order', 'tracks'])
+  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'track-order', 'tracks'])
   for (const shared of ['web/src/lib/stores/dispatcher.ts', 'web/src/lib/i18n/app.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/lib.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts']) {
     const r = pick(['web/src/views/mixer/MixerFader.svelte', shared])
     assert.equal(r.all, true, shared)
@@ -59,7 +59,7 @@ test('an unknown path, a deleted spec or a stale table never skips a test', () =
 })
 
 test('Windows separators are understood', () => {
-  assert.deepEqual(pick(['web\\src\\views\\tracks\\TrackList.svelte']).specs, ['track-order', 'tracks'])
+  assert.deepEqual(pick(['web\\src\\views\\tracks\\TrackList.svelte']).specs, ['lane-rows', 'track-order', 'tracks'])
 })
 
 test('every spec name the table lists exists on disk', () => {

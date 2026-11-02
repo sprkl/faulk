@@ -1,13 +1,14 @@
 <script lang="ts">
   /**
-   * The track list column: every track's header, and the menu that adds one (a MIDI track takes
-   * the instrument chosen in it, or an audio track). Undo and redo sit here too, since a deleted
-   * track comes back that way. Every action is a command through the dispatcher.
+   * The left column (#471): the menu that adds a track (a MIDI track takes the instrument chosen in it, or an audio
+   * track), Undo and Redo (a deleted track comes back that way), the musical typing indicator, and the inspector of
+   * the selected track. The tracks themselves are listed once, as the arrangement's rows. Every action is a command
+   * through the dispatcher.
    */
-  import TrackHeader from '../../lib/components/TrackHeader.svelte'
-  import { INSTRUMENTS, nextColor, OFFER_AUDIO_TRACK, type DragHooks } from '../../lib/project/tracks'
+  import { INSTRUMENTS, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { createTrack, moveTrack, redo, selectTrack, undo } from '../../lib/track-commands'
+  import { createTrack, redo, selectTrack, undo } from '../../lib/track-commands'
+  import TrackInspector from './TrackInspector.svelte'
 
   const { project, engine, ui, dispatcher, keys } = useStores()
   const t = ui.t
@@ -29,30 +30,10 @@
   function add(kind: 'midi' | 'audio', instrument: string | null) {
     menuOpen = false
     const before = new Set(project.tracks.map((entry) => entry.id))
-    dispatcher.run(createTrack(kind, instrument, nextColor(project.tracks.length)))
+    dispatcher.run(createTrack(kind, instrument))
     const created = project.tracks.find((entry) => !before.has(entry.id))
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()
-  }
-
-  // --- reordering by drag: the grip of a header picks it up, dropping it on another header puts it at that
-  // header's place (one `track.move` on release; nothing is sent while the pointer moves). The menu's
-  // Move up and Move down are the keyboard's way.
-  let dragId = $state<string | null>(null)
-  let overId = $state<string | null>(null)
-
-  const drag: DragHooks = {
-    start: (id) => (dragId = id),
-    over: (id) => {
-      if (dragId) overId = id
-    },
-    drop: (id) => {
-      const moved = dragId
-      dragId = overId = null
-      const to = project.tracks.find((entry) => entry.id === id)
-      if (moved && to && moved !== id) dispatcher.run(moveTrack(moved, to.index))
-    },
-    end: () => (dragId = overId = null),
   }
 
   function onMenuKey(event: KeyboardEvent) {
@@ -68,7 +49,7 @@
   }
 </script>
 
-<aside class="tracks" aria-labelledby="fk-tracks-title" data-testid="track-list">
+<aside class="tracks" aria-labelledby="fk-tracks-title" data-testid="track-list" data-track-count={project.view ? project.tracks.length : undefined}>
   <div class="head">
     <h2 id="fk-tracks-title" class="label">{t('tracks.title')}</h2>
     <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())}>{t('tracks.undo')}</button>
@@ -114,21 +95,12 @@
 
     {#if project.tracks.length === 0}
       <p class="empty" data-testid="tracks-empty">{t('tracks.empty')}</p>
+    {:else if project.selected}
+      {#key project.selected.id}
+        <TrackInspector entry={project.selected} count={project.tracks.length} />
+      {/key}
     {:else}
-      <ul class="list" aria-labelledby="fk-tracks-title">
-        {#each project.tracks as entry (entry.id)}
-          <TrackHeader
-            {entry}
-            count={project.tracks.length}
-            {drag}
-            dragging={dragId === entry.id}
-            dropTarget={dragId !== null && overId === entry.id && dragId !== entry.id}
-            selected={project.selected?.id === entry.id}
-            soloed={project.soloed.includes(entry.id)}
-            armed={project.armed.includes(entry.id)}
-          />
-        {/each}
-      </ul>
+      <p class="empty" data-testid="inspector-empty">{t('tracks.noSelection')}</p>
     {/if}
   {/if}
 </aside>
@@ -154,6 +126,12 @@
   .typing {
     align-self: flex-start;
   }
+  /* Typing notes: the button is filled in the text colour (the words say it too), never a hue. */
+  .typing[data-mode='notes'] {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
+  }
   .head h2 {
     flex: 1;
   }
@@ -163,13 +141,6 @@
   }
   .empty {
     color: var(--fk-text-muted);
-  }
-  .list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--fk-space-2);
-    margin: 0;
-    padding: 0;
   }
   button {
     min-height: var(--fk-control);

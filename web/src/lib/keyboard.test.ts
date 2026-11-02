@@ -14,6 +14,7 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
+import { isPlainButton, layoutShortcut } from './keyboard'
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
@@ -411,8 +412,8 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
-      'lib/components/TrackHeader.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
+      'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',
@@ -432,12 +433,14 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'F2',
         'F2',
       ],
+      'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
       'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],
       'views/shell/StorageBanners.svelte': ['Escape'],
+      'views/tracks/TrackInspector.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/tracks/TrackList.svelte': ['Escape'],
       'views/transport/Transport.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Enter', 'Enter', 'Escape', 'Escape', 'Space'],
     })
@@ -494,14 +497,18 @@ describe('the keys are shared in every view (#361)', () => {
 
   it('2. a control the keyboard focused keeps its keys, one the mouse clicked does not', () => {
     for (const html of [
-      '<button></button>',
       '<a href="#"></a>',
+      '<button role="radio" aria-checked="false"></button>',
+      '<div role="radiogroup"><button></button></div>',
+      '<div role="grid"><button></button></div>',
+      '<div role="tablist"><button></button></div>',
       '<input type="checkbox">',
       '<input type="radio">',
       '<input type="range">',
       '<div role="slider" tabindex="0"></div>',
     ]) {
-      const target = fixture(html)
+      const root = fixture(html)
+      const target = root.querySelector('button') ?? root
       expect(
         playsNote(event({ target }), () => true),
         `${html} focused by the keyboard`,
@@ -511,6 +518,17 @@ describe('the keys are shared in every view (#361)', () => {
         `${html} focused by the mouse`,
       ).toBe(true)
     }
+    // A plain push button uses Space and Enter only: the letters play on it, however it got the focus (#472).
+    for (const html of ['<button></button>', '<button role="button"></button>', '<button><span></span></button>']) {
+      const target = fixture(html)
+      expect(
+        playsNote(event({ target: target.querySelector('span') ?? target }), () => true),
+        `${html} focused by the keyboard`,
+      ).toBe(true)
+      expect(isPlainButton(target), html).toBe(true)
+    }
+    expect(isPlainButton(fixture('<a href="#"></a>'))).toBe(false)
+    expect(isPlainButton(fixture('<button role="menuitem"></button>'))).toBe(false)
     // Not a control: a view's own surface (a time grid, a panel) plays whoever focused it.
     expect(playsNote(event({ target: fixture('<div tabindex="0"></div>') }), () => true)).toBe(true)
   })
@@ -524,5 +542,29 @@ describe('the keys are shared in every view (#361)', () => {
   it('4. otherwise the key plays: on the page, on a view or on a clicked control', () => {
     expect(playsNote(event({}))).toBe(true)
     expect(playsNote(event({ target: fixture('<div tabindex="0" role="application"></div>') }))).toBe(true)
+  })
+})
+
+describe('layout shortcuts (#472)', () => {
+  const alt = { altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null }
+  it('Alt+1 to Alt+9 (digit row or numpad) pick the nth main view, Alt+M the bottom panel', () => {
+    expect(layoutShortcut({ ...alt, code: 'Digit1' })).toEqual({ view: 0 })
+    expect(layoutShortcut({ ...alt, code: 'Numpad3' })).toEqual({ view: 2 })
+    expect(layoutShortcut({ ...alt, code: 'KeyM' })).toBe('panel')
+  })
+  it('needs Alt alone: no bare key, no Ctrl, Cmd or Shift, no repeat, nothing in a text field', () => {
+    expect(layoutShortcut({ ...alt, altKey: false, code: 'Digit1' })).toBeNull()
+    expect(layoutShortcut({ ...alt, altKey: false, code: 'KeyM' })).toBeNull()
+    for (const held of ['ctrlKey', 'metaKey', 'shiftKey', 'repeat'] as const) expect(layoutShortcut({ ...alt, [held]: true, code: 'Digit2' }), held).toBeNull()
+    expect(layoutShortcut({ ...alt, code: 'KeyA' })).toBeNull()
+    expect(layoutShortcut({ ...alt, code: 'Digit0' })).toBeNull()
+    const input = document.createElement('input')
+    input.type = 'text'
+    expect(layoutShortcut({ ...alt, code: 'KeyM', target: input })).toBeNull()
+  })
+  it('never plays a note: playing ignores every Alt event', () => {
+    for (const code of ['Digit1', 'Digit2', 'Digit3', 'KeyM']) {
+      expect(ignoreKeyEvent({ ...alt, code } as never), code).toBe(true)
+    }
   })
 })

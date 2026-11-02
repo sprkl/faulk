@@ -75,7 +75,7 @@ vi.mock('../midi/web-midi', () => ({
 
 const { createStores } = await import('./index')
 
-const newSession = () => createStores('play', 'devices')
+const newSession = () => createStores('arrangement', 'devices')
 
 function address(hash: string) {
   const location = { hash, pathname: '/app', search: '' } as Location

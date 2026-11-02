@@ -41,6 +41,10 @@ export class ProjectStore {
   selected = $derived(this.tracks.find((entry) => entry.id === this.view?.session.selected_track) ?? null)
   /** The soloed tracks (session state). */
   soloed = $derived(this.view?.session.solo ?? [])
+  /** Whether another track's solo silences this track (a muted track is silent on its own and is not reported). */
+  silencedBySolo(id: string): boolean {
+    return this.soloed.length > 0 && !this.soloed.includes(id)
+  }
   /** The armed tracks (session state): live input reaches them besides the selected track. */
   armed = $derived(this.view?.session.armed ?? [])
   /** The tracks that monitor their live input (session state). */

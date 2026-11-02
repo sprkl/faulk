@@ -63,7 +63,8 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   expect(await page.evaluate(() => crossOriginIsolated), 'crossOriginIsolated').toBe(true)
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
 
-  // Probe answered: the pairing form shows.
+  // Probe answered: the pairing form shows, in the engine dialog (the pill opens it).
+  await page.getByTestId('engine-mode').click()
   const code = page.getByRole('textbox', { name: /code/i })
   await expect(code).toBeVisible()
 
@@ -75,18 +76,25 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await page.getByRole('button', { name: 'Pair', exact: true }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Boost')
   await expect(page.getByTestId('latency')).toContainText('5')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
+  await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
 
-  // Commands reach the helper over the session.
+  // Commands reach the helper over the session. The dialog gave the focus back to the pill: the letters still play (a push button keeps Space and Enter only).
+  await expect(page.getByTestId('engine-mode')).toBeFocused()
   await page.keyboard.down('KeyA')
   await page.keyboard.up('KeyA')
   await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.input_note_on')).toBe(true)
 
   // Back to Web, the page's own engine plays again.
+  await page.getByTestId('engine-mode').click()
   await page.getByRole('button', { name: 'Back to Web' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   // The Web engine caught up by snapshot: a key sounds again.
   await page.keyboard.down('KeyA')
-  await expect.poll(async () => Number(await page.getByRole('meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
+  await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
   await page.keyboard.up('KeyA')
 
   const origin = new URL(baseURL!).origin

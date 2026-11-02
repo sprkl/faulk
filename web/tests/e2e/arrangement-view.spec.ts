@@ -7,7 +7,8 @@ import { watch } from './support'
 // view's data attributes (the project store's view).
 
 const RULER = 28
-const LANE = 64
+/** The height of a track's row: the `lane` token (#471). */
+const LANE = 44
 const BAR = 3840
 
 interface Block {
@@ -183,7 +184,7 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
   await page.getByTestId('panel-devices').click()
-  await page.mouse.dblclick(g.x(3 * BAR + 1000), g.y(0))
+  await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
 
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/arrangement-view.png` })
@@ -368,7 +369,8 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  for (let i = 0; i < 6; i++) {
+  // Ten tracks at the lane height (#471) reach past the window by more than the scrolls below.
+  for (let i = 0; i < 10; i++) {
     await page.getByTestId('add-track').click()
     await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
   }

@@ -1,41 +1,27 @@
 <script lang="ts">
   /**
-   * A track's header: colour, name (renamed from the keyboard with F2, Enter to confirm), kind and
-   * instrument, mute, solo, arm, volume, pan and delete. Shared by the track list, and later the grid
-   * and the timeline (the mixer draws its own vertical strips from the same commands). It holds no project state: it reads the stores and every action
-   * is a command (`track-commands.ts`) through the dispatcher. An armed track receives the live
-   * input (MIDI controller) besides the selected one; recording itself comes with RE-2.
+   * The inspector of the selected track (#471), in the left column: colour, name (renamed from the keyboard with F2,
+   * Enter to confirm), kind and instrument, the actions menu (rename, move, duplicate, delete), volume, pan and a summary
+   * of its devices. The tracks themselves are listed once, as the arrangement's rows (`LaneHeader`), where mute, solo and
+   * live input are. It holds no project state: it reads the stores and every action is a command (`track-commands.ts`)
+   * through the dispatcher.
    */
   import { tick } from 'svelte'
-  import ColorPicker from './ColorPicker.svelte'
-  import GainControl from './GainControl.svelte'
-  import PanControl from './PanControl.svelte'
-  import { copyName, formatGain, formatPan, instrumentName, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../project/tracks'
-  import { useStores } from '../stores'
-  import { armTrack, deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setMute, setSolo, setTrackColor, setVolume } from '../track-commands'
+  import ColorPicker from '../../lib/components/ColorPicker.svelte'
+  import GainControl from '../../lib/components/GainControl.svelte'
+  import PanControl from '../../lib/components/PanControl.svelte'
+  import { chainOf } from '../../lib/project/chain'
+  import { copyName, formatGain, formatPan, instrumentName, trackColor, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { useStores } from '../../lib/stores'
+  import { deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setTrackColor, setVolume } from '../../lib/track-commands'
 
   let {
     entry,
-    selected = false,
-    soloed = false,
-    armed = false,
-    compact = false,
     count = 1,
-    drag,
-    dragging = false,
-    dropTarget = false,
   }: {
     entry: TrackEntry
-    selected?: boolean
-    soloed?: boolean
-    armed?: boolean
-    compact?: boolean
-    /** How many tracks the list holds: the first cannot move up, the last cannot move down. */
+    /** How many tracks the project holds: the first cannot move up, the last cannot move down. */
     count?: number
-    /** Set by the track list: the header can then be dragged by its grip. */
-    drag?: DragHooks
-    dragging?: boolean
-    dropTarget?: boolean
   } = $props()
 
   const { project, ui, dispatcher, automated } = useStores()
@@ -151,74 +137,32 @@
     dispatcher.run(deleteTrack(entry.id))
   }
 
-  function onGripDragStart(event: DragEvent) {
-    if (!drag || !event.dataTransfer) return
-    event.dataTransfer.effectAllowed = 'move'
-    // Firefox starts no drag without data.
-    event.dataTransfer.setData('text/plain', entry.id)
-    if (root) event.dataTransfer.setDragImage(root, 12, 12)
-    drag.start(entry.id)
-  }
+  const devices = $derived(chainOf(track).map((d) => d.descriptor?.name ?? d.kind ?? '?'))
 
-  function onDragOver(event: DragEvent) {
-    if (!drag) return
-    // Allows the drop; the list ignores a drag that is not one of its own headers.
-    event.preventDefault()
-    drag.over(entry.id)
-  }
-
-  function onDrop(event: DragEvent) {
-    if (!drag) return
-    event.preventDefault()
-    drag.drop(entry.id)
-  }
-
-  /** Only the name, the kind line and the background select: a click on a control acts on its track without moving the keyboard. */
-  function select(event: MouseEvent) {
-    if ((event.target as Element).closest('.strip, .swatch, .icon, .grip, .pop')) return
-    if (!selected) dispatcher.run(selectTrack(entry.id))
+  /** The devices panel, on this track's chain, unfolded. */
+  function showDevices() {
+    ui.showDevices(false)
+    if (ui.panelCollapsed) ui.setPanelCollapsed(false)
   }
 </script>
 
 <svelte:window onpointerdown={onWindowPointer} />
 
-<!-- A click anywhere on the header selects the track; each control is also reachable from the keyboard. -->
+<!-- The section only listens for Escape and a focus that leaves it, to close its menu; its controls are the keyboard's way in. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<li
-  class="header"
-  class:selected
+<section
+  class="inspector"
   class:open={menuOpen || picking}
-  class:dragging
-  class:drop-target={dropTarget}
   class:muted={mixer.mute}
   bind:this={root}
   onkeydown={onRootKey}
   onfocusout={onRootFocusOut}
-  ondragover={onDragOver}
-  ondrop={onDrop}
   style:--track-color={color}
-  data-testid="track-header"
+  aria-label={t('tracks.inspector', { name: label })}
+  data-testid="track-inspector"
   data-track={entry.id}
-  aria-current={selected ? 'true' : undefined}
-  onclick={select}
 >
   <div class="top">
-    {#if drag}
-      <!-- The grip drags the header; the menu's Move up and Move down are the keyboard's way. -->
-      <span
-        class="grip"
-        role="presentation"
-        draggable="true"
-        title={t('tracks.drag', { name: label })}
-        data-testid="track-grip"
-        ondragstart={onGripDragStart}
-        ondragend={() => drag.end()}
-      >
-        <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true"
-          ><path d="M2 2h.01M6 2h.01M2 6h.01M6 6h.01M2 10h.01M6 10h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg
-        >
-      </span>
-    {/if}
     <ColorPicker bind:open={picking} {color} stored={track.color ?? null} name={label} onpick={(picked) => dispatcher.run(setTrackColor(entry.id, picked))} />
     {#if renaming}
       <input
@@ -237,7 +181,7 @@
         type="button"
         bind:this={nameButton}
         title={t('tracks.renameHint')}
-        data-testid="track-name"
+        data-testid="inspector-name"
         onkeydown={onNameKey}
         ondblclick={startRename}>{label}</button
       >
@@ -250,7 +194,10 @@
       aria-label={t('tracks.actions', { name: label })}
       title={t('tracks.actions', { name: label })}
       data-testid="track-more"
-      onclick={openMenu}>⋯</button
+      onclick={openMenu}
+      ><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+        ><path d="M3 7h.01M7 7h.01M11 7h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /></svg
+      ></button
     >
     {#if menuOpen}
       <div class="pop" role="menu" data-testid="track-menu">
@@ -270,130 +217,82 @@
     {/if}
   </div>
   <p class="meta">{track.kind === 'midi' ? t('tracks.kind.midi') : t('tracks.kind.audio')}{instrument ? ` · ${instrument}` : ''}</p>
-  {#if !compact}
-    <div class="strip">
-      <button
-        class="toggle mute"
-        type="button"
-        aria-pressed={mixer.mute}
-        aria-label={t('tracks.mute', { name: label })}
-        title={t('tracks.mute', { name: label })}
-        onclick={() => dispatcher.run(setMute(entry.id, !mixer.mute))}>M</button
-      >
-      <button
-        class="toggle solo"
-        type="button"
-        aria-pressed={soloed}
-        aria-label={t('tracks.solo', { name: label })}
-        title={t('tracks.solo', { name: label })}
-        onclick={() => dispatcher.run(setSolo(entry.id, !soloed))}>S</button
-      >
-      <!-- Only a MIDI track has an instrument to play: arming an audio track comes with audio recording. -->
-      {#if track.kind === 'midi'}
-        <button
-          class="toggle arm"
-          type="button"
-          aria-pressed={armed}
-          aria-label={t('tracks.arm', { name: label })}
-          title={t('tracks.armHint', { name: label })}
-          data-testid="track-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
-        >
-      {/if}
-      <GainControl
-        bind:this={gainControl}
-        gainDb={shownGain}
-        label={t('tracks.volume', { name: label })}
-        set={(gain) => setVolume(entry.id, gain)}
-        automated={automated.mixerMark(entry.id, 'gain')}
-      />
-      <button
-        class="value readout"
-        type="button"
-        tabindex="-1"
-        aria-label={t('controls.valueOf', { name: t('tracks.volume', { name: label }), value: `${formatGain(shownGain)} dB` })}
-        title={t('controls.type')}
-        data-testid="track-gain-readout"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => gainControl?.edit()}>{formatGain(shownGain)}</button
-      >
-    </div>
-    <div class="strip pan">
-      <span class="label">{t('tracks.panShort')}</span>
-      <PanControl
-        bind:this={panControl}
-        track={entry.id}
-        pan={shownPan}
-        label={t('tracks.pan', { name: label })}
-        automated={automated.mixerMark(entry.id, 'pan')}
-      />
-      <button
-        class="value readout"
-        type="button"
-        tabindex="-1"
-        aria-label={t('controls.valueOf', { name: t('tracks.pan', { name: label }), value: formatPan(shownPan) })}
-        title={t('controls.type')}
-        data-testid="track-pan-readout"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
-      >
-    </div>
-  {/if}
-</li>
+  <div class="strip">
+    <span class="label">{t('tracks.volumeShort')}</span>
+    <GainControl
+      bind:this={gainControl}
+      gainDb={shownGain}
+      label={t('tracks.volume', { name: label })}
+      set={(gain) => setVolume(entry.id, gain)}
+      automated={automated.mixerMark(entry.id, 'gain')}
+    />
+    <button
+      class="value readout"
+      type="button"
+      tabindex="-1"
+      aria-label={t('controls.valueOf', { name: t('tracks.volume', { name: label }), value: `${formatGain(shownGain)} dB` })}
+      title={t('controls.type')}
+      data-testid="track-gain-readout"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => gainControl?.edit()}>{formatGain(shownGain)}</button
+    >
+  </div>
+  <div class="strip">
+    <span class="label">{t('tracks.panShort')}</span>
+    <PanControl
+      bind:this={panControl}
+      track={entry.id}
+      pan={shownPan}
+      label={t('tracks.pan', { name: label })}
+      automated={automated.mixerMark(entry.id, 'pan')}
+    />
+    <button
+      class="value readout"
+      type="button"
+      tabindex="-1"
+      aria-label={t('controls.valueOf', { name: t('tracks.pan', { name: label }), value: formatPan(shownPan) })}
+      title={t('controls.type')}
+      data-testid="track-pan-readout"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => panControl?.edit()}>{formatPan(shownPan)}</button
+    >
+  </div>
+  <div class="devices" data-testid="inspector-devices">
+    <h3 class="label" id="fk-inspector-devices">{t('tracks.devices')}</h3>
+    {#if devices.length === 0}
+      <p class="none">{t('tracks.noDevices')}</p>
+    {:else}
+      <ol aria-labelledby="fk-inspector-devices">
+        {#each devices as name, i (i)}
+          <li>{name}</li>
+        {/each}
+      </ol>
+    {/if}
+    <button class="show" type="button" data-testid="inspector-show-devices" onclick={showDevices}>{t('tracks.showDevices')}</button>
+  </div>
+</section>
 
 <style>
-  .header {
-    list-style: none;
+  /* Square, as the work it describes: a 3px bar of the track's colour heads it (DESIGN.md: the track header's bar). */
+  .inspector {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: var(--fk-space-1);
-    padding: var(--fk-space-2) var(--fk-space-3);
-    border: 1px solid var(--fk-line);
-    border-left: 4px solid var(--track-color);
-    border-radius: var(--fk-radius-panel);
-    background: var(--fk-bg);
-    cursor: default;
+    gap: var(--fk-space-2);
+    padding: var(--fk-space-3) 0 0;
+    border-top: 3px solid var(--track-color);
   }
-  .header.selected {
-    background: var(--fk-accent-tint);
-    border-color: var(--fk-accent-fg);
-    border-left-color: var(--track-color);
-  }
-  .header {
-    position: relative;
-  }
-  /* The header with an open menu rises above the headers under it. */
-  .header.open {
+  .inspector.open {
     z-index: 6;
   }
-  .header.dragging {
-    opacity: 0.45;
-  }
-  .header.drop-target {
-    box-shadow: 0 0 0 2px var(--fk-accent);
-  }
-  .grip {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 12px;
-    height: var(--fk-row);
-    margin-left: calc(-1 * var(--fk-space-1));
-    color: var(--fk-text-muted);
-    cursor: grab;
-  }
-  .grip:hover {
-    color: var(--fk-text);
-  }
   .more {
-    font-size: 16px;
     line-height: 1;
   }
   .pop {
     position: absolute;
     z-index: 6;
-    top: calc(var(--fk-space-2) + var(--fk-row) + 2px);
-    right: var(--fk-space-3);
+    top: calc(var(--fk-space-3) + var(--fk-row) + 2px);
+    right: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -421,8 +320,8 @@
     opacity: 0.45;
     cursor: default;
   }
-  .header.muted .name,
-  .header.muted .meta {
+  .inspector.muted .name,
+  .inspector.muted .meta {
     opacity: 0.55;
   }
   .top {
@@ -440,6 +339,7 @@
     border: 1px solid transparent;
     border-radius: var(--fk-radius-work);
     background: transparent;
+    font-size: 15px;
     font-weight: 600;
     text-align: left;
     overflow: hidden;
@@ -450,13 +350,13 @@
   .rename {
     border-color: var(--fk-accent-fg);
     background: var(--fk-bg);
+    font-size: 13px;
     cursor: text;
   }
   .meta {
     margin: 0;
-    padding-left: 22px;
     color: var(--fk-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -469,7 +369,7 @@
     height: var(--fk-row);
     padding: 0;
     border: 0;
-    border-radius: var(--fk-radius-work);
+    border-radius: var(--fk-radius-panel);
     background: transparent;
     color: var(--fk-text-muted);
     cursor: pointer;
@@ -484,50 +384,62 @@
     gap: var(--fk-space-2);
     min-width: 0;
   }
-  .toggle {
-    flex: none;
-    width: var(--fk-row);
-    height: var(--fk-row);
-    padding: 0;
-    border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-work);
-    background: transparent;
-    font-weight: 700;
-    font-size: 11px;
-    cursor: pointer;
-  }
-  .toggle:hover {
-    background: var(--fk-surface-2);
-  }
-  .mute[aria-pressed='true'] {
-    background: var(--fk-mute);
-    border-color: var(--fk-mute);
-    color: #131211;
-  }
-  .solo[aria-pressed='true'] {
-    background: var(--fk-solo);
-    border-color: var(--fk-solo);
-    color: #131211;
-  }
-  .arm[aria-pressed='true'] {
-    background: var(--fk-text);
-    border-color: var(--fk-text);
-    color: var(--fk-bg);
-  }
-  .readout {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    font: inherit;
-    cursor: text;
-    flex: none;
-    width: 5ch;
-    text-align: right;
-    color: var(--fk-text-muted);
-  }
   .strip .label {
     flex: none;
-    width: calc(2 * var(--fk-row) + var(--fk-space-2));
+    width: 3em;
+  }
+  .readout {
+    flex: none;
+    width: 5ch;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--fk-text-muted);
+    font-family: var(--fk-font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     text-align: right;
+    cursor: text;
+  }
+  .devices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--fk-space-1);
+    padding-top: var(--fk-space-2);
+    border-top: 1px solid var(--fk-line);
+  }
+  h3 {
+    margin: 0;
+  }
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    padding: 2px 0;
+    font-size: 12px;
+  }
+  li + li {
+    border-top: 1px solid var(--fk-line);
+  }
+  .none {
+    margin: 0;
+    color: var(--fk-text-muted);
+    font-size: 12px;
+  }
+  .show {
+    align-self: flex-start;
+    min-height: var(--fk-row);
+    margin-top: var(--fk-space-1);
+    padding: 0 var(--fk-space-3);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .show:hover {
+    background: var(--fk-surface-2);
   }
 </style>
