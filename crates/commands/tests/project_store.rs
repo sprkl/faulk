@@ -64,6 +64,9 @@ fn saving_changes_nothing_in_the_project_and_is_never_recorded() {
         cmd::Command::SaveAs {},
         cmd::Command::ExportPack {},
         cmd::Command::ImportPack {},
+        cmd::Command::OpenUrl {
+            url: "https://example.org/song.faulkpack".into(),
+        },
         cmd::Command::ReopenLast {},
         cmd::Command::OpenFolder {},
         cmd::Command::OpenRecent { id: "a".into() },

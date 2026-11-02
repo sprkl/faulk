@@ -94,6 +94,27 @@ domain! {
     "project.import_pack" (kind = "live", undo = "none", destructive = false)
     ImportPack {} => {};
 
+    /// Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain
+    /// `http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk
+    /// itself runs on this computer). The page downloads it without cookies or credentials,
+    /// checks it whole (size, files, format) and opens its project as a new project of its own,
+    /// as `project.import_pack` does with a file: kept in the browser's storage where the
+    /// browser has one, in the tab alone where it has none. Nothing in the pack runs as code.
+    /// When the browser already keeps the project of that pack (the same link opened before), the
+    /// page opens the copy it keeps instead of a second one. The current project is never
+    /// overwritten: it stays where it is kept (its folder, or the browser), and
+    /// `project.list_stored` then `project.open_browser_project` or `project.open_recent` bring
+    /// it back; the page asks first when that project has changes that are kept nowhere. A link
+    /// that cannot be downloaded, a file that is not a valid pack and a pack that is too big are
+    /// refused in the page with a notice, and nothing changes. The result only says the command
+    /// was accepted, not how the download ended. Not undoable: opening a project is not an edit
+    /// of one; go back to the previous project through the project list.
+    "project.open_url" (kind = "live", undo = "none", destructive = false)
+    OpenUrl {
+        #[schemars(length(min = 1, max = 2048))]
+        url: String,
+    } => {};
+
     /// List the projects this page can open: the folders opened recently (each with an `id`)
     /// and the projects kept in the browser's own storage (each with a `dir`), newest first.
     /// The page reads its storage again before it answers. The `id` and the `dir` are the
@@ -309,6 +330,12 @@ pub fn apply(
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
+        // The download and the pack belong to the page (the core checks the pack itself when the
+        // page hands it over): the command only checks that the link may be fetched at all.
+        Command::OpenUrl { url } => {
+            check_pack_url(url)?;
+            Ok(nothing(Output::OpenUrl {}))
+        }
         // The host stages what it keeps just before (`Context::stored`); with nothing staged the
         // answer is empty rather than an old list.
         Command::ListStored {} => {
@@ -413,6 +440,83 @@ fn stored_name(field: &str, value: &str) -> Result<(), CommandError> {
             field: field.into(),
             message: format!("`{field}` has at most {MAX_STORED_NAME_CHARS} characters"),
         });
+    }
+    Ok(())
+}
+
+/// Longest link `project.open_url` takes, in characters.
+pub const MAX_PACK_URL_CHARS: usize = 2048;
+
+/// The hosts plain `http` may reach: the computer itself (a pack served while developing).
+const LOOPBACK_HOSTS: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
+
+/// Checks the shape of a link to a `.faulkpack`: `https`, or `http` to the computer itself, a
+/// host, and no user name or password. Stricter than a browser's parser on purpose (a host the
+/// page would rewrite, such as `127.1`, is refused rather than guessed); the page parses the
+/// link again before it downloads anything.
+fn check_pack_url(url: &str) -> Result<(), CommandError> {
+    let refuse = |message: String| CommandError::Invalid {
+        field: "url".into(),
+        message,
+    };
+    if url.is_empty() {
+        return Err(refuse(
+            "`url` is the link to a .faulkpack, it is not empty".into(),
+        ));
+    }
+    if url.chars().count() > MAX_PACK_URL_CHARS {
+        return Err(refuse(format!(
+            "`url` has at most {MAX_PACK_URL_CHARS} characters"
+        )));
+    }
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(refuse(
+            "`url` holds no space or control character (percent-encode them)".into(),
+        ));
+    }
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return Err(refuse(
+            "`url` is an absolute link that starts with https://".into(),
+        ));
+    };
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "https" && scheme != "http" {
+        return Err(refuse(format!("`url` uses https (not `{scheme}`)")));
+    }
+    // A browser ends the authority at any of these; a backslash counts as a slash in http(s).
+    let authority = rest.split(['/', '?', '#', '\\']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return Err(refuse(
+            "`url` carries no user name or password: the page downloads without credentials".into(),
+        ));
+    }
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(inner) => match inner.split_once(']') {
+            Some((address, after)) => (&authority[..address.len() + 2], after),
+            None => return Err(refuse("`url` has an unclosed `[` in its host".into())),
+        },
+        None => authority
+            .find(':')
+            .map_or((authority, ""), |at| authority.split_at(at)),
+    };
+    if host.is_empty() {
+        return Err(refuse("`url` names a host".into()));
+    }
+    if let Some(digits) = port.strip_prefix(':') {
+        if !digits.chars().all(|c| c.is_ascii_digit()) {
+            return Err(refuse("`url` has a port made of digits".into()));
+        }
+    } else if !port.is_empty() {
+        return Err(refuse("`url` has a malformed host".into()));
+    }
+    if scheme == "http"
+        && !LOOPBACK_HOSTS
+            .iter()
+            .any(|loopback| host.eq_ignore_ascii_case(loopback))
+    {
+        return Err(refuse(
+            "`url` uses https; plain http is only for this computer (localhost)".into(),
+        ));
     }
     Ok(())
 }

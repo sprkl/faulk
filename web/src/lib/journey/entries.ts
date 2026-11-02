@@ -23,6 +23,11 @@ export function midiUrl(entry: JourneyEntry): string {
   return `${CDN}/${folderOf(entry)}/track.mid`
 }
 
+/** The day's Faulk project, as the agent built it: Faulk opens it by this link (`/app?open=`, #497). */
+export function packUrl(entry: JourneyEntry): string {
+  return `${CDN}/${folderOf(entry)}/project.faulkpack`
+}
+
 /** The sheet on GitHub, where Markdown reads as a page. */
 export function sheetUrl(entry: JourneyEntry): string {
   return `${BLOB}/${folderOf(entry)}/sheet.md`

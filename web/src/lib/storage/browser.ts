@@ -199,4 +199,6 @@ export const browserDeps: StorageDeps = {
   browser: new OpfsProjects(),
   pickPack: pickPackFile,
   download: downloadFile,
+  fetch: (input, init) => fetch(input, init),
+  pageHostname: () => location.hostname,
 }
