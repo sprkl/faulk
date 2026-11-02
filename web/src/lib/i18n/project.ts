@@ -39,8 +39,8 @@ export const project = defineFeature(
     'save.banner.external': '“{name}” was changed outside Faulk while you had unsaved changes. Which version do you keep?',
     'save.banner.keepMine': 'Keep mine',
     'save.banner.loadDisk': 'Load the folder’s version',
-    'save.banner.reopen': 'Reopen “{name}”, the project you were working on?',
-    'save.banner.reopenButton': 'Reopen',
+    'save.banner.reopen': 'The browser wants a click before it gives your folder back.',
+    'save.banner.reopenButton': 'Reopen “{name}”',
     'save.banner.dismiss': 'Dismiss',
 
     'storage.unsupported': 'This browser cannot save to a folder. Your project stays in this tab. Use Chrome or Edge to keep it on your computer.',
@@ -79,8 +79,6 @@ export const project = defineFeature(
     'save.savedBrowser': 'Saved in the browser at {time}',
     'save.draft': 'Draft kept in this browser: Save as chooses a folder',
     'save.browser': 'Kept in this browser: export it to keep a copy',
-    'save.banner.reopenDraft': 'Reopen the draft “{name}”, the project you were working on?',
-    'save.banner.deleteDraft': 'Delete the draft',
     'save.banner.browserOnly': 'Your projects are in the browser, not in a folder. Export them to keep a copy.',
     'save.banner.browserVolatile':
       'Your projects are in the browser, and it did not promise to keep them: it may erase them when it is short of room. Export them to keep a copy.',
@@ -99,7 +97,9 @@ export const project = defineFeature(
     'pack.missingMedia': 'Exported, but some audio the project refers to is missing from this browser: the pack does not contain it.',
     'pack.invalid': 'This file is not a valid .faulkpack. Your current project is unchanged.',
     'pack.tooBig': 'This .faulkpack is too big to open in the page. Your current project is unchanged.',
-    'pack.alreadyHere': 'This project is already open or kept in this browser. Open it from the list, or delete it first.',
+    'pack.alreadyHere': '“{name}” is already kept in this browser, so the file was not imported again.',
+    'pack.alreadyOpen': '“{name}” is already open, so the file was not imported again.',
+    'pack.openIt': 'Open “{name}”',
     'pack.writeFailed': 'The browser could not keep the project of this pack. Your current project is unchanged.',
   },
   {
@@ -138,8 +138,8 @@ export const project = defineFeature(
     'save.banner.external': '« {name} » a été modifié hors de Faulk alors que tu avais des modifications non enregistrées. Quelle version gardes-tu ?',
     'save.banner.keepMine': 'Garder la mienne',
     'save.banner.loadDisk': 'Charger celle du dossier',
-    'save.banner.reopen': 'Rouvrir « {name} », le projet sur lequel tu travaillais ?',
-    'save.banner.reopenButton': 'Rouvrir',
+    'save.banner.reopen': 'Le navigateur veut un clic avant de rendre ton dossier.',
+    'save.banner.reopenButton': 'Rouvrir « {name} »',
     'save.banner.dismiss': 'Fermer',
 
     'storage.unsupported':
@@ -179,8 +179,6 @@ export const project = defineFeature(
     'save.savedBrowser': 'Enregistré dans le navigateur à {time}',
     'save.draft': 'Brouillon gardé dans ce navigateur : « Enregistrer sous » choisit un dossier',
     'save.browser': 'Gardé dans ce navigateur : exporte-le pour en garder une copie',
-    'save.banner.reopenDraft': 'Rouvrir le brouillon « {name} », le projet sur lequel tu travaillais ?',
-    'save.banner.deleteDraft': 'Supprimer le brouillon',
     'save.banner.browserOnly': 'Tes projets sont dans le navigateur, pas dans un dossier. Exporte-les pour en garder une copie.',
     'save.banner.browserVolatile':
       'Tes projets sont dans le navigateur, qui n’a pas promis de les garder : il peut les effacer s’il manque de place. Exporte-les pour en garder une copie.',
@@ -200,7 +198,9 @@ export const project = defineFeature(
     'pack.missingMedia': 'Exporté, mais il manque dans ce navigateur de l’audio auquel le projet fait référence : le pack ne le contient pas.',
     'pack.invalid': 'Ce fichier n’est pas un .faulkpack valide. Ton projet en cours n’est pas modifié.',
     'pack.tooBig': 'Ce .faulkpack est trop gros pour être ouvert dans la page. Ton projet en cours n’est pas modifié.',
-    'pack.alreadyHere': 'Ce projet est déjà ouvert ou gardé dans ce navigateur. Ouvre-le depuis la liste, ou supprime-le d’abord.',
+    'pack.alreadyHere': '« {name} » est déjà gardé dans ce navigateur, le fichier n’a donc pas été importé une deuxième fois.',
+    'pack.alreadyOpen': '« {name} » est déjà ouvert, le fichier n’a donc pas été importé une deuxième fois.',
+    'pack.openIt': 'Ouvrir « {name} »',
     'pack.writeFailed': 'Le navigateur n’a pas pu garder le projet de ce pack. Ton projet en cours n’est pas modifié.',
   },
 )

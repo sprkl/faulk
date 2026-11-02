@@ -58,6 +58,8 @@ export class UiStore {
   panelFocus = $state(0)
   /** The engine dialog (audio, helper, MIDI, keyboard) is open. Page state, not project state. */
   engineOpen = $state(false)
+  /** The shortcut list is open (#474). Page state, not project state. */
+  helpOpen = $state(false)
 
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)

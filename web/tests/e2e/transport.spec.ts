@@ -177,6 +177,10 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(tempo).toHaveValue('140')
       await tempo.fill('1000')
       await tempo.press('Enter')
+      // Out of range: the text stays to be fixed (#474) and the range is said; leaving puts the tempo back.
+      await expect(tempo).toHaveValue('1000')
+      await expect(page.getByTestId('tempo-error')).toBeVisible()
+      await tempo.blur()
       await expect(tempo).toHaveValue('140')
       await tempo.fill('abc')
       await tempo.blur()
