@@ -53,8 +53,11 @@ export const RULES = [
   [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'open-url']],
   [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input']],
   [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode']],
-  [/^web\/src\/lib\/(landing\/|i18n\/landing\.ts)/, ['navigation', 'isolation']],
+  // The landing page's bar and footer are the Journey page's too.
+  [/^web\/src\/lib\/(landing\/|i18n\/landing\.ts)/, ['navigation', 'isolation', 'journey']],
+  [/^web\/src\/routes\/\[lang=lang\]\/journey\//, ['journey']],
   [/^web\/src\/routes\/\[lang=lang\]\//, ['navigation', 'isolation']],
+  [/^web\/src\/(lib\/journey\/|lib\/i18n\/journey\.ts|routes\/journey\/)/, ['journey']],
   [/^web\/src\/routes\/dev\//, ['timegrid']],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
   [/^web\/src\/lib\/components\/timegrid\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows']],
