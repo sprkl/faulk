@@ -23,6 +23,7 @@ fn profile(tracks: usize, notes: u64, points: u64) -> Project {
         let key = OrderKey::between(None, order.as_ref()).unwrap();
         order = Some(key.clone());
         let mut track = Track::new(TrackKind::Midi, "Track", key);
+        track.color = Some(Rgb::new(1, 2, 3));
         for _ in 0..2 {
             track.clips.insert(
                 ClipId::generate(&mut ids),

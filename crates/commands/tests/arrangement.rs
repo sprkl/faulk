@@ -1310,6 +1310,8 @@ fn a_project_edited_by_the_commands_survives_the_folder_format() {
         },
     );
     ok(&mut state, place(&f, &f.looped, 3000, 1000));
+    // Opening stores a colour on a track that has none (#479).
+    state.project.color_uncolored_tracks();
     let mut fs = MemFs::new();
     save(
         &mut fs,
