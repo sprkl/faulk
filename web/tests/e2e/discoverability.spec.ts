@@ -81,6 +81,9 @@ test.describe('the shortcut list', () => {
     await page.keyboard.down('KeyA')
     await page.keyboard.press('Control+KeyZ')
     await page.keyboard.up('KeyA')
+    // Space is the list's too: it does not play behind it.
+    await page.keyboard.press('Space')
+    await expect(page.getByTestId('transport-play')).toHaveAttribute('aria-pressed', 'false')
     await expect(tracks(page)).toHaveCount(2)
     await expect(page.getByTestId('voices')).toHaveText('Voices: 0')
     await page.keyboard.press('Escape')

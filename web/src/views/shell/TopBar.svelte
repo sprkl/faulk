@@ -101,7 +101,9 @@
       ></span>
     {:else}
       <!-- One main action before the audio runs (#474): while a project waits for its click, that click is the main one. -->
-      <button class:primary={!storage.reopen} disabled={engine.starting} title={t('start.body')} onclick={() => dispatcher.start()}>{t('start.button')}</button>
+      <button class:primary={storage.banner !== 'reopen'} disabled={engine.starting} title={t('start.body')} onclick={() => dispatcher.start()}
+        >{t('start.button')}</button
+      >
     {/if}
   </div>
 

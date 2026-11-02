@@ -154,7 +154,7 @@
   onMount(() => trackFocusOrigin())
 
   function onSpace(event: KeyboardEvent) {
-    if (event.code !== 'Space' || !ready || ignoreKeyEvent(event)) return
+    if (event.code !== 'Space' || !ready || ignoreKeyEvent(event) || ui.helpOpen) return
     // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
