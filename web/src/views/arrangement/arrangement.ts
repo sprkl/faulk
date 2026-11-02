@@ -8,10 +8,10 @@
 import type { Note, Placement, TickLoop } from '../../lib/generated/protocol'
 import { snapTick, tickToX, type View } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT } from '../../lib/components/timegrid/render'
-import { NO_COLOR, type TrackEntry } from '../../lib/project/tracks'
+import { trackColor, type TrackEntry } from '../../lib/project/tracks'
 import { CLIP_ROW, rowAtY, type Layout, type Row } from './automation/layout'
 
-/** The height of a track's row of clips, in CSS pixels. */
+/** The default height of a track's row of clips, in CSS pixels (each track's own is in the layout). */
 export const LANE_HEIGHT = CLIP_ROW
 /** The inset of a block inside its lane. */
 export const BLOCK_INSET = 4
@@ -59,7 +59,7 @@ function blocksOfTrack(entry: TrackEntry): Block[] {
       offset: span.offset,
       end: placement.start + span.length,
       name: clip.name.trim(),
-      color: clip.color ?? entry.track.color ?? NO_COLOR,
+      color: clip.color ?? trackColor(entry.track.color, entry.index),
       clipLength: length,
       looping: looping ?? null,
       notes,
@@ -80,6 +80,8 @@ export const lastEnd = (blocks: readonly Block[]): number => blocks.reduce((end,
 
 /** The top of a track's row of clips in the stage, whose first row starts under the ruler. */
 export const laneTop = (layout: Layout, track: number, scrollY: number): number => RULER_HEIGHT + (layout.trackTop[track] ?? 0) - scrollY
+/** The height of a track's row of clips. */
+export const laneHeight = (layout: Layout, track: number): number => layout.trackHeight[track] ?? LANE_HEIGHT
 
 /** How far the rows scroll: the height of the rows past what the stage shows of them. */
 export const maxScrollY = (totalHeight: number, stageHeight: number): number => Math.max(0, totalHeight - Math.max(0, stageHeight - RULER_HEIGHT))
@@ -107,7 +109,7 @@ export function hitBlock(blocks: readonly Block[], layout: Layout, x: number, y:
   if (!found || found.kind !== 'track') return null
   const row = found.track
   const top = laneTop(layout, row, scrollY) + BLOCK_INSET
-  if (y < RULER_HEIGHT || y < top || y > top + LANE_HEIGHT - 2 * BLOCK_INSET) return null
+  if (y < RULER_HEIGHT || y < top || y > top + laneHeight(layout, row) - 2 * BLOCK_INSET) return null
   // The last one drawn wins, as the eye sees it.
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i]!

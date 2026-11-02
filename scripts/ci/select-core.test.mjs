@@ -140,7 +140,7 @@ test('scripts/ and .claude/ run only the agent scripts job', () => {
   }
 })
 
-test('each workflow file runs the job it defines, and release-helper.yml alone runs nothing here', () => {
+test('each workflow file runs the job it defines, and release-helper.yml runs only the scripts tests here', () => {
   assert.equal(pr(['.github/workflows/ci.yml']).web, true)
   assert.equal(pr(['.github/workflows/ci.yml']).e2e, 'dev')
   const rust = pr(['.github/workflows/rust.yml'])
@@ -148,6 +148,7 @@ test('each workflow file runs the job it defines, and release-helper.yml alone r
   assert.equal(rust.helperWindows, true)
   assert.equal(pr(['.github/workflows/agent-scripts.yml']).agentScripts, true)
   assert.equal(pr(['.github/workflows/release-helper.yml']).web, false)
+  assert.equal(pr(['.github/workflows/release-helper.yml']).agentScripts, true)
 })
 
 test('a change to the selection rules runs everything', () => {
@@ -239,12 +240,12 @@ test('a view change runs its specs whole and the smoke tests of the others, on o
   const r = pr(['web/src/views/tracks/TrackList.svelte'])
   assert.equal(r.e2e, 'dev')
   assert.equal(r.e2eAll, false)
-  assert.deepEqual(names(r), ['track-order', 'tracks'])
+  assert.deepEqual(names(r), ['lane-rows', 'track-order', 'tracks'])
   assert.deepEqual(r.e2eSmoke, ['export-audio', 'isolation', 'open-project', 'project-store', 'transport'])
   assert.equal(r.e2eShards, 1)
   const out = toOutputs(r)
   assert.equal(out.e2e_all, 'false')
-  assert.equal(out.e2e_specs, 'tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
+  assert.equal(out.e2e_specs, 'tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
   assert.equal(out.e2e_smoke.split(' ').length, 5)
   assert.equal(out.e2e_shards, '[1]')
 })
@@ -256,7 +257,7 @@ test('a spec that is also a smoke spec runs whole, not twice', () => {
 })
 
 test('a longer list gets more machines, never more than three', () => {
-  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 2) // 7 specs + the smoke tests
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 12 specs + the smoke tests
   const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
   assert.equal(many.e2eShards, 3)
   assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')

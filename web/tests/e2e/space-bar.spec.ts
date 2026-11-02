@@ -35,7 +35,7 @@ async function playPauseResume(page: Page) {
   await transport(page, 'stopped')
 }
 
-for (const view of ['arrangement', 'grid', 'mixer', 'play']) {
+for (const view of ['arrangement', 'grid', 'mixer']) {
   test(`after a mouse click on the ${view} tab, Space plays and pauses`, async ({ page }) => {
     const { errors } = watch(page)
     await start(page)

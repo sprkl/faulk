@@ -41,21 +41,21 @@ describe('the panel preferences of the page', () => {
   })
 
   it('keeps the height per view and the fold, and reads them back', () => {
-    const ui = new UiStore('play', 'devices')
+    const ui = new UiStore('arrangement', 'devices')
     ui.setPanelHeight('devices', 200)
     ui.setPanelHeight('piano-roll', 420)
     ui.setPanelCollapsed(true)
-    const again = new UiStore('play', 'devices')
+    const again = new UiStore('arrangement', 'devices')
     expect(again.panelHeights).toEqual({ devices: 200, 'piano-roll': 420 })
     expect(again.panelCollapsed).toBe(true)
     again.setPanelCollapsed(false)
-    expect(new UiStore('play', 'devices').panelCollapsed).toBe(false)
+    expect(new UiStore('arrangement', 'devices').panelCollapsed).toBe(false)
   })
 
   it('starts from the defaults when the stored value is corrupt', () => {
     localStorage.setItem(HEIGHTS_KEY, '{oops')
     localStorage.setItem(COLLAPSED_KEY, 'maybe')
-    const ui = new UiStore('play', 'devices')
+    const ui = new UiStore('arrangement', 'devices')
     expect(ui.panelHeights).toEqual({})
     expect(ui.panelCollapsed).toBe(false)
   })
@@ -69,7 +69,7 @@ describe('the panel preferences of the page', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('full')
     })
-    const ui = new UiStore('play', 'devices')
+    const ui = new UiStore('arrangement', 'devices')
     expect(() => ui.setPanelHeight('devices', 220)).not.toThrow()
     expect(() => ui.setPanelCollapsed(true)).not.toThrow()
     expect(ui.panelHeights.devices).toBe(220)

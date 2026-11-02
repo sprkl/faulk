@@ -197,6 +197,7 @@ pub fn song() -> Project {
         "Drums",
         OrderKey::between(Some(&OrderKey::first()), None).unwrap(),
     );
+    audio.color = Some(Rgb::new(0xe0, 0x70, 0x40));
     audio.mixer.gain_db = f64::NEG_INFINITY;
     audio.devices.insert(
         DeviceId(id(12)),

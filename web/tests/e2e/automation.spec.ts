@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, STRICT_TIMING, watch } from './support'
+import { STRICT_TIMING, chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // AM-4 (#121): the automation lanes in the arrangement timeline, in a real browser with the real worklet, engine and
 // project core. Every gesture is a command (a refused command would be a console warning, which the tests forbid), a
@@ -50,12 +50,13 @@ async function spot(page: Page, lane: number) {
   }
 }
 
-async function open(page: Page, width = 1600, midi = false) {
+async function open(page: Page, width = 1600, midi = false, lang = 'en') {
   await page.setViewportSize({ width, height: 900 })
+  if (lang !== 'en') await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  if (midi) await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  if (midi) await chooseMidiInput(page, 'E2E Keys')
   await page.getByTestId('nav-arrangement').click()
   await expect(arr(page)).toBeVisible()
   await expect.poll(async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
@@ -231,9 +232,32 @@ test('automation: a typed value, a deleted lane, and a lane that the engine real
   await page.keyboard.press('Control+z')
   expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
 
+  // A value past the range is limited and the editor says so (#421); an unreadable one changes nothing and the field says so.
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('20')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limited to 6.0 dB')
+  expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(6)
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('-200')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limited to −∞ dB')
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('loud')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-error')).toHaveText('Value not recognised')
+  expect(pointsOf((await lanes(page))[0]![1])[0]!.value).toBe(0)
+  await page.getByTestId('value-input').press('Escape')
+  await expect(page.getByTestId('value-note')).toHaveCount(0, { timeout: 5000 })
+
   // Stopped, the track list and the mixer show the lane's value at the playhead, marked as driven by a lane, and follow a seek (#388).
-  const listGain = page.getByTestId('track-header').first().getByTestId('track-gain-readout')
-  const listFader = page.getByTestId('track-header').first().getByRole('slider').first()
+  // The track column is the inspector of the selected track, the first one here (#471).
+  const listGain = page.getByTestId('track-inspector').getByTestId('track-gain-readout')
+  const listFader = page.getByTestId('track-inspector').getByRole('slider').first()
   await expect(listGain).toHaveText('0.0')
   await expect(listFader).toHaveAttribute('data-automated', 'true')
   await expect(listFader).toHaveAttribute('title', /Mixer › Volume/)
@@ -322,6 +346,34 @@ test('automation: a lane of the master (#378) is shown on the master fader and p
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await masterLanes()).length).toBe(0)
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: a limited or unreadable typed value says so in French (#421)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true, 'fr')
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await page.getByTestId('arr-snap').selectOption('beat')
+  await addLane(page, 'Volume')
+  const [laneId] = (await lanes(page))[0]!
+  await run(page, { type: 'automation.points.add', lane: laneId, points: [{ tick: 0, value: 0, shape: 'step' }] })
+  await expect(page.getByTestId('arr-lane').first()).toHaveAttribute('data-points', '1')
+  await stage(page).getByTestId('timegrid').focus()
+  const g = await spot(page, 0)
+  await page.mouse.dblclick(g.x(0), g.y(0.78))
+  await page.getByTestId('value-input').fill('20')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-note')).toHaveText('Limité à 6.0 dB')
+  await page.keyboard.press('Control+z')
+  await stage(page).getByTestId('timegrid').focus()
+  // The toolbar can wrap differently once the selection count changes, which moves the stage: measure again.
+  const g2 = await spot(page, 0)
+  await page.mouse.dblclick(g2.x(0), g2.y(0.78))
+  await page.getByTestId('value-input').fill('fort')
+  await page.getByTestId('value-input').press('Enter')
+  await expect(page.getByTestId('value-error')).toHaveText('Valeur non reconnue')
   expect(seen.errors).toEqual([])
 })
 
@@ -683,9 +735,10 @@ test('automation: the master row is visible in an empty project, above the welco
   await expect(page.getByTestId('arrangement-empty')).toHaveCount(0)
   // Delete every track: the project is empty, the welcome message shows, and it no longer hides the master row.
   while ((await page.getByTestId('track-header').count()) > 0) {
-    const header = page.getByTestId('track-header').first()
-    await header.getByTestId('track-more').click()
-    await header.getByTestId('track-delete').click()
+    // The actions are in the inspector of the selected track (#471).
+    await page.getByTestId('arr-track').first().click()
+    await page.getByTestId('track-inspector').getByTestId('track-more').click()
+    await page.getByTestId('track-delete').click()
   }
   const welcome = page.getByTestId('arrangement-empty')
   const masterRow = page.getByTestId('arr-master-row')
@@ -705,5 +758,51 @@ test('automation: the master row is visible in an empty project, above the welco
   const stageBox = (await stage(page).boundingBox())!
   expect((await welcome.boundingBox())!.y).toBeLessThan(stageBox.y + stageBox.height)
   expect((await masterRow.boundingBox())!.y).toBeGreaterThanOrEqual(stageBox.y + 28)
+  expect(seen.errors).toEqual([])
+})
+
+test('automation: a fader gesture equal to the stored value holds the lane in the engine and on the page (#417)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await fakeWebMidi(page)
+  await open(page, 1600, true)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  const midi = (bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
+  // A note held at the track's fader: the level the engine reports with no lane.
+  await midi([0x90, 69, 127])
+  await expect.poll(() => master(page)).toBeGreaterThan(0.05)
+  const loud = await master(page)
+  const [track, strip] = (await tracks(page))[0]!
+  const stored = (strip as unknown as { mixer: { gain_db: number | null } }).mixer.gain_db
+  // A volume lane at -60 dB: stopped, the engine applies it at the playhead (#388).
+  await addLane(page, 'Volume')
+  const [laneId] = (await lanes(page))[0]!
+  await run(page, { type: 'automation.points.add', lane: laneId, points: [{ tick: 0, value: -60, shape: 'step' }] })
+  await expect(page.getByTestId('arr-lane').first()).toHaveAttribute('data-points', '1')
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  // The inspector shows the selected track's volume (#471).
+  await page.getByTestId('arr-track').first().click()
+  const listGain = page.getByTestId('track-inspector').getByTestId('track-gain-readout')
+  await expect(listGain).toHaveText('−60.0')
+
+  // The same volume as the project holds: the command changes nothing, yet the lane gives way, in the engine and on the page.
+  await run(page, { type: 'mixer.set_volume', track, gain_db: stored })
+  await expect.poll(() => master(page)).toBeGreaterThan(loud / 2)
+  await expect(listGain).toHaveText('0.0')
+  // The track is deleted and restored by an undo: its lane is a new one in the engine, which plays it, and the page lets go of its hold (#425).
+  await run(page, { type: 'track.delete', track })
+  await run(page, { type: 'history.undo' })
+  // The track comes back unselected: select it again for the inspector.
+  await page.getByTestId('arr-track').first().click()
+  await expect(listGain).toHaveText('−60.0')
+  // A seek gives the lane the hand back.
+  await run(page, { type: 'transport.seek', tick: 0 })
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  await expect(listGain).toHaveText('−60.0')
+  // A mute that repeats the stored one holds nothing: the lane keeps playing.
+  await run(page, { type: 'mixer.set_mute', track, mute: false })
+  await expect(listGain).toHaveText('−60.0')
+  await expect.poll(() => master(page)).toBeLessThan(loud / 100)
+  await midi([0x80, 69, 0])
   expect(seen.errors).toEqual([])
 })

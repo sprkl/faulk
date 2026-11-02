@@ -7,7 +7,7 @@
 import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
-import { BLOCK_INSET, LANE_HEIGHT, laneTop, type Block } from './arrangement'
+import { BLOCK_INSET, laneHeight, laneTop, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
@@ -23,11 +23,20 @@ export interface ArrangementFrame {
   /** The loop region (the one being dragged, else the project's). */
   loop: LoopRegion | null
   loopOn: boolean
+  /** The time selection (Shift+drag on the ruler), the range that Insert and Delete bars act on. */
+  timeSel: LoopRegion | null
   /** The name of a clip without one. */
   fallbackName: string
+  /** The tracks that make no sound (muted, or silenced by a solo): their clips are drawn at 40 %. */
+  silent: ReadonlySet<string>
 }
 
+/** How much of its colour a clip of a silent track keeps. */
+export const SILENT_ALPHA = 0.4
+
 const NOTE_MIN_PX = 1.5
+/** The height of a clip (inside its row) from which its notes are drawn under its name rather than across it. */
+const NAME_ROOM = 30
 const pitchRanges = new WeakMap<readonly Note[], [number, number]>()
 
 function pitchRange(notes: readonly Note[]): [number, number] {
@@ -82,14 +91,15 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     const x1 = tickToX(block.end, view)
     if (x1 < 0 || x0 > width) return
     const y = laneTop(scene.layout, block.row, scene.scrollY) + BLOCK_INSET
-    const h = LANE_HEIGHT - 2 * BLOCK_INSET
+    const h = laneHeight(scene.layout, block.row) - 2 * BLOCK_INSET
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)
-    ctx.globalAlpha = ghost ? 0.7 : 1
+    const k = scene.silent.has(block.track) ? SILENT_ALPHA : 1
+    ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.fillStyle = block.color
     ctx.globalAlpha *= 0.32
     ctx.fillRect(x0, y, w, h)
-    ctx.globalAlpha = ghost ? 0.7 : 1
+    ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.strokeStyle = selected ? colors.text : block.color
     ctx.lineWidth = selected ? 2 : 1
     ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1)
@@ -102,11 +112,13 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       ctx.rect(x0 + 1, y + 1, w - 2, h - 2)
       ctx.clip()
       const [low, high] = pitchRange(notes)
-      const top = y + 16
-      const span = Math.max(1, h - 20)
+      // Under the name when the row has room for both; a low row (the compact height) draws them across it, the name on top.
+      const roomy = h >= NAME_ROOM
+      const top = y + (roomy ? 16 : 2)
+      const span = Math.max(1, h - (roomy ? 20 : 4))
       const rowH = Math.min(4, span / (high - low + 1))
       ctx.fillStyle = block.color
-      ctx.globalAlpha = ghost ? 0.7 : 0.95
+      ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k
       // The clip is shown from its offset; a clip with a loop goes round it where the block outlasts it
       // (a few passes at most: a long block of a short loop is a texture, not a score).
       const cycle = block.looping ? block.looping.end : block.clipLength
@@ -132,7 +144,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     }
     // The name.
     if (w > 28) {
-      ctx.globalAlpha = 1
+      ctx.globalAlpha = k
       ctx.fillStyle = colors.text
       ctx.textBaseline = 'top'
       ctx.save()
@@ -152,6 +164,19 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
   }
   for (const ghost of scene.ghosts) drawBlock(ghost, true, true)
   ctx.restore()
+
+  // The time selection: a band over the whole height.
+  if (scene.timeSel) {
+    const x0 = tickToX(scene.timeSel.start, view)
+    const x1 = tickToX(scene.timeSel.end, view)
+    ctx.fillStyle = colors.accent
+    ctx.globalAlpha = 0.14
+    ctx.fillRect(x0, 0, x1 - x0, height)
+    ctx.globalAlpha = 0.8
+    ctx.fillRect(x0, 0, 1, height)
+    ctx.fillRect(x1 - 1, 0, 1, height)
+    ctx.globalAlpha = 1
+  }
 
   // The loop region on the ruler: a band, with its two ends marked.
   if (loop) {

@@ -26,7 +26,9 @@ for pr in "$@"; do
       exit 1
     fi
   fi
-  case "$st" in "MERGEABLE CLEAN"|"MERGEABLE BEHIND"|"MERGEABLE UNSTABLE") ;; *) echo "STOP $pr: $st"; exit 1;; esac
+  # BLOCKED: develop's branch protection (required checks) blocks the merge while they run or fail;
+  # the checks watch below decides, and a refused `gh pr merge` still stops (#458).
+  case "$st" in "MERGEABLE CLEAN"|"MERGEABLE BEHIND"|"MERGEABLE UNSTABLE"|"MERGEABLE BLOCKED") ;; *) echo "STOP $pr: $st"; exit 1;; esac
   if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
     echo "$pr: behind develop, updating the branch"
     old=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
@@ -46,10 +48,15 @@ for pr in "$@"; do
   done
   [ "${runs:-0}" -gt 0 ] || { echo "STOP $pr: no CI run started on $sha"; exit 1; }
   gh pr checks "$pr" --watch >/dev/null 2>&1
-  buckets=$(gh pr checks "$pr" --json bucket -q '.[].bucket') || { echo "STOP $pr: could not read checks"; exit 1; }
-  if [ -z "$buckets" ] || echo "$buckets" | grep -qvE '^(pass|skipping)$'; then
+  checks=$(gh pr checks "$pr" --json name,bucket -q '.[] | .name + "\t" + .bucket') || { echo "STOP $pr: could not read checks"; exit 1; }
+  if [ -z "$checks" ] || printf '%s\n' "$checks" | cut -f2 | grep -qvE '^(pass|skipping)$'; then
     echo "STOP $pr: PR checks not green (or none reported)"; gh pr checks "$pr"; exit 1
   fi
+  # The checks branch protection requires on develop: they must have reported, not just be absent.
+  # Protection does not bind admins (enforce_admins off), so this script checks them itself (#458).
+  for req in rust web; do
+    printf '%s\n' "$checks" | grep -qE "^$req	(pass|skipping)$" || { echo "STOP $pr: required check '$req' did not report (its workflow may not have started yet: run the queue again)"; exit 1; }
+  done
   gh pr merge "$pr" --merge >/dev/null 2>&1 || { echo "STOP $pr: merge failed"; exit 1; }
   echo "$pr merged -> $(git ls-remote origin refs/heads/develop | cut -c1-7)"
 done

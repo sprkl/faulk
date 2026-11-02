@@ -38,7 +38,7 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 
 use crate::arrangement;
 use crate::automation::TrackLanes;
-use crate::clip_player::{ClipNotes, ClipPlayer, held_notes_unchanged};
+use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::launcher;
@@ -968,6 +968,12 @@ impl Preparer {
                     mute,
                 }
             }
+            ControlMsg::HoldMix { track, gain, pan } => {
+                if !track.is_master() {
+                    self.existing_track(track)?;
+                }
+                RtMsg::HoldMix { track, gain, pan }
+            }
             ControlMsg::TrackSetSolo { track, solo } => {
                 self.existing_track(track)?;
                 RtMsg::TrackSetSolo { track, solo }
@@ -1422,6 +1428,157 @@ impl Preparer {
     }
 }
 
+/// The sounding notes of a replaced or removed clip that no table ends any more, on the
+/// stack: the track ends each by its own note-off (CL-3, [`crate::graph::ORPHAN_ROOM`]);
+/// beyond that it releases all its notes.
+struct Ending {
+    notes: [(crate::device::VoiceId, u8); crate::graph::ORPHAN_ROOM],
+    len: usize,
+    /// More notes than the room: the caller falls back on a release of the track.
+    overflow: bool,
+}
+
+impl Default for Ending {
+    fn default() -> Self {
+        Ending {
+            notes: [(crate::device::VoiceId::default(), 0); crate::graph::ORPHAN_ROOM],
+            len: 0,
+            overflow: false,
+        }
+    }
+}
+
+impl Ending {
+    /// `false` once a note is beyond the room (`overflow`): the walk of the caller stops.
+    fn push(&mut self, note: crate::clip_player::Orphan) -> bool {
+        match self.notes.get_mut(self.len) {
+            Some(slot) => {
+                *slot = note;
+                self.len += 1;
+            }
+            None => self.overflow = true,
+        }
+        !self.overflow
+    }
+
+    /// Like [`Ending::push`], except that a note already given (same voice and key) is
+    /// not given twice: the notes of a clip held by both of the player's cursors have the
+    /// same voice under both unless one of them carried them.
+    fn push_new(&mut self, note: crate::clip_player::Orphan) -> bool {
+        if self.notes.iter().take(self.len).any(|&n| n == note) {
+            return !self.overflow;
+        }
+        self.push(note)
+    }
+
+    /// Gives the notes of `old` that its cursors held to this list. With `shared` (the grid
+    /// and the arrangement both hold notes of the clip, [`crate::clip_player::Swap`]) a note
+    /// may have been delivered by either: it is ended under the voice of each cursor, which
+    /// is the same voice unless one of them carried it (#443). `false` when there are more
+    /// than the room.
+    fn collect_held(
+        &mut self,
+        old: &ClipNotes,
+        shared: bool,
+        voices: &crate::events::Aliases,
+        arrangement_voices: &crate::events::Aliases,
+    ) -> bool {
+        if !shared {
+            return old.held_voices(voices, |o| self.push(o));
+        }
+        old.held_voices(voices, |o| self.push_new(o))
+            && old.held_voices(arrangement_voices, |o| self.push_new(o))
+    }
+
+    /// Gives the notes to the track to end; `false` (nothing given) when they are more than
+    /// it can take.
+    fn hand_to(&self, graph: &mut crate::graph::TrackGraph) -> bool {
+        if self.overflow || self.len > graph.orphan_room() {
+            return false;
+        }
+        for &(voice, key) in self.notes.iter().take(self.len) {
+            graph.end_note(voice, key);
+        }
+        true
+    }
+}
+
+/// The clip in `slot`, which `track` plays, was replaced (`old` is its table if it held
+/// notes, `both_notes` that the new one does): the notes it holds go on or are ended
+/// (CL-3, module doc of [`crate::clip_player`]). Never allocates.
+fn swap_notes(
+    state: &mut State,
+    track: TrackSlot,
+    slot: ClipSlot,
+    both_notes: bool,
+    old: Option<&ClipNotes>,
+) {
+    // Too many sounding notes to look at: nothing is carried, the track releases all.
+    let too_many =
+        old.is_some_and(|o| o.held_count() as usize > crate::clip_player::MAX_HELD_NOTES);
+    // The voices of the notes held, before the cursor starts over or goes on (the
+    // arrangement's too, for a clip both cursors hold).
+    let Some((voices, arrangement_voices)) = state.track_mut(track).map(|t| {
+        (
+            t.player.voices_of(slot),
+            t.player.arrangement_voices_of(slot),
+        )
+    }) else {
+        return;
+    };
+    let Some(swap) = state
+        .track_mut(track)
+        .map(|t| t.player.clip_changed(slot, false, both_notes && !too_many))
+    else {
+        return;
+    };
+    let mut ending = Ending::default();
+    let mut carrying = false;
+    if let Some(old) = old
+        && !too_many
+    {
+        if swap.kept
+            && let Some(new) = state.clips.get_mut(slot.0)
+            && let ClipContent::Notes(new) = &mut new.content
+            && let Some(t) = state
+                .tracks
+                .as_mut_slice()
+                .get_mut(track.0 as usize)
+                .and_then(|t| t.as_deref_mut())
+        {
+            let cursor = t.player.carrier(swap);
+            let carried =
+                new.carry_held_from(old, &voices, cursor.aliases_mut(), |o| ending.push(o));
+            cursor.set_carried(carried);
+            carrying = true;
+        } else if swap.release {
+            ending.collect_held(old, swap.shared, &voices, &arrangement_voices);
+        }
+    }
+    let Some(t) = state.track_mut(track) else {
+        return;
+    };
+    if !(swap.kept || swap.release) {
+        return;
+    }
+    if (swap.release && too_many) || !ending.hand_to(&mut t.graph) {
+        // Too many notes to end one by one (a limit the memory budget accepts,
+        // `limits_fit_under_the_wasm32_cap`): the cursor starts over, nothing is carried,
+        // the track releases all its notes, those played live included.
+        if carrying {
+            *t.player.carrier(swap) = crate::events::Cursor::default();
+            if let Some(new) = state.clips.get_mut(slot.0)
+                && let ClipContent::Notes(new) = &mut new.content
+            {
+                new.clear_held();
+            }
+        }
+        if let Some(t) = state.track_mut(track) {
+            t.graph.release_notes();
+        }
+    }
+}
+
 /// The track whose player plays the clip in `slot`, when its `on_track` says so and the
 /// track agrees (a slot reused by another track is never named).
 fn playing_track(state: &State, slot: ClipSlot) -> Option<TrackSlot> {
@@ -1738,6 +1895,10 @@ impl Engine {
 
     /// Resets every device of every track: voices die, tails (delay lines) are hidden.
     /// Constant time per device ([`Device::reset`]), no allocation.
+    ///
+    /// The track's `release_notes` here is the whole point, not a limit: this is the end of
+    /// an `AllSoundOff` (the panic cut), which silences everything, notes played live
+    /// included, and [`Device::reset`] has just killed every voice anyway (#443).
     fn reset_devices(&mut self) {
         // The silence a cut leaves does not carry the gain of the overs before it.
         self.limiter.reset();
@@ -2043,6 +2204,43 @@ impl Engine {
                 }
                 None
             }
+            RtMsg::HoldMix { track, gain, pan } => {
+                // A gesture that left the value as it was (#417): take the fader's own value
+                // again (the project's, so a strip that missed a message is corrected), hold the
+                // lanes of the fields it names and give those fields back to the fader by the
+                // usual ramp. The mute is not in the message.
+                let held = |target| {
+                    (gain.is_some() && target == AutomationTarget::MixerGain)
+                        || (pan.is_some() && target == AutomationTarget::MixerPan)
+                };
+                if track.is_master() {
+                    if let Some(g) = gain {
+                        state.master.gain = g;
+                        self.graph.forget_master_gain();
+                    }
+                    if let Some(p) = pan {
+                        state.master.pan = p;
+                        self.graph.forget_master_pan();
+                    }
+                    hold_lanes(state, &self.graph, track, held);
+                } else {
+                    match state.track_mut(track) {
+                        Some(t) => {
+                            if let Some(g) = gain {
+                                t.gain = g;
+                                t.graph.forget_gain();
+                            }
+                            if let Some(p) = pan {
+                                t.pan = p;
+                                t.graph.forget_pan();
+                            }
+                            hold_lanes(state, &self.graph, track, held);
+                        }
+                        None => skipped = true,
+                    }
+                }
+                None
+            }
             RtMsg::TrackSetSolo { track, solo } => {
                 match state.track_mut(track) {
                     Some(t) => t.solo = solo,
@@ -2157,37 +2355,22 @@ impl Engine {
                 let slot = ClipSlot(put.slot);
                 // A clip replaced while it plays: the player goes on in the new table
                 // (CL-3). The notes it holds go on sounding when the new table has them
-                // unchanged; otherwise the track releases them.
+                // (wherever they sit); the others are ended by the track.
                 let player = playing_track(state, slot);
                 put.value.on_track = player;
-                let old_slot = slot;
-                // The held notes the new table keeps (read before the put moves the old
-                // table out).
-                let keep = player.is_some()
-                    && match (
-                        state.clips.get(old_slot.0).map(|c| &c.content),
-                        &put.value.content,
-                    ) {
-                        (Some(ClipContent::Notes(old)), ClipContent::Notes(new)) => {
-                            held_notes_unchanged(old, new)
-                        }
-                        _ => false,
-                    };
+                let both_notes = matches!(&put.value.content, ClipContent::Notes(_))
+                    && matches!(
+                        state.clips.get(slot.0).map(|c| &c.content),
+                        Some(ClipContent::Notes(_))
+                    );
                 let (spare, out) = state.clips.put(put);
                 skipped = out;
-                if !out && let Some(t) = player.and_then(|t| state.track_mut(t)) {
-                    let swap = t.player.clip_changed(slot, false, keep);
-                    if swap.release {
-                        t.graph.release_notes();
-                    }
-                    if swap.kept
-                        && let Some(old) = spare.item.as_deref()
-                        && let ClipContent::Notes(old) = &old.content
-                        && let Some(new) = state.clips.get_mut(slot.0)
-                        && let ClipContent::Notes(new) = &mut new.content
-                    {
-                        new.take_held_from(old);
-                    }
+                if !out && let Some(track) = player {
+                    let old = spare.item.as_deref().and_then(|c| match &c.content {
+                        ClipContent::Notes(old) => Some(old),
+                        _ => None,
+                    });
+                    swap_notes(state, track, slot, both_notes, old);
                 }
                 Some(Garbage::Clips(spare))
             }
@@ -2195,9 +2378,31 @@ impl Engine {
                 Ok(old) => {
                     if let Some(c) = &old
                         && let Some(t) = c.on_track.and_then(|t| state.track_mut(t))
-                        && t.player.clip_changed(clip, true, false).release
                     {
-                        t.graph.release_notes();
+                        // The voices of the notes held, before the cursor starts over.
+                        let voices = t.player.voices_of(clip);
+                        let arrangement_voices = t.player.arrangement_voices_of(clip);
+                        let swap = t.player.clip_changed(clip, true, false);
+                        if swap.release
+                            && let ClipContent::Notes(notes) = &c.content
+                        {
+                            // The notes it held are ended by the track, one by one (all of
+                            // its notes released when there are too many).
+                            let mut ending = Ending::default();
+                            let too_many =
+                                notes.held_count() as usize > crate::clip_player::MAX_HELD_NOTES;
+                            if !too_many {
+                                ending.collect_held(
+                                    notes,
+                                    swap.shared,
+                                    &voices,
+                                    &arrangement_voices,
+                                );
+                            }
+                            if too_many || !ending.hand_to(&mut t.graph) {
+                                t.graph.release_notes();
+                            }
+                        }
                     }
                     Some(Garbage::Clips(PagedSpare {
                         growth: None,

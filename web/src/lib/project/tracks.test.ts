@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { Device, Track } from '../generated/protocol'
-import { copyName, formatGain, formatPan, INSTRUMENTS, instrumentKind, instrumentName, nextColor, sortedTracks, TRACK_COLORS, trackLabel } from './tracks'
+import {
+  copyName,
+  formatGain,
+  formatPan,
+  INSTRUMENTS,
+  instrumentKind,
+  instrumentName,
+  sortedTracks,
+  TRACK_COLORS,
+  trackColor,
+  trackLabel,
+  hueKey,
+} from './tracks'
 
 const mixer = { mute: false, pan: 0, gain_db: 0 }
 function track(order: string, over: Partial<Track> = {}): Track {
@@ -46,11 +58,24 @@ describe('the track list', () => {
     expect(INSTRUMENTS.map((i) => i.name)).toEqual(expect.arrayContaining(['Oscillator', 'Drums']))
   })
 
-  it('gives each new track the next colour of the palette, in a loop', () => {
-    expect(nextColor(0)).toBe(TRACK_COLORS[0])
-    expect(nextColor(TRACK_COLORS.length)).toBe(TRACK_COLORS[0])
-    expect(nextColor(TRACK_COLORS.length + 1)).toBe(TRACK_COLORS[1])
+  it('has palette hues written #rrggbb', () => {
     for (const color of TRACK_COLORS) expect(color).toMatch(/^#[0-9a-f]{6}$/)
+  })
+
+  it('has the sixteen hues of the design system, each named', () => {
+    expect(TRACK_COLORS).toHaveLength(16)
+    expect(new Set(TRACK_COLORS).size).toBe(16)
+    expect(TRACK_COLORS[0]).toBe('#f08098')
+    expect(TRACK_COLORS[15]).toBe('#e189c5')
+    for (const color of TRACK_COLORS) expect(hueKey(color)).not.toBeNull()
+    expect(hueKey('#123456')).toBeNull()
+  })
+
+  it('shows the stored colour, else a hue of the palette by position (never the grey of the secondary texts)', () => {
+    expect(trackColor('#123456', 3)).toBe('#123456')
+    expect(trackColor(null, 2)).toBe(TRACK_COLORS[2])
+    expect(trackColor(undefined, 18)).toBe(TRACK_COLORS[2])
+    expect(TRACK_COLORS).not.toContain('#8f8a85')
   })
 })
 

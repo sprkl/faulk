@@ -3,7 +3,7 @@ import type { AutomationLane, AutomationTarget, Track } from '../../../lib/gener
 import { RULER_HEIGHT } from '../../../lib/components/timegrid/render'
 import { MAX_TICK } from '../arrangement'
 import { asPoint, dragDelta, hitPoint, moveSelection, newPoint, planMove, pointsInBox, posOfY, previewPoints, yOfPos, POINT_RADIUS } from './gestures'
-import { ADD_ROW, CLIP_ROW, LANE_ROW, layoutOf, rowAtY, rowsBetween } from './layout'
+import { ADD_ROW, CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, LANE_ROW, clampClipRow, layoutOf, rowAtY, rowsBetween } from './layout'
 import { drawLane } from './draw'
 import { axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type Labels, type LanePoint } from './model'
 
@@ -73,8 +73,10 @@ describe('the axes', () => {
     expect(axis.clamp(-200)).toBe(-96)
     expect(axis.clamp(0.004)).toBe(0)
     expect(axis.format(-6)).toBe('−6.0 dB')
-    expect(axis.parse('-12')).toBe(-12)
-    expect(axis.parse('-inf')).toBe(-96)
+    expect(axis.parse('-12')).toEqual({ value: -12 })
+    expect(axis.parse('-inf')).toEqual({ value: -96 })
+    expect(axis.parse('-200')).toEqual({ value: -96, limit: -96 })
+    expect(axis.parse('20')).toEqual({ value: 6, limit: 6 })
     expect(axis.parse('nonsense')).toBeNull()
   })
   it('map the pan linearly and read it as the pan control does', () => {
@@ -83,7 +85,9 @@ describe('the axes', () => {
     expect(axis.at(0.5)).toBe(0)
     expect(Object.is(axis.at(0.5), -0)).toBe(false)
     expect(axis.format(-0.3)).toBe('L30')
-    expect(axis.parse('R25')).toBe(0.25)
+    expect(axis.parse('R25')).toEqual({ value: 0.25 })
+    expect(axis.parse('R150')).toEqual({ value: 1, limit: 1 })
+    expect(axis.parse('-200')).toEqual({ value: -1, limit: -1 })
   })
   it('follow the descriptor of a device parameter: scale, range, unit', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'attack' } }, labels)!
@@ -91,7 +95,10 @@ describe('the axes', () => {
     expect(axis.max).toBe(30)
     expect(axis.pos(axis.at(0.5))).toBeCloseTo(0.5, 3)
     expect(axis.format(0.25)).toBe('250 ms')
-    expect(axis.parse('120 ms')).toBeCloseTo(0.12, 6)
+    expect(axis.parse('120 ms')!.value).toBeCloseTo(0.12, 6)
+    expect(axis.parse('120 ms')!.limit).toBeUndefined()
+    expect(axis.parse('99 s')).toEqual({ value: 30, limit: 30 })
+    expect(axis.parse('1 parsec')).toBeNull()
   })
   it('name the values of a choice parameter', () => {
     const axis = axisOf(track, { device: { device: 'D1', param: 'waveform' } }, labels)!
@@ -151,6 +158,29 @@ describe('the rows', () => {
   it('lists the rows that touch a span', () => {
     expect(rowsBetween(layout, CLIP_ROW + 5, CLIP_ROW + 10).map((r) => r.kind)).toEqual(['track'])
     expect(rowsBetween(layout, 0, layout.total).length).toBe(layout.rows.length)
+  })
+  it('gives each track the height the page keeps for it, clamped, else the base height', () => {
+    const heights: Record<string, number> = { a: 100, c: 5 }
+    const sized = layoutOf(
+      entries,
+      new Set(),
+      () => [],
+      (id) => heights[id],
+      50,
+    )
+    expect(sized.trackHeight).toEqual([100, 50, CLIP_ROW_MIN])
+    expect(sized.trackTop).toEqual([0, 100, 150])
+    expect(sized.total).toBe(150 + CLIP_ROW_MIN)
+    expect(rowAtY(sized, 120)?.trackId).toBe('b')
+    // No height kept and no base: the lane token's default.
+    expect(layoutOf(entries, new Set(), () => []).trackHeight).toEqual([CLIP_ROW, CLIP_ROW, CLIP_ROW])
+  })
+  it('clamps a track height to the bounds, whole, and falls back on an unreadable one', () => {
+    expect(clampClipRow(10)).toBe(CLIP_ROW_MIN)
+    expect(clampClipRow(9999)).toBe(CLIP_ROW_MAX)
+    expect(clampClipRow(60.4)).toBe(60)
+    expect(clampClipRow(Number.NaN)).toBe(CLIP_ROW)
+    expect(clampClipRow(Number.POSITIVE_INFINITY, 33)).toBe(33)
   })
   it('shows a track with no lane as its clips and the row that adds one', () => {
     const only = layoutOf([{ id: 'a' }], new Set(['a']), () => [])

@@ -15,6 +15,8 @@ export class ProjectStore {
   canRedo = $state(false)
   /** Counts the changes of the history (an entry recorded, undone, redone, or the history replaced): the history panel reads the entries again when it moves. */
   historyRev = $state(0)
+  /** Counts the projects opened or started (`project_opened`): a view that holds a choice made on the previous project drops it when this moves (#445). */
+  openedRev = $state(0)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
   watch: ((events: readonly ProjectEvent[]) => void) | null = null
   /** Told of every applied transport command that cues the play position (a stop or a seek, even to where the playhead already stands: #394). */
@@ -39,6 +41,10 @@ export class ProjectStore {
   selected = $derived(this.tracks.find((entry) => entry.id === this.view?.session.selected_track) ?? null)
   /** The soloed tracks (session state). */
   soloed = $derived(this.view?.session.solo ?? [])
+  /** Whether another track's solo silences this track (a muted track is silent on its own and is not reported). */
+  silencedBySolo(id: string): boolean {
+    return this.soloed.length > 0 && !this.soloed.includes(id)
+  }
   /** The armed tracks (session state): live input reaches them besides the selected track. */
   armed = $derived(this.view?.session.armed ?? [])
   /** The tracks that monitor their live input (session state). */
@@ -117,6 +123,9 @@ export class ProjectStore {
         this.canUndo = event.can_undo
         this.canRedo = event.can_redo
         this.historyRev++
+      } else if (event.type === 'project_opened') {
+        this.openedRev++
+        changed = true
       } else if (event.type === 'control_change') {
         // A controller on the live input changes nothing in the project: a sweep must not read it again.
       } else if (event.type === 'device_param_changed' && this.setParam(event.device, event.param, event.value)) {

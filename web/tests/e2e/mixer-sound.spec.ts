@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // MX-1 (#90): the track controls act on the sound in the real page. The hidden `feedback`
 // element carries the engine's report (the meters, after the fader): the volume lowers the
@@ -17,9 +17,9 @@ test('volume, mute and solo of a track change what the engine sounds', async ({ 
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
-  const synth = page.getByTestId('track-header').first()
+  await chooseMidiInput(page, 'E2E Keys')
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
+  const synth = page.getByTestId('track-inspector')
 
   // A held note: the level at unity.
   await send(page, [0x90, 69, 127])
@@ -37,8 +37,9 @@ test('volume, mute and solo of a track change what the engine sounds', async ({ 
   await volume.dblclick()
   await expect.poll(async () => (await master(page)) / unity, { timeout: 5000 }).toBeGreaterThan(0.9)
 
-  // Mute silences it, unmute brings it back.
-  const mute = synth.getByRole('button', { name: 'Mute Synth', exact: true })
+  // Mute silences it, unmute brings it back: M and S are on the track's row in the arrangement (#471).
+  await page.getByTestId('nav-arrangement').click()
+  const mute = page.getByTestId('track-header').getByRole('button', { name: 'Mute Synth', exact: true })
   await mute.click()
   await expect.poll(() => master(page), { timeout: 5000 }).toBeLessThan(0.001)
   await mute.click()
@@ -47,8 +48,8 @@ test('volume, mute and solo of a track change what the engine sounds', async ({ 
   // Solo on another track silences this one; solo on this one brings it back (cumulative).
   await page.getByTestId('add-track').click()
   await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
-  await expect(page.getByTestId('track-header')).toHaveCount(2)
-  const soloOf = (name: string) => page.getByRole('button', { name: `Solo ${name}`, exact: true })
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '2')
+  const soloOf = (name: string) => page.getByTestId('track-header').getByRole('button', { name: `Solo ${name}`, exact: true })
   await soloOf('Track 2').click()
   await expect.poll(() => master(page), { timeout: 5000 }).toBeLessThan(0.001)
   await soloOf('Synth').click()

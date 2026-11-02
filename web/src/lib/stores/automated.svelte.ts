@@ -116,6 +116,16 @@ export class AutomatedValues {
     // the lanes), a seek (the play position changes while stopped), the play position going back (a seek, the loop) or leaping ahead
     // while it runs. A forward seek of less than half a second of music looks like playing and goes unseen.
     $effect.root(() => {
+      // A relay of the engine (a switch of mode, a restart from a snapshot) starts a new epoch of slots with every hold lost, and
+      // applies each lane at the playhead: the tick and the transport may not move, so the epoch is what tells (#425).
+      let epoch: number | undefined
+      $effect(() => {
+        const next = this.project.view?.slots.epoch
+        untrack(() => {
+          if (epoch !== undefined && next !== epoch) this.releaseAll()
+          epoch = next
+        })
+      })
       let last: number | null = null
       let wasRunning = false
       $effect(() => {
@@ -132,6 +142,19 @@ export class AutomatedValues {
         })
       })
     })
+  }
+
+  /** Lets every hold go: the engine has dropped them. */
+  private releaseAll() {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- the map is replaced, never changed in place
+    if (this.holds.size > 0) this.holds = new Map()
+  }
+
+  /** Lets go of the holds whose key `drop` names: the lanes they were about are gone, a restoration brings new ones the engine plays (#425). */
+  private release(drop: (where: string) => boolean) {
+    const kept = [...this.holds].filter(([where]) => !drop(where))
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- the map is replaced, never changed in place
+    if (kept.length !== this.holds.size) this.holds = new Map(kept)
   }
 
   /** Half a second of music at the project's tempo, in ticks: a play position that moves further between two reports has jumped. */
@@ -198,7 +221,27 @@ export class AutomatedValues {
     const view = this.project.view
     if (!view) return
     for (const event of events) {
-      if (event.type === 'device_param_changed') {
+      if (event.type === 'track_deleted') {
+        // The track goes with its lanes; its restoration (an undo) gives lanes in new slots, which the engine plays.
+        const gone = view.project.tracks[event.track]
+        const devices = Object.keys(gone?.devices ?? {})
+        this.release((where) => where.startsWith(`m:${event.track}:`) || devices.some((device) => where.startsWith(`d:${device}:`)))
+      } else if (event.type === 'automation_lane_deleted' || event.type === 'automation_points_changed') {
+        // A lane deleted (alone, with its device, or by an instrument swap) and restored is a new lane in the engine; so is a lane that
+        // gets points while it had none (the engine drops a lane with no point, and its hold). Read before the mirror takes the event.
+        const automation = event.track ? view.project.tracks[event.track]?.automation : (view.project.master_automation ?? {})
+        const lane = automation?.[event.lane]
+        if (!lane || (event.type === 'automation_points_changed' && pointsOf(lane).length > 0)) continue
+        const where = whereOf(event.track ?? MASTER, lane)
+        // Another lane with points on the same parameter (a merged project) keeps its own hold in the engine; one with none is not in the engine.
+        if (
+          Object.entries(automation!).some(
+            ([id, other]) => id !== event.lane && other && pointsOf(other).length > 0 && whereOf(event.track ?? MASTER, other) === where,
+          )
+        )
+          continue
+        this.release((held) => held === where)
+      } else if (event.type === 'device_param_changed') {
         const lanes: AutomationLane[] = []
         for (const [, track] of ownersOf(view.project)) {
           for (const lane of Object.values(track.automation)) {
@@ -206,6 +249,25 @@ export class AutomatedValues {
           }
         }
         if (lanes.length > 0) this.hold(`d:${event.device}:${event.param}`, lanes)
+      } else if (event.type === 'gesture_unchanged') {
+        // A gesture that left the value as the project holds it: the engine still gives way to it (#417), so does the page.
+        const owner = event.track ?? MASTER
+        const track = event.track ? view.project.tracks[event.track] : { automation: view.project.master_automation ?? {} }
+        if (!track) continue
+        const lanes: AutomationLane[] = []
+        const target = event.target
+        for (const lane of Object.values(track.automation)) {
+          if (!lane) continue
+          if (
+            'device' in target &&
+            'device' in lane.target &&
+            lane.target.device.device === target.device.device &&
+            lane.target.device.param === target.device.param
+          )
+            lanes.push(lane)
+          if ('mixer' in target && 'mixer' in lane.target && lane.target.mixer.param === target.mixer.param) lanes.push(lane)
+        }
+        if (lanes.length > 0) this.hold('device' in target ? `d:${target.device.device}:${target.device.param}` : `m:${owner}:${target.mixer.param}`, lanes)
       } else if (event.type === 'mixer_changed') {
         // A track's strip, or the master's when `track` is null.
         const owner = event.track ?? MASTER

@@ -19,6 +19,8 @@ type Faulk = {
 }
 
 const state = (page: Page) => page.getByTestId('save-state')
+// The tracks are the arrangement's rows (#471): these tests start on the arrangement, the app's default view.
+test.use({ storageState: { cookies: [], origins: [] } })
 const tracks = (page: Page) => page.getByTestId('track-header')
 const notice = (page: Page) => page.getByTestId('storage-notice')
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as Faulk).__faulkRun(c), command)

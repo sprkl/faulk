@@ -788,6 +788,7 @@ fn project_with_a_blob_lane() -> project::Project {
         "Track",
         OrderKey::between(None, None).unwrap(),
     );
+    track.color = Some(Rgb::new(1, 2, 3));
     track.automation.insert(
         LaneId::generate(&mut ids),
         AutomationLane {

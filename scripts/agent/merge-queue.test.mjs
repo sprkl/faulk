@@ -24,8 +24,11 @@ case "$*" in
   "pr update-branch"*) ;;
   "run list"*) echo 1 ;;
   "pr checks"*"--watch"*) ;;
-  "pr checks"*"--json bucket"*) echo pass ;;
-  "pr merge"*) ;;
+  "pr checks"*"--json name,bucket"*)
+    if [ -n "$MQ_CHECKS" ]; then printf '%s\\n' "$MQ_CHECKS"
+    else printf 'rust\\t%s\\nweb\\t%s\\n' "\${MQ_BUCKET:-pass}" "\${MQ_BUCKET:-pass}"; fi ;;
+  "pr checks"*) ;;
+  "pr merge"*) [ -z "$MQ_MERGE_FAIL" ] ;;
   *) exit 99 ;;
 esac
 `
@@ -73,8 +76,10 @@ function world() {
   git(work, 'checkout', '-q', '-b', 'pr')
   const log = join(dir, 'log.txt')
   writeFileSync(log, '')
+  // The caller's FAULK_* settings (FAULK_SHARED_TARGET=0, ...) must not leak into the scripts under test (#463): tests that need one set it on w.env.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('FAULK_')))
   const env = {
-    ...process.env,
+    ...inherited,
     PATH: stubs + delimiter + process.env.PATH,
     MQ_LOG: log,
     MQ_STATE: 'MERGEABLE BEHIND',
@@ -143,6 +148,83 @@ test('merge-queue stops on a conflict that touches no generated file, without th
     assert.equal(r.status, 1)
     assert.match(r.stdout, /STOP 7: CONFLICTING DIRTY/)
     assert.doesNotMatch(r.stdout, /regen-generated/)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue waits on a PR blocked by required checks and merges once they pass (#458)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.env.MQ_STATE = 'MERGEABLE BLOCKED'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const log = w.logText()
+    const watch = log.indexOf('gh pr checks 7 --watch')
+    const read = log.indexOf('gh pr checks 7 --json name,bucket')
+    const merge = log.indexOf('gh pr merge 7 --merge')
+    assert.ok(watch >= 0 && read > watch && merge > read, `watch, then read, then merge:\n${log}`)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue updates a blocked PR that is behind develop before waiting (#458)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.commit('develop', 'web/src/other/y.txt', 'dev\n')
+    w.env.MQ_STATE = 'MERGEABLE BLOCKED'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const log = w.logText()
+    assert.ok(log.indexOf('gh pr update-branch 7') >= 0 && log.indexOf('gh pr update-branch 7') < log.indexOf('gh pr checks 7 --watch'), log)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue stops when a required check never reported, even if the others are green (#458)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.env.MQ_STATE = 'MERGEABLE BLOCKED'
+    w.env.MQ_CHECKS = 'web\tpass\nagent-scripts\tpass'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /STOP 7: required check 'rust' did not report/)
+    assert.doesNotMatch(w.logText(), /pr merge/)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue stops on a blocked PR whose checks fail, without merging (#458)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.env.MQ_STATE = 'MERGEABLE BLOCKED'
+    w.env.MQ_BUCKET = 'fail'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /STOP 7: PR checks not green/)
+    assert.doesNotMatch(w.logText(), /pr merge/)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue stops when the merge itself is refused (protection still blocking) (#458)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.env.MQ_STATE = 'MERGEABLE BLOCKED'
+    w.env.MQ_MERGE_FAIL = '1'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /STOP 7: merge failed/)
+    assert.doesNotMatch(r.stdout, /ALL DONE/)
   } finally {
     w.done()
   }

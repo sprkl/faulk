@@ -47,12 +47,18 @@ export function defaultOctave(instrumentKind: string | null): number {
 }
 
 /**
+ * The key that toggles musical typing (#470): the key left of 1 (` on QWERTY, ² on AZERTY), by position.
+ * It plays nothing and no browser or page shortcut uses it bare, so it needs no modifier and is not a letter.
+ */
+export const TYPING_TOGGLE_CODE = 'Backquote'
+
+/**
  * The application shortcuts that need no modifier, by `KeyboardEvent.key` (Space by `code`): F2 renames
- * a track, Escape cancels (a rename, the add-track menu, a tempo edit), Enter confirms a rename or a
+ * a track (in its inspector), Escape cancels (a rename, the add-track menu, a tempo edit), Enter confirms a rename or a
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
- * them) zoom. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. None of them plays a note: the playing keys are letters and Semicolon.
+ * them) zoom, bare or with Ctrl or Cmd (#471: Ctrl keeps the browser's page zoom off while the grid has the focus). On the selected track's row of the arrangement (#471), Enter or F2 open the field that types its volume, and a digit, a sign or a decimal point opens it with that key typed (`views/arrangement/lane-keys.ts`); the row's height handle moves with Up and Down (Shift for a big step), Home and End, and Enter gives back the default height. Digits play nothing. With a clip of the timeline or a note of the piano roll focused (their named cells, #471, `roving.ts`), the arrows move between them, Shift+arrows extend the selection, Alt+arrows move the selection (Alt+Up and Down transpose notes), Enter opens a clip in the piano roll or sounds a note, and Delete or Backspace removes the selection. With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
+ * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. The key left of 1 (Backquote, `TYPING_TOGGLE_CODE`) toggles musical typing (#470): with it off, the playing keys play nothing; it is not listed here, because it must not make a mouse-focused slider keyboard-focused. None of them plays a note: the playing keys are letters and Semicolon.
  */
 export const BARE_SHORTCUT_CODES: readonly string[] = [
   'F2',
@@ -208,6 +214,22 @@ export function spaceTogglesTransport(target: EventTarget | null, focusVisible: 
 /** Where a key means something of its own whoever focused it: a menu (or the button that opened it), a dialog, a spin box (#361). */
 const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [aria-haspopup][aria-expanded="true"]'
 
+/** The containers whose children move with the keys (roving grids, menus, radio groups, tabs, toolbars, lists, trees). */
+const OWN_KEY_CONTAINERS =
+  '[role="grid"], [role="treegrid"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="listbox"], [role="tablist"], [role="toolbar"], [role="tree"]'
+
+/**
+ * A plain push button: a `button` with no role of its own (or `button`) outside the containers above. It uses Space and
+ * Enter only, so the letters do not belong to it: the engine pill that gave the focus back after its dialog closed
+ * must not silence the keyboard (#472). A radio, a tab, a menu item, a cell of a roving grid keeps its keys.
+ */
+export function isPlainButton(control: Element): boolean {
+  if (!control.matches('button')) return false
+  const role = control.getAttribute('role')
+  if (role !== null && role !== 'button') return false
+  return control.closest(OWN_KEY_CONTAINERS) === null
+}
+
 /**
  * Whether a key event plays a note (or steps the octave) in whatever view is shown (#361). A key is checked against these
  * owners, in this order; the first that claims it wins, and a key nobody claims plays:
@@ -216,8 +238,9 @@ const OWN_KEYS_AREAS = '[role="menu"], [role="dialog"], [role="spinbutton"], [ar
  * 2. a text field, a select or a contenteditable keeps every key (`ignoreKeyEvent`);
  * 3. a menu (or the button that opened it), a dialog, a spin box keeps every key, however the focus got there, and so does
  *    the whole page while a modal dialog is open;
- * 4. a control the keyboard focused (Tab, arrows: a button, link, checkbox, knob or slider) keeps its own keys, the rule of
- *    Space (`spaceTogglesTransport`); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
+ * 4. a control the keyboard focused (Tab, arrows: a link, checkbox, radio, knob or slider) keeps its own keys, the rule of
+ *    Space (`spaceTogglesTransport`); a plain push button (`isPlainButton`) does not: it keeps Space and Enter only, so the
+ *    letters play on it, whoever focused it (the focus a closed dialog gives back to its button, #472); a control the mouse clicked does not, so a sound can be tweaked with the mouse while
  *    notes are played. A control focused by a script after a key (a menu giving the focus back) counts as keyboard-focused.
  *    Exception (#415, option A): a UI-shortcut key (`BARE_SHORTCUT_CODES`: arrows, Delete, Backspace…) pressed on a
  *    mouse-focused slider reasserts keyboard origin (`trackFocusOrigin`), after which letters no longer play on that
@@ -233,7 +256,7 @@ export function playsNote(
   if (!element || typeof element.closest !== 'function') return true
   if (element.closest(OWN_KEYS_AREAS) || element.ownerDocument?.querySelector('[aria-modal="true"]')) return false
   const control = element.closest(SPACE_CONTROLS)
-  return control === null || !focusVisible(control)
+  return control === null || isPlainButton(control) || !focusVisible(control)
 }
 
 /**
@@ -253,4 +276,20 @@ export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | '
   if (key === 'z') return event.shiftKey ? 'redo' : 'undo'
   if (key === 'y' && !event.shiftKey) return 'redo'
   return null
+}
+
+/**
+ * The layout shortcuts (#472), all with Alt alone (never Ctrl: the browser takes Ctrl+digit for its tabs; never a bare
+ * letter: the keys play). By position, so the layout does not matter: Alt+1, Alt+2, Alt+3 show the main views in the
+ * registry's order (Arrangement, Grid, Mixer), Alt+M maximises the bottom panel or gives it back its size. Not in a
+ * text field. Playing ignores any Alt event (`ignoreKeyEvent`), so none of these plays a note.
+ */
+const PANEL_CODE = 'KeyM'
+export function layoutShortcut(
+  event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>,
+): { view: number } | 'panel' | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || isTextTarget(event.target)) return null
+  const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code)
+  if (digit) return { view: Number(digit[1]) - 1 }
+  return event.code === PANEL_CODE ? 'panel' : null
 }

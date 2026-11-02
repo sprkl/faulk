@@ -18,7 +18,7 @@ import {
 import { chainOf, type ChainEntry } from '../../../lib/project/chain'
 import { exactDbAt, gainAt, positionOf as faderPosition } from '../../../lib/project/fader'
 import { MAX_GAIN_DB, MIN_GAIN_DB, formatGain, formatPan } from '../../../lib/project/tracks'
-import { parseGain, parsePan, parseParam } from '../../../lib/value-entry'
+import { parseGainEntry, parsePanEntry, parseParamEntry, parseQuantity } from '../../../lib/value-entry'
 
 /** A point of a lane, with its tick: what the editor works on. */
 export interface LanePoint {
@@ -91,8 +91,14 @@ export interface Axis {
   home: number
   /** The text of a value, with its unit. */
   format: (value: number) => string
-  /** The value a typed text means, or null when it is unreadable. */
-  parse: (text: string) => number | null
+  /** The value a typed text means, with the bound it was limited to when the text went past the range (#421); null when unreadable. */
+  parse: (text: string) => AxisEntry | null
+}
+
+/** What a typed text means on an axis: the value (kept to the range and step) and, when the text went past the range, the bound reached. */
+export interface AxisEntry {
+  value: number
+  limit?: number
 }
 
 function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels: Labels): Axis {
@@ -110,7 +116,7 @@ function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels
       }
       return formatValue(param, value)
     },
-    parse: (text) => parseParam(param, text),
+    parse: (text) => parseParamEntry(param, text),
   }
 }
 
@@ -124,9 +130,13 @@ const gainAxis = (): Axis => ({
   home: faderPosition(0),
   format: (db) => `${formatGain(db <= MIN_GAIN_DB ? null : db)} dB`,
   parse: (text) => {
-    const db = parseGain(text)
-    if (db === undefined) return null
-    return db === null ? MIN_GAIN_DB : db
+    const entry = parseGainEntry(text)
+    if (!entry) return null
+    const value = entry.gain === null ? MIN_GAIN_DB : entry.gain
+    if (entry.limited) return { value, limit: MAX_GAIN_DB }
+    // Silence is no value of a lane: a number below its bottom is limited there, the word "-inf" is the bottom itself.
+    const q = parseQuantity(text)
+    return q && q.value < MIN_GAIN_DB ? { value, limit: MIN_GAIN_DB } : { value }
   },
 })
 
@@ -139,8 +149,9 @@ const panAxis = (): Axis => ({
   home: 0.5,
   format: formatPan,
   parse: (text) => {
-    const pan = parsePan(text)
-    return pan === undefined ? null : pan
+    const entry = parsePanEntry(text)
+    if (!entry) return null
+    return entry.limited ? { value: entry.pan, limit: entry.pan } : { value: entry.pan }
   },
 })
 

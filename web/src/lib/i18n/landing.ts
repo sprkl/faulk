@@ -9,7 +9,7 @@
 import type { Lang } from './lang'
 
 const en = {
-  'meta.title': 'Faulk · Make your own sounds',
+  'meta.title': 'Faulk · Open DAW for humans and agents',
   'meta.description': 'Faulk is an open DAW that opens in your browser, where you’ll build your own instruments and effects. Under construction.',
   skip: 'Skip to content',
   'nav.label': 'Main',
@@ -23,10 +23,10 @@ const en = {
   'lang.fr': 'Français',
 
   'hero.metaLeft': 'FLK-0.1 · IN DEVELOPMENT',
-  'hero.metaRight': 'Browser · Boost coming',
-  'hero.title': 'MAKE YOUR OWN SOUNDS.',
+  'hero.metaRight': 'Browser + Boost (native low latency)',
+  'hero.title': 'OPEN DAW FOR HUMANS AND AGENTS.',
   'hero.lead':
-    'Faulk is a DAW that opens in a browser tab, where you’ll build your own instruments and effects. Soon you’ll describe a sound, an AI will write the module and you’ll hear it straight away. When you need studio latency, Boost will take over.',
+    'Faulk is a DAW that opens in a browser tab, where you’ll build your own instruments and effects. Soon you’ll describe a sound, an AI will write the module and you’ll hear it straight away. When you need studio latency, Boost takes over.',
   'hero.status': 'Faulk is under construction: the first version plays an oscillator from a MIDI keyboard or the computer keyboard.',
   'hero.cta': 'Open Faulk, no install',
   'hero.secondary': 'About Boost',
@@ -48,7 +48,7 @@ const en = {
   'modes.boostName': 'BOOST',
   'modes.boostRuns': 'A native helper, driven by the same interface',
   'modes.boostLatency': 'Low, to be measured',
-  'modes.boostGain': 'Low-latency audio, direct MIDI, your VST3 and CLAP plugins',
+  'modes.boostGain': 'Low-latency audio and direct MIDI',
   'modes.boostStatus': 'In development',
   'modes.atelierName': 'ATELIER',
   'modes.atelierRuns': 'The built-in module editor',
@@ -88,7 +88,7 @@ const en = {
   'boost.metaRight': 'Downloads coming',
   'boost.title': 'BOOST',
   'boost.body':
-    'Same tab, same project: a small native helper will take over the sound, and the indicator will turn purple. It’ll bring low-latency audio, direct MIDI and your VST3 and CLAP plugins.',
+    'Same tab, same project: a small native helper takes over the sound, and the indicator turns purple. It brings low-latency audio and direct MIDI.',
   'boost.figure': '— ms',
   'boost.figureCaption': 'Round-trip latency: published once measured',
   'boost.downloads': 'Boost downloads',
@@ -102,7 +102,7 @@ const en = {
 export type LandingKey = keyof typeof en
 
 const fr: Record<LandingKey, string> = {
-  'meta.title': 'Faulk · Fabrique tes propres sons',
+  'meta.title': 'Faulk · Le DAW ouvert, pour les humains et les agents',
   'meta.description': 'Faulk est un DAW ouvert qui s’ouvre dans ton navigateur, et où tu fabriqueras tes propres instruments et effets. En construction.',
   skip: 'Aller au contenu',
   'nav.label': 'Principale',
@@ -116,10 +116,10 @@ const fr: Record<LandingKey, string> = {
   'lang.fr': 'Français',
 
   'hero.metaLeft': 'FLK-0.1 · EN DÉVELOPPEMENT',
-  'hero.metaRight': 'Navigateur · Boost à venir',
-  'hero.title': 'FABRIQUE TES PROPRES SONS.',
+  'hero.metaRight': 'Navigateur + Boost (natif, faible latence)',
+  'hero.title': 'LE DAW OUVERT, POUR LES HUMAINS ET LES AGENTS.',
   'hero.lead':
-    'Faulk est un DAW qui s’ouvre dans un onglet, et où tu fabriqueras tes propres instruments et effets. Bientôt, tu décriras un son, une IA écrira le module et tu l’entendras aussitôt. Quand il te faudra la latence d’un studio, Boost prendra le relais.',
+    'Faulk est un DAW qui s’ouvre dans un onglet, et où tu fabriqueras tes propres instruments et effets. Bientôt, tu décriras un son, une IA écrira le module et tu l’entendras aussitôt. Quand il te faudra la latence d’un studio, Boost prend le relais.',
   'hero.status': 'Faulk est en construction : la première version joue un oscillateur depuis un clavier MIDI ou le clavier de l’ordinateur.',
   'hero.cta': 'Ouvrir Faulk, sans installer',
   'hero.secondary': 'Découvrir Boost',
@@ -141,7 +141,7 @@ const fr: Record<LandingKey, string> = {
   'modes.boostName': 'BOOST',
   'modes.boostRuns': 'Un helper natif, piloté par la même interface',
   'modes.boostLatency': 'Basse, à mesurer',
-  'modes.boostGain': 'Audio basse latence, MIDI direct, tes plugins VST3 et CLAP',
+  'modes.boostGain': 'Audio basse latence et MIDI direct',
   'modes.boostStatus': 'En développement',
   'modes.atelierName': 'ATELIER',
   'modes.atelierRuns': 'L’éditeur de modules intégré',
@@ -182,7 +182,7 @@ const fr: Record<LandingKey, string> = {
   'boost.metaRight': 'Téléchargements à venir',
   'boost.title': 'BOOST',
   'boost.body':
-    'Même onglet, même projet : un petit helper natif prendra le son en charge, et l’indicateur passera au violet. Il apportera l’audio basse latence, le MIDI direct et tes plugins VST3 et CLAP.',
+    'Même onglet, même projet : un petit helper natif prend le son en charge, et l’indicateur passe au violet. Il apporte l’audio basse latence et le MIDI direct.',
   'boost.figure': '— ms',
   'boost.figureCaption': 'Latence aller-retour : publiée une fois mesurée',
   'boost.downloads': 'Téléchargements de Boost',

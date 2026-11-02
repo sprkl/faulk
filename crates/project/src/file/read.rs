@@ -48,6 +48,9 @@ pub struct OpenReport {
     /// save rewrites them (the save compares every file with what was read), and the
     /// project is not dirty: opening is not an edit.
     pub named_clips: usize,
+    /// Tracks the folder holds without a colour, given the hue of their position as they
+    /// were read ([`Project::color_uncolored_tracks`]); same rules as `named_clips`.
+    pub colored_tracks: usize,
     /// Text files read from the folder.
     pub files_read: usize,
     /// Files taken from the cache snapshot instead.
@@ -628,6 +631,7 @@ fn read_folder(
             missing_blobs: Vec::new(),
             cache,
             named_clips: 0,
+            colored_tracks: 0,
             files_read: 1,
             files_from_cache: 0,
         },
@@ -685,6 +689,7 @@ fn read_folder(
         .validate()
         .map_err(|violations| FileError::Invalid { violations })?;
     reader.report.named_clips = project.name_unnamed_clips();
+    reader.report.colored_tracks = project.color_uncolored_tracks();
 
     // Blobs the folder lacks: not read, only counted (§ 3.3).
     let present: BTreeSet<String> = reader

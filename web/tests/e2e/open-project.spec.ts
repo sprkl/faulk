@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // SV-4 (#94): a project folder opened into the real page. Real worklet, engine and project core:
 // the note held on the old project stops with it, the opened project's tracks and its session
@@ -43,8 +43,8 @@ test('opening a project folder stops the old project, shows the new one and its 
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   const hook = await page.evaluate(() => typeof (window as unknown as { __faulkOpen?: unknown }).__faulkOpen)
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await chooseMidiInput(page, 'E2E Keys')
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
 
   // A key is held on the old project: it sounds.
   await send(page, [0x90, 69, 127])
@@ -62,16 +62,20 @@ test('opening a project folder stops the old project, shows the new one and its 
     reason: 'corrupt',
   })
   await expect(page.getByRole('status').filter({ hasText: 'damaged or incomplete' })).toBeVisible()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   // Nothing was touched: the note still sounds (polled over the synth's release) and the keyboard stays selected.
   await page.waitForTimeout(600)
   expect(await master(page)).toBeGreaterThan(0.05)
+  await page.getByTestId('engine-mode').click()
   await expect(page.getByRole('radio', { name: 'E2E Keys' })).toBeChecked()
+  await page.keyboard.press('Escape')
 
   // The reference song with a session that solos its bass: the old note is gone with the old project.
   const session = { path: '.faulk/session.json', bytes: text(JSON.stringify({ selected_track: BASS, solo: [BASS], midi_input: null })) }
   expect(await open(page, 'song', [...song, session])).toEqual({ status: 'opened', name: 'Song "one"' })
-  await expect(page.getByTestId('track-header')).toHaveCount(2)
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '2')
+  // The tracks are listed as the arrangement's rows (#471).
+  await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('track-header').first()).toContainText('Bass')
   await expect(page.getByRole('button', { name: 'Solo Bass', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Solo Drums', exact: true })).toHaveAttribute('aria-pressed', 'false')
@@ -80,7 +84,7 @@ test('opening a project folder stops the old project, shows the new one and its 
 
   // The new project plays: a key on the selected track sounds, and the opened project has no history.
   await send(page, [0x80, 69, 0])
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  await chooseMidiInput(page, 'E2E Keys')
   await send(page, [0x90, 60, 127])
   await expect.poll(() => master(page), { timeout: 5000 }).toBeGreaterThan(0.001)
   await send(page, [0x80, 60, 0])

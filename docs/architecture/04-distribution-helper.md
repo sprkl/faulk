@@ -15,7 +15,7 @@ Ce document décrit la chaîne qui va du dépôt au helper installé sur un post
 
 ## L'outil : Velopack
 
-Velopack (crate `velopack` et outil `vpk`, tous deux en **1.2.161**, versions à garder identiques) produit à partir du binaire de `cargo build` :
+Velopack (crate `velopack` et outil `vpk`, tous deux en **1.3.39-g8d2844f**, versions à garder identiques) produit à partir du binaire de `cargo build` :
 
 - un installeur Windows `FaulkHelper-win-Setup.exe` (installation par utilisateur, sans droits d'administrateur, dans `%LocalAppData%\FaulkHelper`) et une version portable ;
 - un paquet complet `FaulkHelper-<version>-full.nupkg` et, quand la version précédente est disponible au moment du build, un paquet **différentiel** `FaulkHelper-<version>-delta.nupkg` (mesuré en local : 231 Ko contre 4,3 Mo pour le paquet complet) ;
@@ -137,7 +137,7 @@ Ces actions de la zone de notification concernent le helper lui-même, pas le pr
 
 1. **version** : depuis le tag `helper-v<version>`, la saisie d'un lancement manuel, ou l'entrée `mirror`. Format vérifié (`X.Y.Z` ou `X.Y.Z-suffixe`), un suffixe fait une pré-version, publiée sur le canal `beta`. Un lancement manuel avec version ne publie que depuis `main` (stable) ou `main`/`develop` (pré-version). Même règle pour un tag poussé : un tag stable doit être sur un commit de `main`, un tag de pré-version sur `main` ou `develop`, sinon le run échoue avant de construire.
 2. **windows** (obligatoire) : tests du helper, build `--release`, téléchargement depuis le magasin du dernier paquet complet stable **plus ancien que la version construite** (`publish.mjs previous`, empreinte vérifiée contre le flux ; pour le différentiel, sauf pré-version et build d'essai ; un correctif plus ancien que la dernière version publiée part ainsi de la version qui le précède), `vpk pack --runtime win-x64`, artefact de cette version seule, téléchargeable quatorze jours. Un build d'essai lance la publication à blanc sur cet artefact.
-3. **unix** (macOS arm64 et Linux x64, facultatifs, `continue-on-error`) : build et empaquetage pour mémoire, **jamais publiés**, ni signés ni testés.
+3. **unix** (macOS arm64 et Linux x64, facultatifs, `continue-on-error`) : build et empaquetage pour mémoire, **jamais publiés**, ni signés ni testés. La jambe macOS (minutes coûteuses) ne tourne que pour une version de production (tag ou lancement manuel avec version) ; un build d'essai ne construit que Linux en plus de Windows.
 4. **release** (seulement avec une version) : refuse un helper non câblé, publie dans le magasin Blob (voir plus haut), puis crée la release dans `sprkl/faulk` (notes générées ; une release qui existe déjà voit ses fichiers remplacés). Blob d'abord : une publication refusée (paquets reconstruits) ne remplace pas non plus les fichiers de l'archive. Sans le secret `HELPER_RELEASES_READ_WRITE_TOKEN`, le job échoue. Un lancement en brouillon (`draft`) ne publie rien dans le magasin. Relancer **ce job seul** reprend les fichiers construits et termine une publication interrompue ; relancer tout le workflow reconstruit des paquets différents, que la publication refuse : il faut alors une nouvelle version.
 5. **mirror** (seulement avec `mirror`) : publie dans le magasin les fichiers d'une release existante de `sprkl/faulk`, sans construire. Sert à la 0.1.0, publiée avant Blob.
 

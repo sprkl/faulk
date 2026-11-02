@@ -39,7 +39,7 @@
     display: flex;
     align-items: stretch;
     gap: var(--fk-space-1);
-    height: 168px;
+    height: var(--fader-len, 168px);
   }
   .marks {
     position: relative;

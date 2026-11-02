@@ -167,6 +167,38 @@ impl ArrangementPlayer {
         self.active.is_some_and(|a| a.clip == slot)
     }
 
+    /// The cursor, after a swap that kept the held notes ([`ClipPlayer::carrier`]).
+    pub(crate) fn cursor_mut(&mut self) -> &mut Cursor {
+        &mut self.cursor
+    }
+
+    /// Makes the arrangement hold `clip` with the notes `cursor` holds, as if it had
+    /// delivered them: the state [`crate::clip_player::Swap::shared`] names, which the
+    /// player's own flow does not produce (the arrangement is released before the grid
+    /// starts the clip), so a test builds it (#443).
+    #[cfg(feature = "testing")]
+    pub(crate) fn mirror_for_tests(
+        &mut self,
+        clip: ClipSlot,
+        cursor: &Cursor,
+        alias: Option<(u32, u32)>,
+    ) {
+        self.active = Some(Active {
+            placement: PlacementSlot(0),
+            clip,
+        });
+        self.cursor = cursor.clone();
+        if let Some((note, voice)) = alias {
+            self.cursor.aliases_mut().clear();
+            self.cursor.aliases_mut().push(note, voice);
+        }
+    }
+
+    /// The cursor, to read the voices of its notes.
+    pub(crate) fn cursor(&self) -> &Cursor {
+        &self.cursor
+    }
+
     /// `apply` replaced (`removed == false`) or removed the clip in `slot`. When the
     /// player reads it, its cursor starts over (the next read is a jump into the new table)
     /// and, when removed, the placement stops. With `keep` the cursor goes on in the new

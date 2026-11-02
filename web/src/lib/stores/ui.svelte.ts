@@ -1,6 +1,7 @@
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
+import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
@@ -19,6 +20,9 @@ function write(key: string, value: string) {
   }
 }
 
+/** localStorage key of the main view shown last (the page's preference, not the project). */
+export const VIEW_KEY = 'faulk.view'
+
 /**
  * State of the page itself, not of the project or the engine: language and the views shown.
  * Switching views is not a command for now; whether the view shown becomes one is CT-4's call
@@ -35,11 +39,24 @@ export class UiStore {
    * The roll uses it when it belongs to the selected track and still exists, else its first clip.
    */
   editedClip = $state<string | null>(null)
+  /**
+   * Musical typing (#470): whether the bare letters of the computer keyboard play notes ('notes') or are left to
+   * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
+   */
+  typing = $state<'notes' | 'shortcuts'>('notes')
 
   /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
   panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))
   /** The bottom panel is folded to its tabs. */
   panelCollapsed = $state(read(COLLAPSED_KEY) === '1')
+  /** The bottom panel takes all the room it may (session state, not kept): one key toggles it. */
+  panelMaximized = $state(false)
+  /** The mixer folds the panel to its tabs; the user unfolded it for this visit (session state, cleared when the view changes). */
+  panelRevealed = $state(false)
+  /** Bumped when an action targets the panel: it takes the focus (`BottomPanel` reads it). */
+  panelFocus = $state(0)
+  /** The engine dialog (audio, helper, MIDI, keyboard) is open. Page state, not project state. */
+  engineOpen = $state(false)
 
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)
@@ -54,11 +71,59 @@ export class UiStore {
   }
 
   show(view: MainViewId) {
+    if (view !== this.view) this.panelRevealed = false
     this.view = view
+    write(VIEW_KEY, view)
   }
 
+  /**
+   * Whether the panel is shown as its tabs only: folded by the user, or by the mixer, which needs the whole height
+   * (the stored fold is not touched, so leaving the mixer brings the panel back as it was).
+   */
+  get panelFolded(): boolean {
+    return this.view === 'mixer' ? !this.panelRevealed || this.panelCollapsed : this.panelCollapsed
+  }
+
+  /** Folds or unfolds the panel (in the mixer: for this visit only, unless the user had folded it). */
+  toggleFold() {
+    if (this.panelFolded) this.unfoldPanel()
+    else if (this.view === 'mixer') this.panelRevealed = false
+    else this.setPanelCollapsed(true)
+  }
+
+  /** Unfolds the panel, whoever folded it. */
+  unfoldPanel() {
+    if (this.panelCollapsed) this.setPanelCollapsed(false)
+    this.panelRevealed = true
+  }
+
+  toggleMaximized() {
+    if (!this.panelMaximized) this.unfoldPanel()
+    this.panelMaximized = !this.panelMaximized
+  }
+
+  /**
+   * Each view's zoom and scroll, kept while another view is shown (a view is torn down when it is left).
+   * Not reactive and not stored: the session's memory, so the view reads it once when it opens.
+   */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive on purpose: read once when a view opens
+  private readonly memory = new Map<string, unknown>()
+
+  /** A view hands its zoom and scroll over when it closes. */
+  remember<T>(id: string, state: T) {
+    this.memory.set(id, state)
+  }
+
+  /** What the view left when it closed, or `undefined` on its first opening. */
+  recall<T>(id: string): T | undefined {
+    return this.memory.get(id) as T | undefined
+  }
+
+  /** Shows a panel view: unfolds the bottom panel and moves the focus into it. */
   showPanel(panel: PanelViewId) {
     this.panel = panel
+    this.unfoldPanel()
+    this.panelFocus++
   }
 
   /**
@@ -71,7 +136,7 @@ export class UiStore {
   /** Shows the devices panel on the master's chain (`master`, with the id of the selected track) or on the selected track's. */
   showDevices(master: boolean, selected?: string) {
     this.masterSelection = master ? (selected ?? '') : null
-    this.panel = 'devices'
+    this.showPanel('devices')
   }
 
   /**
@@ -86,6 +151,7 @@ export class UiStore {
   /** Navigates to the arrangement and requests, once, that the lanes of `owner` be unfolded. */
   showLanes(owner: string) {
     this.openLanes = owner
+    this.panelRevealed = false
     this.view = 'arrangement'
   }
 
@@ -101,7 +167,22 @@ export class UiStore {
     return owner
   }
 
+  /**
+   * The height the user gave each track's row in the arrangement (px, by track id), #471. View state of the session:
+   * neither in the project (an agent has no use for it, and saving it would be a project change) nor in `localStorage`
+   * (track ids belong to one project). Missing: the `lane` token's height.
+   */
+  laneHeights = $state<Readonly<Record<string, number>>>({})
+
+  setLaneHeight(track: string, height: number | null) {
+    const next = { ...this.laneHeights }
+    if (height === null) delete next[track]
+    else next[track] = clampClipRow(height)
+    this.laneHeights = next
+  }
+
   setPanelHeight(panel: PanelViewId, height: number) {
+    this.panelMaximized = false
     this.panelHeights = { ...this.panelHeights, [panel]: height }
     write(HEIGHTS_KEY, JSON.stringify(this.panelHeights))
   }

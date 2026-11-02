@@ -98,6 +98,11 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 /// that multiply their notes beyond it meet CT-5's overflow safety net.
 pub const TRACK_INPUT_EVENTS: usize = NOTE_ROOM;
 
+/// Sounding notes of an edited clip that a track ends by their own note-off at the next
+/// block ([`TrackGraph::end_note`], CL-3): more than this fall back on a release of every
+/// note of the track.
+pub const ORPHAN_ROOM: usize = 64;
+
 /// Frames a fade lasts at `sample_rate` (at least 1).
 pub fn fade_frames(sample_rate: f32) -> u32 {
     let frames = (FADE_SECONDS * f64::from(sample_rate)).round();
@@ -108,12 +113,18 @@ pub fn fade_frames(sample_rate: f32) -> u32 {
     }
 }
 
+/// The largest gain reduction a meter reports, in decibels (a bound for the page's scale).
+const MAX_REDUCTION_DB: f32 = 60.0;
+
 /// A meter accumulated between two reports (MO-5): the peak and the sum of squares of each
 /// channel. No allocation: four floats.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MeterAcc {
     peak: [f32; 2],
     squares: [f32; 2],
+    /// The largest gain reduction a device of the strip reported at the end of a block of the
+    /// period, in decibels (#469).
+    reduction: f32,
 }
 
 impl MeterAcc {
@@ -127,6 +138,14 @@ impl MeterAcc {
         if a.is_finite() && a > 1e-18 {
             self.peak[i] = self.peak[i].max(a);
             self.squares[i] += a * a;
+        }
+    }
+
+    /// Keeps the largest gain reduction of the period; a negative or non-finite one counts as none.
+    #[inline]
+    pub(crate) fn note_reduction(&mut self, db: f32) {
+        if db.is_finite() && db > self.reduction {
+            self.reduction = db.min(MAX_REDUCTION_DB);
         }
     }
 
@@ -148,6 +167,7 @@ impl MeterAcc {
             peak_r: self.peak[1],
             rms_l: (self.squares[0] / n).sqrt(),
             rms_r: (self.squares[1] / n).sqrt(),
+            gain_reduction_db: self.reduction,
         };
         *self = MeterAcc::default();
         m
@@ -164,6 +184,10 @@ pub struct TrackGraph {
     /// enabled or disabled): the next rendered block releases every note of the track
     /// first.
     release: bool,
+    /// Notes of an edited clip that no table can end any more, as `voice | key << 24`: the
+    /// next rendered block ends each with its own note-off, the live notes untouched.
+    orphans: [u32; ORPHAN_ROOM],
+    orphan_len: usize,
     /// The tick-dated events the graph plays on the track ([`crate::events`], MO-4). No
     /// message fills it (the automation is read from its lanes, [`crate::automation`]);
     /// tests set it off the audio path ([`TrackGraph::set_schedule`]). It is silent while the track's clip player runs: it
@@ -192,10 +216,13 @@ impl TrackGraph {
         TrackGraph {
             mixer: Mixer::new(),
             release: false,
+            orphans: [0; ORPHAN_ROOM],
+            orphan_len: 0,
             schedule: None,
             meter: MeterAcc {
                 peak: [0.0; 2],
                 squares: [0.0; 2],
+                reduction: 0.0,
             },
             lanes: NO_LANE,
             lane_count: 0,
@@ -235,8 +262,32 @@ impl TrackGraph {
 
     /// Releases every note of the track at the next rendered block: the notes a MIDI
     /// effect held under its own voice ids would never get their note-off otherwise.
+    ///
+    /// It cuts the notes played live too, so it is for the cases that must: a chain that
+    /// changed (the instrument that sounded is gone or replaced), the panic cut
+    /// (`reset_devices`), a schedule dropped with notes held, and the fallbacks of an edited
+    /// clip that have more notes to end than [`ORPHAN_ROOM`] (#443; a limit the memory
+    /// budget accepts). An edited clip's notes are otherwise ended one by one with
+    /// [`TrackGraph::end_note`], which leaves the live notes alone.
     pub(crate) fn release_notes(&mut self) {
         self.release = true;
+    }
+
+    /// Ends the note `(voice, key)` of an edited clip by its own note-off at the next
+    /// rendered block (CL-3). With no room left the track releases every note instead.
+    pub(crate) fn end_note(&mut self, voice: VoiceId, key: u8) {
+        match self.orphans.get_mut(self.orphan_len) {
+            Some(slot) => {
+                *slot = voice.get() | u32::from(key.min(127)) << 24;
+                self.orphan_len += 1;
+            }
+            None => self.release = true,
+        }
+    }
+
+    /// Notes that [`TrackGraph::end_note`] can still take before the next rendered block.
+    pub(crate) fn orphan_room(&self) -> usize {
+        ORPHAN_ROOM - self.orphan_len.min(ORPHAN_ROOM)
     }
 
     /// Whether a release waits for the next rendered block.
@@ -491,6 +542,11 @@ impl Graph {
                 right,
             );
             voices = voices.saturating_add(track_voices(track));
+            // After the whole block: the reduction the strip's compressors ended it with.
+            track
+                .graph
+                .meter
+                .note_reduction(chain_reduction(track.devices.as_slice()));
         }
         self.voices = voices;
 
@@ -527,6 +583,9 @@ impl Graph {
         self.retiring = kept;
 
         self.master_pass(state, clock, &ctx, left, right);
+        // The master pass has several paths (with or without lanes): the reduction is read once, after any of them.
+        self.master_meter
+            .note_reduction(chain_reduction(state.master_devices.as_slice()));
     }
 
     /// The master's strip over the sum (module doc), with the timed parameters of the
@@ -825,6 +884,16 @@ impl Graph {
     }
 }
 
+/// The largest gain reduction of the enabled devices of a chain, in decibels (0 for none; a
+/// disabled device is out of the chain and counts for nothing).
+fn chain_reduction(devices: &[Option<Box<DeviceEntry>>]) -> f32 {
+    devices
+        .iter()
+        .flatten()
+        .filter(|d| d.enabled)
+        .fold(0.0f32, |m, d| m.max(d.device.gain_reduction_db()))
+}
+
 /// Voices sounding in the enabled devices of `track`.
 fn track_voices(track: &Track) -> u32 {
     track
@@ -906,9 +975,23 @@ fn render_track(
     left.fill(0.0);
     right.fill(0.0);
     sink.clear();
+    let mut ended = core::mem::take(&mut track.graph.orphan_len);
     if core::mem::take(&mut track.graph.release) {
-        // Before the live notes: they reach the chain as it is now and play.
+        // Before the live notes: they reach the chain as it is now and play. It ends the
+        // notes of an edited clip too.
         sink.push_note(Event::AllNotesOff { offset: 0 });
+        ended = 0;
+    }
+    // The notes of an edited clip that nothing else ends, before the live notes (the sink
+    // keeps their room).
+    for &packed in track.graph.orphans.iter().take(ended) {
+        if let Some(voice) = VoiceId::new(packed & 0x00FF_FFFF) {
+            sink.push_note(Event::NoteOff {
+                offset: 0,
+                voice,
+                key: (packed >> 24) as u8,
+            });
+        }
     }
     let reads = input.is_some();
     let mut clips = None;

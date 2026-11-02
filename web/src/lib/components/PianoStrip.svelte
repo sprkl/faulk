@@ -39,6 +39,6 @@
     z-index: 1;
   }
   .on {
-    background: var(--fk-accent);
+    background: var(--fk-text);
   }
 </style>

@@ -7,7 +7,8 @@ import { watch } from './support'
 // view's data attributes (the project store's view).
 
 const RULER = 28
-const LANE = 64
+/** The height of a track's row: the `lane` token (#471). */
+const LANE = 44
 const BAR = 3840
 
 interface Block {
@@ -183,7 +184,7 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
   await page.getByTestId('panel-devices').click()
-  await page.mouse.dblclick(g.x(3 * BAR + 1000), g.y(0))
+  await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
 
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/arrangement-view.png` })
@@ -355,5 +356,112 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   const g = await spot(page)
   await page.mouse.click(g.x(0) + 200, g.ruler)
   await expect.poll(visible).toBe(true)
+  expect(seen.errors).toEqual([])
+})
+
+// #438: the track headers and the clip canvas are one vertical scroll. Rows that overflow a short window show a
+// vertical scrollbar, and every way to scroll (wheel on the canvas, wheel on the headers, the scrollbar, a focus
+// in the headers) moves both together: each header row stays level with its lane of the canvas.
+test('arrangement view: the headers and the canvas scroll together, with a vertical scrollbar', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1400, height: 560 })
+  await page.goto('/app')
+  await startAudio(page)
+  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  // Ten tracks at the lane height (#471) reach past the window by more than the scrolls below.
+  for (let i = 0; i < 10; i++) {
+    await page.getByTestId('add-track').click()
+    await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  }
+  await page.getByTestId('nav-arrangement').click()
+  await expect(arr(page)).toBeVisible()
+  await expect.poll(async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+
+  const heads = page.getByTestId('arr-heads')
+  const rows = heads.locator('.row')
+  const items = heads.locator('.slide > *')
+  const vbar = page.getByTestId('arr-vscrollbar')
+  await expect(vbar).toBeVisible()
+  const scrollY = async () => Number(await stage(page).getAttribute('data-scroll-y'))
+  const max = async () => Number(await vbar.getAttribute('aria-valuemax'))
+  expect(await max()).toBeGreaterThan(0)
+
+  /** Every header row sits where the canvas draws its lane (the rows start under the ruler and move by the scroll). */
+  async function aligned() {
+    const top = (await stage(page).boundingBox())!.y
+    const y = await scrollY()
+    expect(await heads.evaluate((e) => e.scrollTop)).toBe(0)
+    const count = await items.count()
+    expect(count).toBeGreaterThanOrEqual(7)
+    // Every row of the column, the master and its lanes included, follows the one before it from under the ruler.
+    let offset = 0
+    for (let i = 0; i < count; i++) {
+      const box = (await items.nth(i).boundingBox())!
+      expect(Math.abs(box.y - (top + RULER + offset - y))).toBeLessThanOrEqual(1)
+      // The six tracks are as tall as the canvas's lanes.
+      if (i < 6) expect(Math.abs(box.height - LANE)).toBeLessThanOrEqual(1)
+      offset += box.height
+    }
+    // The scrollbar says the same thing.
+    await expect.poll(() => vbar.evaluate((e) => e.scrollTop)).toBeCloseTo(y, 0)
+  }
+  await aligned()
+
+  // The wheel on the headers scrolls like the wheel on the canvas.
+  await heads.hover()
+  await page.mouse.wheel(0, 100)
+  await expect.poll(scrollY).toBe(100)
+  await aligned()
+  await stage(page).hover({ position: { x: 300, y: 150 } })
+  await page.mouse.wheel(0, 40)
+  await expect.poll(scrollY).toBe(140)
+  await aligned()
+
+  // The scrollbar drives both.
+  await vbar.evaluate((e) => (e.scrollTop = 30))
+  await expect.poll(scrollY).toBe(30)
+  await aligned()
+
+  // A scroll of the headers column alone (what a focus or scrollIntoView does) becomes the view's scroll.
+  await heads.evaluate((e) => (e.scrollTop = 20))
+  await expect.poll(scrollY).toBe(50)
+  await aligned()
+
+  // Focus on a header button out of the window brings the canvas with it.
+  await vbar.evaluate((e) => (e.scrollTop = 0))
+  await expect.poll(scrollY).toBe(0)
+  await rows.nth(6).getByRole('button').first().focus()
+  await expect.poll(scrollY).toBeGreaterThan(0)
+  await aligned()
+
+  // To the end: the last row (the master) is reachable and still level.
+  await heads.hover()
+  await page.mouse.wheel(0, 5000)
+  await expect.poll(scrollY).toBe(await max())
+  await aligned()
+
+  // Focus on a header above the window (Shift+Tab from the master) brings the canvas back up.
+  await heads.getByTestId('arr-master-row').getByRole('button').focus()
+  await expect.poll(scrollY).toBe(await max())
+  await rows.nth(0).getByRole('button').first().focus()
+  await expect.poll(scrollY).toBe(0)
+  await aligned()
+  await heads.getByTestId('arr-master-row').getByRole('button').focus()
+  await expect.poll(scrollY).toBe(await max())
+  await page.keyboard.press('Shift+Tab')
+  await aligned()
+
+  // The master's lanes unfolded in this short window: they are reachable and stay level with the canvas.
+  const toggle = heads.getByTestId('arr-master-row').getByTestId('arr-automation-toggle')
+  await toggle.click()
+  await heads.getByTestId('arr-add-lane').last().selectOption({ label: 'Volume' })
+  await expect(page.getByTestId('arr-lane')).toHaveCount(1)
+  await expect.poll(async () => (await max()) > 0).toBe(true)
+  await heads.hover()
+  await page.mouse.wheel(0, 5000)
+  await expect.poll(scrollY).toBe(await max())
+  await aligned()
+  await expect(page.getByTestId('arr-lane')).toBeInViewport()
   expect(seen.errors).toEqual([])
 })

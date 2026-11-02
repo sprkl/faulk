@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { STRICT_RUNS, STRICT_TIMING, fakeWebMidi, median, timingLimit, timingMode, watch, withStableClock } from './support'
+import { STRICT_RUNS, STRICT_TIMING, chooseMidiInput, fakeWebMidi, median, timingLimit, timingMode, watch, withStableClock } from './support'
 
 // MO-2 (#55): the shipped engine channel in a real AudioWorklet in Chromium. The shipped module
 // (src/lib/engine/wasm/engine.wasm, wasm32-wasip1-threads) runs as two instances on one shared
@@ -261,7 +261,7 @@ test.describe('MO-2: the engine channel in the browser', () => {
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
     await expect(page.getByTestId('engine-mode')).toContainText('Web')
     expect(warnings.filter((w) => w.includes('warm-up'))).toEqual([])
-    await page.getByRole('radio', { name: 'E2E Keys' }).check()
+    await chooseMidiInput(page, 'E2E Keys')
     const meter = page.getByRole('meter').first()
     const level = async () => Number(await meter.getAttribute('aria-valuenow'))
     await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 69, 127]))

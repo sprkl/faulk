@@ -155,6 +155,14 @@ fn no_arrangement_command_touches_a_lane() {
     // (#390, #394; the spec of AM-1 lists these names).
     let mut seen = std::collections::BTreeSet::new();
     for (command, from) in examples() {
+        // The time commands move automation points on purpose (documented exception, #390,
+        // #396); `tests/arrangement_time.rs` covers them.
+        if matches!(
+            command.name(),
+            "arrangement.insert_time" | "arrangement.delete_time" | "arrangement.restore_time"
+        ) {
+            continue;
+        }
         let from = with_lanes(&from);
         let before = all_lanes(&from);
         let mut state = from.clone();
@@ -1302,6 +1310,8 @@ fn a_project_edited_by_the_commands_survives_the_folder_format() {
         },
     );
     ok(&mut state, place(&f, &f.looped, 3000, 1000));
+    // Opening stores a colour on a track that has none (#479).
+    state.project.color_uncolored_tracks();
     let mut fs = MemFs::new();
     save(
         &mut fs,

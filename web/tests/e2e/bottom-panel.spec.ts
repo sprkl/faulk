@@ -144,7 +144,7 @@ test('a corrupt stored value is ignored (blocked storage: see panel-size.test.ts
   expect(errors).toEqual([])
 })
 
-test('at its smallest the piano roll still shows an octave, and the mixer scrolls instead of being cut', async ({ page }) => {
+test('at its smallest the piano roll still shows an octave, and the mixer folds the panel instead of being cut', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
@@ -162,32 +162,26 @@ test('at its smallest the piano roll still shows an octave, and the mixer scroll
   const RULER = 28
   expect(stageHeight - RULER).toBeGreaterThanOrEqual(12 * ROW)
 
-  // Largest panel over the mixer: the view scrolls and the whole strip can be reached.
+  // The mixer needs the whole height: the panel is folded to its tabs there (#472), so the strips are whole whatever the panel's size.
   await handle(page).focus()
   await page.keyboard.press('End')
   await page.getByTestId('nav-mixer').click()
   const view = page.getByTestId('view')
   await expect(page.getByTestId('mixer')).toBeVisible()
-  // The main area is squeezed to about 120 px: a strip of 400 px or more only fits by scrolling (the view's or the mixer's own).
-  expect((await view.boundingBox())!.height).toBeLessThan(200)
-  expect((await page.getByTestId('mixer-strip').first().boundingBox())!.height).toBeGreaterThan(200)
+  await expect(panel(page)).toHaveAttribute('data-collapsed', 'true')
   for (const id of ['mixer-strip', 'mixer-master']) {
-    const strip = page.getByTestId(id).first()
-    // Scroll every scrolling ancestor to its start, then to its end: the strip's top, then its bottom (faders, peaks), must come into view.
-    for (const end of [false, true]) {
-      await strip.evaluate((el, toEnd) => {
-        for (let node = el.parentElement; node; node = node.parentElement) node.scrollTop = toEnd ? node.scrollHeight : 0
-      }, end)
-      const v = (await view.boundingBox())!
-      const m = (await strip.boundingBox())!
-      if (end) expect(m.y + m.height, id).toBeLessThanOrEqual(v.y + v.height + 1)
-      else expect(m.y, id).toBeGreaterThanOrEqual(v.y - 1)
-    }
+    const v = (await view.boundingBox())!
+    const m = (await page.getByTestId(id).first().boundingBox())!
+    expect(m.y, id).toBeGreaterThanOrEqual(v.y - 1)
+    expect(m.y + m.height, id).toBeLessThanOrEqual(v.y + v.height + 1)
   }
+  // Leaving the mixer gives the panel back at the size it had.
+  await page.getByTestId('nav-arrangement').click()
+  await expect(panel(page)).toHaveAttribute('data-collapsed', 'false')
   expect(errors).toEqual([])
 })
 
-test('with the devices panel at its default height a mixer strip is whole at 770 px', async ({ page }) => {
+test('a mixer strip is whole at 770 px', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()

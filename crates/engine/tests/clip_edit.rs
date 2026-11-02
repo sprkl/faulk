@@ -1,9 +1,10 @@
 //! CL-3: a clip edited while it plays. Offline renders through the real `Preparer`,
 //! `Engine::apply` and `Engine::process`, every audio-side call under the allocation
 //! detector, with a probe instrument that logs each event with its absolute frame.
-//! A held note that an edit leaves unchanged (same start, length, pitch, same index in the
-//! table, so the same voice id) goes on sounding and is ended by its own note-off; any
-//! other held note is released by the track. No stuck note, no voice started twice.
+//! A held note that an edit leaves unchanged (same start, length, pitch, wherever it sits
+//! in the table) goes on sounding under the same voice id and is ended by its own
+//! note-off; any other held note is ended by the track with a note-off of its own, the
+//! notes played live untouched. No stuck note, no voice started twice.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -344,15 +345,41 @@ fn an_edit_after_the_sounding_note_does_not_cut_it() {
 }
 
 #[test]
-fn an_edit_that_changes_the_sounding_note_releases_it_once() {
+fn an_edit_that_changes_the_sounding_note_ends_it_once_and_spares_the_live_notes() {
     for first in [note(0, 300, 48), note(100, 3000, 48), note(0, 3000, 50)] {
         let mut r = Rig::new(48_000, 1, Quantize::None);
         playing(&mut r, pad_clip(vec![note(3300, 100, 60)]));
         r.run(500 * F, 128);
+        r.send(&[M::NoteOn {
+            track: TrackSlot(0),
+            pitch: 72,
+            velocity: 100,
+        }]);
+        r.run(128, 128);
         r.send(&[with_first(pad_clip(vec![note(3300, 100, 60)]), first)]);
         let at = r.frames;
         r.run_to(3700 * F, 128);
-        assert!(all_notes_offs().contains(&at), "released: {:?}", events(0));
+        assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+        assert!(
+            events(0).contains(&(at, false, 129, 48, 0)),
+            "the pad is ended by its own note-off: {:?}",
+            events(0)
+        );
+        // The live note (voice key + 1) sounded and was never ended.
+        assert!(
+            events(0).iter().any(|e| e.1 && e.2 == 73 && e.3 == 72),
+            "{:?}",
+            events(0)
+        );
+        assert!(
+            events(0).iter().all(|e| e.2 != 73 || e.1),
+            "{:?}",
+            events(0)
+        );
+        r.send(&[M::AllNotesOff {
+            track: TrackSlot(0),
+        }]);
+        r.run(128, 128);
         assert_nothing_held(0);
     }
     // Removed altogether.
@@ -360,39 +387,290 @@ fn an_edit_that_changes_the_sounding_note_releases_it_once() {
     playing(&mut r, pad_clip(vec![]));
     r.run(500 * F, 128);
     r.send(&[upload(0, 3840, Some((0, 3840)), vec![note(3300, 100, 60)])]);
+    let at = r.frames;
     r.run_to(3700 * F, 128);
-    assert_eq!(all_notes_offs().len(), 1);
+    assert!(all_notes_offs().is_empty());
+    assert!(events(0).contains(&(at, false, 129, 48, 0)));
     assert_nothing_held(0);
 }
 
 #[test]
-fn a_note_added_before_the_sounding_one_shifts_its_voice_and_is_released_not_stuck() {
-    // The table is ranked by start: a note added before the pad changes the pad's index, so
-    // the edit is not an unchanged one (known limit, module doc of `clip_player`).
+fn a_note_added_before_the_sounding_one_does_not_cut_it() {
     let mut r = Rig::new(48_000, 1, Quantize::None);
     playing(
         &mut r,
         upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 48)]),
     );
     r.run(500 * F, 128);
-    // The new note ends before the playhead and ranks after the pad: same index.
+    // The pad moves to index 1, then 2.
     r.send(&[upload(
         0,
         3840,
         Some((0, 3840)),
-        vec![note(0, 3000, 48), note(100, 50, 50)],
+        vec![note(0, 100, 40), note(0, 3000, 48)],
     )]);
     r.run(100 * F, 128);
-    assert!(all_notes_offs().is_empty(), "same index: not cut");
-    // Now the pad moves to index 1.
     r.send(&[upload(
         0,
         3840,
         Some((0, 3840)),
-        vec![note(0, 100, 50), note(0, 3000, 48)],
+        vec![note(0, 100, 40), note(0, 100, 41), note(0, 3000, 48)],
     )]);
     r.run_to(3700 * F, 128);
-    assert_eq!(all_notes_offs().len(), 1);
+    assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+    assert_eq!(ons(0).iter().filter(|e| e.1 == 48).count(), 1);
+    assert_eq!(offs(0).iter().find(|e| e.1 == 48), Some(&(3000 * F, 48)));
+    // The next pass: every note starts once, no voice twice (`held` checks it).
+    r.run_to(3840 * 2 * F, 128);
+    assert!(ons(0).iter().filter(|e| e.1 == 48).count() >= 2);
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn a_note_removed_before_the_sounding_one_does_not_cut_it() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(
+            0,
+            3840,
+            Some((0, 3840)),
+            vec![note(0, 100, 40), note(0, 3000, 48)],
+        ),
+    );
+    r.run(500 * F, 128);
+    r.send(&[upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 48)])]);
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+    assert_eq!(offs(0).iter().find(|e| e.1 == 48), Some(&(3000 * F, 48)));
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn two_sounding_notes_that_swap_places_keep_their_voices() {
+    // The voice of each is the own voice of the other in the new table.
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(
+            0,
+            3840,
+            Some((0, 3840)),
+            vec![note(0, 3000, 48), note(0, 2000, 50)],
+        ),
+    );
+    r.run(500 * F, 128);
+    r.send(&[upload(
+        0,
+        3840,
+        Some((0, 3840)),
+        vec![note(0, 2000, 50), note(0, 3000, 48)],
+    )]);
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+    let voice_of = |key: u8| {
+        events(0)
+            .into_iter()
+            .find(|e| e.1 && e.3 == key)
+            .map(|e| e.2)
+    };
+    let end_of = |key: u8| {
+        events(0)
+            .into_iter()
+            .find(|e| !e.1 && e.3 == key)
+            .map(|e| (e.0, e.2))
+    };
+    assert_eq!(end_of(48), Some((3000 * F, voice_of(48).unwrap())));
+    assert_eq!(end_of(50), Some((2000 * F, voice_of(50).unwrap())));
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn a_displaced_note_starts_on_a_spare_voice_while_the_kept_one_sounds() {
+    // The pad (voice 129) moves to index 1; the note now at index 0 would have voice 129
+    // and starts at tick 100 while the pad sounds.
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 48)]),
+    );
+    r.run(50 * F, 128);
+    r.send(&[upload(
+        0,
+        3840,
+        Some((0, 3840)),
+        vec![note(100, 500, 40), note(0, 3000, 48)],
+    )]);
+    r.run_to(300 * F, 128);
+    // `held` panics on a voice started twice.
+    let h = held(0);
+    assert_eq!(h.len(), 2, "{h:?}");
+    let displaced = events(0).into_iter().find(|e| e.1 && e.3 == 40).unwrap();
+    assert!(displaced.2 >= 131, "a spare voice: {displaced:?}");
+    assert!(all_notes_offs().is_empty());
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn many_chained_edits_keep_unique_voices() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    let mut rng = Lcg(5);
+    let pads: Vec<Note> = (0..6).map(|i| note(0, 3000, 40 + i)).collect();
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), pads.clone()));
+    for _ in 0..300 {
+        // The pads stay, in another place each time, among short notes.
+        let mut notes = pads.clone();
+        for _ in 0..rng.next(8) {
+            let at = rng.next(notes.len() as u64 + 1) as usize;
+            notes.insert(
+                at,
+                note(
+                    rng.next(2500) as i64,
+                    1 + rng.next(400) as i64,
+                    60 + rng.next(20) as u8,
+                ),
+            );
+        }
+        r.send(&[upload(0, 3840, Some((0, 3840)), notes)]);
+        r.run(rng.next(300) + 1, 64);
+        let _ = held(0);
+    }
+    r.run(3840 * F, 256);
+    let cuts = all_notes_offs();
+    assert!(cuts.is_empty(), "{cuts:?}");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn up_to_the_carry_limit_of_moved_notes_are_kept() {
+    let crowd: Vec<Note> = (0..48).map(|i| note(0, 3000, i as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    r.run(500 * F, 128);
+    let mut edited = vec![note(0, 100, 100)];
+    edited.extend(crowd);
+    r.send(&[upload(0, 3840, Some((0, 3840)), edited)]);
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+    assert_eq!(ons(0).len(), 48, "none started twice");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn thousands_of_unchanged_notes_are_kept() {
+    let crowd: Vec<Note> = (0..4000).map(|i| note(0, 3000, (i % 128) as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    r.run(500 * F, 128);
+    let mut edited = crowd;
+    edited.push(note(3300, 100, 60));
+    r.send(&[upload(0, 3840, Some((0, 3840)), edited)]);
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", events(0));
+    assert_eq!(ons(0).iter().filter(|e| e.0 < 3000 * F).count(), 4000);
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn more_changed_notes_than_the_track_can_end_are_released_by_the_track_once() {
+    let crowd: Vec<Note> = (0..200).map(|i| note(0, 3000, i as u8 % 128)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd));
+    r.run(500 * F, 128);
+    let changed: Vec<Note> = (0..200).map(|i| note(0, 2000, i as u8 % 128)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "released at the swap");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn more_sounding_notes_than_apply_looks_at_are_released_by_the_track() {
+    // Above `MAX_HELD_NOTES`: nothing is carried, even unchanged.
+    let crowd: Vec<Note> = (0..4200).map(|i| note(0, 3000, (i % 128) as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    r.run(500 * F, 128);
+    r.send(&[upload(0, 3840, Some((0, 3840)), crowd)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "released at the swap");
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn two_edits_in_one_batch_share_the_room_of_the_track() {
+    // 100 pads; the first edit shortens 40 of them (40 notes to end, the track takes 64),
+    // the second 40 others (40 more: the room left is too small). The second releases the
+    // track; nothing stays held, the first edit's note-offs are covered by the release.
+    let pads = |short: std::ops::Range<usize>| -> Vec<Note> {
+        (0..100)
+            .map(|i| {
+                note(
+                    0,
+                    if short.contains(&i) { 2000 } else { 3000 },
+                    20 + i as u8,
+                )
+            })
+            .collect()
+    };
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), pads(0..0)));
+    r.run(500 * F, 128);
+    r.send(&[
+        upload(0, 3840, Some((0, 3840)), pads(0..40)),
+        upload(0, 3840, Some((0, 3840)), pads(0..80)),
+    ]);
+    r.run_to(3700 * F, 128);
+    assert_eq!(all_notes_offs().len(), 1, "{:?}", all_notes_offs());
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn removing_a_clip_whose_notes_moved_ends_each_under_its_own_voice() {
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(
+        &mut r,
+        upload(0, 3840, Some((0, 3840)), vec![note(0, 3000, 48)]),
+    );
+    r.run(500 * F, 128);
+    // The pad moves to index 1 (voice 129 kept through an alias).
+    r.send(&[upload(
+        0,
+        3840,
+        Some((0, 3840)),
+        vec![note(0, 100, 40), note(0, 3000, 48)],
+    )]);
+    r.run(100 * F, 128);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(
+        events(0).contains(&(at, false, 129, 48, 0)),
+        "{:?}",
+        events(0)
+    );
+    assert!(all_notes_offs().is_empty());
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn removing_a_clip_with_more_sounding_notes_than_the_track_can_end_releases_the_track() {
+    let crowd: Vec<Note> = (0..100).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = Rig::new(48_000, 1, Quantize::None);
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd));
+    r.run(500 * F, 128);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().contains(&at), "{:?}", all_notes_offs());
+    assert_nothing_held(0);
+}
+
+fn assert_nothing_held_after_stop(r: &mut Rig) {
+    r.send(&[M::Stop]);
+    r.run(512, 128);
     assert_nothing_held(0);
 }
 
@@ -554,17 +832,133 @@ fn a_thousand_random_edits_leave_no_stuck_note_and_no_double_start() {
     }
 }
 
-#[test]
-fn more_held_notes_than_the_carry_limit_are_released_by_the_track() {
+// ------------------------------------------- a clip held by the grid and the arrangement
+
+/// The grid plays clip 0 and the arrangement holds its sounding notes too (`Swap::shared`,
+/// which the player's own flow never produces: a test builds it), a live note sounds on
+/// top; returns the rig.
+fn shared_clip(pads: Vec<Note>, alias: Option<(u32, u32)>) -> Rig {
     let mut r = Rig::new(48_000, 1, Quantize::None);
-    let crowd: Vec<Note> = (0..5000).map(|i| note(0, 3000, (i % 128) as u8)).collect();
-    playing(&mut r, upload(0, 3840, Some((0, 3840)), crowd.clone()));
+    playing(&mut r, upload(0, 3840, Some((0, 3840)), pads));
     r.run(500 * F, 128);
-    r.send(&[upload(0, 3840, Some((0, 3840)), crowd)]);
+    assert!(
+        r.e.state_mut()
+            .track_mut(TrackSlot(0))
+            .unwrap()
+            .player
+            .share_playing_clip_for_tests(alias),
+        "a clip plays"
+    );
+    r.send(&[M::NoteOn {
+        track: TrackSlot(0),
+        pitch: 72,
+        velocity: 100,
+    }]);
+    r.run(128, 128);
+    r
+}
+
+/// The live note (voice key + 1) sounded and was never ended.
+fn assert_live_note_spared() {
+    assert!(
+        events(0).iter().any(|e| e.1 && e.2 == 73 && e.3 == 72),
+        "{:?}",
+        events(0)
+    );
+    assert!(
+        events(0).iter().all(|e| e.2 != 73 || e.1),
+        "the live note is never ended: {:?}",
+        events(0)
+    );
+}
+
+#[test]
+fn an_edit_of_a_clip_held_by_the_grid_and_the_arrangement_ends_its_notes_and_spares_the_live_ones()
+{
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, None);
+    let changed: Vec<Note> = (0..30).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run_to(3700 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    // One note-off per pad, at the swap, under its own voice: not one per cursor.
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 30, "{ended:?}");
+    assert_live_note_spared();
+    r.send(&[M::AllNotesOff {
+        track: TrackSlot(0),
+    }]);
+    r.run(128, 128);
+    assert_nothing_held(0);
+}
+
+#[test]
+fn removing_a_clip_held_by_the_grid_and_the_arrangement_ends_its_notes_and_spares_the_live_ones() {
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, None);
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
     let at = r.frames;
     r.run(100 * F, 128);
-    assert!(all_notes_offs().contains(&at), "released at the swap");
-    r.send(&[M::Stop]);
-    r.run(512, 128);
-    assert_nothing_held(0);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .count();
+    assert_eq!(ended, 30);
+    assert_live_note_spared();
+}
+
+#[test]
+fn a_shared_clip_with_more_notes_than_the_track_can_end_is_released_by_the_track() {
+    // The accepted limit (64 notes to end at once): the track releases all, once.
+    let crowd: Vec<Note> = (0..100).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(crowd, None);
+    let changed: Vec<Note> = (0..100).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert_eq!(all_notes_offs(), vec![at]);
+    assert_nothing_held_after_stop(&mut r);
+}
+
+#[test]
+fn removing_a_shared_clip_whose_cursors_name_a_note_differently_ends_it_under_both_voices() {
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, Some((0, 500)));
+    r.send(&[M::ClipRemove { clip: ClipSlot(0) }]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 31, "{ended:?}");
+    assert!(ended.iter().any(|e| e.2 == 500 && e.3 == 20));
+    assert_live_note_spared();
+}
+
+#[test]
+fn a_shared_clip_whose_cursors_name_a_note_differently_ends_it_under_both_voices() {
+    // The arrangement's cursor carried note 0 under voice 500: the note is ended under its
+    // own voice (129, the grid's) and under 500; the others once; the live note is spared.
+    let pads: Vec<Note> = (0..30).map(|i| note(0, 3000, 20 + i as u8)).collect();
+    let mut r = shared_clip(pads, Some((0, 500)));
+    let changed: Vec<Note> = (0..30).map(|i| note(0, 2000, 20 + i as u8)).collect();
+    r.send(&[upload(0, 3840, Some((0, 3840)), changed)]);
+    let at = r.frames;
+    r.run(100 * F, 128);
+    assert!(all_notes_offs().is_empty(), "{:?}", all_notes_offs());
+    let ended: Vec<_> = events(0)
+        .into_iter()
+        .filter(|e| !e.1 && e.0 == at && e.3 != 255)
+        .collect();
+    assert_eq!(ended.len(), 31, "{ended:?}");
+    assert!(ended.iter().any(|e| e.2 == 129 && e.3 == 20));
+    assert!(ended.iter().any(|e| e.2 == 500 && e.3 == 20));
+    assert_live_note_spared();
 }

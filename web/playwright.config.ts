@@ -26,6 +26,13 @@ const previewPort = Number(process.env.FAULK_E2E_PREVIEW_PORT) || 4180
 const wanted = (process.env.FAULK_E2E_PROJECTS || 'dev,preview').split(',').map((s) => s.trim())
 for (const name of wanted) if (name !== 'dev' && name !== 'preview') throw new Error(`FAULK_E2E_PROJECTS: unknown project "${name}"`)
 
+/**
+ * The app opens on the arrangement (#475), or on the view used last. Most specs start on the launch grid, as a visitor
+ * who used it last would (the Instrument view they once started on is gone, #472): it draws no time grid and holds no
+ * mixer strip, so the testids of the roll and of the devices are unique there. `ux-quick-wins.spec.ts` starts fresh.
+ */
+const onGrid = (origin: string) => ({ cookies: [], origins: [{ origin, localStorage: [{ name: 'faulk.view', value: 'grid' }] }] })
+
 export default defineConfig({
   testDir: 'tests/e2e',
   workers: 1,
@@ -35,8 +42,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: { channel, locale: 'en-US', trace: 'retain-on-failure' },
   projects: [
-    { name: 'dev', use: { baseURL: `http://localhost:${devPort}` } },
-    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}` } },
+    { name: 'dev', use: { baseURL: `http://localhost:${devPort}`, storageState: onGrid(`http://localhost:${devPort}`) } },
+    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}`, storageState: onGrid(`http://localhost:${previewPort}`) } },
   ].filter((p) => wanted.includes(p.name)),
   webServer: [
     ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),

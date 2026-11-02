@@ -432,3 +432,29 @@ fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
         "the entry is back on the redo stack, the undo stack untouched"
     );
 }
+
+#[test]
+fn a_group_join_keeps_the_entry_id_and_time() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    run(&h(history::Command::BeginGroup {}), &mut s, &mut context()).unwrap();
+    let mut at_first = context();
+    at_first.now_ms = 1_000;
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut at_first).unwrap();
+    let (id, at) = {
+        let top = s.history.undo.last().unwrap();
+        (top.id, top.at)
+    };
+    assert_eq!(at, 1_000);
+    let mut later = context();
+    later.now_ms = 9_000;
+    run(&set(&f.device, "attack", 0.2), &mut s, &mut later).unwrap();
+    let top = s.history.undo.last().unwrap();
+    assert_eq!(top.commands.len(), 2, "the second edit joined the entry");
+    assert_eq!(
+        (top.id, top.at),
+        (id, at),
+        "a join changes neither id nor time"
+    );
+    assert_eq!(s.history.view().undo.last().unwrap().id, id);
+}

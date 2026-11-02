@@ -109,6 +109,7 @@ pub fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) ->
             TrackKind::Audio
         };
         let mut track = Track::new(kind, spec.name, key);
+        track.color = Some(Rgb::new(9, 9, 9));
         track.mixer = Mixer {
             gain_db: spec.gain.unwrap_or(f64::NEG_INFINITY),
             pan: spec.pan,

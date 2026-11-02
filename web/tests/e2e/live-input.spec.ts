@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // RE-1 (#85): the live MIDI input goes to the selected track and to the armed ones, and a note held
 // while the selection or the arming changes still ends. Real worklet, engine and project core; the
@@ -14,8 +14,8 @@ const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback
 const header = (page: Page, name: string) => page.getByTestId('track-header').filter({ has: page.getByRole('button', { name, exact: true }) })
 
 const TEXTS = {
-  en: { arm: (name: string) => `Arm ${name}`, drums: 'Track 2' },
-  fr: { arm: (name: string) => `Armer ${name}`, drums: 'Piste 2' },
+  en: { arm: (name: string) => `Live input on ${name}`, drums: 'Track 2' },
+  fr: { arm: (name: string) => `Entrée en direct sur ${name}`, drums: 'Piste 2' },
 } as const
 
 for (const lang of ['en', 'fr'] as const) {
@@ -27,7 +27,9 @@ for (const lang of ['en', 'fr'] as const) {
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
-    await page.getByRole('radio', { name: 'E2E Keys' }).check()
+    await chooseMidiInput(page, 'E2E Keys')
+    // The tracks are selected and armed on their rows in the arrangement (#471).
+    await page.getByTestId('nav-arrangement').click()
     await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
 
     // A second track, selected on creation: the first one is neither selected nor armed.

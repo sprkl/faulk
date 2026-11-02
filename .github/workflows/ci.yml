@@ -5,6 +5,10 @@ on:
     branches: [develop, main]
   pull_request:
 
+# Least privilege: a job that needs more says so itself.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +26,8 @@ jobs:
   select:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # A few seconds.
+    timeout-minutes: 5
     outputs:
       web: ${{ steps.changes.outputs.web }}
       e2e: ${{ steps.changes.outputs.e2e }}
@@ -52,6 +58,8 @@ jobs:
     needs: select
     if: needs.select.outputs.web == 'true'
     runs-on: ubuntu-latest
+    # Observed 4-5 min.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
@@ -85,6 +93,8 @@ jobs:
     needs: select
     if: needs.select.outputs.e2e != ''
     runs-on: ubuntu-latest
+    # Observed 10-13 min per shard on a task pull request; 45 leaves room for the release run (both projects).
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       # e2e_shards is empty when select is skipped (a push): the default keeps the matrix valid, the job's `if` skips it.
@@ -171,6 +181,8 @@ jobs:
     needs: [select, checks, e2e]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # A few seconds.
+    timeout-minutes: 5
     steps:
       - name: Verdict
         shell: bash

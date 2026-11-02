@@ -4,8 +4,16 @@ members = ["crates/engine", "crates/commands", "crates/engine-wasm", "crates/pro
 
 [workspace.package]
 edition = "2024"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
+
+# Dependencies (notably the `wasmi` interpreter of the native/WASM parity tests) are optimised in dev and
+# test builds (#447). `"*"` matches every package that is not a workspace member, so our own crates stay at
+# opt-level 0 with debug assertions and the allocation detector. Level 1, not 2: with 2, `wasmi` overflows
+# the native stack on Windows in `all_sound_off_parity` (STATUS_STACK_OVERFLOW, checked 2026-11-01); level 1
+# runs that test in 0.2 s against 4.7 s at level 0.
+[profile.dev.package."*"]
+opt-level = 1
 
 [profile.release]
 opt-level = 3

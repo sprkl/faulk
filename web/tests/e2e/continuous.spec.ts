@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // #300: the continuous controls in a real browser. One shared behaviour (`Slider`): the magnet on
 // the default value, the fine mode (Ctrl), the reset by double click, by the context menu and by
@@ -12,8 +12,8 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
-  await expect(page.getByTestId('track-header')).toHaveCount(1)
+  await chooseMidiInput(page, 'E2E Keys')
+  await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
 }
 
 const readout = (page: Page) => page.getByTestId('mixer-gain').first()
@@ -41,6 +41,8 @@ test('the mixer fader: the magnet holds 0 dB, Ctrl passes it, reset is one undo 
   const { errors } = watch(page)
   await start(page)
   await page.getByTestId('nav-mixer').click()
+  // The mixer's faders grow with the screen (#472); the pixel counts below are those of the 168 px fader this test was written for.
+  await page.addStyleTag({ content: '.mixer { --fader-len: 168px !important }' })
   const fader = page.getByTestId('mixer-strip').first().getByTestId('mixer-fader')
   await expect(fader).toHaveAttribute('role', 'slider')
   await expect(fader).toHaveAttribute('aria-valuetext', '0.0 dB')
@@ -126,7 +128,7 @@ test('the mixer fader: the magnet holds 0 dB, Ctrl passes it, reset is one undo 
 test('the track list: volume on the fader curve, reset by double click and menu, pan reset', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
-  const header = page.getByTestId('track-header').first()
+  const header = page.getByTestId('track-inspector')
   const volume = header.getByRole('slider', { name: /^Volume of/ })
   const pan = header.getByRole('slider', { name: /^Pan of/ })
   await expect(volume).toHaveAttribute('aria-valuetext', '0.0 dB')

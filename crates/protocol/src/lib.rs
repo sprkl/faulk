@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 12;
+
+// Version 12 (#469): the feedback layout is version 4: each meter carries the largest gain reduction, in decibels, of the devices of its strip (the Compressor), 20 bytes instead of 16. A page and a helper of different versions refuse each other.
 
 // Version 10 (#378): the master has automation lanes. `automation.lane.create` and `automation.lane.restore` take `track` or `master: true` (exactly one), `automation.lane.delete` answers `track: null` for a master lane, the events `automation_lane_created`, `automation_lane_deleted` and `automation_points_changed` carry `track: null` for the master, and the project holds `master_automation`. The engine addresses the master's lanes with the track slot `u32::MAX` in `AutomationLaneUpload`. The project file format is unchanged (still 1): the master's lanes are files `master/automation/<lane>.tsv`.
 

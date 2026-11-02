@@ -48,33 +48,87 @@ describe('the shell', () => {
 
   it('shows the chosen panel view and marks only its tab as pressed', () => {
     for (const view of viewsIn('panel')) {
-      const stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL)
+      // The instrument view holds no pressed button of its own, so the tab is the only one.
+      const stores = createStores('arrangement', DEFAULT_PANEL)
       stores.ui.showPanel(view.id)
       const { body } = render(Shell, { props: { stores } })
       expect(body).toContain(`data-panel="${view.id}"`)
       expect(body).toMatch(new RegExp(`aria-pressed="true"[^>]*data-testid="panel-${view.id}"`))
-      expect(body.match(/aria-pressed="true"/g)).toHaveLength(1)
+      expect(body.match(/aria-pressed="true"[^>]*data-testid="panel-/g), view.id).toHaveLength(1)
     }
   })
 
-  it('shows a pairing result outside the instrument view only', () => {
-    const stores = createStores('grid', DEFAULT_PANEL)
-    stores.engine.pairingMessage = { key: 'helper.failed' }
-    expect(render(Shell, { props: { stores } }).body).toContain('data-testid="pairing-notice"')
-    stores.ui.show('play')
-    expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pairing-notice"')
+  it('shows a pairing result in every view', () => {
+    for (const view of viewsIn('main')) {
+      const stores = createStores(view.id, DEFAULT_PANEL)
+      stores.engine.pairingMessage = { key: 'helper.failed' }
+      expect(render(Shell, { props: { stores } }).body, view.id).toContain('data-testid="pairing-notice"')
+    }
   })
 
-  it('says a pairing link waits for the audio outside the instrument view only', () => {
+  it('says a pairing link waits for the audio, until the audio starts', () => {
     const stores = createStores('mixer', DEFAULT_PANEL)
     stores.engine.pendingPairCode = '12345678'
     expect(render(Shell, { props: { stores } }).body).toContain('data-testid="pair-pending-notice"')
-    stores.ui.show('play')
-    expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pair-pending-notice"')
-    stores.ui.show('mixer')
     stores.engine.started = true
     expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="pair-pending-notice"')
   })
+
+  it('has no Instrument view any more: the engine pill opens the dialog, and the keyboard is a panel tab', () => {
+    const { body } = render(Shell, { props: { stores: createStores('arrangement', DEFAULT_PANEL) } })
+    expect(body).not.toContain('data-testid="nav-play"')
+    expect(body).toContain('data-testid="panel-keyboard"')
+    expect(body).toContain('data-testid="engine-dialog"')
+  })
+
+  it('shows the engine pill as a button with the mode, the latency and the load when the engine reports it', () => {
+    const stores = createStores('arrangement', DEFAULT_PANEL)
+    stores.engine.started = true
+    let pill = render(Shell, { props: { stores } }).body
+    expect(pill).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*data-testid="engine-mode"/)
+    expect(pill).not.toContain('data-testid="engine-load"')
+    stores.engine.feedback = { cpuLoad: 0.42, tracks: [], seq: 1, transport: 'stopped', playheadTick: 0 } as never
+    pill = render(Shell, { props: { stores } }).body
+    expect(pill).toContain('data-testid="engine-load"')
+    expect(pill).toContain('CPU 42 %')
+  })
+
+  it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {
+    const stores = createStores('arrangement', DEFAULT_PANEL)
+    const ui = stores.ui
+    expect(ui.panelFolded).toBe(false)
+    ui.show('mixer')
+    expect(ui.panelFolded).toBe(true)
+    expect(ui.panelCollapsed).toBe(false)
+    ui.showPanel('devices') // an action that targets the panel unfolds it for the visit
+    expect(ui.panelFolded).toBe(false)
+    ui.toggleFold()
+    expect(ui.panelFolded).toBe(true)
+    ui.show('arrangement')
+    expect(ui.panelFolded).toBe(false)
+    ui.setPanelCollapsed(true)
+    ui.show('mixer')
+    ui.unfoldPanel() // the user had folded it: unfolding is theirs to ask for
+    expect(ui.panelFolded).toBe(false)
+    expect(ui.panelCollapsed).toBe(false)
+    ui.setPanelCollapsed(false)
+  })
+
+  it('maximises the panel, and a resize or a fold ends it', () => {
+    const ui = createStores('arrangement', DEFAULT_PANEL).ui
+    ui.toggleMaximized()
+    expect(ui.panelMaximized).toBe(true)
+    ui.toggleMaximized()
+    expect(ui.panelMaximized).toBe(false)
+    ui.toggleMaximized()
+    ui.setPanelHeight('devices', 200)
+    expect(ui.panelMaximized).toBe(false)
+    ui.toggleMaximized()
+    ui.toggleFold()
+    expect(ui.panelFolded).toBe(true)
+    ui.toggleFold()
+  })
+
   it('shows the validated message when the engine stopped taking changes, in both languages', () => {
     const stores = createStores(DEFAULT_VIEW, DEFAULT_PANEL)
     expect(render(Shell, { props: { stores } }).body).not.toContain('data-testid="stream-error"')

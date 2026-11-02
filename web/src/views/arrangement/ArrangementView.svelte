@@ -5,8 +5,18 @@
    * goes while the pointer moves. The selection, the snap, the zoom and the scroll are the page's view state,
    * not project data.
    */
-  import { untrack } from 'svelte'
-  import { createClipAt, deletePlacements, duplicatePlacements, movePlacements, resizePlacement, splitPlacement } from '../../lib/arrangement-commands'
+  import { onDestroy, tick, untrack } from 'svelte'
+  import {
+    barStart,
+    createClipAt,
+    deletePlacements,
+    deleteTime,
+    duplicatePlacements,
+    insertTime,
+    movePlacements,
+    resizePlacement,
+    splitPlacement,
+  } from '../../lib/arrangement-commands'
   import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
@@ -30,18 +40,22 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
-  import { NO_COLOR, isMidi, trackLabel } from '../../lib/project/tracks'
+  import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
-  import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
+  import { MASTER_METER } from '../../lib/stores'
+  import { beginGroup, endGroup, moveTrack, selectTrack } from '../../lib/track-commands'
+  import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
   import { barTicks } from '../transport/time'
+  import { rovingKey, step as stepItem, zoomKey, type Direction } from '../../lib/roving'
   import {
     blocksOf,
     clampScrollY,
+    maxScrollY,
     copyShift,
     hitBlock,
     isFree,
@@ -50,6 +64,9 @@
     moved,
     resizeTo,
     resized,
+    laneHeight,
+    laneTop,
+    BLOCK_INSET,
     rowAt,
     splittable,
     type Block,
@@ -69,10 +86,11 @@
     yOfPos,
     type Delta,
   } from './automation/gestures'
-  import { layoutOf, rowsBetween, type Row } from './automation/layout'
+  import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
+  import LaneHeader from './LaneHeader.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher, meters } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -93,7 +111,7 @@
         startY: number
       }
     | { kind: 'resize'; grabbed: Block; edge: 'start' | 'end'; to: number | null; moved: boolean; startX: number }
-    | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number }
+    | { kind: 'ruler'; from: number; to: number; moved: boolean; startX: number; select: boolean }
     | {
         // A point of a lane (and the points selected with it) being dragged.
         kind: 'point'
@@ -138,6 +156,8 @@
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
+  /** The tracks that make no sound: muted, or silenced by another track's solo. */
+  const silent = $derived(new Set(entries.filter((e) => e.track.mixer.mute || project.silencedBySolo(e.id)).map((e) => e.id)))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   /** The tick of the last point of any lane: a lane may reach further than the clips (an agent, a fade-out), and must stay in reach. */
@@ -155,8 +175,11 @@
 
   // View state.
   let snap = $state<SnapSetting>('auto')
-  let view = $state<View>({ pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(0)
+  // Zoom and scroll come back as the view was left (it is torn down when another view is shown).
+  const left = ui.recall<{ view: View; scrollY: number }>('arrangement')
+  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(left?.scrollY ?? 0)
+  onDestroy(() => ui.remember('arrangement', { view, scrollY }))
   let stageW = $state(0)
   let stageH = $state(0)
   let picked = $state.raw<ReadonlySet<string>>(new Set())
@@ -188,14 +211,56 @@
   })
   /** The lanes each unfolded track (and the master) shows. */
   const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
-  const layout = $derived(layoutOf(allEntries, open, (id) => (shownLanes.get(id) ?? []).map((l) => l.id)))
+  /** The master row's height: the `row` token (28 px), the lowest a track's row goes. */
+  const MASTER_ROW = CLIP_ROW_MIN
+  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own (#471).
+  let laneBase = $state(CLIP_ROW)
+  const layout = $derived(
+    layoutOf(
+      allEntries,
+      open,
+      (id) => (shownLanes.get(id) ?? []).map((l) => l.id),
+      // The master holds no clips: its row stays at the control line's height, so that 16 tracks and the master fit at 1080p.
+      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeights[id]),
+      laneBase,
+    ),
+  )
+  // Read again when the density changes (`data-density` on the page's root or body), so that the compact rows follow.
+  $effect(() => {
+    const read = () => (laneBase = clampClipRow(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fk-lane'))))
+    read()
+    const observer = new MutationObserver(read)
+    for (const node of [document.documentElement, document.body]) observer.observe(node, { attributes: true, attributeFilter: ['data-density'] })
+    return () => observer.disconnect()
+  })
+
+  // --- reordering by drag: a row's colour bar picks it up, dropping it on another row puts it at that row's place
+  // (one `track.move` on release; nothing is sent while the pointer moves). The inspector's Move up and Move down are the keyboard's way.
+  let dragId = $state<string | null>(null)
+  let overId = $state<string | null>(null)
+  const drag: DragHooks = {
+    start: (id) => (dragId = id),
+    over: (id) => {
+      if (dragId) overId = id
+    },
+    drop: (id) => {
+      const moving = dragId
+      dragId = overId = null
+      const to = entries.find((entry) => entry.id === id)
+      if (moving && to && moving !== id) run(moveTrack(moving, to.index))
+    },
+    end: () => (dragId = overId = null),
+  }
   /** A lane shown, by its id, with its track (or the master). */
   const laneRefs = $derived.by(() => {
     // A new map each time the lanes change: the derived value is what is reactive.
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const refs = new Map<string, { trackId: string; info: LaneInfo; color: string }>()
     for (const e of allEntries) {
-      const color = e.id === MASTER ? NO_COLOR : (('color' in e.track ? (e.track.color as string | null | undefined) : null) ?? NO_COLOR)
+      const color =
+        e.id === MASTER
+          ? MASTER_COLOR
+          : trackColor('color' in e.track ? (e.track.color as string | null | undefined) : null, 'index' in e ? (e.index as number) : 0)
       for (const info of shownLanes.get(e.id) ?? []) refs.set(info.id, { trackId: e.id, info, color })
     }
     return refs
@@ -256,9 +321,34 @@
   })
   const loopNow = $derived.by(() => {
     const g = gesture
-    if (g?.kind === 'ruler' && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+    if (g?.kind === 'ruler' && !g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
     return transport?.loop_region ?? null
   })
+  // The time selection (#396): Shift+drag on the ruler. Insert and Delete bars act on it.
+  let timeSel = $state.raw<{ start: number; end: number } | null>(null)
+  let barCount = $state(4)
+  // A project opened or started replaces the one the range was chosen on: drop it (#445). Undo and redo keep it shown (#435).
+  $effect(() => {
+    void project.openedRev
+    timeSel = null
+  })
+  const timeNow = $derived.by(() => {
+    const g = gesture
+    if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+    return timeSel
+  })
+  const barsToInsert = $derived(Math.max(1, Math.min(9999, Math.floor(Number(barCount)) || 1)))
+  function insertBars() {
+    const at = timeSel ? timeSel.start : barStart(position ?? 0, bar)
+    timeSel = null
+    run(insertTime(at, barsToInsert * bar))
+  }
+  function deleteSelectedTime() {
+    const sel = timeSel
+    if (!sel) return
+    timeSel = null
+    run(deleteTime(sel.start, sel.end))
+  }
   const loopOn = $derived(transport?.loop_enabled ?? false)
 
   // --- the play position ---------------------------------------------------------------------------
@@ -351,6 +441,8 @@
   /** A scroll by the wheel or the keys, in the grid, is a hand scroll. */
   function handScroll(event: WheelEvent | KeyboardEvent) {
     if ('key' in event) {
+      // The arrows on a clip's cell move between clips: the view moves only when the clip is out of sight (`focusItem`).
+      if ((event.target as Element | null)?.closest?.('[data-block]')) return
       if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) follow = false
       return
     }
@@ -375,7 +467,9 @@
       ghosts,
       loop: loopNow,
       loopOn,
+      timeSel: timeNow,
       fallbackName: t('arrangement.clipDefault'),
+      silent,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -408,7 +502,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, selectedIds, ghosts, hidden, loopNow, loopOn, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
+    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
     grid?.invalidate()
   })
 
@@ -449,7 +543,7 @@
     stage.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
       const tick = snapTick(xToTick(x, shown), stepOf(event))
-      gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x }
+      gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x, select: event.shiftKey }
       return
     }
     const where = rowAt(layout, y, y0)
@@ -474,6 +568,8 @@
       // A shift-click on a selected clip takes it out of the selection and starts nothing.
       if (!on) return
     } else if (!picked.has(block.id)) picked = new Set([block.id])
+    // The piano roll follows the clip selected here (#470); a double click still brings the panel up.
+    ui.editedClip = block.clip
     if (zone === 'body') {
       const ids = blocks.filter((b) => picked.has(b.id)).map((b) => b.id)
       gesture = {
@@ -554,6 +650,11 @@
     gesture = null
     if (!g || !commit) return
     if (g.kind === 'ruler') {
+      if (g.select) {
+        if (g.moved && g.from !== g.to) timeSel = { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
+        else timeSel = null
+        return
+      }
       if (!g.moved || g.from === g.to) return run(seek(g.to))
       // A region needs the loop on to be heard: setting it and turning the loop on is one step to undo.
       const start = Math.min(g.from, g.to)
@@ -571,8 +672,11 @@
     }
     const ids = blocks.filter((b) => g.ids.includes(b.id)).map((b) => b.id)
     if (ids.length !== g.ids.length || g.delta === 0) return
-    if (g.kind === 'move') run(movePlacements(ids, g.delta))
-    else copyAndSelect(ids, g.linked, g.delta)
+    if (g.kind === 'move') {
+      run(movePlacements(ids, g.delta))
+      const moved = blocks.find((b) => b.id === g.grabbed.id)
+      if (moved) announce(t('arrangement.saidMoved', { n: ids.length, bar: barsOf(moved).from }))
+    } else copyAndSelect(ids, g.linked, g.delta)
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
@@ -581,6 +685,7 @@
     run(duplicatePlacements(ids, linked, by))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
+    if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
   }
 
   // --- the lanes' gestures ---------------------------------------------------------------------------
@@ -714,6 +819,7 @@
     if (!ref || !row.lane) return false
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
     if (!hit) return false
+    limitNote = null
     autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     editing = { lane: row.lane, tick: hit.tick, x: tickToX(hit.tick, shown), y: yOfPos(ref.info.axis.pos(hit.value), geoOf(row)) }
     return true
@@ -727,10 +833,23 @@
     if (!e || !ref || !point) return true
     const parsed = ref.info.axis.parse(text)
     if (parsed === null) return false
-    const value = ref.info.axis.clamp(parsed)
+    const value = ref.info.axis.clamp(parsed.value)
     if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))
+    // A text past the range is brought back to the bound, and the editor says so once the field has closed (#421, as #410 for the controls).
+    limitNote = null
+    if (parsed.limit !== undefined) sayLimited(ref.info.axis.format(ref.info.axis.clamp(parsed.limit)), e.x, e.y)
     return true
   }
+
+  /** The note an entry limited to the range leaves where the field was, for about two seconds. */
+  let limitNote = $state.raw<{ text: string; x: number; y: number } | null>(null)
+  let limitTimer: ReturnType<typeof setTimeout> | undefined
+  function sayLimited(value: string, x: number, y: number) {
+    limitNote = { text: t('controls.limited', { value }), x, y }
+    clearTimeout(limitTimer)
+    limitTimer = setTimeout(() => (limitNote = null), 2000)
+  }
+  onDestroy(() => clearTimeout(limitTimer))
 
   function duplicate(linked: boolean) {
     const by = copyShift(selection)
@@ -744,8 +863,10 @@
 
   function removeSelected() {
     if (selection.length === 0) return
+    const n = selection.length
     run(deletePlacements(selection.map((b) => b.id)))
     picked = new Set()
+    announce(t('arrangement.saidDeleted', { n }))
   }
 
   /** The tick of the play position, whole. */
@@ -755,6 +876,7 @@
   function splitSelected() {
     if (position === null || cuts.length === 0) return
     inGroup(cuts.map((b) => splitPlacement(b.id, position)))
+    announce(t('arrangement.saidSplit', { n: cuts.length }))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -850,23 +972,229 @@
     if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
   })
 
+  // --- the clips from the keyboard and for assistive technology (#471) ---------------------------------------------
+  // The canvas has no children: a layer of named cells lies over it, one per clip in sight (and the focused one), in a
+  // grid whose rows are the tracks. One cell is in the tab order (roving focus); the arrows move it (the selection
+  // follows), Shift+arrows extend the selection, Alt+Left and Alt+Right move the selected clips by the snap step, Enter
+  // opens the clip in the piano roll, Delete removes the selection. Every edit is a command; a polite live region says
+  // what it did.
+  let focusId = $state<string | null>(null)
+  let itemsEl: HTMLDivElement | undefined = $state()
+  /** What the live region says; a counter makes a repeated message a new one. */
+  let said = $state({ text: '', n: 0 })
+  function announce(text: string) {
+    // The same words twice are still a new message: an invisible space every other time changes the text.
+    said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
+  }
+
+  const items = $derived(blocks.map((b) => ({ id: b.id, row: b.row, start: b.start, end: b.end })))
+  /** The cell in the tab order: the focused clip when it still exists, else the first selected, else the first clip. */
+  const tabId = $derived((focusId && blocks.some((b) => b.id === focusId) ? focusId : null) ?? selection[0]?.id ?? blocks[0]?.id ?? null)
+  const barsOf = (b: Block) => ({ from: Math.floor(b.start / bar) + 1, to: Math.max(Math.floor(b.start / bar) + 1, Math.ceil(b.end / bar)) })
+  function clipText(b: Block): string {
+    const entry = entries[b.row]
+    const name = b.name || t('arrangement.clipDefault')
+    const where = barsOf(b)
+    const base = t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })
+    return selectedIds.has(b.id) ? `${base}, ${t('arrangement.clipSelected')}` : base
+  }
+  /** The cells drawn: the clips in sight, and the one in the tab order wherever it is (so that Tab still finds it). */
+  const shownItems = $derived.by(() => {
+    if (stageW === 0) return []
+    const [from, to] = visibleRange(shown, stageW)
+    return blocks
+      .filter((b) => b.id === tabId || (b.end >= from && b.start <= to))
+      .map((b) => {
+        const top = laneTop(layout, b.row, y0) + BLOCK_INSET
+        const height = Math.max(4, laneHeight(layout, b.row) - 2 * BLOCK_INSET)
+        const left = tickToX(b.start, shown)
+        return { block: b, left, top, width: Math.max(4, tickToX(b.end, shown) - left), height }
+      })
+  })
+
+  /** Brings a clip into the window (time and rows), then focuses its cell. */
+  async function focusItem(id: string) {
+    const b = blocks.find((x) => x.id === id)
+    if (!b) return
+    focusId = id
+    const [from, to] = visibleRange(shown, stageW)
+    if (b.start < from || b.start > to) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: b.start - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    const top = layout.trackTop[b.row] ?? 0
+    const height = laneHeight(layout, b.row)
+    const room = stageH - RULER_HEIGHT
+    if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
+    else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    await tick()
+    itemsEl?.querySelector<HTMLElement>(`[data-block="${id}"]`)?.focus()
+  }
+
+  /** The step of a keyboard move: the snap step, else a bar (the snap off moves by a bar, as a nudge). */
+  const nudge = $derived(step ?? bar)
+
+  function onItemKey(event: KeyboardEvent) {
+    const id = (event.target as HTMLElement).dataset.block
+    const current = id ? blocks.find((b) => b.id === id) : undefined
+    // Ctrl or Cmd with plus or minus zooms the timeline from a cell too (the page's zoom would take it otherwise).
+    const zoom = zoomKey(event)
+    if (zoom !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      zoomBy(zoom > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
+      if (current) void focusItem(current.id)
+      return
+    }
+    const key = rovingKey(event)
+    if (!current || !key) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (key.kind === 'open') {
+      ui.editedClip = current.clip
+      select(current.track)
+      ui.showPanel('piano-roll')
+      announce(t('arrangement.saidOpened', { name: current.name || t('arrangement.clipDefault') }))
+      return
+    }
+    if (key.kind === 'delete') {
+      const chosen = selection.length > 0 && selectedIds.has(current.id) ? selection : [current]
+      // The neighbour that stays: the clips deleted with this one are skipped.
+      const gone = new Set(chosen.map((b) => b.id))
+      const left = items.filter((i) => i.id === current.id || !gone.has(i.id))
+      const next = stepItem(left, current, 'right') ?? stepItem(left, current, 'left') ?? stepItem(left, current, 'down') ?? stepItem(left, current, 'up')
+      run(deletePlacements(chosen.map((b) => b.id)))
+      picked = new Set()
+      announce(t('arrangement.saidDeleted', { n: chosen.length }))
+      if (next && blocks.some((b) => b.id === next.id)) void focusItem(next.id)
+      return
+    }
+    if (key.kind === 'move') {
+      // No command moves a clip to another track: say so rather than nothing.
+      if (key.direction === 'up' || key.direction === 'down') return announce(t('arrangement.saidSameTrack'))
+      const chosen = selectedIds.has(current.id) ? selection : [current]
+      if (!selectedIds.has(current.id)) picked = new Set([current.id])
+      const sign = key.direction === 'left' ? -1 : 1
+      const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
+      if (delta === 0) return announce(t('arrangement.saidCannotMove'))
+      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      const ids = new Set(chosen.map((b) => b.id))
+      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
+      run(movePlacements([...ids], delta))
+      const after = blocks.filter((b) => !ids.has(b.id))
+      const carved = [...others].filter(([bid, span]) => {
+        const now = after.find((b) => b.id === bid)
+        return !now || `${now.start}:${now.end}` !== span
+      }).length
+      const moved = blocks.find((b) => b.id === current.id)
+      if (moved) {
+        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
+        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
+      }
+      void focusItem(current.id)
+      return
+    }
+    const target = stepItem(items, current, key.direction as Direction)
+    if (!target) return
+    const block = blocks.find((b) => b.id === target.id)!
+    if (key.kind === 'extend') picked = new Set([...picked, current.id, target.id])
+    else picked = new Set([target.id])
+    select(block.track)
+    ui.editedClip = block.clip
+    void focusItem(target.id)
+  }
+
+  function onItemsFocus(event: FocusEvent) {
+    const id = (event.target as HTMLElement).dataset.block
+    if (id) focusId = id
+  }
+
   // The window loses the pointer: nothing may stay half done.
   const silence = () => cancel()
 
-  // A plain vertical wheel scrolls the lanes; the grid keeps Shift and Ctrl for time and zoom.
+  // A plain vertical wheel scrolls the lanes, over the grid or over the track headers; the grid keeps Shift and Ctrl for time and zoom.
   $effect(() => {
-    const element = stage
-    if (!element) return
+    const elements = [stage, heads].filter((e): e is HTMLDivElement => !!e)
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey || event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
       event.preventDefault()
       const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stageH : 1
       scrollY = clampScrollY(y0 + event.deltaY * scale, layout.total, stageH)
     }
-    element.addEventListener('wheel', onWheel, { passive: false })
-    return () => element.removeEventListener('wheel', onWheel)
+    for (const element of elements) element.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      for (const element of elements) element.removeEventListener('wheel', onWheel)
+    }
   })
+
+  // The headers column never scrolls on its own: a focus or a `scrollIntoView` that moves it is turned into the view's one vertical scroll.
+  let heads: HTMLDivElement | undefined = $state()
+  function onHeadsScroll() {
+    const element = heads
+    if (!element || element.scrollTop === 0) return
+    scrollY = clampScrollY(y0 + element.scrollTop, layout.total, stageH)
+    element.scrollTop = 0
+  }
+
+  // A focus in the headers brings its row into view, up as well as down (the column cannot scroll up on its own: it is moved by an offset).
+  function onHeadsFocus(event: FocusEvent) {
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    // After the frame: the column's own scroll (a focus below the window) has been folded into `scrollY` by then.
+    requestAnimationFrame(() => {
+      const column = heads
+      if (!column || !target.isConnected) return
+      const row = target.closest('.row, .lane-head, .add-head') ?? target
+      const box = row.getBoundingClientRect()
+      const area = column.getBoundingClientRect()
+      const top = area.top + RULER_HEIGHT
+      // Whole pixels: the scrollbar beside the rows holds whole pixels, and the rows must stay level with it.
+      if (box.top < top) scrollY = clampScrollY(Math.floor(y0 - (top - box.top)), layout.total, stageH)
+      else if (box.bottom > area.bottom) scrollY = clampScrollY(Math.ceil(y0 + (box.bottom - area.bottom)), layout.total, stageH)
+    })
+  }
+
+  // The vertical scrollbar is a native one beside the grid; its content is the rows, so its range is the view's.
+  let vbar: HTMLDivElement | undefined = $state()
+  const overflowing = $derived(layout.total > stageH - RULER_HEIGHT)
+  $effect(() => {
+    const element = vbar
+    if (!element) return
+    // To the pixel: the rows are 44 px high (#471), so a focus can land a pixel off, which the bar must still show.
+    if (Math.abs(element.scrollTop - y0) >= 0.5) element.scrollTop = y0
+  })
+  function onVBarScroll() {
+    const element = vbar
+    if (!element) return
+    const expected = Math.min(y0, element.scrollHeight - element.clientHeight)
+    if (Math.abs(element.scrollTop - expected) <= SYNC_PX) return
+    scrollY = clampScrollY(element.scrollTop, layout.total, stageH)
+  }
 </script>
+
+{#snippet fold(id: string, lanes: number, label: string)}
+  <button
+    class="fold"
+    class:has={lanes > 0}
+    aria-expanded={open.has(id)}
+    aria-label={label}
+    title={lanes > 0 ? `${label} · ${t('automation.lanes', { n: lanes })}` : undefined}
+    data-testid="arr-automation-toggle"
+    onclick={() => toggleOpen(id)}
+  >
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+      ><path
+        d={open.has(id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      /></svg
+    >
+    {#if lanes > 0}<span class="n">{lanes}</span>{/if}
+  </button>
+{/snippet}
 
 <svelte:window
   onblur={silence}
@@ -893,7 +1221,7 @@
   <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
     <label class="field">
       <span>{t('pianoRoll.snap')}</span>
-      <select data-testid="arr-snap" bind:value={snap}>
+      <select aria-label={t('pianoRoll.snap')} data-testid="arr-snap" bind:value={snap}>
         {#each SNAP_SETTINGS as setting (setting)}
           <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
         {/each}
@@ -909,6 +1237,13 @@
     <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
       >{t('arrangement.delete')}</button
     >
+    <span class="time" role="group" aria-label={t('arrangement.timeTools')}>
+      <input type="number" min="1" max="9999" aria-label={t('arrangement.bars')} data-testid="arr-bars" bind:value={barCount} />
+      <button title={t('arrangement.insertBarsHint')} data-testid="arr-insert-bars" onclick={insertBars}>{t('arrangement.insertBars')}</button>
+      <button title={t('arrangement.deleteBarsHint')} disabled={!timeSel} data-testid="arr-delete-bars" onclick={deleteSelectedTime}
+        >{t('arrangement.deleteBars')}</button
+      >
+    </span>
     <span class="curves" role="group" aria-label={t('automation.curves')}>
       <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
         >{t('automation.linear')}</button
@@ -942,15 +1277,15 @@
     >
   </div>
 
-  <div class="board" style:--head="148px" style:--ruler="{RULER_HEIGHT}px">
+  <div class="board" class:scrolls={overflowing} style:--head="276px" style:--ruler="{RULER_HEIGHT}px">
     {#if entries.length === 0}
       <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
       <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
         {t('arrangement.empty')}
       </p>
     {/if}
-    <div class="heads" data-testid="arr-heads">
-      <div class="slide" style:transform="translateY({-y0}px)">
+    <div class="heads" bind:this={heads} onscroll={onHeadsScroll} onfocusin={onHeadsFocus} data-testid="arr-heads">
+      <div class="slide" style:top="{-y0}px">
         {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
           {#if row.kind === 'track'}
             {@const entry = allEntries[row.track]!}
@@ -963,51 +1298,34 @@
                   <span class="swatch" style:background="var(--fk-text-muted)"></span>
                   <span class="label">{t('mixer.master')}</span>
                 </div>
-                <button
-                  class="fold"
-                  class:has={lanes > 0}
-                  aria-expanded={open.has(MASTER)}
-                  aria-label={t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')}
-                  title={lanes > 0
-                    ? `${t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster')} · ${t('automation.lanes', { n: lanes })}`
-                    : undefined}
-                  data-testid="arr-automation-toggle"
-                  onclick={() => toggleOpen(MASTER)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                    ><path
-                      d={open.has(MASTER) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    /></svg
-                  >
-                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                </button>
+                <div class="lane-meter">
+                  <LevelMeter
+                    snap={meters.snap(MASTER_METER)}
+                    orientation="horizontal"
+                    label={t('meter.master')}
+                    clipLabel={t('meter.clip')}
+                    resetLabel={t('meter.reset', { name: t('mixer.master') })}
+                    onreset={() => meters.reset(MASTER_METER)}
+                    testid="arr-master-meter"
+                  />
+                </div>
+                {@render fold(MASTER, lanes, t(open.has(MASTER) ? 'automation.hideMaster' : 'automation.showMaster'))}
               </div>
             {:else}
               {@const trackEntry = entries[row.track]!}
-              <div
-                class="row"
-                title={detached.has(trackEntry.id) ? t('arrangement.offTimeline') : undefined}
-                style:height="{row.height}px"
-                class:off={detached.has(trackEntry.id)}
-                data-detached={detached.has(trackEntry.id) ? 'true' : undefined}
+              <LaneHeader
+                entry={trackEntry}
+                height={row.height}
+                base={laneBase}
+                selected={project.selected?.id === trackEntry.id}
+                soloed={project.soloed.includes(trackEntry.id)}
+                armed={project.armed.includes(trackEntry.id)}
+                implied={project.silencedBySolo(trackEntry.id)}
+                detached={detached.has(trackEntry.id)}
+                {drag}
+                dragging={dragId === trackEntry.id}
+                dropTarget={dragId !== null && overId === trackEntry.id && dragId !== trackEntry.id}
               >
-                <button
-                  class="head"
-                  class:on={project.selected?.id === trackEntry.id}
-                  style:--swatch={trackEntry.track.color ?? 'var(--fk-text-muted)'}
-                  aria-pressed={project.selected?.id === trackEntry.id}
-                  aria-label={t('arrangement.lane', { name: trackLabel(trackEntry, t) })}
-                  data-testid="arr-track"
-                  onclick={() => select(trackEntry.id)}
-                >
-                  <span class="swatch"></span>
-                  <span class="label">{trackLabel(trackEntry, t)}</span>
-                </button>
                 {#if detached.has(trackEntry.id)}
                   <button
                     class="back"
@@ -1019,30 +1337,8 @@
                     <span aria-hidden="true">↩</span>
                   </button>
                 {/if}
-                <button
-                  class="fold"
-                  class:has={lanes > 0}
-                  aria-expanded={open.has(trackEntry.id)}
-                  aria-label={t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })}
-                  title={lanes > 0
-                    ? `${t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) })} · ${t('automation.lanes', { n: lanes })}`
-                    : undefined}
-                  data-testid="arr-automation-toggle"
-                  onclick={() => toggleOpen(trackEntry.id)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-                    ><path
-                      d={open.has(trackEntry.id) ? 'M2 4 L 6 8 L 10 4' : 'M4 2 L 8 6 L 4 10'}
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    /></svg
-                  >
-                  {#if lanes > 0}<span class="n">{lanes}</span>{/if}
-                </button>
-              </div>
+                {@render fold(trackEntry.id, lanes, t(open.has(trackEntry.id) ? 'automation.hide' : 'automation.show', { name: trackLabel(trackEntry, t) }))}
+              </LaneHeader>
             {/if}
           {:else if row.kind === 'lane'}
             {@const ref = laneRefs.get(row.lane ?? '')}
@@ -1130,6 +1426,48 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      <!-- The clips as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through to the canvas. -->
+      <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
+      <!-- svelte-ignore a11y_interactive_supports_focus -->
+      <div
+        class="items"
+        bind:this={itemsEl}
+        role="grid"
+        aria-label={t('arrangement.clipsGrid')}
+        aria-rowcount={entries.length}
+        aria-multiselectable="true"
+        style:top="{RULER_HEIGHT}px"
+        data-testid="arr-items"
+        onkeydown={onItemKey}
+        onfocusin={onItemsFocus}
+      >
+        {#each entries as entry (entry.id)}
+          {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
+          {#if cells.length > 0}
+            <div role="row" aria-rowindex={entry.index + 1} aria-label={trackLabel(entry, t)}>
+              {#each cells as cell (cell.block.id)}
+                <div
+                  class="item"
+                  role="gridcell"
+                  tabindex={cell.block.id === tabId ? 0 : -1}
+                  aria-selected={selectedIds.has(cell.block.id)}
+                  aria-label={clipText(cell.block)}
+                  data-block={cell.block.id}
+                  data-testid="arr-item"
+                  style:left="{cell.left}px"
+                  style:top="{cell.top - RULER_HEIGHT}px"
+                  style:width="{cell.width}px"
+                  style:height="{cell.height}px"
+                ></div>
+              {/each}
+            </div>
+          {/if}
+        {/each}
+      </div>
+      <p class="sr-only" aria-live="polite" data-testid="arr-said" data-n={said.n}>{said.text}</p>
+      {#if limitNote}
+        <p class="limit-note" role="status" data-testid="value-note" style:left="{limitNote.x}px" style:top="{limitNote.y + 14}px">{limitNote.text}</p>
+      {/if}
       {#if editing}
         <div class="anchor" bind:this={editAnchor} style:left="{editing.x}px" style:top="{editing.y}px"></div>
         {#if editAnchor}
@@ -1151,6 +1489,24 @@
         {/if}
       {/if}
     </div>
+    {#if overflowing}
+      <div
+        class="vbar"
+        bind:this={vbar}
+        onscroll={onVBarScroll}
+        data-testid="arr-vscrollbar"
+        role="scrollbar"
+        aria-controls="arr-stage-grid"
+        aria-orientation="vertical"
+        aria-valuemin="0"
+        aria-valuemax={Math.round(maxScrollY(layout.total, stageH))}
+        aria-valuenow={Math.round(y0)}
+        tabindex="0"
+        aria-label={t('arrangement.scrollRows')}
+      >
+        <div style:height="{layout.total}px" style:width="1px"></div>
+      </div>
+    {/if}
     <div class="corner"></div>
     <div
       class="hbar"
@@ -1274,14 +1630,18 @@
     flex: 1;
     min-height: 0;
   }
+  .board.scrolls {
+    grid-template-columns: var(--head) minmax(0, 1fr) auto;
+  }
   .heads {
     overflow: hidden;
     padding-top: var(--ruler);
     border-right: 1px solid var(--fk-line);
     background: var(--fk-surface);
   }
+  /* Moved by its offset, not a transform: a transform would hold the rows' fixed layers (the volume field) inside the column. */
   .slide {
-    will-change: transform;
+    position: relative;
   }
   .row {
     display: flex;
@@ -1289,13 +1649,18 @@
     border-bottom: 1px solid var(--fk-line);
     box-sizing: border-box;
   }
-  /* A track the grid holds: the lane label is dimmed and a return button sits beside it (never the dimming alone). */
-  .row.off .head {
-    opacity: 0.6;
+  .lane-meter {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: 0 var(--fk-space-1);
+  }
+  .lane-meter :global(.meter) {
+    --len: 52px;
   }
   /* The master row: same layout as a track row but without a clickable button head, and with a distinct top border. */
   .master-row {
-    border-top: 1px solid var(--fk-accent-fg);
+    border-top: 1px solid var(--fk-text-muted);
   }
   .master-head {
     display: flex;
@@ -1313,9 +1678,9 @@
     align-self: center;
     margin-right: var(--fk-space-1);
     padding: 0 var(--fk-space-1);
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-accent-fg);
-    background: var(--fk-accent-tint);
+    border-color: var(--fk-text);
+    color: var(--fk-text);
+    background: var(--fk-surface-2);
   }
   .head {
     display: flex;
@@ -1329,9 +1694,6 @@
     border-radius: 0;
     background: transparent;
     text-align: left;
-  }
-  .head.on {
-    background: var(--fk-accent-tint);
   }
   .swatch {
     flex: none;
@@ -1371,6 +1733,35 @@
       scrollbar-color: var(--fk-text-muted) var(--fk-surface);
     }
   }
+  /* Beside the grid, under the ruler: always a visible bar, as the horizontal one. */
+  .vbar {
+    grid-column: 3;
+    grid-row: 1;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    width: 13px;
+    margin-top: var(--ruler);
+    /* Its content (all the rows) must not size the grid row: the bar takes the height of the stage. */
+    contain: size;
+    border-left: 1px solid var(--fk-line);
+  }
+  .vbar::-webkit-scrollbar {
+    width: 12px;
+  }
+  .vbar::-webkit-scrollbar-track {
+    background: var(--fk-surface);
+  }
+  .vbar::-webkit-scrollbar-thumb {
+    border: 2px solid var(--fk-surface);
+    border-radius: 6px;
+    background: var(--fk-text-muted);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .vbar {
+      scrollbar-width: auto;
+      scrollbar-color: var(--fk-text-muted) var(--fk-surface);
+    }
+  }
   .corner {
     border-right: 1px solid var(--fk-line);
     background: var(--fk-surface);
@@ -1379,16 +1770,37 @@
     display: inline-flex;
     gap: 2px;
   }
+  /* On: a fill in the text colour and a dot before the word, never a hue. */
   .follow[aria-pressed='true'] {
-    border-color: var(--fk-accent-fg);
-    color: var(--fk-accent-fg);
-    background: var(--fk-accent-tint);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
+    background: var(--fk-text);
+  }
+  .follow[aria-pressed='true']::before {
+    content: '● ';
   }
   .stage {
     position: relative;
     min-width: 0;
     min-height: 0;
     touch-action: none;
+  }
+  /* The clips' cells: invisible over the canvas, except the keyboard's focus, which draws its ring around the clip. */
+  .items {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .item {
+    position: absolute;
+    border-radius: var(--fk-radius-work);
+  }
+  .item:focus-visible {
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: 1px;
   }
   .stage[data-cursor='move'] {
     cursor: grab;
@@ -1399,9 +1811,27 @@
   .stage[data-cursor='add'] {
     cursor: crosshair;
   }
-  .curves {
+  .curves,
+  .time {
     display: inline-flex;
     gap: 2px;
+  }
+  .time input {
+    width: 4.5em;
+    font: inherit;
+  }
+  .limit-note {
+    position: absolute;
+    z-index: 20;
+    margin: 0;
+    padding: var(--fk-space-1) var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
+    box-shadow: var(--fk-shadow-float);
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .anchor {
     position: absolute;
@@ -1424,7 +1854,7 @@
   }
   .fold[aria-expanded='true'],
   .fold.has {
-    color: var(--fk-accent-fg);
+    color: var(--fk-text);
   }
   .fold .n {
     font-family: var(--fk-font-mono);

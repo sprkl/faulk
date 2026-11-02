@@ -80,17 +80,22 @@
 //! An edit is a whole new table (`ClipNotesUpload`), prepared off the audio path, swapped
 //! in by `apply` (`RtMsg::ClipPut`); the old table goes to the garbage ring. No allocation,
 //! no free. The cursor keeps its place in clip time. A note sounding at the swap is kept
-//! (no note-off, no second note-on) when the new table has, **at the same index** (so the
-//! same voice id), a note with the same start, length and pitch
-//! ([`held_notes_unchanged`]): the held bits move to the new table and its own note-off ends
-//! the note. Velocity and fine tuning only matter at the note-on. Otherwise (a sounding
-//! note changed, vanished or changed index, more than [`MAX_CARRIED_NOTES`] held, a read in
-//! progress cut by a full sink, or no longer a MIDI clip) the track releases everything at
-//! the first frame of the next block (`AllNotesOff`, the live notes of the track included)
-//! and the cursor starts over. The table is ranked by start, then pitch: a note added or
-//! removed before a sounding one moves its index, which is the second case. The added cost
-//! in `apply` is a scan of the held bits and a copy of them (20 µs and 6 µs at a million
-//! notes, `msg_cost`).
+//! (no note-off, no second note-on) when the new table has the same note, wherever it sits
+//! in the table: same start, length and pitch ([`ClipNotes::carry_held_from`]; velocity and
+//! fine tuning only matter at the note-on). The note keeps its voice id (the cursor names
+//! the note with it, an alias in [`Cursor::aliases`]; the id the table would give another
+//! note is moved to a spare one), so the device sees nothing, and the new table's own
+//! note-off ends it: a note added or removed before a sounding one does not cut it. A
+//! sounding note that was changed, moved or removed (an *orphan*) is ended by the track
+//! with its own note-off at the first frame of its next block, the notes played live
+//! untouched ([`crate::graph::TrackGraph`]). When a read in progress was cut by a full
+//! sink, or the cursor cannot go on, the cursor starts over and every sounding note is an
+//! orphan; so is a note that moved when [`MAX_CARRIED_NOTES`] others did (the aliases'
+//! room). Fallback on `AllNotesOff` (live notes included) when there are more orphans than
+//! [`crate::graph::ORPHAN_ROOM`] to end one by one (a clip held by both the grid and the
+//! arrangement has each note ended under the voice of each cursor, #443). Notes at the same index need no alias: any number of them go on. The
+//! search of the moved notes in the new table is a binary search each, bounded in all by
+//! [`MAX_SCANNED_ENTRIES`] entries looked at; see `msg_cost` for the cost.
 //!
 //! # The grid and the arrangement (AR-2)
 //!
@@ -113,7 +118,8 @@ use crate::arrangement::ArrangementPlayer;
 use crate::device::{VoiceId, clamp_tune_cents};
 use crate::engine::{Clip, ClipContent, LaunchRequest, Paged};
 use crate::events::{
-    Cursor, Events, Read, SCHEDULE_FIRST_VOICE, Sink, Timed, TimedKind, check_voices, try_boxed,
+    ALIAS_ROOM, Aliases, Cursor, Events, Read, SCHEDULE_FIRST_VOICE, Sink, Timed, TimedKind,
+    check_voices, try_boxed,
 };
 use crate::msg::{ClipSlot, MsgError, Note, Placement, SceneSlot, Slots, TrackSlot};
 use crate::time::{LoopRegion, Quantize, Tick, TimeSignature};
@@ -123,9 +129,20 @@ use crate::transport::Segment;
 /// ([`ClipPlayer::clip_changed`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Swap {
-    /// The held notes go on in the new table: the caller copies the held bits.
+    /// The held notes go on in the new table: the caller matches them
+    /// ([`ClipNotes::carry_held_from`]) and says how many, [`ClipPlayer::set_carried`].
     pub kept: bool,
-    /// Notes of the old table were held and their note-offs are gone: release the track.
+    /// Whether the grid's cursor (not the arrangement's) carries them.
+    pub grid: bool,
+    /// Both cursors hold notes of the clip (a handover in progress): they share the held
+    /// bits and nothing is carried; the voices of the notes are not known per note, so the
+    /// caller ends each held note under the voice of each cursor
+    /// ([`ClipPlayer::voices_of`], [`ClipPlayer::arrangement_voices_of`]; #443). The player's
+    /// own flow does not reach this state today (the arrangement is released before the grid
+    /// starts the clip): it is kept defensive and tested with a hook.
+    pub shared: bool,
+    /// Notes of the old table were held and their note-offs are gone: the caller gives them
+    /// to the track to end ([`ClipNotes::held_voices`]).
     pub release: bool,
 }
 
@@ -237,7 +254,7 @@ impl ClipNotes {
     /// it changes anything. [`MsgError::LimitExceeded`] when the notes would need a voice
     /// id beyond 24 bits (never under `MAX_NOTES_PER_CLIP`).
     pub fn try_with_capacity(notes: usize) -> Result<Self, MsgError> {
-        check_voices(SCHEDULE_FIRST_VOICE, notes)?;
+        check_voices(SCHEDULE_FIRST_VOICE, notes.saturating_add(SPARE_VOICES))?;
         let words = notes
             .checked_mul(NOTE_WORDS + 2)
             .and_then(|w| w.checked_add(1 + notes.div_ceil(32)))
@@ -300,7 +317,7 @@ impl ClipNotes {
     fn held_range(&self) -> core::ops::Range<usize> {
         let n = self.notes();
         let at = 1 + (NOTE_WORDS + 2) * n;
-        at..self.data.len().max(at)
+        at..at + n.div_ceil(32)
     }
 
     /// Notes in the clip.
@@ -329,43 +346,195 @@ impl ClipNotes {
     }
 }
 
-/// Held notes carried over a swap at most: beyond, the track releases them (bounds the
-/// comparison done in `apply`, about 2 ms for a million notes held at once otherwise).
-pub const MAX_CARRIED_NOTES: usize = 4096;
+/// Sounding notes an edit carries over a swap at most when their place in the table moved
+/// (CL-3): a note at the same index needs no alias and is not counted. Beyond, the track
+/// ends them itself.
+pub const MAX_CARRIED_NOTES: usize = ALIAS_ROOM / 2;
 
-/// Whether every note `old` has delivered and not ended is, in `new`, the same note at the
-/// same index (same voice id): same start, length and pitch (velocity and fine tuning only
-/// matter at the note-on). The notes of an edit that keeps them sound on across the swap.
-/// No allocation.
-pub fn held_notes_unchanged(old: &ClipNotes, new: &ClipNotes) -> bool {
-    let mut checked = 0usize;
-    old.held_bits().iter().enumerate().all(|(w, &word)| {
-        let mut rest = word;
-        while rest != 0 {
-            let i = w * 32 + rest.trailing_zeros() as usize;
-            rest &= rest - 1;
-            let same = match (old.note(i), new.note(i)) {
-                (Some(a), Some(b)) => {
-                    a.start() == b.start() && a.length() == b.length() && a.pitch() == b.pitch()
+/// Voice ids kept free after a table's own, for the notes whose id a kept voice holds
+/// ([`ClipNotes::carry_held_from`]).
+pub const SPARE_VOICES: usize = ALIAS_ROOM;
+
+/// Note-on entries a swap looks at, in all, to find its sounding notes in the new table:
+/// the notes of one tick are in index order, so a crowd on one tick would otherwise cost
+/// its size for each. Beyond, the notes still to find are orphans (ended, not carried).
+pub const MAX_SCANNED_ENTRIES: usize = 16_384;
+
+/// What one binary search for a moved note is charged against [`MAX_SCANNED_ENTRIES`]
+/// (about the steps of a search over a million notes, rounded up).
+const SEARCH_COST: usize = 32;
+
+/// Sounding notes of a clip an edit looks at in all (CL-3): with more held, nothing is
+/// carried and the track releases everything (bounds the walk of `apply` over the held
+/// bits, about 2 ms for a million notes held at once otherwise).
+pub const MAX_HELD_NOTES: usize = 4096;
+
+/// A sounding note whose note-off nobody can give any more (its note was edited, moved or
+/// removed): the voice id and key the track ends it with.
+pub type Orphan = (VoiceId, u8);
+
+impl ClipNotes {
+    /// Position, in the order, of the first note-on at tick `start` (or of the first entry
+    /// after the place it would have).
+    fn first_on_at(&self, start: Tick) -> usize {
+        let order = self.order();
+        let (mut lo, mut hi) = (0, order.len());
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let before = order.get(mid).is_some_and(|&o| {
+                let tick = self.tick(mid);
+                tick < start || (tick == start && o & 1 == 0)
+            });
+            if before {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+
+    /// A note not yet claimed with this start, length and pitch (velocity and fine tuning
+    /// only matter at the note-on), looking at `budget` entries at most.
+    fn find_unclaimed(
+        &self,
+        start: Tick,
+        length: Tick,
+        pitch: u8,
+        budget: &mut usize,
+    ) -> Option<usize> {
+        let order = self.order();
+        if *budget < SEARCH_COST {
+            return None;
+        }
+        *budget -= SEARCH_COST;
+        let mut k = self.first_on_at(start);
+        while let Some(&o) = order.get(k) {
+            if *budget == 0 {
+                return None;
+            }
+            *budget -= 1;
+            let index = (o >> 1) as usize;
+            let n = self.note(index)?;
+            if o & 1 == 0 || n.start() != start {
+                break;
+            }
+            if n.length() == length && n.pitch() == pitch && !self.is_held_note(index) {
+                return Some(index);
+            }
+            k += 1;
+        }
+        None
+    }
+
+    fn is_held_note(&self, index: usize) -> bool {
+        self.held_bits()
+            .get(index / 32)
+            .is_some_and(|w| w & (1 << (index % 32)) != 0)
+    }
+
+    /// Gives `out` the `(voice, key)` of every note delivered and not ended, `aliases` being
+    /// the voices of the cursor that delivered them; `out` returns `false` to stop, and so
+    /// does this.
+    pub fn held_voices(&self, aliases: &Aliases, mut out: impl FnMut(Orphan) -> bool) -> bool {
+        for (w, &word) in self.held_bits().iter().enumerate() {
+            let mut rest = word;
+            while rest != 0 {
+                let i = w * 32 + rest.trailing_zeros() as usize;
+                rest &= rest - 1;
+                if let Some(voice) = VoiceId::new(aliases.voice(i, SCHEDULE_FIRST_VOICE))
+                    && !out((voice, self.key(i)))
+                {
+                    return false;
                 }
-                _ => false,
-            };
-            checked += 1;
-            if !same || checked > MAX_CARRIED_NOTES {
-                return false;
             }
         }
         true
-    })
-}
+    }
 
-impl ClipNotes {
-    /// Takes the held bits of `old` (CL-3, [`held_notes_unchanged`] checked first).
-    pub fn take_held_from(&mut self, old: &ClipNotes) {
-        let from = old.held_bits();
-        for (to, &w) in self.held_bits_mut().iter_mut().zip(from) {
-            *to = w;
+    /// An edit replaced `old` by `self` (the new table, no note held) while its notes
+    /// sounded (CL-3); `old_aliases` are the voices of the cursor that delivered them,
+    /// `aliases` receives those of the cursor in the new table. Each note `old` has
+    /// delivered and not ended becomes, in `self`, the same note (same start, length and
+    /// pitch, wherever it sits in the table) and goes on sounding under the voice id it
+    /// has: the cursor names the note with it, so the device never sees a change, and the
+    /// new table's own note-off ends it. The own id of a note that a kept voice holds goes
+    /// to a spare id after the table's own, so no two notes of a table share a voice. A
+    /// held note with no counterpart, or beyond [`MAX_CARRIED_NOTES`], is given to
+    /// `orphans`: the track ends it; `orphans` returns `false` when there are too many, and
+    /// the walk stops there (the caller falls back). The caller checked that at most
+    /// [`MAX_HELD_NOTES`] are held. Returns the notes carried. No allocation, no panic.
+    pub fn carry_held_from(
+        &mut self,
+        old: &ClipNotes,
+        old_aliases: &Aliases,
+        aliases: &mut Aliases,
+        mut orphans: impl FnMut(Orphan) -> bool,
+    ) -> u32 {
+        let n = self.notes();
+        aliases.clear();
+        let (mut carried, mut moved) = (0u32, 0usize);
+        let mut budget = MAX_SCANNED_ENTRIES;
+        for (w, &word) in old.held_bits().iter().enumerate() {
+            let mut rest = word;
+            while rest != 0 {
+                let i = w * 32 + rest.trailing_zeros() as usize;
+                rest &= rest - 1;
+                let voice = old_aliases.voice(i, SCHEDULE_FIRST_VOICE);
+                let (Some(was), Some(id)) = (old.note(i), VoiceId::new(voice)) else {
+                    continue;
+                };
+                // The same place first (an edit that left the note alone): no search.
+                let same = |new: &ClipNotes| {
+                    new.note(i)
+                        .is_some_and(|b| {
+                            b.start() == was.start()
+                                && b.length() == was.length()
+                                && b.pitch() == was.pitch()
+                        })
+                        .then_some(i)
+                        .filter(|&j| !new.is_held_note(j))
+                };
+                let found = same(self).or_else(|| {
+                    self.find_unclaimed(was.start(), was.length(), was.pitch(), &mut budget)
+                });
+                let own = |j: usize| voice == SCHEDULE_FIRST_VOICE.wrapping_add(j as u32);
+                // A note that moved needs a pair, and may displace another: two pairs.
+                let Some(j) = found.filter(|&j| own(j) || moved < MAX_CARRIED_NOTES) else {
+                    if !orphans((id, was.pitch())) {
+                        return carried;
+                    }
+                    continue;
+                };
+                if let Some(word) = self.held_bits_mut().get_mut(j / 32) {
+                    *word |= 1 << (j % 32);
+                }
+                carried += 1;
+                if !own(j) {
+                    moved += 1;
+                    aliases.push(j as u32, voice);
+                }
+            }
         }
+        let kept = aliases.len();
+        // The notes displaced: the own id of note `o` is the voice of a kept one.
+        let mut spare = SCHEDULE_FIRST_VOICE.wrapping_add(n as u32);
+        for k in 0..kept {
+            let Some([_, v]) = aliases.at(k) else {
+                continue;
+            };
+            let o = v.wrapping_sub(SCHEDULE_FIRST_VOICE) as usize;
+            if o >= n || aliases.has_note(o as u32, kept) {
+                continue;
+            }
+            while aliases.has_voice(spare) {
+                spare = spare.wrapping_add(1);
+            }
+            aliases.push(o as u32, spare);
+            spare = spare.wrapping_add(1);
+        }
+        aliases.sort();
+        carried
     }
 }
 
@@ -427,6 +596,12 @@ impl Events for ClipNotes {
 
     fn first_voice(&self) -> u32 {
         SCHEDULE_FIRST_VOICE
+    }
+
+    fn note_index(&self, entry: usize, _voice: VoiceId) -> usize {
+        self.order()
+            .get(entry)
+            .map_or(usize::MAX, |&o| (o >> 1) as usize)
     }
 
     fn held_bits(&self) -> &[u32] {
@@ -548,23 +723,27 @@ impl ClipPlayer {
     /// player plays it (from the grid or from the arrangement), its cursor starts over (the
     /// next read is a jump into the new table) and, when removed, the clip stops.
     ///
-    /// `keep` (CL-3): the new table holds, at the same indices, the notes the old one has
-    /// delivered and not ended ([`held_notes_unchanged`]). When exactly one cursor holds
-    /// notes of the clip and can go on in the new table ([`Cursor::keep_through_swap`]),
-    /// those notes go on sounding and are ended by the new table's note-offs: the result
-    /// says `kept`, and the caller copies the held bits into the new table. Otherwise
-    /// the notes of the old table are gone with its note-offs: the result says `release`,
-    /// and the caller releases the track.
+    /// `keep` (CL-3): both tables are MIDI notes. When exactly one cursor holds notes of the
+    /// clip and can go on in the new table ([`Cursor::keep_through_swap`]), those notes can
+    /// go on sounding and be ended by the new table's note-offs: the result says `kept`,
+    /// the caller matches them ([`ClipNotes::carry_held_from`]) and says how many were
+    /// found ([`ClipPlayer::set_carried`]). Otherwise the notes of the old table are gone
+    /// with its note-offs: the result says `release`, and the caller gives their voices to
+    /// the track to end.
     pub fn clip_changed(&mut self, slot: ClipSlot, removed: bool, keep: bool) -> Swap {
         let grid = self.playing.is_some_and(|p| p.clip == slot);
         let grid_held = grid && self.cursor.held() > 0;
         let arr_held = self.arrangement.holds(slot) && self.arrangement.held() > 0;
         // One cursor at most carries the notes over: the held bits are shared.
         let carry = keep && !removed && grid_held != arr_held;
-        let mut swap = Swap::default();
+        let mut swap = Swap {
+            shared: grid_held && arr_held,
+            ..Swap::default()
+        };
         if grid {
             if carry && grid_held && self.cursor.keep_through_swap() {
                 swap.kept = true;
+                swap.grid = true;
             } else {
                 swap.release |= grid_held;
                 self.cursor = Cursor::default();
@@ -583,6 +762,57 @@ impl ClipPlayer {
             self.cut = None;
         }
         swap
+    }
+
+    /// The cursor that carries the held notes after a swap that kept them ([`Swap::kept`]):
+    /// the caller fills its voices ([`ClipNotes::carry_held_from`]) and counts the notes
+    /// found ([`Cursor::set_carried`]).
+    pub fn carrier(&mut self, swap: Swap) -> &mut Cursor {
+        if swap.grid {
+            &mut self.cursor
+        } else {
+            self.arrangement.cursor_mut()
+        }
+    }
+
+    /// The voices of the notes the cursor that holds notes of `slot` delivered (the grid's,
+    /// else the arrangement's), read before [`ClipPlayer::clip_changed`].
+    pub fn voices_of(&self, slot: ClipSlot) -> Aliases {
+        if self.playing.is_some_and(|p| p.clip == slot) && self.cursor.held() > 0 {
+            *self.cursor.aliases()
+        } else if self.arrangement.holds(slot) {
+            *self.arrangement.cursor().aliases()
+        } else {
+            Aliases::default()
+        }
+    }
+
+    /// Test only: the arrangement holds the playing clip and the notes of the grid's cursor
+    /// too ([`Swap::shared`]). `false` when no clip plays.
+    #[cfg(feature = "testing")]
+    /// `alias` gives the arrangement's cursor another voice for a note, as if it had carried
+    /// it: `(note index, voice)`.
+    pub fn share_playing_clip_for_tests(&mut self, alias: Option<(u32, u32)>) -> bool {
+        match self.playing {
+            Some(p) => {
+                self.arrangement
+                    .mirror_for_tests(p.clip, &self.cursor, alias);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The voices of the notes the arrangement's cursor delivered, when it reads `slot`,
+    /// read before [`ClipPlayer::clip_changed`]. With [`Swap::shared`] both cursors hold
+    /// notes of the clip: [`ClipPlayer::voices_of`] gives the grid's, this the arrangement's
+    /// (#443).
+    pub fn arrangement_voices_of(&self, slot: ClipSlot) -> Aliases {
+        if self.arrangement.holds(slot) {
+            *self.arrangement.cursor().aliases()
+        } else {
+            Aliases::default()
+        }
     }
 
     /// The clip this player holds, as `on_track` must say: the one it plays from the grid,

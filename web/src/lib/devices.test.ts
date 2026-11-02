@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICES, PARAM_IDS } from './generated/protocol'
-import { choiceParams, choices, descriptorOf, formatValue, knobParams, labelKey, positionOf, SYNTH, valueAt } from './devices'
+import { choiceParams, choices, descriptorOf, formatValue, knobParams, labelKey, positionOf, SHOWN_IN_MODE, shownParams, SYNTH, valueAt } from './devices'
 import { messages } from './i18n/app'
 import { DEFAULT_PARAMS } from './params'
 
@@ -73,5 +73,37 @@ describe('device panels from the descriptors', () => {
         for (const key of keys) expect(catalogue[key]?.trim(), `${lang} ${key}`).toBeTruthy()
       }
     }
+  })
+})
+
+describe('parameters shown in one mode only (#472)', () => {
+  it('names only devices, parameters and values that the descriptors have', () => {
+    for (const [kind, rules] of Object.entries(SHOWN_IN_MODE)) {
+      const device = descriptorOf(kind)
+      for (const [key, rule] of Object.entries(rules)) {
+        expect(
+          device.params.map((p) => p.key),
+          `${kind}.${key}`,
+        ).toContain(key)
+        const by = device.params.find((p) => p.key === rule.by)
+        expect(by, `${kind}.${key} is decided by ${rule.by}`).toBeDefined()
+        for (const value of rule.values) expect(by!.values as readonly string[], `${kind}.${key}`).toContain(value)
+      }
+    }
+  })
+
+  it('shows the Echo delay time when free and its note value when synced, whatever the stored value of the other', () => {
+    const echo = descriptorOf('faulk.echo')
+    const mode = choices(echo.params.find((p) => p.key === 'mode')!)
+    const keys = (value: number | undefined) => shownParams(echo, (key) => (key === 'mode' ? value : undefined)).map((p) => p.key)
+    const synced = mode.find((c) => c.key === 'synced')!.value
+    const free = mode.find((c) => c.key === 'free')!.value
+    expect(keys(synced)).toEqual(['mode', 'division', 'feedback', 'mix', 'time_change'])
+    expect(keys(free)).toEqual(['mode', 'time', 'feedback', 'mix', 'time_change'])
+    // Without a stored value the descriptor's default decides (Echo starts synced).
+    expect(keys(undefined)).toEqual(keys(synced))
+    // A device with no rule shows everything.
+    const drums = descriptorOf('faulk.drums')
+    expect(shownParams(drums, () => undefined)).toEqual(drums.params)
   })
 })

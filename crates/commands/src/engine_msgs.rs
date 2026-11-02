@@ -407,6 +407,44 @@ fn compile_event(
                 value: finite_f32(*value),
             });
         }
+        // A gesture that left a driven control as it was (#417): the engine holds the lanes
+        // that drive it, with the value the project holds. A fader or pan says so by
+        // `HoldMix` (a `TrackSetMix` that moves nothing would look like a mute); a device
+        // parameter by the `ParamSet` of its value, which holds its lanes whatever the value.
+        ProjectEvent::GestureUnchanged {
+            track,
+            target: AutomationTarget::Mixer { param },
+        } => {
+            let (slot, mixer) = match track {
+                None => (Some(TrackSlot::MASTER), Some(&project.master)),
+                Some(t) => (track_slot(sync, t), project.tracks.get(t).map(|t| &t.mixer)),
+            };
+            if let (Some(slot), Some(mixer)) = (slot, mixer) {
+                out.push(ControlMsg::HoldMix {
+                    track: slot,
+                    gain: (*param == MixerParam::Gain).then(|| db_to_gain(mixer.gain_db)),
+                    pan: (*param == MixerParam::Pan).then(|| finite_f32(mixer.pan)),
+                });
+            }
+        }
+        ProjectEvent::GestureUnchanged {
+            target: AutomationTarget::Device { device, param },
+            ..
+        } => {
+            let held = project
+                .master_devices
+                .get(device)
+                .or_else(|| project.tracks.values().find_map(|t| t.devices.get(device)))
+                .and_then(|d| d.params.get(param));
+            if let Some(value) = held {
+                let event = ProjectEvent::DeviceParamChanged {
+                    device: device.clone(),
+                    param: param.clone(),
+                    value: *value,
+                };
+                compile_event(&event, state, sync, out, batch);
+            }
+        }
         ProjectEvent::DeviceChainChanged { track: Some(track) } => {
             sync_chain(track, project, sync, out, &device_insert);
         }
@@ -1499,6 +1537,7 @@ pub mod single_synth {
             "Untitled",
         );
         let mut track = Track::new(project::TrackKind::Midi, "Synth", OrderKey::first());
+        track.color = Some(project::colors::palette_hue(0));
         let synth = crate::track::instrument_device(engine::OSC_SYNTH.kind)
             .expect("the synth is a built-in instrument");
         track.devices.insert(device(), synth);

@@ -888,6 +888,27 @@ fn an_edit_that_leaves_the_sounding_note_unchanged_does_not_cut_it_in_the_arrang
 }
 
 #[test]
+fn a_note_added_before_the_sounding_one_does_not_cut_it_in_the_arrangement() {
+    // #434: the placement's cursor carries the note under its voice although its index
+    // moved; the note ends on its own note-off, nothing stays held.
+    let mut r = Rig::new(48_000, 1, Quantize::Bar);
+    long_note_project(&mut r);
+    r.send(&[play(0)]);
+    r.run_to(r.at(500), 128);
+    r.send(&[upload(
+        0,
+        3840,
+        None,
+        vec![note(0, 100, 50), note(0, 1920, 60), note(2400, 100, 62)],
+    )]);
+    r.run_to(r.at(5000), 128);
+    assert!(events(0).iter().all(|e| e.3 != 255), "{:?}", events(0));
+    assert_eq!(ons(0).iter().filter(|e| e.1 == 60).count(), 1);
+    assert_eq!(offs(0).iter().find(|e| e.1 == 60), Some(&(r.at(1920), 60)));
+    assert_nothing_held(0);
+}
+
+#[test]
 fn a_clip_removed_while_it_plays_stops_the_placement_and_frees_the_track() {
     let mut r = Rig::new(48_000, 1, Quantize::Bar);
     long_note_project(&mut r);

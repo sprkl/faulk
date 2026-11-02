@@ -9,6 +9,8 @@
   --fk-line: #dad6d2;
   --fk-text: #131211;
   --fk-text-muted: #6e6964;
+  /* Secondary text on the selection tint: AA (4.5:1) on it. */
+  --fk-text-muted-on-tint: #5c5752;
   --fk-accent: #6633f4;
   --fk-accent-strong: #4c1ebc;
   --fk-accent-fg: #6633f4;
@@ -40,6 +42,8 @@
   --fk-dur-fast: 80ms;
   --fk-dur-panel: 160ms;
   --fk-row: 28px;
+  /* A track's row in the arrangement (#471): its default height; each track can be made higher or lower. */
+  --fk-lane: 44px;
   --fk-control: 32px;
 }
 
@@ -50,12 +54,14 @@
   --fk-line: #34312e;
   --fk-text: #ece9e6;
   --fk-text-muted: #8f8a85;
+  --fk-text-muted-on-tint: #b9b4af;
   --fk-accent-fg: #9c92ff;
   --fk-accent-tint: #2a2150;
 }
 
 [data-density='compact'] {
   --fk-row: 22px;
+  --fk-lane: 28px;
   --fk-control: 26px;
 }
 
