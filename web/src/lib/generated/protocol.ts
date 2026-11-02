@@ -36,6 +36,9 @@ type: "project.export_pack"
 } | {
 type: "project.import_pack"
 } | {
+type: "project.open_url"
+url: string
+} | {
 type: "project.list_stored"
 } | {
 type: "project.reopen_last"
@@ -1074,6 +1077,8 @@ type: "project.save_as"
 type: "project.export_pack"
 } | {
 type: "project.import_pack"
+} | {
+type: "project.open_url"
 } | {
 /**
  * The projects kept in the browser's storage, newest first.

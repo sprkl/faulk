@@ -109,8 +109,12 @@
       <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
         {t('project.menu.saveAs')}<kbd>{chordText(['Mod', 'Shift', 'S'])}</kbd>
       </button>
-      <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}
-        >{t('project.menu.exportPack')}</button
+      <button
+        role="menuitem"
+        disabled={!ready}
+        data-testid="menu-export-pack"
+        title={t('project.menu.exportPackHint')}
+        onclick={() => choose(() => dispatcher.run(exportPack()))}>{t('project.menu.exportPack')}</button
       >
       <button role="menuitem" disabled={!ready} data-testid="menu-import-pack" onclick={() => choose(() => dispatcher.run(importPack()))}
         >{t('project.menu.importPack')}</button

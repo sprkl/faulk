@@ -62,6 +62,14 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(a.locator('a[href*="faulk-journey/blob/main/tracks/"][href$="/sheet.md"]')).toHaveCount(1)
       await expect(a.locator('a[href$="/track.mid"]')).toHaveCount(1)
       await expect(a.locator('a[href^="https://github.com/sprkl/faulk/issues/362#issuecomment-"]')).toHaveCount(1)
+      // The day's project opens in Faulk (#497): the DAW, asked to open the pack on jsDelivr.
+      const open = a.getByTestId('open-in-faulk')
+      await expect(open).toHaveText(lang === 'en' ? 'Open in Faulk' : 'Ouvrir dans Faulk')
+      const href = new URL((await open.getAttribute('href'))!, page.url())
+      expect(href.pathname).toBe('/app')
+      expect(href.searchParams.get('open')).toMatch(
+        /^https:\/\/cdn\.jsdelivr\.net\/gh\/sprkl\/faulk-journey@main\/tracks\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\/project\.faulkpack$/,
+      )
       await expect(a.locator('h2, h3').first()).not.toBeEmpty()
     }
     // The page's own controls replaced the native ones.
@@ -230,6 +238,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.locator('h1')).not.toBeEmpty()
     const days = page.locator('main article')
     expect(await days.count()).toBeGreaterThan(0)
+    // Every day of the archive can be opened in Faulk too.
+    await expect(days.getByTestId('open-in-faulk')).toHaveCount(await days.count())
     await expect(page.locator('#archive a[aria-current=page]')).toHaveCount(1)
     // A day's title leads to its own page: the entry with its player and its actions, as everywhere.
     const title = (await days.first().locator('a.permalink').textContent())!.trim()
@@ -238,7 +248,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.locator('h1')).toHaveText(title)
     await expect(page).toHaveTitle(new RegExp(title))
     await expect(page.locator('[data-fk-player]')).toHaveCount(1)
-    await expect(page.locator('[data-fk-actions] a')).toHaveCount(3)
+    await expect(page.locator('[data-fk-actions] a')).toHaveCount(4)
     // The language switch stays on this day.
     const other = lang === 'en' ? 'fr' : 'en'
     const day = new URL(page.url()).pathname.split('/').pop()!
