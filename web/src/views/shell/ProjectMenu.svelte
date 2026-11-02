@@ -15,6 +15,7 @@
     save,
     saveAs,
   } from '../../lib/project-commands'
+  import { chordText } from '../../lib/shortcuts'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, project, dispatcher, audioExport } = useStores()
@@ -103,10 +104,10 @@
       >
       <hr />
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
-        {t('project.menu.save')}<kbd>Ctrl+S</kbd>
+        {t('project.menu.save')}<kbd>{chordText(['Mod', 'S'])}</kbd>
       </button>
       <button role="menuitem" disabled={!ready || !storage.supported} data-testid="menu-save-as" onclick={() => choose(() => dispatcher.run(saveAs()))}>
-        {t('project.menu.saveAs')}<kbd>Ctrl+Shift+S</kbd>
+        {t('project.menu.saveAs')}<kbd>{chordText(['Mod', 'Shift', 'S'])}</kbd>
       </button>
       <button role="menuitem" disabled={!ready} data-testid="menu-export-pack" onclick={() => choose(() => dispatcher.run(exportPack()))}
         >{t('project.menu.exportPack')}</button

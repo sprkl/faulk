@@ -1,0 +1,2 @@
+2026-11-02
+* **Update** (#474): shortcut list (`lib/shortcuts.ts`, held against `keyboard.ts` by a test; the "?" button of the top bar and the `?` key open it), guide of the empty timeline, tempo error that states the range, import refusal that names the project and offers to open it, one storage banner at a time (`storage.banner`), and a project kept in the browser reopens by itself after a reload (the draft banner and its delete button are gone; `docs/architecture/03-stockage-local.md` § 5.8).
