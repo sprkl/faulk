@@ -68725,7 +68725,191 @@
             },
             "RecordOutput": {
               "description": "The outputs of this domain's commands, tagged by the command's `type`.",
-              "not": {}
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previous_offset_ms": {
+                      "description": "The offset before the command.",
+                      "format": "int32",
+                      "type": "integer"
+                    },
+                    "type": {
+                      "const": "record.set_settings",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "previous_offset_ms"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count_in": {
+                      "description": "Whether a count-in runs before the take.",
+                      "type": "boolean"
+                    },
+                    "shift_ms": {
+                      "description": "How much earlier the notes will be placed: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds.",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "take": {
+                      "description": "The take's number.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "target": {
+                      "$ref": "#/$defs/RecordTarget"
+                    },
+                    "tracks": {
+                      "description": "The tracks that record.",
+                      "items": {
+                        "$ref": "#/$defs/TrackId"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "record.start",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "take",
+                    "target",
+                    "tracks",
+                    "shift_ms",
+                    "count_in"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "take": {
+                      "description": "The take ended; `null` when none was recording.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "record.stop",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "take": {
+                      "description": "The take dropped, if there was one.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "record.discard_take",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clips": {
+                      "items": {
+                        "$ref": "#/$defs/TakeClip"
+                      },
+                      "type": "array"
+                    },
+                    "dropped": {
+                      "description": "Notes left out: before tick 0, before their clip, or outside a clip without a loop.",
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": {
+                      "const": "record.commit_take",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clips",
+                    "dropped"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "record.restore",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "RecordTarget": {
+              "description": "Where a take goes.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "The launch grid: the cell of each armed track in this scene. A cell with a clip\ntakes the notes on top of its own (overdub); an empty cell gets a new clip.",
+                  "properties": {
+                    "at": {
+                      "const": "scene",
+                      "type": "string"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "scene"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "The arrangement: each note goes where it was played, into the clip placed there, or\ninto a new clip where no clip is placed.",
+                  "properties": {
+                    "at": {
+                      "const": "arrangement",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "at"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Rgb": {
               "description": "A colour, written #rrggbb.",
@@ -69017,6 +69201,35 @@
               "required": [
                 "id",
                 "name"
+              ],
+              "type": "object"
+            },
+            "TakeClip": {
+              "additionalProperties": false,
+              "description": "A clip a take wrote into.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "created": {
+                  "description": "The clip was created by the take.",
+                  "type": "boolean"
+                },
+                "notes": {
+                  "description": "Notes of the take written into it (a note already in the clip counts once).",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                }
+              },
+              "required": [
+                "track",
+                "clip",
+                "created",
+                "notes"
               ],
               "type": "object"
             },
@@ -71350,6 +71563,34 @@
               ],
               "type": "object"
             },
+            "ClipRestore": {
+              "additionalProperties": false,
+              "description": "One clip of `record.restore`.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/RestoredClip"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "What the clip becomes; `null` removes it with its placements."
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                }
+              },
+              "required": [
+                "track",
+                "clip"
+              ],
+              "type": "object"
+            },
             "ClipSnapshot": {
               "additionalProperties": false,
               "description": "A MIDI clip as `clip.restore` brings it back (everything but its identifier).",
@@ -73255,7 +73496,221 @@
             },
             "RecordCommand": {
               "description": "The commands of this domain, tagged by `type`.",
-              "not": {}
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "Set the manual latency offset of recording, in milliseconds, -500 to 500: every\nrecorded note is moved this much earlier, on top of the output latency the host\nestimates (negative: later). It belongs to the machine, so it is session state:\nsaved with the session, never in the project, and not undoable.",
+                  "properties": {
+                    "offset_ms": {
+                      "format": "int32",
+                      "type": "integer"
+                    },
+                    "type": {
+                      "const": "record.set_settings",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "offset_ms"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine; `record.stop` ends the take, which the host then writes with\n`record.commit_take`, one history entry. Not undoable itself.",
+                  "properties": {
+                    "latency_ms": {
+                      "format": "double",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "target": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/RecordTarget"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "record.start",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "End the capture of the running take; the transport keeps playing. The notes still\nheld are cut here. The host writes the take with `record.commit_take` once the\nengine has returned its last notes (within one report, about 33 ms). Does nothing\nwhen no take is recording. Not undoable itself.",
+                  "properties": {
+                    "type": {
+                      "const": "record.stop",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Drop the current take without writing anything (undo during a take): the capture\nstops if it runs. Does nothing when there is no take. Not undoable: it wrote nothing.",
+                  "properties": {
+                    "type": {
+                      "const": "record.discard_take",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. Undo:\n`record.restore` puts the clips back as they were.",
+                  "properties": {
+                    "shift_ms": {
+                      "default": 0,
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "target": {
+                      "$ref": "#/$defs/RecordTarget"
+                    },
+                    "tracks": {
+                      "items": {
+                        "$ref": "#/$defs/TakeTrack"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "record.commit_take",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "target",
+                    "tracks"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Put clips back exactly as given, with their identifiers: `state` is the clip's\nsnapshot and its placements, or `null` to remove the clip with its placements. The\ninverse of `record.commit_take`. Refused when a track is not a MIDI track or when\nthe result breaks a rule of the project (a note outside its clip, a slot taken, an\nidentifier in use). Undo: the restore of what it changed.",
+                  "properties": {
+                    "clips": {
+                      "items": {
+                        "$ref": "#/$defs/ClipRestore"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "record.restore",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "clips"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "edit",
+                  "x-undo": "inverse"
+                }
+              ]
+            },
+            "RecordTarget": {
+              "description": "Where a take goes.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "The launch grid: the cell of each armed track in this scene. A cell with a clip\ntakes the notes on top of its own (overdub); an empty cell gets a new clip.",
+                  "properties": {
+                    "at": {
+                      "const": "scene",
+                      "type": "string"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "scene"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "The arrangement: each note goes where it was played, into the clip placed there, or\ninto a new clip where no clip is placed.",
+                  "properties": {
+                    "at": {
+                      "const": "arrangement",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "at"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "RestoredClip": {
+              "additionalProperties": false,
+              "description": "A clip as `record.restore` puts it back: its content and its placements.",
+              "properties": {
+                "placements": {
+                  "items": {
+                    "$ref": "#/$defs/PlacementSnapshot"
+                  },
+                  "type": "array"
+                },
+                "snapshot": {
+                  "$ref": "#/$defs/ClipSnapshot"
+                }
+              },
+              "required": [
+                "snapshot",
+                "placements"
+              ],
+              "type": "object"
             },
             "Rgb": {
               "description": "A colour, written #rrggbb.",
@@ -73589,6 +74044,70 @@
                   "type": "object"
                 }
               ]
+            },
+            "TakeNote": {
+              "additionalProperties": false,
+              "description": "A note of a take, as the engine stamped it.",
+              "properties": {
+                "length": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "How long it was held, in ticks, at least 1."
+                },
+                "pitch": {
+                  "format": "uint8",
+                  "maximum": 127,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "The transport tick where it was played (before the latency shift); may be negative."
+                },
+                "velocity": {
+                  "format": "uint8",
+                  "maximum": 127,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "length",
+                "pitch",
+                "velocity"
+              ],
+              "type": "object"
+            },
+            "TakeTrack": {
+              "additionalProperties": false,
+              "description": "The notes a take recorded on one track.",
+              "properties": {
+                "anchor": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Tick"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "For a scene target whose cell holds a clip that played during the take: the\ntransport tick of the clip's position 0, as the engine reported it. Without it the\nclip's position 0 is the bar of the first note."
+                },
+                "notes": {
+                  "items": {
+                    "$ref": "#/$defs/TakeNote"
+                  },
+                  "type": "array"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                }
+              },
+              "required": [
+                "track",
+                "notes"
+              ],
+              "type": "object"
             },
             "Tick": {
               "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
@@ -1033350,6 +1033869,19 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
                     "browser": {
                       "description": "The projects kept in the browser's storage, newest first.",
                       "items": {
@@ -1038150,6 +1038682,29 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "List the projects this page can open: the folders opened recently (each with an `id`)\nand the projects kept in the browser's own storage (each with a `dir`), newest first.\nThe page reads its storage again before it answers. The `id` and the `dir` are the\nnames `project.open_recent`, `project.open_browser_project` and\n`project.delete_browser_project` take. Changes nothing in the project.",
                   "properties": {
                     "type": {
@@ -1042588,6 +1043143,19 @@
                   "properties": {
                     "type": {
                       "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
                       "type": "string"
                     }
                   },
@@ -1047423,6 +1047991,29 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "List the projects this page can open: the folders opened recently (each with an `id`)\nand the projects kept in the browser's own storage (each with a `dir`), newest first.\nThe page reads its storage again before it answers. The `id` and the `dir` are the\nnames `project.open_recent`, `project.open_browser_project` and\n`project.delete_browser_project` take. Changes nothing in the project.",
                   "properties": {
                     "type": {
@@ -1051843,6 +1052434,19 @@
                   "properties": {
                     "type": {
                       "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
                       "type": "string"
                     }
                   },
@@ -1056656,6 +1057260,29 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "List the projects this page can open: the folders opened recently (each with an `id`)\nand the projects kept in the browser's own storage (each with a `dir`), newest first.\nThe page reads its storage again before it answers. The `id` and the `dir` are the\nnames `project.open_recent`, `project.open_browser_project` and\n`project.delete_browser_project` take. Changes nothing in the project.",
                   "properties": {
                     "type": {
@@ -1061076,6 +1061703,19 @@
                   "properties": {
                     "type": {
                       "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
                       "type": "string"
                     }
                   },
@@ -1065889,6 +1066529,29 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "List the projects this page can open: the folders opened recently (each with an `id`)\nand the projects kept in the browser's own storage (each with a `dir`), newest first.\nThe page reads its storage again before it answers. The `id` and the `dir` are the\nnames `project.open_recent`, `project.open_browser_project` and\n`project.delete_browser_project` take. Changes nothing in the project.",
                   "properties": {
                     "type": {
@@ -1070336,6 +1070999,19 @@
                   "properties": {
                     "type": {
                       "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
                       "type": "string"
                     }
                   },
@@ -1075155,6 +1075831,29 @@
                 },
                 {
                   "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
                   "description": "List the projects this page can open: the folders opened recently (each with an `id`)\nand the projects kept in the browser's own storage (each with a `dir`), newest first.\nThe page reads its storage again before it answers. The `id` and the `dir` are the\nnames `project.open_recent`, `project.open_browser_project` and\n`project.delete_browser_project` take. Changes nothing in the project.",
                   "properties": {
                     "type": {
@@ -1079584,6 +1080283,19 @@
                   "properties": {
                     "type": {
                       "const": "project.import_pack",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
                       "type": "string"
                     }
                   },
@@ -1084379,6 +1085091,29 @@
                   },
                   "required": [
                     "type"
+                  ],
+                  "type": "object",
+                  "x-destructive": false,
+                  "x-kind": "live",
+                  "x-undo": "none"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
+                  "properties": {
+                    "type": {
+                      "const": "project.open_url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
                   ],
                   "type": "object",
                   "x-destructive": false,
