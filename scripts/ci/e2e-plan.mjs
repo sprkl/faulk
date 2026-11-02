@@ -35,13 +35,13 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create']],
-  [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow']],
+  [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording']],
   [/^web\/src\/views\/history\//, ['history', 'history-cost', 'keyboard-create']],
-  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create']],
+  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state']],
   [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'layout-4', 'master-chain', 'master-pan', 'track-state']],
-  [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability']],
+  [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording']],
   [/^web\/src\/views\/tracks\//, ['tracks', 'track-order', 'lane-rows', 'discoverability']],
   [/^web\/src\/views\/keyboard\//, ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state']],
   [/^web\/src\/views\/shell\/ExportDialog\./, ['export-audio']],
@@ -53,7 +53,7 @@ export const RULES = [
   // Libraries with one clear audience.
   [/^web\/src\/lib\/export\//, ['export-audio']],
   [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url']],
-  [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input']],
+  [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input', 'recording']],
   [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability']],
   // The landing page's bar and footer are the Journey page's too.
   [/^web\/src\/lib\/(landing\/|i18n\/landing\.ts)/, ['navigation', 'isolation', 'journey']],

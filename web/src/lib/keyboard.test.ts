@@ -450,6 +450,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'PageUp',
       ], // Page Up and Down: the selection's velocity (#494)
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
+      'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],

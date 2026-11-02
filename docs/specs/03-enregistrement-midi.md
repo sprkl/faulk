@@ -7,9 +7,21 @@ status: draft
 
 # Enregistrement MIDI
 
-> **Proposition, rien n'est implémenté.** Cette spec répond à la première case de l'issue #470 (chantier 2 de l'épique #468 : jouer des notes). Elle reprend le découpage des tâches RE-1 à RE-5 du [découpage du MVP](02-decoupage-mvp.md) et le précise. Aujourd'hui seul RE-1 existe : le MIDI en direct va à la piste sélectionnée et aux pistes armées, et rien n'est capturé. Le bouton « In » des pistes (anciennement « R ») le dit.
+> Cette spec répond à la première case de l'issue #470 (chantier 2 de l'épique #468 : jouer des notes). Elle reprend le découpage des tâches RE-1 à RE-5 du [découpage du MVP](02-decoupage-mvp.md) et le précise.
 >
-> Les questions de produit qui restent ouvertes sont marquées **[Question ouverte]** et regroupées au [§ 11](#11-questions-ouvertes). La spec propose une réponse par défaut pour chacune, pour que l'implémentation puisse démarrer sans attendre.
+> Les questions de produit sont marquées **[Question ouverte]** et regroupées au [§ 11](#11-questions-ouvertes) ; le lead a retenu les réponses par défaut (commentaire de #470 du 2026-11-01).
+>
+> **État de l'implémentation (#470, étape 2).** Livré : la capture dans le moteur (`crates/engine/src/recorder.rs`), les notes dans le rapport (version 5), les commandes `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` et `record.restore` (`crates/commands/src/record.rs`), le bouton d'enregistrement avec la cible affichée et le décompte, le bouton « Rec » des pistes, les notes de la prise dans le piano roll. Écarts avec le texte ci-dessous, à lire comme la référence :
+>
+> - reports acceptés par le lead (2026-11-02), voir « Différé » au § 9 :
+> - les notes sont placées au début du bloc qui les applique (2,7 ms à 48 kHz en Web), pas à ± 1 ms : #499 ;
+> - le mode remplacement et la quantification à l'entrée ne sont pas livrés (§ 4.2, § 6 ; choix par défaut : ajout, quantification après coup) : #500 ;
+> - l'enregistrement en Boost attend BO-1 : le bouton est désactivé en Boost, avec la raison ; le décalage manuel est déjà dans la session : #501 ;
+> - `record.set_settings` ne porte que `offset_ms` ; c'est un état de session, comme l'armement, donc il n'entre pas dans l'historique (§ 9 à jour) ;
+> - `record.stop` n'écrit pas la prise : la page, qui lit le rapport du moteur, lance `record.commit_take` dès que le moteur a rendu ses dernières notes (§ 9) ; `record.start` refuse une nouvelle prise tant que la précédente n'est ni écrite ni abandonnée ;
+> - la cible de la grille est la scène de la dernière cellule touchée (sinon la première scène) ; avec le transport arrêté, `record.start` lance le clip de cette scène sur chaque piste armée, et la prise s'y ajoute en suivant sa boucle ;
+> - dans l'arrangement, une note jouée dans un clip placé s'y ajoute ; les autres font un nouveau clip par intervalle libre, de la mesure de la première note à la mesure après la dernière, coupé au clip suivant ;
+> - le décompte sonne même métronome éteint et s'arrête au repère (§ 5) ; il n'a lieu que transport arrêté.
 
 ## 1. Ce que l'utilisateur veut
 
@@ -93,21 +105,24 @@ La note jouée est entendue un peu après la frappe (latence de sortie), et le m
 
 ## 9. Les commandes
 
-Toutes sont des commandes de `crates/commands` (schéma, description pour les agents, annulation, test de correspondance avec les outils MCP). Les noms sont des propositions.
+Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, description pour les agents, annulation testée, test de correspondance avec les outils MCP). Le tableau suit le code.
 
 | Commande | Entrée | Sortie | Annulation |
 |---|---|---|---|
-| `record.set_settings` | `mode` (`overdub` ou `replace`), `quantize_on_input` (grille ou `null`), `strength` (0 à 100), `offset_ms` (réel) | les réglages d'enregistrement après la commande | Remet les anciens réglages. |
-| `record.start` | `track_ids` (par défaut les pistes armées), `target` par piste (`scene` d'une cellule de la grille, ou `tick` de la timeline, ou rien : la sélection), `count_in_bars` (optionnel, sinon le réglage du métronome) | l'identifiant de la prise, les cibles résolues (clip existant ou à créer) | Aucune : c'est un état de session, pas un changement du projet. |
-| `record.stop` | rien | la prise validée : pour chaque piste, le clip (créé ou modifié), le nombre de notes capturées | Valide la prise en **une** entrée d'historique (voir `record.commit_take`) ; l'annuler défait toute la prise. |
-| `record.commit_take` | l'identifiant de la prise, les notes capturées par piste (début, durée, hauteur, vélocité) | les clips touchés | **Une** entrée d'historique : annule la création des clips ou la restauration des notes. |
-| `record.discard_take` | l'identifiant de la prise | rien | Aucune : la prise n'avait rien écrit dans le projet. |
+| `record.set_settings` | `offset_ms` (entier, -500 à 500) | l'ancien décalage | Aucune : c'est un état de session (il appartient à la machine), comme l'armement ; il est enregistré avec la session, jamais dans le projet, et n'entre pas dans l'historique (décision du lead, 2026-11-02). |
+| `record.start` | `target` (`{"at": "scene", "scene": …}` ou `{"at": "arrangement"}`, par défaut l'arrangement), `latency_ms` (latence de sortie estimée par l'hôte, 0 à 1000) | le numéro de la prise, la cible, les pistes armées qui enregistrent, le décalage total `shift_ms`, s'il y a un décompte | Aucune : état de session. Refusée sans piste MIDI armée, ou tant qu'une prise n'est ni écrite ni abandonnée. |
+| `record.stop` | rien | le numéro de la prise arrêtée, ou `null` | Aucune. Le transport continue ; la page écrit ensuite la prise avec `record.commit_take` dès que le moteur a rendu ses dernières notes. |
+| `record.commit_take` | `take` (optionnel : la prise qu'il libère), `target`, `shift_ms`, par piste les notes jouées (début en ticks du transport, durée, hauteur, vélocité) et l'ancre du clip de la cellule | les clips touchés, les notes écartées | **Une** entrée d'historique pour toute la prise ; son inverse est `record.restore`. |
+| `record.restore` | les clips à remettre (leur contenu et leurs placements, ou `null` pour les retirer) | rien | Le `record.restore` inverse. |
+| `record.discard_take` | rien | le numéro de la prise abandonnée, ou `null` | Aucune : la prise n'avait rien écrit dans le projet. |
 | `track.arm` | existe déjà | | existe déjà |
 | `transport.set_metronome` | existe déjà (réglage du décompte) | | existe déjà |
 
-`record.stop` appelle `record.commit_take` : l'agent n'a pas à connaître la séparation, qui existe pour que le moteur, qui ne possède pas le projet, rende ses notes à la page, laquelle les valide.
+`transport.stop` et `transport.pause` terminent aussi une prise en cours. La séparation entre `record.stop` et `record.commit_take` existe parce que le moteur, qui ne possède pas le projet, rend ses notes dans son rapport à la page, qui les écrit.
 
-Le moteur reçoit des messages de contrôle (`ArmRecord`, `StartRecording { count_in }`, `StopRecording`) et rend les notes capturées dans le rapport, par pas, pour que le piano roll les montre en direct (critère de RE-5). Il n'y a pas d'allocation sur le chemin audio : le tampon de capture est préparé à l'avance et son débordement est signalé (`RecordOverflow`), jamais caché.
+Le moteur reçoit `SetRecording` et rend les notes capturées dans son rapport (version 5 : numéro de la prise, nombre de notes, notes perdues, drapeau de capture, dernières notes), ce qui permet au piano roll de les montrer en direct (critère de RE-5). Il n'y a pas d'allocation sur le chemin audio : les tables de capture sont préparées avec le moteur, et une table pleine est comptée et affichée, jamais cachée.
+
+**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées (#499), le mode remplacement et la quantification à l'entrée (#500), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501).
 
 ## 10. Ce que les agents peuvent en faire
 

@@ -24,6 +24,7 @@ import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, WEB_ONLY_NOTICE, type OpenOutcome, type OpenRefusal } from './open'
 import type { ProjectStore } from './project.svelte'
+import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 
@@ -60,6 +61,9 @@ export class Dispatcher {
     private readonly state: EngineStore,
   ) {}
 
+  /** MIDI recording (#470): told of every command applied and every report of the current engine. */
+  recorder: Recorder | null = null
+
   private get engine(): Engine | null {
     return this.native ?? this.web
   }
@@ -79,6 +83,7 @@ export class Dispatcher {
         this.state.feedback = report
         this.state.peak = peakOf(report.master)
         this.state.voices = report.voices
+        this.recorder?.feedback(report)
       },
       onMidiInputs: (inputs, selected) => {
         if (kind !== 'native' || !current()) return
@@ -208,6 +213,8 @@ export class Dispatcher {
    * new session's. Returns the new project's name.
    */
   private async adopt(core: ProjectCore, step: Exclude<EngineStep, { refused: unknown }>): Promise<string> {
+    // Another project: the core forgot its take, the page drops its own.
+    this.recorder?.engineReplaced()
     this.state.activeNotes = []
     this.state.notice = null
     this.mirror(step.events)
@@ -300,6 +307,8 @@ export class Dispatcher {
     const core = this.core!
     try {
       const { report, engine } = this.engineStarts++ === 0 ? core.setup() : core.snapshot()
+      // A new engine (and the core's new slot table) holds no take: a take in progress is lost.
+      this.recorder?.engineReplaced()
       if (report.status === 'encoded') {
         web.push(engine)
         // The snapshot gave the engine its slots again (a new epoch): the view carries them for the launch grid.
@@ -373,18 +382,26 @@ export class Dispatcher {
    * engine gets what it means for it; the project store gets the events; the page-local
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
-  run(command: Command, options: { quiet?: boolean; author?: string } = {}) {
+  run(command: Command, options: { quiet?: boolean; author?: string } = {}): boolean {
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
-      return
+      return true
     }
     // Replaces the project: the storage asks before the core does, whoever sends it (a click or an agent).
     // The question is a dialog of the page and needs no click. Works before audio starts, like opening.
     if (isNewProject(command)) {
       // Without a storage (a bare dispatcher) nothing is kept anywhere, so there is nothing to ask about.
       void (this.storage ? this.storage.newProject() : this.newProject()).catch((error: unknown) => console.error(error))
-      return
+      return true
+    }
+    // A command the recorder answers otherwise (an undo during a take drops the take, #470).
+    const instead = this.recorder?.instead(command)
+    if (instead) return this.run(instead, options)
+    const refusal = this.recorder?.refusal(command)
+    if (refusal) {
+      this.state.notice = refusal
+      return false
     }
     const core = this.core
     // The banner that offers the project of last time shows on a fresh page, before any core exists: the
@@ -394,20 +411,21 @@ export class Dispatcher {
         () => this.run(command, options),
         (error: unknown) => console.error(error),
       )
-      return
+      return true
     }
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
     // Saving needs none: it is about the folder.
-    if (!core || (!this.engine && !isSaveCommand(command))) return
+    if (!core || (!this.engine && !isSaveCommand(command))) return false
     const step = engineStep(() => core.run(command, options.author))
     if ('refused' in step) {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
       // so a refusal is the core's: the user is told, the developer message stays in the console.
       console.warn('the project refused a command', command, step.refused)
       if (!options.quiet) this.showRefusal(step.refused)
-      return
+      return false
     }
     this.mirror(step.events)
+    this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
     if ('streamError' in step) {
       // No report (it was lost): the command may have applied, read the project again.
       if (step.events.length === 0) this.refresh()
@@ -444,6 +462,7 @@ export class Dispatcher {
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
+    return true
   }
 
   /** The undo history for the history panel; empty before audio starts (no core yet). */
@@ -603,6 +622,8 @@ export class Dispatcher {
     let opened: NativeEngine | null = null
     try {
       const session = (opened = await NativeEngine.connect(token, this.events('native', this.boosts + 1)))
+      // A take in progress stays with the Web engine that captured it: it is dropped before the helper takes over (#470).
+      this.recorder?.abandon()
       // The Web engine plays until now: it gets its notes released before the helper takes over.
       releaseAllNotes((command) => this.run(command))
       this.state.activeNotes = []

@@ -302,6 +302,11 @@ impl Transport {
         }
     }
 
+    /// Samples per tick at the clock's tempo and rate.
+    pub fn samples_per_tick(&self) -> f64 {
+        self.samples_per_tick
+    }
+
     /// The playhead tick (floor of [`Transport::position`], saturating).
     pub fn playhead_tick(&self) -> Tick {
         Tick(self.position().floor() as i64)

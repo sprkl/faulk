@@ -22,6 +22,9 @@ export const engine = defineFeature(
     'engine.modeWeb': 'Web (in the browser)',
     'engine.modeBoost': 'Boost (native helper)',
     'engine.latencyLabel': 'Latency',
+    'engine.recordOffset': 'Recording offset',
+    'engine.recordOffsetHint':
+      'Moves recorded notes this many milliseconds earlier, on top of the latency above (-500 to 500). Set it when takes land late or early.',
     'engine.loadLabel': 'Load',
     'engine.loadShort': 'CPU {pct} %',
     'engine.loadNone': 'Not measured by this engine yet',
@@ -52,6 +55,9 @@ export const engine = defineFeature(
     'engine.modeWeb': 'Web (dans le navigateur)',
     'engine.modeBoost': 'Boost (helper natif)',
     'engine.latencyLabel': 'Latence',
+    'engine.recordOffset': 'Décalage d’enregistrement',
+    'engine.recordOffsetHint':
+      'Avance les notes enregistrées de ce nombre de millisecondes, en plus de la latence ci-dessus (-500 à 500). À régler quand les prises tombent en retard ou en avance.',
     'engine.loadLabel': 'Charge',
     'engine.loadShort': 'CPU {pct} %',
     'engine.loadNone': 'Pas encore mesurée par ce moteur',
