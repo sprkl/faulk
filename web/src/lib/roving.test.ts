@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reading, rovingKey, step, zoomKey, type Item } from './roving'
+import { itemAt, moveCursor, reading, rovingKey, step, zoomKey, type Item } from './roving'
 
 const item = (id: string, row: number, start: number, end: number): Item => ({ id, row, start, end })
 // Row 0: a 0..4, b 4..8; row 1: nothing; row 2: c 2..6, d 8..12; row 3: e 0..1.
@@ -65,5 +65,54 @@ describe('the roving focus over items in rows (#471)', () => {
     expect(k('ArrowLeft', { ctrlKey: true })).toBeNull()
     expect(k('Enter', { shiftKey: true })).toBeNull()
     expect(k('a')).toBeNull()
+  })
+
+  it('maps Escape to freeing the cursor, and Page Up and Page Down to the velocity, by 10 or by 1 with Shift (#494)', () => {
+    const k = (key: string, over: Partial<KeyboardEvent> = {}) =>
+      rovingKey({ key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...over } as KeyboardEvent)
+    expect(k('Escape')).toEqual({ kind: 'free' })
+    expect(k('Escape', { shiftKey: true })).toBeNull()
+    expect(k('PageUp')).toEqual({ kind: 'velocity', delta: 10 })
+    expect(k('PageDown')).toEqual({ kind: 'velocity', delta: -10 })
+    expect(k('PageUp', { shiftKey: true })).toEqual({ kind: 'velocity', delta: 1 })
+    expect(k('PageDown', { shiftKey: true })).toEqual({ kind: 'velocity', delta: -1 })
+    // Alt+Shift+arrows stay the octave transposition; Alt or Ctrl with Page Up is not the velocity.
+    expect(k('ArrowUp', { altKey: true, shiftKey: true })).toEqual({ kind: 'move', direction: 'up' })
+    expect(k('PageUp', { altKey: true })).toBeNull()
+    expect(k('PageUp', { ctrlKey: true })).toBeNull()
+  })
+})
+
+describe('the free cursor (#494)', () => {
+  const steps = { tick: 240, row: 1 }
+  it('moves by the step in time and by rows, and stops at the edges', () => {
+    expect(moveCursor({ row: 2, tick: 0 }, 'right', steps, 4, 960)).toEqual({ row: 2, tick: 240 })
+    expect(moveCursor({ row: 2, tick: 240 }, 'left', steps, 4, 960)).toEqual({ row: 2, tick: 0 })
+    expect(moveCursor({ row: 2, tick: 0 }, 'left', steps, 4, 960)).toEqual({ row: 2, tick: 0 })
+    // The last step of the range: 720 starts a step that ends at 960.
+    expect(moveCursor({ row: 2, tick: 720 }, 'right', steps, 4, 960)).toEqual({ row: 2, tick: 720 })
+    expect(moveCursor({ row: 2, tick: 0 }, 'up', steps, 4, 960)).toEqual({ row: 1, tick: 0 })
+    expect(moveCursor({ row: 0, tick: 0 }, 'up', steps, 4, 960)).toEqual({ row: 0, tick: 0 })
+    expect(moveCursor({ row: 3, tick: 0 }, 'down', steps, 4, 960)).toEqual({ row: 3, tick: 0 })
+    expect(moveCursor({ row: 0, tick: 0 }, 'down', { tick: 240, row: 12 }, 128, 960)).toEqual({ row: 12, tick: 0 })
+    expect(moveCursor({ row: 120, tick: 0 }, 'down', { tick: 240, row: 12 }, 128, 960)).toEqual({ row: 127, tick: 0 })
+  })
+
+  it('goes back on the step grid from a tick between two steps', () => {
+    expect(moveCursor({ row: 0, tick: 300 }, 'left', steps, 1, 960)).toEqual({ row: 0, tick: 240 })
+    expect(moveCursor({ row: 0, tick: 300 }, 'right', steps, 1, 960)).toEqual({ row: 0, tick: 480 })
+  })
+
+  it('stays put in a range shorter than a step, or with an empty one', () => {
+    expect(moveCursor({ row: 0, tick: 0 }, 'right', { tick: 3840, row: 1 }, 1, 960)).toEqual({ row: 0, tick: 0 })
+    expect(moveCursor({ row: 0, tick: 0 }, 'down', steps, 0, 960)).toEqual({ row: 0, tick: 0 })
+  })
+
+  it('finds the item under the cursor, the latest started first', () => {
+    expect(itemAt(items, { row: 2, tick: 4 })?.id).toBe('c')
+    expect(itemAt(items, { row: 2, tick: 6 })).toBeNull()
+    expect(itemAt(items, { row: 0, tick: 4 })?.id).toBe('b')
+    expect(itemAt([...items, item('f', 2, 3, 5)], { row: 2, tick: 4 })?.id).toBe('f')
+    expect(itemAt(items, { row: 1, tick: 0 })).toBeNull()
   })
 })

@@ -9,7 +9,7 @@
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
-  import { redo, undo } from '../../lib/track-commands'
+  import { runHistory } from '../../lib/history-said'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
@@ -93,7 +93,7 @@
     }
     event.preventDefault()
     // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
-    dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
+    runHistory(dispatcher, ui, action, { quiet: true })
   }
 
   onMount(() => {

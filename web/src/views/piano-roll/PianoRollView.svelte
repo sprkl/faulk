@@ -42,9 +42,9 @@
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks, PPQ } from '../transport/time'
-  import { rovingKey, step as stepItem, zoomKey } from '../../lib/roving'
+  import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
-  import { clipLabel, clipOrigin, editedClip, ghostNotes, midiClips, type MidiClip } from './clips'
+  import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import {
     DEFAULT_ROW_HEIGHT,
@@ -67,6 +67,7 @@
     rectBetween,
     resizeNotes,
     shiftVelocity,
+    stepVelocity,
     stillApplies,
     fits,
     toggled,
@@ -121,6 +122,10 @@
   const track = $derived(project.selected && isMidi(project.selected.track) ? project.selected : null)
   const clips = $derived(track ? midiClips(track.track) : [])
   const edited = $derived(editedClip(clips, ui.editedClip))
+  /** The placement the roll is on (#494): the one the timeline opened, else the clip's first; null for a clip not placed. */
+  const placement = $derived(editedPlacement(edited, ui.editedPlacement))
+  /** The placement chosen in the timeline or the list, when it still places this clip: the play position shows only there. */
+  const chosenPlacement = $derived(placement && placement.id === ui.editedPlacement ? placement.id : null)
   const notes = $derived<readonly Note[]>(edited?.notes ?? [])
   const keyNames = $derived.by<ReadonlyMap<number, string> | null>(() => {
     const named = track ? instrumentNamedKeys(track.track) : []
@@ -129,7 +134,7 @@
   // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
   const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '#8f8a85')
   let showOthers = $state(true)
-  const others = $derived(showOthers && track ? ghostNotes(project.tracks, track.id, edited, track.track) : [])
+  const others = $derived(showOthers && track ? ghostNotes(project.tracks, track.id, edited, track.track, placement?.id ?? null) : [])
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
@@ -141,19 +146,26 @@
     const entry = scenes.find((s) => s.id === id)
     return entry ? entry.scene.name.trim() || t('pianoRoll.sceneDefault', { n: entry.index + 1 }) : t('pianoRoll.sceneGone')
   }
-  /** Where a clip comes from, in words: "Grid · Scene 1", "Arrangement · bar 2". */
-  const originOf = (entry: MidiClip) =>
-    clipOrigin(entry, {
-      grid: (id) => t('pianoRoll.originGrid', { scene: sceneLabel(id) }),
-      arrangement: (start) => t('pianoRoll.originArrangement', { n: Math.floor(start / bar) + 1 }),
-    })
-  /** A clip in the list: its name, then where it comes from. */
-  const listLabel = (entry: MidiClip) => {
-    const origin = originOf(entry)
-    const name = clipLabel(entry, t('pianoRoll.clipPlain'))
+  /** Where a clip comes from, in words: "Grid · Scene 1", "Arrangement · bar 2" (at `start`, a placement's, else its first). */
+  const originOf = (entry: MidiClip, start: number | null = null) =>
+    clipOrigin(
+      entry,
+      {
+        grid: (id) => t('pianoRoll.originGrid', { scene: sceneLabel(id) }),
+        arrangement: (at) => t('pianoRoll.originArrangement', { n: Math.floor(at / bar) + 1 }),
+      },
+      start,
+    )
+  /** An entry of the list (a clip at one of its placements): its name, then where it comes from. */
+  const listLabel = (entry: ClipEntry) => {
+    const origin = originOf(entry.clip, entry.placement?.start ?? null)
+    const name = clipLabel(entry.clip, t('pianoRoll.clipPlain'))
     return origin ? `${name} (${origin})` : name
   }
-  const origin = $derived(edited ? originOf(edited) : '')
+  const entries = $derived(clipEntries(clips))
+  /** The entry shown: the clip at the placement the roll is on. */
+  const entryKey = $derived(placement ? `placement:${placement.id}` : edited ? `clip:${edited.id}` : '')
+  const origin = $derived(edited ? originOf(edited, placement?.start ?? null) : '')
 
   // Renaming the clip being edited: the way to name a clip that lives in the arrangement only.
   let renaming = $state(false)
@@ -273,6 +285,7 @@
       length: edited.length,
       looping: edited.looping,
       tick,
+      placement: chosenPlacement,
     })
   })
   // Stopped, a clip of the timeline (no grid cell) shows the transport position when it is inside the clip, none otherwise:
@@ -519,6 +532,10 @@
       // Handled by editShortcut; the key is consumed below.
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
+      // The selection's velocity (#494), as on a note's cell.
+      const key = rovingKey(event)
+      if (key?.kind === 'velocity') changeVelocity(chosenNotes, key.delta, null)
     } else return
     event.preventDefault()
   }
@@ -535,6 +552,26 @@
   function announce(text: string) {
     // The same words twice are still a new message: an invisible space every other time changes the text.
     said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
+  }
+  // Undo and redo say what they did here too (#494), from wherever they were asked; what was said before the roll opened is not said again.
+  let heardHistory = untrack(() => ui.historySaid.n)
+  $effect(() => {
+    const message = ui.historySaid
+    if (message.n === heardHistory) return
+    heardHistory = message.n
+    untrack(() => {
+      announce(message.text)
+      if (itemsHadFocus) void keepItemsFocus()
+    })
+  })
+  /** Whether the keyboard was last in the notes' grid (a focus that leaves it for another element clears it; a removed cell does not). */
+  let itemsHadFocus = false
+  /** An undo or a redo can take away the focused note (its key holds its values): the focus goes back to the grid's tab stop. */
+  async function keepItemsFocus() {
+    await tick()
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    itemsEl?.querySelector<HTMLElement>('[tabindex="0"]')?.focus()
   }
   const noteItems = $derived(notes.map((n) => ({ id: noteKey(n), row: MAX_PITCH - n.pitch, start: n.start, end: n.start + n.length, note: n })))
   const tabKey = $derived(
@@ -568,6 +605,7 @@
     const item = noteItems.find((i) => i.id === key)
     if (!item) return
     focusKey = key
+    onCursor = false
     const rect = noteRect(item.note, shown, layout)
     if (rect.x < 0 || rect.x > stageW - 8)
       view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: Math.max(0, item.start - (stageW / shown.pxPerTick) * 0.1) }, stageW, totalBars * bar)
@@ -575,6 +613,119 @@
       scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
     await tick()
     itemsEl?.querySelector<HTMLElement>(`[data-note="${CSS.escape(key)}"]`)?.focus()
+  }
+
+  // --- the free cursor (#494) -----------------------------------------------------------------------------------------
+  // A pitch and a tick where no note needs to be: the only cell in the tab order of an empty clip, and where Escape on a
+  // note leaves the focus. The arrows move it by the drawing step and a semitone (Shift: a bar and an octave); Enter
+  // writes a note of the drawing length there (`clip.notes.add`), or goes to the note already under it.
+  /** Where the cursor was left; null until it is first used (it then stands where the view looks). */
+  let cursorAt = $state<{ pitch: number; tick: number } | null>(null)
+  /** Whether the cursor holds the tab stop rather than a note. */
+  let onCursor = $state(false)
+  const cursorTab = $derived(onCursor || noteItems.length === 0)
+  const cursorStep = $derived(drawing ?? SIXTEENTH)
+  const cursorPos = $derived.by(() => {
+    const last = floorTick(Math.max(0, clipLength - 1), cursorStep)
+    if (cursorAt) return { pitch: cursorAt.pitch, tick: Math.min(cursorAt.tick, last) }
+    return { pitch: pitchAt((RULER_HEIGHT + stageH) / 2, layout), tick: Math.min(floorTick(shown.scrollTick, cursorStep), last) }
+  })
+  /** The cursor's cell: one drawing length wide (what Enter would write), cut at the clip's end. */
+  const cursorRect = $derived(
+    noteRect(
+      {
+        start: cursorPos.tick,
+        pitch: cursorPos.pitch,
+        length: Math.max(1, Math.min(defaultLength(lastLength, drawing), clipLength - cursorPos.tick)),
+        velocity: lastVelocity,
+      },
+      shown,
+      layout,
+    ),
+  )
+  const cursorText = $derived.by(() => {
+    const beatsPerBar = bar / PPQ
+    const beat = cursorPos.tick / PPQ
+    return t('pianoRoll.cursorItem', {
+      pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch),
+      bar: Math.floor(beat / beatsPerBar) + 1,
+      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
+    })
+  })
+  // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
+  $effect(() => {
+    void edited?.id
+    untrack(() => {
+      cursorAt = null
+      onCursor = false
+    })
+  })
+
+  /** Brings the cursor into sight and gives it the focus. */
+  async function focusCursor() {
+    onCursor = true
+    const rect = cursorRect
+    if (rect.x < 0 || rect.x > stageW - 8)
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: Math.max(0, cursorPos.tick - (stageW / shown.pxPerTick) * 0.1) }, stageW, totalBars * bar)
+    if (rect.y < RULER_HEIGHT || rect.y + rect.h > stageH)
+      scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
+    await tick()
+    itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+  }
+
+  /** Page Up and Page Down (#494): the velocity of `chosen` by `delta`, one `clip.notes.update`, the value said. */
+  function changeVelocity(chosen: readonly Note[], delta: number, focused: Note | null) {
+    if (!edited || chosen.length === 0) return
+    const changes = stepVelocity(notes, chosen, delta)
+    const reference = focused ?? chosen[0]!
+    if (changes.length === 0) return announce(t('pianoRoll.saidVelocityLimit', { n: reference.velocity }))
+    run(updateNotes(edited.id, changes))
+    picked = afterChanges(new Set(chosen.map(noteKey)), changes)
+    const now = changes.find((c) => noteKey(c.from) === noteKey(reference))?.to ?? reference
+    lastVelocity = now.velocity
+    announce(t('pianoRoll.saidVelocity', { n: now.velocity }))
+    // The note's key holds its velocity: the focus follows it to its new key.
+    if (focused) void focusNote(noteKey(now))
+  }
+
+  function onCursorKey(event: KeyboardEvent, action: NonNullable<RovingKey>) {
+    if (!edited) return
+    // Delete and Escape go on to the roll: they remove or clear the selection.
+    if (action.kind === 'delete' || action.kind === 'free') return
+    event.preventDefault()
+    event.stopPropagation()
+    const at = cursorPos
+    if (action.kind === 'velocity') return changeVelocity(chosenNotes, action.delta, null)
+    if (action.kind === 'focus' || action.kind === 'extend') {
+      const big = action.kind === 'extend'
+      const next = moveCursor(
+        { row: MAX_PITCH - at.pitch, tick: at.tick },
+        action.direction,
+        { tick: big ? bar : cursorStep, row: big ? 12 : 1 },
+        MAX_PITCH + 1,
+        clipLength,
+      )
+      cursorAt = { pitch: MAX_PITCH - next.row, tick: next.tick }
+      void focusCursor()
+      return
+    }
+    if (action.kind !== 'open') return
+    const under = itemAt(noteItems, { row: MAX_PITCH - at.pitch, tick: at.tick })
+    if (under) {
+      picked = new Set([under.id])
+      onCursor = false
+      void focusNote(under.id)
+      return
+    }
+    const note = drawnNote(at.tick, null, at.pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+    if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
+    run(addNotes(edited.id, [note]))
+    picked = new Set([noteKey(note)])
+    onCursor = false
+    announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) }))
+    sound(note.pitch, note.velocity)
+    release()
+    void focusNote(noteKey(note))
   }
 
   function onNoteKey(event: KeyboardEvent) {
@@ -587,15 +738,29 @@
       event.stopPropagation()
       view = zoomAt(shown, zoom > 0 ? 1.25 : 1 / 1.25, stageW / 2, stageW, totalBars * bar)
       if (current) void focusNote(current.id)
+      else if ((event.target as HTMLElement).dataset.cursor !== undefined) void focusCursor()
       return
     }
     const action = rovingKey(event)
-    if (!current || !action || !edited) return
+    if (!action || !edited) return
+    if ((event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, action)
+    if (!current) return
     event.preventDefault()
     event.stopPropagation()
     if (action.kind === 'open') {
       sound(current.note.pitch, current.note.velocity)
       release()
+      return
+    }
+    if (action.kind === 'free') {
+      // Escape frees the cursor where the note is (#494); the selection stays (Escape again on the cursor clears it).
+      cursorAt = { pitch: current.note.pitch, tick: current.note.start }
+      void focusCursor()
+      return
+    }
+    if (action.kind === 'velocity') {
+      const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
+      changeVelocity(chosen, action.delta, current.note)
       return
     }
     if (action.kind === 'delete') {
@@ -608,6 +773,11 @@
       picked = new Set()
       announce(t('pianoRoll.saidDeleted', { n: chosen.length }))
       if (next) void focusNote(next.id)
+      else {
+        // The last note gone: the cursor takes the focus where it was, so the keyboard stays in the grid.
+        cursorAt = { pitch: current.note.pitch, tick: current.note.start }
+        void focusCursor()
+      }
       return
     }
     if (action.kind === 'move') {
@@ -890,10 +1060,18 @@
     data-selection={chosenNotes.length <= 32 ? JSON.stringify(chosenNotes) : undefined}
   >
     <div class="toolbar">
-      {#if clips.length > 1}
-        <select aria-label={t('pianoRoll.clip')} data-testid="roll-clip" value={edited.id} onchange={(e) => (ui.editedClip = e.currentTarget.value)}>
-          {#each clips as entry (entry.id)}
-            <option value={entry.id}>{listLabel(entry)}</option>
+      {#if entries.length > 1}
+        <select
+          aria-label={t('pianoRoll.clip')}
+          data-testid="roll-clip"
+          value={entryKey}
+          onchange={(e) => {
+            const entry = entries.find((x) => x.key === e.currentTarget.value)
+            if (entry) ui.editClip(entry.clip.id, entry.placement?.id ?? null)
+          }}
+        >
+          {#each entries as entry (entry.key)}
+            <option value={entry.key}>{listLabel(entry)}</option>
           {/each}
         </select>
       {/if}
@@ -1052,17 +1230,46 @@
           data-testid="roll-items"
           style:clip-path="inset({RULER_HEIGHT}px 0 0 0)"
           onkeydown={onNoteKey}
+          onfocusout={(event) => {
+            const to = event.relatedTarget as Node | null
+            if (to && !itemsEl?.contains(to)) itemsHadFocus = false
+          }}
           onfocusin={(event) => {
-            const key = (event.target as HTMLElement).dataset.note
-            if (key) focusKey = key
+            itemsHadFocus = true
+            const target = event.target as HTMLElement
+            if (target.dataset.note) {
+              focusKey = target.dataset.note
+              onCursor = false
+            } else if (target.dataset.cursor !== undefined) {
+              // Pinned where it was found: it no longer follows the view.
+              cursorAt ??= cursorPos
+              onCursor = true
+            }
           }}
         >
           <div role="row">
+            {#if stageW > 0}
+              <div
+                class="item cursor"
+                role="gridcell"
+                tabindex={cursorTab ? 0 : -1}
+                aria-selected="false"
+                aria-label={cursorText}
+                data-cursor=""
+                data-testid="roll-cursor"
+                data-pitch={cursorPos.pitch}
+                data-tick={cursorPos.tick}
+                style:left="{cursorRect.x}px"
+                style:top="{cursorRect.y}px"
+                style:width="{cursorRect.w}px"
+                style:height="{cursorRect.h}px"
+              ></div>
+            {/if}
             {#each shownNotes as cell (cell.item.id)}
               <div
                 class="item"
                 role="gridcell"
-                tabindex={cell.item.id === tabKey ? 0 : -1}
+                tabindex={cell.item.id === tabKey && !cursorTab ? 0 : -1}
                 aria-selected={chosenKeys.has(cell.item.id)}
                 aria-label={noteText(cell.item.note)}
                 data-note={cell.item.id}
@@ -1133,6 +1340,11 @@
   .item:focus-visible {
     outline: 2px solid var(--fk-accent-fg);
     outline-offset: 1px;
+  }
+  /* The free cursor (#494): seen only while it has the keyboard, as a tinted cell where Enter would write the note. */
+  .cursor:focus-visible {
+    background: var(--fk-accent-tint);
+    outline-style: dashed;
   }
   .roll {
     display: flex;

@@ -67,18 +67,71 @@ export function zoomKey(event: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' 
   return null
 }
 
-/** The keys of the roving focus: an arrow, with what it does. */
-export type RovingKey = { kind: 'focus' | 'extend' | 'move'; direction: Direction } | { kind: 'open' } | { kind: 'delete' } | null
+/**
+ * The keys of the roving focus: an arrow, with what it does; Enter, Delete, Escape (frees the cursor at the item, #494), and
+ * Page Up or Page Down (the selection's velocity, #494: by 10, by 1 with Shift).
+ */
+export type RovingKey =
+  | { kind: 'focus' | 'extend' | 'move'; direction: Direction }
+  | { kind: 'open' }
+  | { kind: 'delete' }
+  | { kind: 'free' }
+  | { kind: 'velocity'; delta: number }
+  | null
 
 const ARROWS: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-/** Arrows move the focus, Shift+arrows extend the selection, Alt+arrows move the item; Enter opens; Delete and Backspace remove. */
+/** The step of Page Up and Page Down on the velocity, and with Shift (#494). */
+export const VELOCITY_STEP = 10
+export const VELOCITY_FINE_STEP = 1
+
+/**
+ * Arrows move the focus, Shift+arrows extend the selection, Alt+arrows move the item; Enter opens (creates, on the free
+ * cursor); Delete and Backspace remove; Escape frees the cursor; Page Up and Page Down change the velocity (Shift: by 1).
+ */
 export function rovingKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>): RovingKey {
   if (event.ctrlKey || event.metaKey) return null
   const direction = ARROWS[event.key]
   if (direction) return { kind: event.altKey ? 'move' : event.shiftKey ? 'extend' : 'focus', direction }
-  if (event.altKey || event.shiftKey) return null
+  if (event.altKey) return null
+  if (event.key === 'PageUp' || event.key === 'PageDown')
+    return { kind: 'velocity', delta: (event.key === 'PageUp' ? 1 : -1) * (event.shiftKey ? VELOCITY_FINE_STEP : VELOCITY_STEP) }
+  if (event.shiftKey) return null
   if (event.key === 'Enter') return { kind: 'open' }
   if (event.key === 'Delete' || event.key === 'Backspace') return { kind: 'delete' }
+  if (event.key === 'Escape') return { kind: 'free' }
   return null
+}
+
+/** The free cursor (#494): a row (a track, or a pitch row where 0 is the highest pitch) and a tick, where no item needs to be. */
+export interface Cursor {
+  row: number
+  tick: number
+}
+
+/**
+ * Where an arrow takes the free cursor: Left and Right by `steps.tick` (kept on that step's grid inside `[0, end)`), Up and
+ * Down by `steps.row` rows (kept in `[0, rows)`). A step past an edge stops at the edge, so the cursor never leaves the grid.
+ */
+export function moveCursor(cursor: Cursor, direction: Direction, steps: { tick: number; row: number }, rows: number, end: number): Cursor {
+  if (direction === 'up' || direction === 'down') {
+    const row = cursor.row + (direction === 'up' ? -steps.row : steps.row)
+    return { row: Math.min(Math.max(0, row), Math.max(0, rows - 1)), tick: cursor.tick }
+  }
+  const step = Math.max(1, Math.round(steps.tick))
+  const last = Math.max(0, Math.floor((Math.max(1, end) - 1) / step) * step)
+  const from = Math.floor(Math.max(0, cursor.tick) / step) * step
+  if (direction === 'left') return { row: cursor.row, tick: Math.max(0, from < cursor.tick ? from : from - step) }
+  // Off the grid (a clip's start between two steps), Right first goes to the next step.
+  return from + step > last ? cursor : { row: cursor.row, tick: from + step }
+}
+
+/** The item under the cursor: in its row, the one whose span holds its tick (the latest start first), or null. */
+export function itemAt<T extends Item>(items: readonly T[], cursor: Cursor): T | null {
+  let found: T | null = null
+  for (const item of items) {
+    if (item.row !== cursor.row || cursor.tick < item.start || cursor.tick >= item.end) continue
+    if (!found || item.start > found.start) found = item
+  }
+  return found
 }

@@ -7,7 +7,8 @@
    */
   import { INSTRUMENTS, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { createTrack, redo, selectTrack, undo } from '../../lib/track-commands'
+  import { createTrack, selectTrack } from '../../lib/track-commands'
+  import { runHistory } from '../../lib/history-said'
   import TrackInspector from './TrackInspector.svelte'
 
   const { project, engine, ui, dispatcher, keys } = useStores()
@@ -52,8 +53,8 @@
 <aside class="tracks" aria-labelledby="fk-tracks-title" data-testid="track-list" data-track-count={project.view ? project.tracks.length : undefined}>
   <div class="head">
     <h2 id="fk-tracks-title" class="label">{t('tracks.title')}</h2>
-    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())}>{t('tracks.undo')}</button>
-    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => dispatcher.run(redo())}>{t('tracks.redo')}</button>
+    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => runHistory(dispatcher, ui, 'undo')}>{t('tracks.undo')}</button>
+    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => runHistory(dispatcher, ui, 'redo')}>{t('tracks.redo')}</button>
   </div>
   <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
   <button

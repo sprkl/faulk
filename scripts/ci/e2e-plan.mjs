@@ -35,10 +35,10 @@ export const RULES = [
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard']],
+  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'keyboard-create']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'grid', 'grid-clips', 'grid-to-arrangement']],
-  [/^web\/src\/views\/history\//, ['history', 'history-cost']],
-  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard']],
+  [/^web\/src\/views\/history\//, ['history', 'history-cost', 'keyboard-create']],
+  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state']],
   [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'layout-4', 'master-chain', 'master-pan', 'track-state']],
   [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state']],

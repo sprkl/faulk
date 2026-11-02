@@ -66,6 +66,11 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidMoved': 'Moved, {pitch}',
     'pianoRoll.saidCannotMove': 'Cannot move further',
     'pianoRoll.saidDeleted': 'Notes deleted: {n}',
+    'pianoRoll.cursorItem': 'Cursor, {pitch}, bar {bar} beat {beat}',
+    'pianoRoll.saidAdded': 'Note added, {pitch}',
+    'pianoRoll.saidNoRoom': 'No room for a note here',
+    'pianoRoll.saidVelocity': 'Velocity {n}',
+    'pianoRoll.saidVelocityLimit': 'Velocity already at {n}',
     'pianoRoll.keyboard': 'Keyboard of the piano roll',
     'pianoRoll.velocity': 'Velocity of the notes',
     'pianoRoll.velocityHint':
@@ -135,6 +140,11 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidMoved': 'Déplacée, {pitch}',
     'pianoRoll.saidCannotMove': 'Impossible d’aller plus loin',
     'pianoRoll.saidDeleted': 'Notes supprimées : {n}',
+    'pianoRoll.cursorItem': 'Curseur, {pitch}, mesure {bar} temps {beat}',
+    'pianoRoll.saidAdded': 'Note ajoutée, {pitch}',
+    'pianoRoll.saidNoRoom': 'Pas de place pour une note ici',
+    'pianoRoll.saidVelocity': 'Vélocité {n}',
+    'pianoRoll.saidVelocityLimit': 'Vélocité déjà à {n}',
     'pianoRoll.keyboard': 'Clavier du piano roll',
     'pianoRoll.velocity': 'Vélocité des notes',
     'pianoRoll.velocityHint':
