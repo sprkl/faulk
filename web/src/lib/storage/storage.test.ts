@@ -233,6 +233,10 @@ interface World {
   /** The files the user "chooses" for an import, and what the page hands over for download. */
   packs: (File | null)[]
   downloads: { name: string; blob: Blob }[]
+  /** What each link answers for `openUrl` (#497): bytes, or a network failure; the links asked for. */
+  served: Map<string, Uint8Array | 'unreachable'>
+  fetched: { url: string; init: RequestInit | undefined }[]
+  pageHostname: string
   edit(): void
 }
 
@@ -254,6 +258,9 @@ function world(): World {
     supported: true,
     packs: [] as (File | null)[],
     downloads: [] as { name: string; blob: Blob }[],
+    served: new Map(),
+    fetched: [],
+    pageHostname: 'faulk.app',
   } as unknown as World
   w.host = new FakeHost()
   w.browser = new FakeBrowser(w, () => Date.now())
@@ -303,6 +310,15 @@ function world(): World {
     download: (name, blob) => {
       w.downloads.push({ name, blob })
     },
+    fetch: async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      w.fetched.push({ url, init })
+      const answer = w.served.get(url)
+      if (answer === undefined) return new Response('not found', { status: 404 })
+      if (answer === 'unreachable') throw new TypeError('Failed to fetch')
+      return new Response(answer as Uint8Array<ArrayBuffer>)
+    },
+    pageHostname: () => w.pageHostname,
   }
   w.storage = new ProjectStorage(w.host, w.deps)
   w.edit = () => {
@@ -2176,6 +2192,153 @@ describe('the core is ready before the first click (#323)', () => {
     expect(await w.storage.resume()).toBe(false)
     expect(w.storage.folder).toBeNull()
     expect(store.files.get('project.json')).toBe('rev 1')
+  })
+})
+
+describe('open a .faulkpack by its link (#497)', () => {
+  const LINK = 'https://cdn.example.org/tracks/a/project.faulkpack'
+
+  it('downloads it without credentials, keeps it in a new directory of the browser and opens it', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    // The banner names the host while the download runs.
+    const fetching = w.deps.fetch
+    let during: string | null = null
+    w.deps.fetch = (input, init) => ((during = w.storage.downloading), fetching(input, init))
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    expect(during).toBe('cdn.example.org')
+    expect(w.storage.downloading).toBeNull()
+    expect(w.fetched).toEqual([{ url: LINK, init: expect.objectContaining({ credentials: 'omit' }) }])
+    const dir = w.browser.only
+    expect(w.host.opened.map((o) => o.name)).toEqual([`browser/${dir}`])
+    expect(w.storage.place).toBe('browser')
+    expect(w.storage.notice).toBeNull()
+  })
+
+  it('keeps the current project: a changed one is kept in its own draft before the pack opens', async () => {
+    const w = world()
+    w.browser.available = true
+    w.edit()
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    expect(w.browser.handles.size).toBe(2)
+    expect(w.storage.confirm).toBeNull()
+  })
+
+  it('refuses a link the page does not fetch, plain http included, and downloads nothing', async () => {
+    const w = world()
+    w.browser.available = true
+    for (const link of ['http://example.org/a.faulkpack', 'http://localhost:5497/a.faulkpack', 'ftp://example.org/a', 'nonsense']) {
+      w.storage.dismissNotice()
+      expect(await w.storage.openUrl(link)).toBe(false)
+      expect(w.storage.notice).toBe('openUrl.refused')
+    }
+    expect(w.fetched).toEqual([])
+    // On a page served from this computer, http to this computer is fine.
+    w.pageHostname = 'localhost'
+    w.served.set('http://localhost:5497/a.faulkpack', text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl('http://localhost:5497/a.faulkpack')).toBe(true)
+  })
+
+  it('says the host could not be reached, offers the file import, and changes nothing', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, 'unreachable')
+    expect(await w.storage.openUrl(LINK)).toBe(false)
+    expect(w.storage.downloadFailed).toBe('cdn.example.org')
+    expect(w.storage.errorDetail).toBe('Failed to fetch')
+    // A missing file is the same failure.
+    w.storage.dismissDownloadFailed()
+    expect(await w.storage.openUrl('https://cdn.example.org/gone.faulkpack')).toBe(false)
+    expect(w.storage.downloadFailed).toBe('cdn.example.org')
+    expect(w.browser.created).toEqual([])
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('refuses an invalid pack and one too big, leaving the current project and the browser as they were', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = { status: 'failed', message: 'bad zip' }
+    expect(await w.storage.openUrl(LINK)).toBe(false)
+    expect(w.storage.notice).toBe('pack.invalid')
+    w.served.set(LINK, new Uint8Array(MAX_PACK_BYTES + 1))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl(LINK)).toBe(false)
+    expect(w.storage.notice).toBe('pack.tooBig')
+    expect(w.browser.created).toEqual([])
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('opened again, the same link opens the copy the browser keeps, never a second one', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    const dir = w.browser.only
+    // The page's core now has the pack's project (the stand-in does not read it from the files).
+    w.host.id = 'pack-1'
+    // Still open: nothing to do.
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    expect(w.storage.notice).toBe('openUrl.alreadyOpen')
+    // Another project open: the kept copy comes back.
+    await w.storage.newProject()
+    w.storage.dismissNotice()
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    expect(w.storage.notice).toBe('openUrl.keptCopy')
+    expect(w.browser.created).toEqual([dir])
+    expect(w.host.opened.map((o) => o.name)).toEqual([`browser/${dir}`, `browser/${dir}`])
+  })
+
+  it('downloads one link after the other', async () => {
+    const w = world()
+    w.browser.available = true
+    const other = 'https://other.example.net/b.faulkpack'
+    w.served.set(LINK, 'unreachable')
+    w.served.set(other, text('zip'))
+    w.host.unpacked = packOf('pack-2')
+    const first = w.storage.openUrl(LINK)
+    const second = w.storage.openUrl(other)
+    expect(await first).toBe(false)
+    expect(await second).toBe(true)
+    expect(w.fetched.map((f) => f.url)).toEqual([LINK, other])
+    // The second download started after the first had failed: its banner was cleared for it.
+    expect(w.storage.downloadFailed).toBeNull()
+  })
+
+  it('asks about a link of the address before anything is downloaded', async () => {
+    const w = world()
+    w.storage.offerLink(LINK)
+    expect(w.storage.linkOffer).toEqual({ url: LINK, host: 'cdn.example.org' })
+    expect(w.storage.answerLink(false)).toBeNull()
+    expect(w.storage.linkOffer).toBeNull()
+    w.storage.offerLink(LINK)
+    expect(w.storage.answerLink(true)).toBe(LINK)
+    expect(w.fetched).toEqual([])
+    // A link the page would not fetch is refused at once, with no question.
+    w.storage.offerLink('http://example.org/a.faulkpack')
+    expect(w.storage.linkOffer).toBeNull()
+    expect(w.storage.notice).toBe('openUrl.refused')
+  })
+
+  it('shows the download, then its failure, before any notice, and never above what stops the work (#474)', () => {
+    const w = world()
+    w.storage.notice = 'storage.refused'
+    w.storage.downloadFailed = 'cdn.example.org'
+    expect(w.storage.banner).toBe('downloadFailed')
+    w.storage.downloading = 'cdn.example.org'
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.block = 'error'
+    expect(w.storage.banner).toBe('error')
+    w.storage.block = null
+    w.storage.downloading = null
+    w.storage.dismissDownloadFailed()
+    expect(w.storage.banner).toBe('notice')
   })
 })
 

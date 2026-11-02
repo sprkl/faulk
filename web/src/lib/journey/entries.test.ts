@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { audioUrl, collect, ENTRIES, entryErrors, folderOf, midiUrl, sheetUrl } from './entries'
+import { audioUrl, collect, ENTRIES, entryErrors, folderOf, midiUrl, packUrl, sheetUrl } from './entries'
 import type { JourneyEntry } from './types'
 
 const files = readdirSync(new URL('./entries/', import.meta.url)).filter((f) => f.endsWith('.ts'))
@@ -26,6 +26,7 @@ describe('journey entries', () => {
     expect(audioUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/track.mp3`)
     expect(midiUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/track.mid`)
     expect(sheetUrl(e)).toBe(`https://github.com/sprkl/faulk-journey/blob/main/tracks/${folderOf(e)}/sheet.md`)
+    expect(packUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/project.faulkpack`)
   })
 
   it('refuses each kind of mistake, by name', () => {

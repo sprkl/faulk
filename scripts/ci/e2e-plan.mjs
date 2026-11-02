@@ -46,14 +46,14 @@ export const RULES = [
   [/^web\/src\/views\/tracks\//, ['tracks', 'track-order', 'lane-rows', 'discoverability']],
   [/^web\/src\/views\/keyboard\//, ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state']],
   [/^web\/src\/views\/shell\/ExportDialog\./, ['export-audio']],
-  [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability']],
+  [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url']],
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, ['discoverability', 'keyboard-all-views', 'navigation']],
   [/^web\/src\/lib\/(shortcuts\.ts|i18n\/shortcuts\.ts)/, ['discoverability', 'keyboard-all-views']],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, ['bottom-panel', 'layout-4', 'ux-quick-wins']],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability']],
   // Libraries with one clear audience.
   [/^web\/src\/lib\/export\//, ['export-audio']],
-  [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability']],
+  [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url']],
   [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input']],
   [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability']],
   // The landing page's bar and footer are the Journey page's too.

@@ -430,6 +430,7 @@ export class Dispatcher {
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
       importPack: () => void this.storage?.importPack(),
+      openUrl: (url) => void this.storage?.openUrl(url),
       reopenLast: () => void this.storage?.reopenLast(),
       openFolder: () => void this.storage?.openFolder(),
       openRecent: (id) => void this.storage?.openRecent(id),
