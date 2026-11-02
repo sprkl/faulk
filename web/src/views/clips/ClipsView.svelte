@@ -12,12 +12,15 @@
   import { deleteClip } from '../../lib/clip-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
+  import { trackColor } from '../../lib/project/tracks'
 
   const { project, dispatcher, ui, engine } = useStores()
   const t = ui.t
 
   const trackId = $derived(project.view?.session.selected_track ?? null)
   const track = $derived(trackId ? (project.view?.project.tracks[trackId] ?? null) : null)
+  /** The colour a clip without its own shows: its track's, as in the timeline. */
+  const color = $derived(project.selected ? trackColor(project.selected.track.color, project.selected.index) : 'currentColor')
   const pool = $derived(project.view && trackId ? poolOf(project.view.project, trackId) : [])
   const free = $derived(project.view && trackId ? freeScene(project.view.project, trackId) : null)
 
@@ -84,7 +87,7 @@
             ondragstart={(event) => onDragStart(event, entry)}
             onkeydown={(event) => onKey(event, entry)}
           >
-            <span class="swatch" style:background={entry.clip.color ?? 'currentColor'} aria-hidden="true"></span>
+            <span class="swatch" style:background={entry.clip.color ?? color} aria-hidden="true"></span>
             <span class="name">{entry.clip.name || t('clips.audio')}</span>
           </span>
           {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
@@ -137,7 +140,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) 72px minmax(9rem, auto) auto;
     align-items: center;
     gap: var(--fk-space-3);
     padding: var(--fk-space-1) var(--fk-space-3);
@@ -169,17 +172,21 @@
     font-style: italic;
   }
   .linked {
+    grid-column: 2;
     display: inline-flex;
     align-items: center;
     gap: var(--fk-space-1);
     font-size: 0.85em;
   }
   .where {
+    grid-column: 3;
+    text-align: right;
     color: var(--fk-text-muted);
     font-size: 0.85em;
     font-variant-numeric: tabular-nums;
   }
   .actions {
+    grid-column: 4;
     display: flex;
     gap: var(--fk-space-1);
   }

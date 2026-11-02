@@ -65651,7 +65651,7 @@
               "oneOf": [
                 {
                   "additionalProperties": false,
-                  "description": "Put a MIDI clip of the arrangement again in the arrangement, as a new placement of\nthe same clip (a linked clip: editing the clip changes every placement of it). A\nclip that sits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot`. `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (a clip with a loop repeats\nit, one without is silent after its end). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). Undo: `arrangement.restore`.",
+                  "description": "Put a MIDI clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). Undo: `arrangement.restore`.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -65753,7 +65753,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops. Refused when the clip has\nnothing left to play at `at` (a clip without a loop that ended before). Undo:\n`arrangement.restore`.",
+                  "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops (round the clip's loop, or round\nthe whole clip when it has none). Undo:\n`arrangement.restore`.",
                   "properties": {
                     "at": {
                       "$ref": "#/$defs/Tick"
@@ -65778,7 +65778,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Delete placements, in one command. A clip that sits in the launch grid or has\nother placements stays; a clip of the arrangement only that loses its last\nplacement is deleted with it (the undo brings it back with its notes). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+                  "description": "Delete placements, in one command. Their clips stay in their tracks, even one that\nloses its last placement and sits in no grid slot: it stays in the track's pool,\nwhere `arrangement.place` puts it back and `clip.delete` deletes it. Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
                   "properties": {
                     "placements": {
                       "items": {
@@ -65923,7 +65923,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip of the arrangement only\nthat loses its last placement is deleted with it (the undo brings it back with its\nnotes). The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
+                  "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
                   "properties": {
                     "from": {
                       "$ref": "#/$defs/Tick"
@@ -66670,7 +66670,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid, which is refused when no placement of the arrangement plays it. A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+                  "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
                   "properties": {
                     "clip": {
                       "$ref": "#/$defs/ClipId"
@@ -70370,12 +70370,6 @@
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
                     "overwritten": {
                       "description": "How many other placements were carved.",
                       "format": "uint32",
@@ -70394,20 +70388,13 @@
                   "required": [
                     "type",
                     "placement",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
                     "overwritten": {
                       "description": "How many other placements were carved.",
                       "format": "uint32",
@@ -70421,20 +70408,13 @@
                   },
                   "required": [
                     "type",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
                     "overwritten": {
                       "description": "How many other placements were carved.",
                       "format": "uint32",
@@ -70448,8 +70428,7 @@
                   },
                   "required": [
                     "type",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
@@ -70474,12 +70453,6 @@
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
                     "deleted": {
                       "description": "How many placements were deleted.",
                       "format": "uint32",
@@ -70493,8 +70466,7 @@
                   },
                   "required": [
                     "type",
-                    "deleted",
-                    "clips_removed"
+                    "deleted"
                   ],
                   "type": "object"
                 },
@@ -70507,12 +70479,6 @@
                         "$ref": "#/$defs/ClipId"
                       },
                       "type": "array"
-                    },
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
                     },
                     "overwritten": {
                       "description": "How many other placements were carved.",
@@ -70536,8 +70502,7 @@
                     "type",
                     "placements",
                     "clips",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
@@ -70554,12 +70519,6 @@
                         }
                       ],
                       "description": "The independent copy created (none when `linked`)."
-                    },
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
                     },
                     "overwritten": {
                       "description": "How many other placements were carved.",
@@ -70579,8 +70538,7 @@
                   "required": [
                     "type",
                     "placement",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
@@ -70593,12 +70551,6 @@
                         "$ref": "#/$defs/ClipId"
                       },
                       "type": "array"
-                    },
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
                     },
                     "overwritten": {
                       "description": "How many other placements were carved.",
@@ -70622,8 +70574,7 @@
                     "type",
                     "placements",
                     "clips",
-                    "overwritten",
-                    "clips_removed"
+                    "overwritten"
                   ],
                   "type": "object"
                 },
@@ -70669,12 +70620,6 @@
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "clips_removed": {
-                      "description": "How many clips of the arrangement lost their last placement and were deleted.",
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
                     "cut": {
                       "description": "How many placements were shortened, trimmed at the front or split.",
                       "format": "uint32",
@@ -70721,8 +70666,7 @@
                     "shifted",
                     "points_removed",
                     "points_shifted",
-                    "loop_changed",
-                    "clips_removed"
+                    "loop_changed"
                   ],
                   "type": "object"
                 },
@@ -1101214,7 +1101158,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 12,
+  "protocol_version": 15,
   "server_message": {
     "$defs": {
       "MidiInput": {

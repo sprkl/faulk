@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 15;
+
+// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip. 13 and 14 are #509 (MIDI recording) and #512 (history and names), merged before.
 
 // Version 12 (#469): the feedback layout is version 4: each meter carries the largest gain reduction, in decibels, of the devices of its strip (the Compressor), 20 bytes instead of 16. A page and a helper of different versions refuse each other.
 
