@@ -96,7 +96,7 @@
             <button
               class="ghost"
               type="button"
-                            disabled={!entry.midi}
+              disabled={!entry.midi}
               title={t('clips.placeHint')}
               data-testid="pool-place"
               onclick={(event) => place(entry, event.altKey)}>{t('clips.place')}</button
@@ -104,17 +104,13 @@
             <button
               class="ghost"
               type="button"
-                            disabled={!entry.midi || !free}
+              disabled={!entry.midi || !free}
               title={free ? t('clips.toGridHint') : t('clips.noFreeSlot')}
               data-testid="pool-grid"
               onclick={(event) => toGrid(entry, event.altKey)}>{t('clips.toGrid')}</button
             >
-            <button
-              class="ghost"
-              type="button"
-                            title={t('clips.deleteHint')}
-              data-testid="pool-delete"
-              onclick={() => dispatcher.run(deleteClip(entry.id))}>{t('clips.delete')}</button
+            <button class="ghost" type="button" title={t('clips.deleteHint')} data-testid="pool-delete" onclick={() => dispatcher.run(deleteClip(entry.id))}
+              >{t('clips.delete')}</button
             >
           </span>
         </li>
