@@ -16,7 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import { EDIT_TOOLS, SNAPSHOT_TOOLS, SUBAGENT_TOOLS } from "../agent-review/guard-core.mjs";
-import { codeState, currentRef, headMovesSince, hookRoots } from "./fingerprint.mjs";
+import { codeState, currentRef, headMovesSince, hookRoots, refTip } from "./fingerprint.mjs";
 import {
   editTarget,
   isGuardedFile,
@@ -51,6 +51,10 @@ function afterSnapshotCall(session, input, agent) {
   for (const root of roots) {
     const ref = currentRef(root);
     if (session.isWriter(root, ref, agent)) {
+      // Keep the marker's last known commit current (qa-guard: a branch merged then deleted).
+      if (ref !== null) {
+        session.noteTip(root, ref, agent, refTip(root, ref));
+      }
       continue;
     }
     const snapshot = before.get(root);

@@ -4,19 +4,32 @@
   import LangSwitch from './LangSwitch.svelte'
   import type { Text } from './types'
 
-  let { t, lang }: { t: Text; lang: Lang } = $props()
+  /** `page`: as for `Nav`, the section links lead back to the landing page from the Journey page. */
+  let { t, lang, page = 'home', langHref: pageLangHref }: { t: Text; lang: Lang; page?: 'home' | 'journey'; langHref?: (l: Lang) => string } = $props()
+
+  const home = $derived(resolve('/[lang=lang]', { lang }))
+  const section = (id: string) => (page === 'home' ? `#${id}` : `${home}#${id}`)
+  /** The language switch leads to this page in the other language: `langHref`, else the landing page. */
+  const langHref = (l: Lang) => pageLangHref?.(l) ?? resolve('/[lang=lang]', { lang: l })
+  const SECTIONS = [
+    ['modes', 'nav.modes'],
+    ['boost', 'nav.boost'],
+    ['modules', 'nav.modules'],
+  ] as const
 </script>
 
 <footer class="lp-wrap footer">
   <div class="row">
     <nav aria-label={t('footer.label')}>
-      <a href="#modes">{t('nav.modes')}</a>
-      <a href="#boost">{t('nav.boost')}</a>
-      <a href="#modules">{t('nav.modules')}</a>
+      {#each SECTIONS as [id, label] (id)}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- a fragment, or the resolved landing page plus a fragment -->
+        <a href={section(id)}>{t(label)}</a>
+      {/each}
+      <a href={resolve('/[lang=lang]/journey', { lang })}>{t('nav.journey')}</a>
       <a href={resolve('/app')} data-sveltekit-reload>{t('nav.open')}</a>
     </nav>
     <div class="right">
-      <LangSwitch {t} {lang} />
+      <LangSwitch {t} {lang} href={langHref} />
       <span class="lp-mono site">{t('footer.site')}</span>
     </div>
   </div>

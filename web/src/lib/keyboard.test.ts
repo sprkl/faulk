@@ -408,6 +408,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/keyboard.ts': ['Space'], // trackFocusOrigin only notes that a key was pressed; it triggers nothing
       'lib/components/ColorPicker.svelte': ['End', 'Escape', 'Home', 'Home', 'Tab'], // the palette's grid of a popup, like a menu: it reads no letter; arrows, Home, End, Escape and Tab only
       'lib/components/Slider.svelte': ['Enter'], // opens the value field (#365)
+      'lib/journey/live/index.ts': [], // the Journey page's seek slider (not the DAW): arrows, Page keys, Home and End through seekByKey (live/time.ts), no letter
       'lib/components/ValueField.svelte': ['Enter', 'Escape'],
       'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],

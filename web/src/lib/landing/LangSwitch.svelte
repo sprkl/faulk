@@ -3,20 +3,16 @@
   import { LANGS, type Lang } from '../i18n/lang'
   import type { Text } from './types'
 
-  /** Real links to `/en` and `/fr`; the inline script stores the choice on click. */
-  let { t, lang }: { t: Text; lang: Lang } = $props()
+  /** Real links to `/en` and `/fr` (or `href`'s pages); the inline script stores the choice on click. */
+  let { t, lang, href = (l: Lang) => resolve('/[lang=lang]', { lang: l }) }: { t: Text; lang: Lang; href?: (l: Lang) => string } = $props()
 </script>
 
 <ul class="switch" aria-label={t('lang.label')}>
   {#each LANGS as l (l)}
     <li>
-      <a
-        href={resolve('/[lang=lang]', { lang: l })}
-        hreflang={l}
-        lang={l}
-        data-lang={l}
-        aria-current={l === lang ? 'page' : undefined}
-        aria-label={t(l === 'en' ? 'lang.en' : 'lang.fr')}>{l.toUpperCase()}</a
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- `href` returns resolved paths -->
+      <a href={href(l)} hreflang={l} lang={l} data-lang={l} aria-current={l === lang ? 'page' : undefined} aria-label={t(l === 'en' ? 'lang.en' : 'lang.fr')}
+        >{l.toUpperCase()}</a
       >
     </li>
   {/each}
