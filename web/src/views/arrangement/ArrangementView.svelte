@@ -218,9 +218,13 @@
       laneBase,
     ),
   )
+  // Read again when the density changes (`data-density` on the page's root or body), so that the compact rows follow.
   $effect(() => {
-    const token = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fk-lane'))
-    laneBase = clampClipRow(token)
+    const read = () => (laneBase = clampClipRow(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fk-lane'))))
+    read()
+    const observer = new MutationObserver(read)
+    for (const node of [document.documentElement, document.body]) observer.observe(node, { attributes: true, attributeFilter: ['data-density'] })
+    return () => observer.disconnect()
   })
 
   // --- reordering by drag: a row's colour bar picks it up, dropping it on another row puts it at that row's place

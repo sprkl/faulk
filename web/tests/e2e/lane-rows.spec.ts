@@ -92,6 +92,11 @@ test('a row is resized by its handle, from the pointer and the keyboard, and the
   await expect(handle).toHaveAttribute('aria-valuenow', '48')
   await handle.dblclick()
   await expect(handle).toHaveAttribute('aria-valuenow', '44')
+  // The compact density takes the lane-compact token, 28 px, for the rows without a height of their own.
+  await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'))
+  await expect(page.getByTestId('track-header').nth(1)).toHaveAttribute('data-height', '28')
+  await page.evaluate(() => document.documentElement.removeAttribute('data-density'))
+  await expect(page.getByTestId('track-header').nth(1)).toHaveAttribute('data-height', '44')
   // The height is the page's: it stays across a view switch.
   await handle.focus()
   await page.keyboard.press('Shift+ArrowDown')

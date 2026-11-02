@@ -223,7 +223,7 @@
       aria-pressed={selected}
       aria-label={name}
       aria-describedby="fk-lane-info-{entry.id}"
-      title={t('arrangement.laneHint')}
+      title={detached ? `${t('arrangement.offTimeline')}. ${t('arrangement.laneHint')}` : t('arrangement.laneHint')}
       data-testid="arr-track"
       onclick={select}
       ondblclick={startRename}
