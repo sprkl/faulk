@@ -213,6 +213,8 @@ export class Dispatcher {
    * new session's. Returns the new project's name.
    */
   private async adopt(core: ProjectCore, step: Exclude<EngineStep, { refused: unknown }>): Promise<string> {
+    // Another project: the core forgot its take, the page drops its own.
+    this.recorder?.engineReplaced()
     this.state.activeNotes = []
     this.state.notice = null
     this.mirror(step.events)

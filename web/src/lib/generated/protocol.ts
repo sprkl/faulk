@@ -939,6 +939,11 @@ type: "record.stop"
 type: "record.discard_take"
 } | {
 shift_ms?: number
+/**
+ * The take of `record.start` these notes are, when they are one: it is then
+ * written and the next take may start. Leave it out to write notes of your own.
+ */
+take?: (number | null)
 target: RecordTarget
 tracks: TakeTrack[]
 type: "record.commit_take"

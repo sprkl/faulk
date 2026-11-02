@@ -66,10 +66,9 @@ describe('Recorder', () => {
     // A report of the previous take: ignored.
     r.recorder.feedback(report({ recordTake: 4, recordTotal: 1, recorded: [note(0, 0, 999)] }))
     r.recorder.feedback(report({ recordTake: 5, recordCapturing: true, recordTotal: 1, recorded: [note(0, 0, 100)] }))
-    // The same note again, then a new one, and a note of an unarmed slot.
-    r.recorder.feedback(report({ recordTake: 5, recordCapturing: true, recordTotal: 3, recorded: [note(0, 0, 100), note(1, 0, 400, 62), note(2, 1, 500)] }))
+    // The same note again, then a new one.
+    r.recorder.feedback(report({ recordTake: 5, recordCapturing: true, recordTotal: 3, recorded: [note(0, 0, 100), note(1, 0, 400, 62)] }))
     expect(r.recorder.notes.a?.map((n) => n.start)).toEqual([100, 400])
-    expect(r.recorder.notes.b).toBeUndefined()
     r.at(1000)
     r.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
     expect(r.recorder.phase).toBe('closing')
@@ -83,6 +82,7 @@ describe('Recorder', () => {
     expect(r.ran).toEqual([
       {
         type: 'record.commit_take',
+        take: 1,
         target: { at: 'arrangement' },
         shift_ms: 25,
         tracks: [
@@ -167,8 +167,30 @@ describe('Recorder', () => {
     start(r)
     expect(r.recorder.instead({ type: 'history.undo' })).toEqual({ type: 'record.discard_take' })
     expect(r.recorder.instead({ type: 'history.redo' })).toBeNull()
+    // Waiting to be written: an undo drops it too, it never reaches an older entry.
     r.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
+    expect(r.recorder.instead({ type: 'history.undo' })).toEqual({ type: 'record.discard_take' })
+    r.recorder.ran({ type: 'record.discard_take' }, { take: 1 }, [changed(1, 'discarded')])
     expect(r.recorder.instead({ type: 'history.undo' })).toBeNull()
+  })
+
+  it('keeps the notes of a track armed during the take', () => {
+    const r = rig()
+    start(r)
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, recordTotal: 2, recorded: [note(0, 0, 10), note(1, 1, 20)] }))
+    expect(Object.keys(r.recorder.notes).sort()).toEqual(['a', 'b'])
+  })
+
+  it('after a new engine, takes the first engine take it sees capturing, not an old one still in a report', () => {
+    const r = rig()
+    r.recorder.feedback(report({ recordTake: 7 }))
+    r.recorder.engineReplaced()
+    start(r)
+    // A report of the old take, not capturing: not this take.
+    r.recorder.feedback(report({ recordTake: 7, recordTotal: 1, recorded: [note(0, 0, 999)] }))
+    expect(r.recorder.notes).toEqual({})
+    r.recorder.feedback(report({ recordTake: 8, recordCapturing: true, recordTotal: 1, recorded: [note(0, 0, 5)] }))
+    expect(r.recorder.notes.a?.map((n) => n.start)).toEqual([5])
   })
 
   it('ends when another author discards or commits the take', () => {

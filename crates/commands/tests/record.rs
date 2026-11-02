@@ -283,6 +283,7 @@ fn commit(
     let mut state = r.state.clone();
     let outcome = commands::run(
         &Command::Record(R::CommitTake {
+            take: None,
             target,
             shift_ms,
             tracks,
@@ -422,7 +423,8 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
                 note(1000, 62, 240),
                 note(5000, 64, 4000),
                 note(12000, 65, 240),
-                note(-10, 66, 240),
+                note(-300, 66, 240),
+                note(-10, 67, 240),
             ],
             None,
         ),
@@ -430,7 +432,7 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
     let RO::CommitTake { clips, dropped } = out else {
         panic!()
     };
-    assert_eq!(dropped, 1, "the note before tick 0");
+    assert_eq!(dropped, 1, "the note that ends before tick 0");
     assert_eq!(clips.len(), 3, "{clips:?}");
     assert!(notes_of(&state, &r.placed_clip).contains(&Note::new(Tick(320), 60, Tick(240), 100)));
     let track = &state.project.tracks[&r.track];
@@ -458,6 +460,8 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
     assert_eq!(
         placed[0].2,
         vec![
+            // Played across tick 0: it starts there.
+            Note::new(Tick(0), 67, Tick(230), 100),
             Note::new(Tick(1000), 62, Tick(240), 100),
             Note::new(Tick(5000), 64, Tick(2680), 100),
         ]
@@ -484,6 +488,7 @@ fn a_take_is_one_history_entry_that_one_undo_removes_and_redo_brings_back() {
     let (out, events, _) = run(
         &mut s,
         R::CommitTake {
+            take: Some(1),
             target: RecordTarget::Scene {
                 scene: r.empty.clone(),
             },
@@ -525,19 +530,34 @@ fn a_bad_take_or_restore_is_refused_and_changes_nothing() {
     let mut s = synced(&r);
     for c in [
         R::CommitTake {
+            take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: f64::NAN,
             tracks: take(&r, vec![note(0, 60, 100)], None),
         },
         R::CommitTake {
+            take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
             tracks: take(&r, vec![note(0, 60, 0)], None),
         },
         R::CommitTake {
+            take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
             tracks: [take(&r, vec![], None), take(&r, vec![], None)].concat(),
+        },
+        R::CommitTake {
+            take: None,
+            target: RecordTarget::Arrangement {},
+            shift_ms: 0.0,
+            tracks: take(&r, vec![note(0, 60, i64::MAX)], None),
+        },
+        R::CommitTake {
+            take: None,
+            target: RecordTarget::Arrangement {},
+            shift_ms: 0.0,
+            tracks: take(&r, vec![note(i64::MIN + 1, 60, 10)], None),
         },
         R::Restore { clips: vec![] },
         // A note outside its clip.
@@ -564,4 +584,40 @@ fn a_bad_take_or_restore_is_refused_and_changes_nothing() {
         refused(&mut s, c);
         assert_eq!(s.state, before);
     }
+}
+
+#[test]
+fn a_commit_without_the_take_number_leaves_the_take_waiting() {
+    let r = rec();
+    let mut s = synced(&r);
+    run(
+        &mut s,
+        R::Start {
+            target: None,
+            latency_ms: None,
+        },
+    );
+    run(&mut s, R::Stop {});
+    // An agent's own notes, or a redo of an older take: the waiting take stays.
+    for take in [None, Some(7)] {
+        let (_, events, _) = run(
+            &mut s,
+            R::CommitTake {
+                take,
+                target: RecordTarget::Arrangement {},
+                shift_ms: 0.0,
+                tracks: take_notes(&r),
+            },
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, ProjectEvent::RecordingChanged { .. }))
+        );
+        assert!(s.ctx.engine.take.is_some());
+    }
+}
+
+fn take_notes(r: &Rec) -> Vec<commands::record::TakeTrack> {
+    take(r, vec![note(100, 60, 100)], None)
 }

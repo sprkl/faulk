@@ -3650,6 +3650,15 @@
                 "format": "double",
                 "type": "number"
               },
+              "take": {
+                "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "target": {
                 "$ref": "#/$defs/RecordTarget"
               },
@@ -8673,6 +8682,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -17900,6 +17918,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -27149,6 +27176,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -36370,6 +36406,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -45583,6 +45628,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -54798,6 +54852,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -64012,6 +64075,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -73225,6 +73297,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -82458,6 +82539,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -91672,6 +91762,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -100885,6 +100984,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -110108,6 +110216,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -119329,6 +119446,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -128552,6 +128678,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -137765,6 +137900,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -146980,6 +147124,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -156193,6 +156346,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -165493,6 +165655,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -174818,6 +174989,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -184072,6 +184252,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -193308,6 +193497,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -202531,6 +202729,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -211762,6 +211969,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -221001,6 +221217,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -230236,6 +230461,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -239459,6 +239693,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -248703,6 +248946,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -257945,6 +258197,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -267176,6 +267437,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -276406,6 +276676,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -285639,6 +285918,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -294887,6 +295175,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -304169,6 +304466,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -313417,6 +313723,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -322648,6 +322963,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -331898,6 +332222,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -341133,6 +341466,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -350356,6 +350698,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -359587,6 +359938,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -368830,6 +369190,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -378113,6 +378482,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -387371,6 +387749,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -396599,6 +396986,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -405834,6 +406230,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -415081,6 +415486,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -424340,6 +424754,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -433570,6 +433993,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -442805,6 +443237,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -452047,6 +452488,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -461298,6 +461748,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -470533,6 +470992,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -479770,6 +480238,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -489005,6 +489482,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -498255,6 +498741,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -507495,6 +507990,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -516741,6 +517245,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -526022,6 +526535,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -535276,6 +535798,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -544503,6 +545034,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -553732,6 +554272,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -562964,6 +563513,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -572194,6 +572752,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -581430,6 +581997,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -590653,6 +591229,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -599902,6 +600487,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -609121,6 +609715,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -618342,6 +618945,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -627562,6 +628174,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -636776,6 +637397,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -645989,6 +646619,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -655209,6 +655848,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -664475,6 +665123,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -673717,6 +674374,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -682962,6 +683628,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -692192,6 +692867,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -701431,6 +702115,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -710701,6 +711394,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -719960,6 +720662,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -729221,6 +729932,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -738472,6 +739192,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -747746,6 +748475,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -756985,6 +757723,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -766207,6 +766954,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -775450,6 +776206,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -784681,6 +785446,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -793921,6 +794695,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -803156,6 +803939,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -812393,6 +813185,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -821629,6 +822430,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -830857,6 +831667,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -840091,6 +840910,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -849355,6 +850183,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -858614,6 +859451,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -867828,6 +868674,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -877041,6 +877896,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -886262,6 +887126,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -895481,6 +896354,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -904712,6 +905594,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -913961,6 +914852,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -923187,6 +924087,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -932425,6 +933334,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -941645,6 +942563,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -950911,6 +951838,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -960193,6 +961129,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -969435,6 +970380,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -978670,6 +979624,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -987900,6 +988863,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -997139,6 +998111,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1006369,6 +1007350,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1015601,6 +1016591,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1024829,6 +1025828,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1034094,6 +1035102,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1043317,6 +1044334,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1052542,6 +1053568,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1053927,6 +1054962,15 @@
               "default": 0,
               "format": "double",
               "type": "number"
+            },
+            "take": {
+              "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "target": {
               "$ref": "#/$defs/RecordTarget"
@@ -1061789,6 +1062833,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1071013,6 +1072066,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1080226,6 +1081288,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1089455,6 +1090526,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1098690,6 +1099770,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1107916,6 +1109005,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1117157,6 +1118255,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1126390,6 +1127497,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1135620,6 +1136736,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1144834,6 +1145959,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1154047,6 +1155181,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1163281,6 +1164424,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1172514,6 +1173666,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1181735,6 +1182896,15 @@
                       "format": "double",
                       "type": "number"
                     },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
                     },
@@ -1190955,6 +1192125,15 @@
                       "default": 0,
                       "format": "double",
                       "type": "number"
+                    },
+                    "take": {
+                      "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "target": {
                       "$ref": "#/$defs/RecordTarget"
@@ -1200186,6 +1201365,15 @@
                   "default": 0,
                   "format": "double",
                   "type": "number"
+                },
+                "take": {
+                  "description": "The take of `record.start` these notes are, when they are one: it is then\nwritten and the next take may start. Leave it out to write notes of your own.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "target": {
                   "$ref": "#/$defs/RecordTarget"

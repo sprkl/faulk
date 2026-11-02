@@ -47,8 +47,8 @@ export class Recorder {
   /** Why the last take was dropped without being written, if it was: the engine was replaced, or the project refused it. */
   dropped = $state<'engine' | 'refused' | null>(null)
 
-  /** The engine's take number before this take: the first report with a larger one is this take's. */
-  private baseline = 0
+  /** The engine's take number before this take (`null`: no report of this engine read yet). */
+  private baseline: number | null = 0
   private engineTake: number | null = null
   /** The next note number the page expects. */
   private next = 0
@@ -58,16 +58,17 @@ export class Recorder {
   private endedAt = 0
   /** Notes the page missed between two reports it read. */
   private gaps = 0
-  private lastTake = 0
+  /** The engine's take number in the last report, `null` before the first report of a new engine. */
+  private lastTake: number | null = 0
 
   constructor(private readonly ports: RecorderPorts) {}
 
   /**
-   * The command to run instead of `command`, if any: an undo during a take drops the take (spec § 7): the take wrote
-   * nothing yet, so there is nothing else to undo.
+   * The command to run instead of `command`, if any: an undo during a take, or while it waits to be written, drops the
+   * take (spec § 7): it wrote nothing yet, so the undo never reaches an older entry meanwhile.
    */
   instead(command: Command): Command | null {
-    return command.type === 'history.undo' && this.phase === 'recording' ? { type: 'record.discard_take' } : null
+    return command.type === 'history.undo' && this.phase !== 'idle' ? { type: 'record.discard_take' } : null
   }
 
   /** A command the dispatcher ran, with its output and its events. */
@@ -114,7 +115,7 @@ export class Recorder {
   engineReplaced() {
     if (this.take) this.dropped = 'engine'
     this.reset()
-    this.lastTake = 0
+    this.lastTake = null
   }
 
   /** A report of the engine. */
@@ -124,7 +125,9 @@ export class Recorder {
     if (!take) return
     const slots = this.ports.slots()
     if (slots && report.epoch !== slots.epoch) return
-    if (this.engineTake === null && report.recordTake > this.baseline) this.engineTake = report.recordTake
+    // This take is the first engine take after the baseline; without a baseline (no report read since the engine was
+    // replaced), the first one seen capturing.
+    if (this.engineTake === null && (this.baseline === null ? report.recordCapturing : report.recordTake > this.baseline)) this.engineTake = report.recordTake
     if (this.engineTake !== null && report.recordTake === this.engineTake) this.gather(report, slots)
     this.watchAnchors(report, take, slots)
     if (this.phase !== 'closing') return
@@ -151,12 +154,14 @@ export class Recorder {
     if (changed) this.notes = this.byTrack(slots)
   }
 
-  /** The notes gathered so far, by track id: only the take's tracks (a slot reused by another track is left out). */
+  /**
+   * The notes gathered so far, by track id: every track the engine recorded, a track armed during the take included
+   * (the engine records the tracks armed when each note starts).
+   */
   private byTrack(slots: ViewSlots | null): Record<string, RecordedNote[]> {
     const out: Record<string, RecordedNote[]> = {}
     if (!slots || !this.take) return out
-    for (const id of this.take.tracks) {
-      const slot = slots.tracks[id]
+    for (const [id, slot] of Object.entries(slots.tracks)) {
       const notes = slot === undefined ? undefined : this.collected.get(slot)
       if (notes?.length) out[id] = notes
     }
@@ -176,8 +181,8 @@ export class Recorder {
 
   private finish(take: Take) {
     const notes = this.byTrack(this.ports.slots())
-    const tracks = take.tracks
-      .filter((id) => notes[id]?.length)
+    const tracks = Object.keys(notes)
+      .sort()
       .map((id) => ({
         track: id,
         notes: notes[id]!.map((n) => ({ start: n.start, length: Math.max(1, n.length), pitch: n.pitch, velocity: Math.max(1, n.velocity) })),
@@ -188,7 +193,7 @@ export class Recorder {
     this.reset()
     if (tracks.length === 0) {
       this.ports.run({ type: 'record.discard_take' })
-    } else if (!this.ports.run({ type: 'record.commit_take', target, shift_ms: take.shiftMs, tracks })) {
+    } else if (!this.ports.run({ type: 'record.commit_take', take: take.take, target, shift_ms: take.shiftMs, tracks })) {
       // Refused (a limit of the project): the dispatcher said why; the take is dropped so the next one may start.
       this.dropped = 'refused'
       this.ports.run({ type: 'record.discard_take' })

@@ -413,4 +413,11 @@ fn the_report_carries_the_take_its_count_its_last_notes_and_whether_it_captures(
     assert!(!report.record_capturing);
     assert_eq!(report.record_total, notes as u32);
     assert_eq!(report.recorded.len(), carried);
+    // A while later the reports stop carrying the finished take; its count stays.
+    for _ in 0..engine::host::TAKE_REPORTS {
+        host.write_feedback();
+    }
+    let report = read_feedback(host.feedback()).unwrap();
+    assert_eq!(report.record_total, notes as u32);
+    assert!(report.recorded.is_empty());
 }

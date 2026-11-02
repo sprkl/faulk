@@ -25,6 +25,7 @@ use crate::contract::{
     ClipPart, CommandError, Context, Outcome, ProjectEvent, State, TakeState, Undo,
 };
 use crate::macros::domain;
+use project::limits::MAX_TICK;
 use project::{
     Clip, ClipContent, ClipId, Note, PPQ, Placement, PlacementId, Project, SceneId, Span, Take,
     Tick, TickLoop, TrackId, TrackKind,
@@ -185,6 +186,10 @@ domain! {
     /// `record.restore` puts the clips back as they were.
     "record.commit_take" (kind = "edit", undo = "inverse", destructive = false)
     CommitTake {
+        /// The take of `record.start` these notes are, when they are one: it is then
+        /// written and the next take may start. Leave it out to write notes of your own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        take: Option<u64>,
         target: RecordTarget,
         #[serde(default)]
         shift_ms: f64,
@@ -267,6 +272,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             ))
         }
         Command::CommitTake {
+            take,
             target,
             shift_ms,
             tracks,
@@ -275,6 +281,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             // The take the engine captured is written: the next one may start.
             if let Some(t) = ctx.engine.take
                 && !t.recording
+                && *take == Some(t.number)
             {
                 ctx.engine.take = None;
                 out.events.push(ProjectEvent::RecordingChanged {
@@ -483,6 +490,12 @@ fn check_take(tracks: &[TakeTrack], project: &Project) -> Result<(), CommandErro
                     "a note has a pitch 0 to 127, a velocity 1 to 127 and a length of at least 1",
                 ));
             }
+            if n.start.get().abs() > MAX_TICK || n.length.get() > MAX_TICK {
+                return Err(invalid(
+                    field,
+                    format!("a note's start and length are within {MAX_TICK} ticks"),
+                ));
+            }
         }
     }
     Ok(())
@@ -522,6 +535,7 @@ fn plan_track(
                 Some((clip, geo)) => {
                     let origin = anchor.map_or(floor_to(first, bar), Tick::get);
                     let grows = geo.looping.is_none();
+                    let original = geo.length;
                     let mut length = geo.length;
                     if grows {
                         let end = ceil_to(last_end - origin, bar);
@@ -541,7 +555,7 @@ fn plan_track(
                     writes.push(Write::Into {
                         clip,
                         notes: out,
-                        length: (length != geo_length_of(track, scene)).then_some(length),
+                        length: (length != original).then_some(length),
                     });
                 }
                 None => {
@@ -577,12 +591,25 @@ fn plan_track(
             let mut into: BTreeMap<ClipId, Vec<Note>> = BTreeMap::new();
             // Gap (its start and end, `None`: no placement after) → notes outside clips.
             let mut gaps: BTreeMap<(i64, Option<i64>), Vec<&TakeNote>> = BTreeMap::new();
+            // A note that starts before tick 0 (played on the first downbeat, moved earlier by the
+            // latency shift) starts at 0 when it ends after it; one that ends before is dropped.
+            let mut kept = Vec::with_capacity(notes.len());
             for n in notes {
-                let t = n.start.get();
-                if t < 0 {
+                let (t, end) = (n.start.get(), n.start.get().saturating_add(n.length.get()));
+                if t >= 0 {
+                    kept.push(*n);
+                } else if end > 0 {
+                    kept.push(TakeNote {
+                        start: Tick::ZERO,
+                        length: Tick(end),
+                        ..*n
+                    });
+                } else {
                     dropped += 1;
-                    continue;
                 }
+            }
+            for n in &kept {
+                let t = n.start.get();
                 let inside = spans
                     .iter()
                     .find(|(start, len, _, _)| (*start..start + len).contains(&t));
@@ -648,16 +675,6 @@ fn plan_track(
         }
     }
     (writes, dropped)
-}
-
-/// The length of the clip in a cell (0 when none): what a grid overdub compares against.
-fn geo_length_of(track: &project::Track, scene: &SceneId) -> i64 {
-    track
-        .clips
-        .values()
-        .find(|c| c.slot.as_ref() == Some(scene))
-        .and_then(Geo::of)
-        .map_or(0, |g| g.length)
 }
 
 /// A clip's snapshot with its placements, for `record.restore`.

@@ -101,6 +101,10 @@ fn feedback_words() -> usize {
 /// The CPU load of a report whose period was not timed (no clock on the host).
 pub const NOT_MEASURED: f32 = -1.0;
 
+/// Reports that still carry a take's notes after its capture ended: about 3 s, longer than the
+/// page waits for them, so that a finished take does not ride in every report until the next.
+pub const TAKE_REPORTS: u32 = 90;
+
 /// Reports per second (the page reads the region at about this rate).
 pub const REPORTS_PER_SECOND: f32 = 30.0;
 
@@ -125,6 +129,9 @@ pub struct Host {
     /// Voices of the last block, and the most of the reporting period.
     voices: u32,
     period_voices: u32,
+    /// Reports written since the recorder stopped capturing: the take's notes ride along for
+    /// [`TAKE_REPORTS`] more reports, then the reports stop carrying them (RE-2).
+    idle_reports: u32,
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
@@ -177,6 +184,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         scratch: Feedback::default(),
         voices: 0,
         period_voices: 0,
+        idle_reports: 0,
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
@@ -360,9 +368,15 @@ impl Host {
         // The take's last notes, after the clips (RE-2): the region has room for
         // `MAX_RECORDED_PER_REPORT`, the recorder keeps no more.
         let recorder = self.engine.recorder();
+        self.idle_reports = if recorder.capturing() {
+            0
+        } else {
+            self.idle_reports.saturating_add(1)
+        };
+        let carry = self.idle_reports <= TAKE_REPORTS;
         let mut recorded = 0u32;
         recorder.recent(|_, r| {
-            if (recorded as usize) < MAX_RECORDED_PER_REPORT {
+            if carry && (recorded as usize) < MAX_RECORDED_PER_REPORT {
                 let start = r.note.start.0 as u64;
                 let length = r.note.length.0 as u64;
                 put(at, r.track.0);

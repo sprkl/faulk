@@ -143,6 +143,7 @@ pub fn examples() -> Vec<(Command, State)> {
         on(R::DiscardTake {}),
         // Overdub into the looping grid clip.
         on(R::CommitTake {
+            take: None,
             target: RecordTarget::Scene {
                 scene: r.scene.clone(),
             },
@@ -151,6 +152,7 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // A new grid clip.
         on(R::CommitTake {
+            take: None,
             target: RecordTarget::Scene {
                 scene: r.empty.clone(),
             },
@@ -159,6 +161,7 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // The arrangement: one note into the placed clip, one in a new clip before it.
         on(R::CommitTake {
+            take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 10.0,
             tracks: take(&r, vec![note(8000, 60, 240), note(1000, 62, 240)], None),
