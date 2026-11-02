@@ -188,6 +188,22 @@ pub struct EngineSlots {
     /// has more clips, placements or lanes than the engine takes (the project limits
     /// those per track only).
     pub overflow: u32,
+    /// The take of MIDI recording (RE-2) this engine was told about, from `record.start`
+    /// until it is committed or discarded: it belongs to one engine connection, so a
+    /// snapshot (an engine replaced) drops it.
+    pub take: Option<Take>,
+    /// The number of the last take started (the next one is one more).
+    pub takes: u64,
+}
+
+/// A take of MIDI recording, as the command layer follows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Take {
+    /// Its number, unique for the engine connection.
+    pub number: u64,
+    /// The engine captures it (`record.stop`, `transport.stop` and `transport.pause` end
+    /// the capture; the take then waits for `record.commit_take` or `record.discard_take`).
+    pub recording: bool,
 }
 
 #[cfg(test)]

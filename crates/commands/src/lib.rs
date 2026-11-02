@@ -36,8 +36,8 @@ pub mod transport;
 pub mod view;
 
 pub use contract::{
-    Author, CommandError, Context, ControlMsg, GroupId, Kind, Meta, ProjectEvent, State, Undo,
-    UndoKind,
+    Author, CommandError, Context, ControlMsg, GroupId, Kind, Meta, ProjectEvent, State, TakeState,
+    Undo, UndoKind,
 };
 pub use history::{History, run};
 use schemars::JsonSchema;
