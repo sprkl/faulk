@@ -464,7 +464,9 @@ fn open_replaces_the_project_or_changes_nothing() {
         1_760_000_000_000.0,
         70,
         80,
-        90, 0));
+        90,
+        0,
+    ));
     h.call0(pw_setup);
     h.apply(json!({"type": "project.rename", "name": "Before"}));
     let before = h.view();
@@ -558,7 +560,9 @@ fn opening_a_folder_with_unnamed_clips_names_them_without_an_edit() {
         1_760_000_000_000.0,
         71,
         72,
-        73, 0));
+        73,
+        0,
+    ));
     h.call0(pw_setup);
     assert_eq!(h.stage_raw(&frame), 0);
     let (report, _) = h.open("old");
@@ -1141,7 +1145,10 @@ fn a_session_change_is_a_change_to_save_but_not_a_change_to_the_project() {
     );
     // A solo is undoable (#473); its undo and redo are session changes too, never project ones.
     h.apply(json!({"type": "history.undo"}));
-    assert!(!h.core().project_dirty(), "undoing a solo is no project edit");
+    assert!(
+        !h.core().project_dirty(),
+        "undoing a solo is no project edit"
+    );
     h.apply(json!({"type": "history.redo"}));
     assert!(!h.core().project_dirty(), "nor redoing it");
     h.apply(json!({"type": "project.rename", "name": "Mine"}));
@@ -1430,9 +1437,20 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
 fn a_new_core_takes_the_name_the_page_gives_it() {
     // The page names its new draft as it creates the core (#473): no history entry.
     write_inbox("  Sketch Nov 2, 14:05  ");
-    let h = Handle(pw_new(KIND_SINGLE_SYNTH, 1, 1_760_000_000_000.0, 1, 2, 3, 24));
+    let h = Handle(pw_new(
+        KIND_SINGLE_SYNTH,
+        1,
+        1_760_000_000_000.0,
+        1,
+        2,
+        3,
+        24,
+    ));
     assert_eq!(h.view()["project"]["name"], "Sketch Nov 2, 14:05");
-    assert!(!h.core().history().undo.iter().any(|_| true), "no edit to undo");
+    assert!(
+        !h.core().history().undo.iter().any(|_| true),
+        "no edit to undo"
+    );
     // No name, or one that is not valid, leaves the default name.
     let none = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 4, 0));
     assert_eq!(none.view()["project"]["name"], "Sketch");

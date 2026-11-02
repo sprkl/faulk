@@ -86,6 +86,7 @@ fn automation_renders_the_same_natively_and_in_wasm() {
             start: Tick(960),
             end: Tick(3000),
         }),
+        enabled: None,
     }));
     s.run(Command::Transport(transport::Command::Play {}))
         .render_secs(1.6);

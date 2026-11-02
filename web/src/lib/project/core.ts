@@ -12,7 +12,7 @@ interface CoreExports {
   pw_out(): number
   pw_engine(): number
   pw_engine_len(): number
-  pw_new(kind: number, epoch: number, timeMs: number, r0: number, r1: number, r2: number): number
+  pw_new(kind: number, epoch: number, timeMs: number, r0: number, r1: number, r2: number, nameLen: number): number
   pw_free(core: number): void
   pw_run(core: number, len: number): number
   pw_setup(core: number): number
@@ -256,15 +256,18 @@ export class ProjectCore {
     kind: CoreKind,
     epoch: number,
     seed: Seed,
+    name?: string,
   ) {
-    this.core = exports.pw_new(KINDS[kind], epoch, seed.timeMs, ...seed.random)
+    // The name of the new project, through the inbox (#473); 0 bytes: the core's default name.
+    const nameLen = name ? this.input(name) : 0
+    this.core = exports.pw_new(KINDS[kind], epoch, seed.timeMs, ...seed.random, nameLen)
     if (!this.core) throw new CoreError('new', 0)
   }
 
-  /** A core in its own instance of `module`, whose engine stream starts in `epoch` (≥ 1). */
-  static create(module: WebAssembly.Module, kind: CoreKind, epoch: number, seed: Seed = pageSeed()): ProjectCore {
+  /** A core in its own instance of `module`, whose engine stream starts in `epoch` (≥ 1); `name` names its project. */
+  static create(module: WebAssembly.Module, kind: CoreKind, epoch: number, seed: Seed = pageSeed(), name?: string): ProjectCore {
     const exports = new WebAssembly.Instance(module, {}).exports as unknown as CoreExports
-    return new ProjectCore(exports, kind, epoch, seed)
+    return new ProjectCore(exports, kind, epoch, seed, name)
   }
 
   private input(text: string): number {

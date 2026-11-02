@@ -19,7 +19,7 @@ export const project = defineFeature(
     'project.menu.noRecent': 'No recent project yet.',
     'project.menu.unsupported':
       'This browser cannot save to a folder. Your project stays in this tab, and Faulk warns you before you leave it. To keep it on your computer, use Chrome or Edge.',
-    'project.untitled': 'Untitled',
+    'project.untitled': 'New project',
 
     'save.unsaved': 'Not saved',
     'save.pending': 'Unsaved changes',
@@ -118,7 +118,7 @@ export const project = defineFeature(
     'project.menu.noRecent': 'Aucun projet récent pour l’instant.',
     'project.menu.unsupported':
       'Ce navigateur ne peut pas enregistrer dans un dossier. Ton projet reste dans cet onglet, et Faulk te prévient avant que tu le quittes. Pour le garder sur ton ordinateur, utilise Chrome ou Edge.',
-    'project.untitled': 'Sans titre',
+    'project.untitled': 'Nouveau projet',
 
     'save.unsaved': 'Non enregistré',
     'save.pending': 'Modifications non enregistrées',

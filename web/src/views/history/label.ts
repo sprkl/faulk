@@ -53,19 +53,19 @@ export function generic(name: string, t: T): string {
 }
 
 /** The label of a history row: the phrase naming its objects when there is one, else the generic label. */
-export function label(row: { name: string; subject: Subject | null; others?: number }, t: T): string {
+export function label(row: { name: string; subject?: Subject | null; others?: number }, t: T): string {
   const base = phrase(row.name, row.subject, t) ?? generic(row.name, t)
   const others = row.others ?? 0
   return others > 0 ? t('history.others', { text: base, count: others }) : base
 }
 
-function phrase(name: string, subject: Subject | null, t: T): string | null {
+function phrase(name: string, subject: Subject | null | undefined, t: T): string | null {
   if (!subject) return null
-  const switched = subject.on === null ? null : `${PHRASE_PREFIX}${name}.${subject.on ? 'on' : 'off'}`
+  const switched = subject.on == null ? null : `${PHRASE_PREFIX}${name}.${subject.on ? 'on' : 'off'}`
   const key = switched && has(switched) ? switched : `${PHRASE_PREFIX}${name}`
   if (!has(key)) return null
   const text = messages.en[key]
-  if (text.includes('{to}') && subject.to === null) return null
+  if (text.includes('{to}') && subject.to == null) return null
   const needsWhat = text.includes('{what}')
   if (needsWhat && subject.count === 0 && subject.objects.length === 0 && subject.within.length === 0) return null
   return t(key, { what: needsWhat ? what(subject, nounOf(name), t) : '', to: subject.to ?? '' })

@@ -313,14 +313,10 @@ pub fn run(
     if meta.kind == Kind::Setting && outcome.events.is_empty() {
         return Ok(outcome);
     }
-    if state.history.record(
-        meta,
-        &outcome.undo,
-        &ctx.author,
-        group,
-        ctx.now_ms,
-        subject,
-    ) {
+    if state
+        .history
+        .record(meta, &outcome.undo, &ctx.author, group, ctx.now_ms, subject)
+    {
         outcome.events.push(state.history.changed_event());
     }
     Ok(outcome)

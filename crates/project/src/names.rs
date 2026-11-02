@@ -167,7 +167,13 @@ mod tests {
     fn only_the_canonical_spelling_is_a_default_name() {
         assert_eq!(clip_number("Bass", "Bass 3"), Some(3));
         for other in [
-            "Bass 03", "bass 3", "Bass 0", "Bass", "Bass 3 ", "Bass 3b", "My Bass 3",
+            "Bass 03",
+            "bass 3",
+            "Bass 0",
+            "Bass",
+            "Bass 3 ",
+            "Bass 3b",
+            "My Bass 3",
         ] {
             assert_eq!(clip_number("Bass", other), None, "{other}");
         }

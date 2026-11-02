@@ -3,6 +3,7 @@ import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
 import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
+import { readLayout, writeLayout, type Layout } from './layout'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
 function read(key: string): string | null {
@@ -74,6 +75,7 @@ export class UiStore {
     if (view !== this.view) this.panelRevealed = false
     this.view = view
     write(VIEW_KEY, view)
+    this.keepSoon()
   }
 
   /**
@@ -109,9 +111,73 @@ export class UiStore {
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive on purpose: read once when a view opens
   private readonly memory = new Map<string, unknown>()
 
-  /** A view hands its zoom and scroll over when it closes. */
-  remember<T>(id: string, state: T) {
+  /**
+   * A view hands its zoom and scroll over when it closes, and while they change (kept with the project's layout).
+   * `rev` is the {@link layoutRev} the view opened with: a view closing because another project's layout came
+   * (the shell renders it again) must not write its old state into the new one.
+   */
+  remember<T>(id: string, state: T, rev?: number) {
+    if (rev !== undefined && rev !== this.layoutRev) return
     this.memory.set(id, state)
+    this.keepSoon()
+  }
+
+  // --- each project's layout (#473) -------------------------------------------------------------------
+  /** The project whose layout the memory, the lane heights and the view are; `null` before one is known. */
+  private project: string | null = null
+  private keepTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * Bumped when another project's layout replaces the one shown: the shell renders the main view again, so that
+   * it reads its zoom and scroll from the new layout.
+   */
+  layoutRev = $state(0)
+
+  /**
+   * The project now open (its identity): its layout comes back (the view, each view's zoom and scroll, the open
+   * lanes, the lane heights), or the defaults when it has none. The same project again changes nothing. `isView`
+   * says whether a stored view still exists.
+   */
+  useProject(project: string | null, isView: (view: string) => view is MainViewId) {
+    if (project === this.project) return
+    this.keepNow()
+    this.project = project
+    const layout: Layout | null = project ? readLayout(project) : null
+    this.memory.clear()
+    for (const [id, state] of Object.entries(layout?.memory ?? {})) this.memory.set(id, state)
+    this.laneHeights = { ...(layout?.laneHeights ?? {}) }
+    if (layout?.view && isView(layout.view) && layout.view !== this.view) {
+      this.panelRevealed = false
+      this.view = layout.view
+    }
+    this.layoutRev++
+  }
+
+  /** The project took a new identity and is the same work (a copy saved as another folder): its layout goes with it. */
+  carryLayout(project: string) {
+    this.project = project
+    this.keepNow()
+  }
+
+  /** Keeps the layout a moment after the last change: a scroll changes it every frame. */
+  private keepSoon() {
+    if (this.project === null || this.keepTimer !== null) return
+    this.keepTimer = setTimeout(() => this.keepNow(), 400)
+  }
+
+  /** Keeps the layout now (the page hides, another project opens). */
+  keepNow() {
+    if (this.keepTimer !== null) clearTimeout(this.keepTimer)
+    this.keepTimer = null
+    if (this.project === null) return
+    writeLayout(this.project, { view: this.view, memory: Object.fromEntries(this.memory), laneHeights: { ...this.laneHeights } })
+  }
+
+  /** Forgets the lane heights of tracks the project no longer has. */
+  forgetLaneHeights(tracks: ReadonlySet<string>) {
+    const kept = Object.entries(this.laneHeights).filter(([id]) => tracks.has(id))
+    if (kept.length === Object.keys(this.laneHeights).length) return
+    this.laneHeights = Object.fromEntries(kept)
+    this.keepSoon()
   }
 
   /** What the view left when it closed, or `undefined` on its first opening. */
@@ -168,9 +234,9 @@ export class UiStore {
   }
 
   /**
-   * The height the user gave each track's row in the arrangement (px, by track id), #471. View state of the session:
-   * neither in the project (an agent has no use for it, and saving it would be a project change) nor in `localStorage`
-   * (track ids belong to one project). Missing: the `lane` token's height.
+   * The height the user gave each track's row in the arrangement (px, by track id), #471. View state, not in the
+   * project (an agent has no use for it, and saving it would be a project change): kept with the project's layout in
+   * `localStorage` (#473, keyed by the project, since track ids belong to one project). Missing: the `lane` token's height.
    */
   laneHeights = $state<Readonly<Record<string, number>>>({})
 
@@ -179,6 +245,7 @@ export class UiStore {
     if (height === null) delete next[track]
     else next[track] = clampClipRow(height)
     this.laneHeights = next
+    this.keepSoon()
   }
 
   setPanelHeight(panel: PanelViewId, height: number) {

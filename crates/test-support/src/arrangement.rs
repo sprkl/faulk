@@ -165,6 +165,7 @@ pub fn song_with(play: Play, lanes: bool) -> Scenario {
                     start: Tick(0),
                     end: Tick(3840),
                 }),
+                enabled: None,
             }));
             s.run(Command::Transport(transport::Command::ToggleLoop {}));
             s.run(Command::Transport(transport::Command::Play {}));
@@ -192,6 +193,7 @@ pub fn song_with(play: Play, lanes: bool) -> Scenario {
                     start: Tick(0),
                     end: Tick(7680),
                 }),
+                enabled: None,
             }));
             s.run(Command::Transport(transport::Command::ToggleLoop {}));
             s.run(Command::Transport(transport::Command::Play {}));

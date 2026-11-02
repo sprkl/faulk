@@ -11,7 +11,7 @@
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
-  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn } from '../registry'
+  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn, type MainViewId } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
@@ -23,9 +23,13 @@
   // `stores` is for tests; the page lets the shell create its own.
   let { stores = createStores(startView(), DEFAULT_PANEL) }: { stores?: Stores } = $props()
   // svelte-ignore state_referenced_locally
-  const { engine, ui, dispatcher, storage, keys, meters } = provideStores(stores)
+  const { engine, ui, dispatcher, storage, keys, meters, project } = provideStores(stores)
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
+
+  // Each project comes back with its layout (#473): the view, the zoom and scroll, the open lanes, the lane heights.
+  const isMainView = (id: string): id is MainViewId => viewById(id)?.place === 'main'
+  $effect(() => ui.useProject(project.view?.project.id ?? null, isMainView))
 
   // The panel's row: folded to its tabs, or the height the user gave this view; else the stylesheet's default.
   let bodyHeight = $state(0)
@@ -58,10 +62,14 @@
     dispatcher.takePairLink(location, clearAddress)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
+    // A reload or a closed tab keeps the layout of the moment.
+    const keepLayout = () => ui.keepNow()
+    window.addEventListener('pagehide', keepLayout)
     return () => {
       stopMeters()
       stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
+      window.removeEventListener('pagehide', keepLayout)
     }
   })
 
@@ -164,7 +172,7 @@
   <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
-      <current.component />
+      {#key ui.layoutRev}<current.component />{/key}
     </main>
     <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
   </div>

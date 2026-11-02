@@ -81,7 +81,13 @@ pub fn examples() -> Vec<(Command, State)> {
             }),
             with_region(),
         ),
-        (tr(T::SetLoop { loop_region: None, enabled: None }), with_region()),
+        (
+            tr(T::SetLoop {
+                loop_region: None,
+                enabled: None,
+            }),
+            with_region(),
+        ),
         (tr(T::ToggleLoop {}), with_region()),
         (tr(T::ToggleLoop {}), looping()),
         (

@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
+
+// Version 13 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
 
 // Version 12 (#469): the feedback layout is version 4: each meter carries the largest gain reduction, in decibels, of the devices of its strip (the Compressor), 20 bytes instead of 16. A page and a helper of different versions refuse each other.
 

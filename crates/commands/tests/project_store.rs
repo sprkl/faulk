@@ -22,7 +22,12 @@ fn a_new_project_replaces_everything_with_its_own_identity() {
     ctx.folder = Some(Folder::new("left over", ::project::file::MemFs::new()));
     let old_id = state.project.id.clone();
 
-    let outcome = commands::run(&project(cmd::Command::New { name: None }), &mut state, &mut ctx).unwrap();
+    let outcome = commands::run(
+        &project(cmd::Command::New { name: None }),
+        &mut state,
+        &mut ctx,
+    )
+    .unwrap();
 
     assert_eq!(state.project.name, commands::project::DEFAULT_NAME);
     assert_ne!(state.project.id, old_id, "a new project is a new identity");
@@ -53,7 +58,12 @@ fn a_new_project_replaces_everything_with_its_own_identity() {
 
     // Two new projects are two identities.
     let mut other = fixture().state;
-    commands::run(&project(cmd::Command::New { name: None }), &mut other, &mut ctx).unwrap();
+    commands::run(
+        &project(cmd::Command::New { name: None }),
+        &mut other,
+        &mut ctx,
+    )
+    .unwrap();
     assert_ne!(other.project.id, state.project.id);
 }
 

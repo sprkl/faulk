@@ -176,7 +176,14 @@ fn an_irreversible_edit_empties_both_stacks() {
     assert!(!hist.record(destructive, &Undo::None, &Author::User, None, 0, None));
     // An edit without inverse that is not destructive (a no-op) records nothing.
     let mut kept = f.state.history.clone();
-    assert!(!kept.record(rename("x").meta(), &Undo::None, &Author::User, None, 0, None));
+    assert!(!kept.record(
+        rename("x").meta(),
+        &Undo::None,
+        &Author::User,
+        None,
+        0,
+        None
+    ));
     assert_eq!(kept, f.state.history);
 }
 

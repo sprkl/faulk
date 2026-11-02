@@ -234,10 +234,7 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
         Command::Device(c) => match c {
             de::Command::Insert {
                 track: id, kind, ..
-            } => Some(Subject::one(
-                device_kind_name(kind),
-                owner(p, id.as_ref()),
-            )),
+            } => Some(Subject::one(device_kind_name(kind), owner(p, id.as_ref()))),
             de::Command::Remove { device: id }
             | de::Command::Move { device: id, .. }
             | de::Command::SetParam { device: id, .. } => device_subject(p, id),

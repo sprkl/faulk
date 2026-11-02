@@ -6,6 +6,7 @@ import { WebEngine } from '../engine/web-engine'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
+import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
   isListStored,
@@ -15,6 +16,7 @@ import {
   isStoredProjectCommand,
   listStored as listStoredCommand,
   newProject as newProjectCommand,
+  newProjectName,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
@@ -145,10 +147,19 @@ export class Dispatcher {
     if (code) await this.pairFromLink(code)
   }
 
+  /**
+   * The name a new project gets (#473): the moment it was started, in the page's language. The stores set it
+   * (`draftName` with the UI's language); a bare dispatcher names its projects in English.
+   */
+  nameNew: () => string = () => draftName('en', new Date())
+
+  /** Told the new identity a copy saved as another folder took (#473): the stores carry the layout over. */
+  onIdentityCopied: (id: string) => void = () => {}
+
   /** The page's project core, created on first use (by `start`, or by opening a project before audio starts). */
   private async ensureCore(): Promise<ProjectCore> {
     const module = await coreModule()
-    return (this.core ??= ProjectCore.create(module, 'single_synth', FIRST_EPOCH))
+    return (this.core ??= ProjectCore.create(module, 'single_synth', FIRST_EPOCH, undefined, this.nameNew()))
   }
 
   /**
@@ -189,9 +200,9 @@ export class Dispatcher {
    * Starts a new project (`project.new`): the default one-synth project in no folder, the history
    * emptied. Like opening, it works before audio starts. False when the core refused.
    */
-  async newProject(): Promise<boolean> {
+  async newProject(name?: string): Promise<boolean> {
     const core = await this.ensureCore()
-    const step = engineStep(() => core.run(newProjectCommand()))
+    const step = engineStep(() => core.run(newProjectCommand(name ?? this.nameNew())))
     if ('refused' in step) {
       console.warn('the project refused project.new', step.refused)
       this.showRefusal(step.refused)
@@ -244,13 +255,18 @@ export class Dispatcher {
     save: (mode) => {
       if (!this.core) return null
       const frame = this.core.save(mode)
-      // A copy took a new identity without an event: the mirror (and `projectId`) must follow.
-      if (mode === 'copy') this.refresh()
+      // A copy took a new identity without an event: the mirror (and `projectId`) must follow, and so does the
+      // project's layout (#473): it is the same work.
+      if (mode === 'copy') {
+        this.refresh()
+        const id = this.project.view?.project.id
+        if (id) this.onIdentityCopied(id)
+      }
       return frame
     },
     saved: (applied) => this.core?.saved(applied),
     openProject: (name, entries) => this.openProject(name, entries),
-    newProject: () => this.newProject(),
+    newProject: (name?: string) => this.newProject(name),
     projectId: () => this.project.view?.project.id ?? null,
     projectName: () => this.project.view?.project.name ?? null,
     packExport: async (files) => (await this.ensureCore()).packExport(files),
@@ -383,7 +399,9 @@ export class Dispatcher {
     // The question is a dialog of the page and needs no click. Works before audio starts, like opening.
     if (isNewProject(command)) {
       // Without a storage (a bare dispatcher) nothing is kept anywhere, so there is nothing to ask about.
-      void (this.storage ? this.storage.newProject() : this.newProject()).catch((error: unknown) => console.error(error))
+      // The name an agent gave, if any; else the page names the draft.
+      const name = newProjectName(command)
+      void (this.storage ? this.storage.newProject(name) : this.newProject(name)).catch((error: unknown) => console.error(error))
       return
     }
     const core = this.core
@@ -447,7 +465,7 @@ export class Dispatcher {
 
   /** The undo history for the history panel; empty before audio starts (no core yet). */
   history(): HistoryView {
-    return this.core?.history() ?? { undo: [], redo: [] }
+    return this.core?.history() ?? { undo: [], redo: [], activity: [] }
   }
 
   /**

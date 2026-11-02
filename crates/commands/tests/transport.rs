@@ -272,9 +272,19 @@ fn loop_region_is_validated_and_never_clears_under_an_active_loop() {
     assert_eq!(s.project.transport.loop_region, None);
     assert!(!s.project.transport.loop_enabled);
     let cleared = s.project.transport;
-    run(&Command::History(history::Command::Undo {}), &mut s, &mut ctx).unwrap();
+    run(
+        &Command::History(history::Command::Undo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
     assert_eq!(s.project.transport, before);
-    run(&Command::History(history::Command::Redo {}), &mut s, &mut ctx).unwrap();
+    run(
+        &Command::History(history::Command::Redo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
     assert_eq!(s.project.transport, cleared);
     // A region replaced while the loop is on is fine.
     let mut s = looping();
@@ -405,7 +415,10 @@ fn metronome_silence_is_a_value_and_undo_leaves_it() {
     assert_eq!(s.project.transport.metronome.gain_db, -12.0);
     assert_eq!(s.history.undo.len(), undo_entries.saturating_sub(1));
     let logged: Vec<_> = s.history.activity.iter().map(|a| a.name).collect();
-    assert_eq!(logged, ["transport.set_metronome", "transport.set_metronome"]);
+    assert_eq!(
+        logged,
+        ["transport.set_metronome", "transport.set_metronome"]
+    );
 }
 
 #[test]
@@ -427,9 +440,12 @@ fn a_time_signature_or_loop_already_in_place_records_nothing() {
         assert!(out.events.is_empty(), "{c:?}");
     }
     let mut none = fixture().state;
-    let out = tr(T::SetLoop { loop_region: None, enabled: None })
-        .apply(&mut none, &mut context())
-        .unwrap();
+    let out = tr(T::SetLoop {
+        loop_region: None,
+        enabled: None,
+    })
+    .apply(&mut none, &mut context())
+    .unwrap();
     assert_eq!(out.undo, Undo::None);
     assert!(out.events.is_empty());
 }
@@ -471,10 +487,7 @@ fn transport_toggles_are_settings_in_the_activity_log() {
     let mut ctx = context();
     run(&tr(T::SetTempo { bpm: 90.0 }), &mut s, &mut ctx).unwrap();
     let undo_entries = s.history.undo.len();
-    for c in [
-        tr(T::ToggleLoop {}),
-        metronome(Some(true), None, None),
-    ] {
+    for c in [tr(T::ToggleLoop {}), metronome(Some(true), None, None)] {
         let out = run(&c, &mut s, &mut ctx).unwrap();
         assert_eq!(out.undo, Undo::None, "{c:?}");
         assert!(

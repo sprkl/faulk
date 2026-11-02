@@ -1373,7 +1373,9 @@ pub fn db_to_gain(db: f64) -> f32 {
 pub fn replaces_project(command: &Command) -> bool {
     matches!(
         command,
-        Command::Project(crate::project::Command::Open { .. } | crate::project::Command::New { .. })
+        Command::Project(
+            crate::project::Command::Open { .. } | crate::project::Command::New { .. }
+        )
     )
 }
 

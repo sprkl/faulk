@@ -2,12 +2,13 @@
   /**
    * The history panel (PR-7): every entry of the undo history, newest first, with what was done,
    * who did it (you, or an agent) and when; the entries undone come first, dimmed, since a redo
-   * brings them back. Undo and redo sit at its head. It reads the entries from the project core
+   * brings them back. Each label names the objects (#473: "Mute Lead"). The settings changed outside
+   * the undo history (the loop switch, the metronome) sit among the entries in the order they
+   * happened, marked as not undoable. Undo and redo sit at its head. It reads the entries from the project core
    * when the history changes, and only while it is shown.
    */
-  import { messages } from '../../lib/i18n/app'
-  import { COMMAND_LABEL_PREFIX } from '../../lib/i18n/history'
-  import type { HistoryEntryView } from '../../lib/generated/protocol'
+  import type { ActivityView, HistoryEntryView } from '../../lib/generated/protocol'
+  import { label } from './label'
   import { redo, undo } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
 
@@ -18,23 +19,23 @@
   const PAGE = 200
   let shown = $state(PAGE)
 
-  const all = $derived.by(() => {
+  type Row = { key: string; entry: HistoryEntryView | ActivityView; undone: boolean; setting: boolean }
+
+  const all = $derived.by((): Row[] => {
     void project.historyRev
-    const { undo: done, redo: undone } = dispatcher.history()
+    const { undo: done, redo: undone, activity } = dispatcher.history()
     // The last of the redo list is the next one redone (the oldest undone): newest first reads it backwards, the undone entries on top.
-    return [...undone.map((entry) => ({ entry, undone: true })), ...done.toReversed().map((entry) => ({ entry, undone: false }))]
+    // Below them, the entries done and the settings, newest first: both take their ids from one counter.
+    const past = [
+      ...done.map((entry) => ({ key: `e${entry.id}`, entry, undone: false, setting: false })),
+      ...activity.map((entry) => ({ key: `a${entry.id}`, entry, undone: false, setting: true })),
+    ].sort((a, b) => b.entry.id - a.entry.id)
+    return [...undone.map((entry) => ({ key: `e${entry.id}`, entry, undone: true, setting: false })), ...past]
   })
   const entries = $derived(all.slice(0, shown))
   const hidden = $derived(all.length - entries.length)
 
-  /** The label of an entry: its first command's, translated; a command without one shows its name in words. */
-  function label(name: string): string {
-    const key = COMMAND_LABEL_PREFIX + name
-    if (key in messages.en) return t(key as Parameters<typeof t>[0])
-    return name.replace(/[._]/g, ' ')
-  }
-
-  function author(entry: HistoryEntryView): string {
+  function author(entry: HistoryEntryView | ActivityView): string {
     const agent = entry.author.startsWith('agent:') ? entry.author.slice('agent:'.length) : null
     return agent === null ? t('history.you') : t('history.agent', { name: agent })
   }
@@ -56,10 +57,18 @@
     <p class="empty" data-testid="history-empty">{t('history.empty')}</p>
   {:else}
     <ol class="list" aria-label={t('history.label')}>
-      {#each entries as { entry, undone } (entry.id)}
-        <li class="row" class:undone data-testid="history-entry" data-name={entry.name} data-author={entry.author} data-undone={undone}>
-          <span class="what">{label(entry.name)}</span>
-          {#if undone}<span class="tag">{t('history.undone')}</span>{/if}
+      {#each entries as { key, entry, undone, setting } (key)}
+        <li
+          class="row"
+          class:undone
+          class:setting
+          data-testid={setting ? 'history-activity' : 'history-entry'}
+          data-name={entry.name}
+          data-author={entry.author}
+          data-undone={undone}
+        >
+          <span class="what">{label(entry, t)}</span>
+          {#if undone}<span class="tag">{t('history.undone')}</span>{:else if setting}<span class="tag">{t('history.notUndoable')}</span>{/if}
           <span class="who" class:agent={entry.author !== 'user'}>{author(entry)}</span>
           <time class="when" datetime={entry.at > 0 ? new Date(entry.at).toISOString() : undefined}>{time(entry.at)}</time>
         </li>
@@ -112,6 +121,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .setting .tag {
+    color: var(--fk-text-muted);
   }
   .tag,
   .who,

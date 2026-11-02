@@ -423,7 +423,11 @@ fn set_loop(
     let previous = as_tick_loop(t.loop_region);
     let output = Output::SetLoop { previous };
     // Clearing the region turns the loop off: a loop on without a region is invalid.
-    let switch = if region.is_none() { Some(false) } else { enabled };
+    let switch = if region.is_none() {
+        Some(false)
+    } else {
+        enabled
+    };
     let switched = switch.is_some_and(|on| on != t.loop_enabled);
     if t.loop_region == region && !switched {
         return Ok(unchanged(output));
