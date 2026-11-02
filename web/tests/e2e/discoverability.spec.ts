@@ -177,6 +177,9 @@ test.describe('errors that say what to do', () => {
     await addTrack(page, 'Drums')
     await expect(tracks(page)).toHaveCount(2)
     await expect(page.getByTestId('save-state')).toHaveText(/^Draft saved at/, { timeout: 20_000 })
+    // The draft's name (#473: the moment it started).
+    const name = ((await page.getByTestId('project-name').textContent()) ?? '').trim()
+    expect(name).toMatch(/^Sketch /)
     await page.getByTestId('project-menu').click()
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('menu-export-pack').click()])
     const pack = testInfo.outputPath('again.faulkpack')
@@ -187,7 +190,7 @@ test.describe('errors that say what to do', () => {
     let [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('menu-import-pack').click()])
     await chooser.setFiles(pack)
     await expect(page.getByTestId('storage-notice')).toContainText('is already open')
-    await expect(page.getByTestId('storage-notice')).toContainText('Untitled')
+    await expect(page.getByTestId('storage-notice')).toContainText(name)
     await expect(page.getByTestId('notice-open')).toHaveCount(0)
     await page.getByTestId('storage-notice').getByRole('button', { name: 'Dismiss' }).click()
 
@@ -201,7 +204,7 @@ test.describe('errors that say what to do', () => {
     const notice = page.getByTestId('storage-notice')
     await expect(notice).toContainText('already kept in this browser')
     await expect(page.locator('p.banner')).toHaveCount(1)
-    await expect(page.getByTestId('notice-open')).toHaveText('Open “Untitled”')
+    await expect(page.getByTestId('notice-open')).toHaveText(`Open “${name}”`)
     await page.getByTestId('notice-open').click()
     await expect(tracks(page)).toHaveCount(2)
     await expect(notice).toHaveCount(0)
