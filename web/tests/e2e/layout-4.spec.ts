@@ -121,7 +121,7 @@ test('the language is switched from the project menu, in both directions, and ke
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-lang-fr').click()
   await expect(page.getByTestId('nav-mixer')).toHaveText('Mixeur')
-  await expect(page.getByTestId('panel-devices')).toHaveText('Appareils')
+  await expect(page.getByTestId('panel-devices')).toHaveText('Devices')
   await page.getByTestId('project-menu').click()
   await expect(page.getByTestId('menu-lang-fr')).toHaveAttribute('aria-checked', 'true')
   await page.getByTestId('menu-lang-en').click()
