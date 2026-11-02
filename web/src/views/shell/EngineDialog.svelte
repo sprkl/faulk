@@ -12,7 +12,7 @@
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
 
-  const { engine, ui, dispatcher, meters } = useStores()
+  const { engine, ui, dispatcher, meters, project } = useStores()
   const t = ui.t
 
   let dialog = $state<HTMLDialogElement | null>(null)
@@ -29,6 +29,20 @@
     engine.status?.estimatedLatencyMs != null ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
   const load = $derived(engine.feedback?.cpuLoad != null ? `${Math.round(engine.feedback.cpuLoad * 100)} %` : null)
+
+  /** The manual latency offset of recording (#470): session state, `record.set_settings`. */
+  const offset = $derived(project.view?.session.record?.offset_ms ?? 0)
+  let offsetDraft = $state('')
+  let offsetFocus = $state(false)
+  $effect(() => {
+    if (!offsetFocus) offsetDraft = String(offset)
+  })
+  function commitOffset() {
+    const value = Math.round(Number(offsetDraft.trim()))
+    if (offsetDraft.trim() !== '' && Number.isFinite(value) && value !== offset)
+      dispatcher.run({ type: 'record.set_settings', offset_ms: Math.max(-500, Math.min(500, value)) })
+    offsetDraft = String(offset)
+  }
 
   /** A click on the backdrop (the dialog element itself, outside its box) closes it. */
   function onBackdrop(event: MouseEvent) {
@@ -71,6 +85,29 @@
         <dd data-testid="engine-dialog-mode">{engine.mode === 'native' ? t('engine.modeBoost') : t('engine.modeWeb')}</dd>
         <dt>{t('engine.latencyLabel')}</dt>
         <dd data-testid="engine-dialog-latency">{latency}</dd>
+        <dt><label for="engine-record-offset">{t('engine.recordOffset')}</label></dt>
+        <dd>
+          <input
+            id="engine-record-offset"
+            class="offset"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            size="4"
+            title={t('engine.recordOffsetHint')}
+            data-testid="engine-record-offset"
+            bind:value={offsetDraft}
+            onfocus={() => (offsetFocus = true)}
+            onblur={() => {
+              commitOffset()
+              offsetFocus = false
+            }}
+            onkeydown={(event) => {
+              if (event.key === 'Enter') commitOffset()
+            }}
+          />
+          <span class="unit">ms</span>
+        </dd>
         <dt>{t('engine.loadLabel')}</dt>
         <dd data-testid="engine-dialog-load">{load ?? t('engine.loadNone')}</dd>
         <dt>{t('engine.voicesLabel')}</dt>
@@ -217,6 +254,21 @@
     margin: 0;
   }
   .muted {
+    color: var(--fk-text-muted);
+  }
+  input.offset {
+    width: 56px;
+    height: 24px;
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    text-align: right;
+    padding: 0 var(--fk-space-1);
+    font-variant-numeric: tabular-nums;
+  }
+  .unit {
+    margin-left: 4px;
     color: var(--fk-text-muted);
   }
   dl {

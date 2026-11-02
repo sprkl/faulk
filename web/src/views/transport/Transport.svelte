@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The transport bar: play, stop, back to start, record (off until recording exists), loop,
+   * The transport bar: play, stop, back to start, record (MIDI, the armed tracks, #470), loop,
    * metronome, position in bars.beats.ticks and minutes:seconds, tempo and time signature, and the
    * launch quantization (`transport.set_launch_quantize`). It holds no state of its own
    * but the text being typed: it reads the stores and every control is a command (`transport-commands.ts`)
@@ -29,7 +29,7 @@
     type Signature,
   } from './time'
 
-  const { engine, project, ui, dispatcher } = useStores()
+  const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
 
   const QUANTIZE_ORDER = ['none', 'sixteenth', 'beat', 'bar', 'bars_2', 'bars_4', 'bars_8'] as const
@@ -60,6 +60,52 @@
   })
 
   const run = dispatcher.run.bind(dispatcher)
+
+  // --- recording (#470) ----------------------------------------------------------------------------
+
+  /** The armed MIDI tracks: the ones a take records. */
+  const armedMidi = $derived(project.armed.filter((id) => project.view?.project.tracks[id]?.kind === 'midi'))
+  const scenes = $derived(
+    Object.entries(project.view?.project.scenes ?? {})
+      .filter((entry): entry is [string, NonNullable<(typeof entry)[1]>] => entry[1] !== undefined)
+      .sort(([a, x], [b, y]) => (x.order < y.order ? -1 : x.order > y.order ? 1 : a < b ? -1 : 1)),
+  )
+  /** Where the next take goes: the scene of the grid's last cell, or the play position of the arrangement. */
+  const recordScene = $derived.by(() => {
+    if (ui.recordView !== 'grid' || scenes.length === 0) return null
+    const index = Math.max(
+      0,
+      scenes.findIndex(([id]) => id === ui.recordScene),
+    )
+    const [id, scene] = scenes[index]!
+    return { id, name: scene.name.trim() || t('grid.sceneDefault', { n: index + 1 }) }
+  })
+  const recordBar = $derived(Math.floor(Math.max(0, tick) / barTicks(signature)) + 1)
+  const recordTarget = $derived(recordScene ? t('transport.recordIntoScene', { scene: recordScene.name }) : t('transport.recordAtBar', { bar: recordBar }))
+  const recording = $derived(recorder.phase === 'recording')
+  const countingIn = $derived(recording && engine.feedback?.transport === 'recording' && !engine.feedback.recordCapturing)
+  const recordBlocked = $derived(
+    !ready
+      ? t('transport.needsAudio')
+      : engine.mode === 'native'
+        ? t('transport.recordBoost')
+        : recorder.phase === 'closing'
+          ? t('transport.recordClosing')
+          : !recording && armedMidi.length === 0
+            ? t('transport.recordNoArm')
+            : null,
+  )
+  const recordTitle = $derived(recording ? t('transport.recordStop') : (recordBlocked ?? `${t('transport.record')}: ${recordTarget}`))
+
+  function onRecord() {
+    if (recording) run({ type: 'record.stop' })
+    else if (recorder.phase === 'idle')
+      run({
+        type: 'record.start',
+        target: recordScene ? { at: 'scene', scene: recordScene.id } : { at: 'arrangement' },
+        latency_ms: engine.status?.estimatedLatencyMs ?? null,
+      })
+  }
 
   function commitTempo() {
     // Only a text the user changed counts: leaving the field untouched must not round a tempo with more than two decimals.
@@ -208,9 +254,24 @@
       aria-hidden="true"><path d="M2 4 H14 M2 8 H14 M2 12 H8 M12 14 L9 11 L12 8" /></svg
     >
   </button>
-  <button class="tool" disabled aria-label={t('transport.record')} title={t('transport.recordSoon')} data-testid="transport-record">
+  <button
+    class="tool"
+    class:recording
+    disabled={recordBlocked !== null && !recording}
+    aria-pressed={recording}
+    aria-label={t('transport.record')}
+    title={recordTitle}
+    data-testid="transport-record"
+    onclick={press(onRecord)}
+  >
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--fk-rec)" /></svg>
   </button>
+  {#if recording || (armedMidi.length > 0 && recordBlocked === null)}
+    <!-- The target, shown before the take starts (spec § 4.1), and the count-in while it runs. -->
+    <span class="rec-target" class:live={recording} data-testid="transport-record-target" aria-live="polite">
+      {countingIn ? t('transport.countIn') : recordTarget}
+    </span>
+  {/if}
   <button
     class="tool"
     class:on={settings?.loop_enabled}
@@ -376,6 +437,23 @@
   }
   .tool.playing::after {
     content: none;
+  }
+  /* Recording: the red of the dot frames the button (the pressed state and the words say it too). */
+  .tool.recording,
+  .tool.recording:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--fk-rec) 22%, transparent);
+    border-color: var(--fk-rec);
+  }
+  .rec-target {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--fk-text-muted);
+  }
+  .rec-target.live {
+    color: var(--fk-text);
   }
   .tool:disabled {
     opacity: 0.45;

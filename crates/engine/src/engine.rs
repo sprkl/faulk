@@ -44,7 +44,6 @@ use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, 
 use crate::launcher;
 use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
-use crate::recorder::{RecordClock, Recorder};
 use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
     Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
@@ -52,6 +51,7 @@ use crate::msg::{
     SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
     TransportState, limits, state_pairs, try_box,
 };
+use crate::recorder::{RecordClock, Recorder};
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use crate::transport::{Segment, Transport};
 

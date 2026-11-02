@@ -17,6 +17,7 @@ import { EngineStore } from './engine.svelte'
 import { KeyboardPlayer } from './keyboard-player.svelte'
 import { MeterStore } from './meters.svelte'
 import { ProjectStore } from './project.svelte'
+import { Recorder } from './recorder.svelte'
 import { UiStore } from './ui.svelte'
 
 export { Dispatcher } from './dispatcher'
@@ -25,6 +26,7 @@ export { AutomatedValues } from './automated.svelte'
 export { KeyboardPlayer } from './keyboard-player.svelte'
 export { MASTER_METER, MeterStore } from './meters.svelte'
 export { ProjectStore } from './project.svelte'
+export { Recorder } from './recorder.svelte'
 export { ProjectStorage } from '../storage/storage.svelte'
 export { UiStore } from './ui.svelte'
 
@@ -43,6 +45,8 @@ export interface Stores {
   automated: AutomatedValues
   /** The levels every meter of the page shows, and the latched CLIP of each. */
   meters: MeterStore
+  /** MIDI recording (#470): the take in progress and its notes. */
+  recorder: Recorder
 }
 
 /** `deps` is for tests: the browser seams of the project storage (`lib/storage`). */
@@ -54,6 +58,12 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   dispatcher.storage = storage
   const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
   dispatcher.audioExport = audioExport
+  const recorder = new Recorder({
+    run: (command) => dispatcher.run(command),
+    slots: () => project.view?.slots ?? null,
+    now: () => performance.now(),
+  })
+  dispatcher.recorder = recorder
   // Dev server only: lets the browser checks send a command through the one entry point
   // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
   // the project back (the ids of what they made, for the next command).
@@ -87,6 +97,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     keys: new KeyboardPlayer(project, engine, ui, dispatcher),
     automated: new AutomatedValues(project, engine, ui),
     meters: new MeterStore(project, engine),
+    recorder,
   }
 }
 

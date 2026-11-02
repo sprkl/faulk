@@ -208,11 +208,7 @@ fn edited(output: Output, inverse: Command, event: ProjectEvent) -> Out {
 }
 
 /// Applies a command of this domain.
-pub fn apply(
-    command: &Command,
-    state: &mut State,
-    ctx: &mut Context,
-) -> Result<Out, CommandError> {
+pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     // A stop or a pause ends the capture of a recording take (`record.*`).
     let ends_take = |out: Out, ctx: &mut Context| -> Out {
         let mut out = out;

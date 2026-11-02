@@ -40,6 +40,7 @@ proptest! {
             monitor: all.iter().skip(1).step_by(2).cloned().collect(),
             solo: all.into_iter().collect(),
             midi_input: input,
+            record: Default::default(),
         };
         let json = serde_json::to_string(&session).unwrap();
         prop_assert_eq!(serde_json::from_str::<SessionState>(&json).unwrap(), session);

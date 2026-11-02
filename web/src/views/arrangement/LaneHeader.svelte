@@ -283,7 +283,8 @@
         aria-label={t('tracks.arm', { name })}
         title={t('tracks.armHint', { name })}
         data-testid="arr-arm"
-        onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
+        onclick={() => dispatcher.run(armTrack(entry.id, !armed))}
+        ><svg width="7" height="7" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="3.5" fill="var(--fk-rec)" /></svg>Rec</button
       >
     {/if}
   </div>
@@ -492,9 +493,13 @@
     color: #131211;
     text-decoration: underline;
   }
-  /* Live input on: the neutral inverted fill of the other strips (red is for recording, which this is not). */
+  /* Armed: the neutral inverted fill of the other strips, with the red dot of recording (#470). */
   .state.arm {
-    width: 26px;
+    width: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
   }
   .state.arm[aria-pressed='true'] {
     background: var(--fk-text);

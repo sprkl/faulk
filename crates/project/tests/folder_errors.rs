@@ -953,6 +953,7 @@ fn a_mutated_session_never_stops_the_open() {
         midi_input: Some("Keys".into()),
         armed: Default::default(),
         monitor: Default::default(),
+        record: Default::default(),
     };
     save_session(&mut fs, &session).unwrap();
     let base = fs.read(".faulk/session.json").unwrap();

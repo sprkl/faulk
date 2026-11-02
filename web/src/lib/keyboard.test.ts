@@ -436,6 +436,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
       'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
+      'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Escape'],
       'views/shell/Shell.svelte': [],
