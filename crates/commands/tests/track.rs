@@ -97,7 +97,11 @@ fn a_midi_track_plays_the_oscillator_at_its_defaults_and_goes_last() {
     let t = &s.project.tracks[&id];
     assert_eq!(t.kind, TrackKind::Midi);
     assert_eq!(t.name, "");
-    assert_eq!(t.color, None);
+    assert_eq!(
+        t.color,
+        Some(::project::colors::palette_hue(1)),
+        "the fixture holds hue 0"
+    );
     assert_eq!(t.mixer, ::project::Mixer::default());
     let d = &t.devices[&device];
     assert!(matches!(
@@ -813,4 +817,94 @@ fn delete_then_undo_keeps_the_automation_lanes_of_the_track() {
     run(&undo(), &mut s, &mut context()).unwrap();
     assert_eq!(s.project, f.state.project);
     assert!(s.project.tracks[&f.track].automation.contains_key(&lane));
+}
+
+/// The colours of the tracks, in display order.
+fn colors(state: &State) -> Vec<Option<::project::Rgb>> {
+    order(state)
+        .iter()
+        .map(|id| state.project.tracks[id].color)
+        .collect()
+}
+
+/// #479: a created track (agent: no colour given) and a duplicate store a hue of the
+/// palette at creation; reordering, deleting and duplicating then change no other colour,
+/// and each step undoes to the identical state.
+#[test]
+fn a_track_keeps_its_stored_colour_whatever_happens_to_the_others() {
+    use ::project::colors::{TRACK_PALETTE, palette_hue};
+    let mut s = commands::testing::state();
+    let mut ctx = context();
+    let mut ids = Vec::new();
+    for _ in 0..5 {
+        let out = run(&create(TrackKind::Midi), &mut s, &mut ctx).unwrap();
+        ids.push(created(&out).0);
+    }
+    let hues: Vec<_> = (0..5).map(|i| Some(palette_hue(i))).collect();
+    assert_eq!(colors(&s), hues, "the next free hue, in turn");
+
+    let color_of = |s: &State, id: &TrackId| s.project.tracks[id].color;
+    let before: Vec<_> = ids.iter().map(|id| color_of(&s, id)).collect();
+
+    // Reorder.
+    check(&mv(&ids[4], 0), &s, &ctx).unwrap();
+    run(&mv(&ids[4], 0), &mut s, &mut ctx).unwrap();
+    for (id, was) in ids.iter().zip(&before) {
+        assert_eq!(&color_of(&s, id), was);
+    }
+    // Delete, and undo.
+    check(&delete(&ids[1]), &s, &ctx).unwrap();
+    run(&delete(&ids[1]), &mut s, &mut ctx).unwrap();
+    for (i, (id, was)) in ids.iter().zip(&before).enumerate() {
+        if i != 1 {
+            assert_eq!(&color_of(&s, id), was);
+        }
+    }
+    // The freed hue is the next one handed out.
+    let out = run(&create(TrackKind::Audio), &mut s, &mut ctx).unwrap();
+    assert_eq!(color_of(&s, &created(&out).0), before[1]);
+
+    // A duplicate keeps the source's colour; the source and the others keep theirs.
+    let dup = tc(track::Command::Duplicate {
+        track: ids[0].clone(),
+        name: None,
+    });
+    let snapshot: Vec<_> = ids
+        .iter()
+        .filter(|id| s.project.tracks.contains_key(*id))
+        .map(|id| color_of(&s, id))
+        .collect();
+    check(&dup, &s, &ctx).unwrap();
+    let out = run(&dup, &mut s, &mut ctx).unwrap();
+    let Output::Track(track::Output::Duplicate { track: copy }) = out.output else {
+        panic!()
+    };
+    assert_eq!(
+        color_of(&s, &copy),
+        color_of(&s, &ids[0]),
+        "a copy keeps its source's colour"
+    );
+    let after: Vec<_> = ids
+        .iter()
+        .filter(|id| s.project.tracks.contains_key(*id))
+        .map(|id| color_of(&s, id))
+        .collect();
+    assert_eq!(after, snapshot);
+
+    // Past the sixteen hues, the least used comes first; an explicit colour is kept.
+    for _ in 0..TRACK_PALETTE.len() {
+        run(&create(TrackKind::Midi), &mut s, &mut ctx).unwrap();
+    }
+    s.project.validate().unwrap();
+    let explicit = tc(track::Command::Create {
+        kind: TrackKind::Midi,
+        instrument: None,
+        name: None,
+        color: Some(::project::Rgb::new(1, 2, 3)),
+    });
+    let out = run(&explicit, &mut s, &mut ctx).unwrap();
+    assert_eq!(
+        color_of(&s, &created(&out).0),
+        Some(::project::Rgb::new(1, 2, 3))
+    );
 }

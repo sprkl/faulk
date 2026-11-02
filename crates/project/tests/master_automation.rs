@@ -81,6 +81,7 @@ fn song(volume_points: usize) -> Song {
     // A track with a lane of its own, apart from the master's.
     let track = TrackId::generate(&mut ids);
     let mut t = Track::new(TrackKind::Midi, "T", OrderKey::first());
+    t.color = Some(project::Rgb::new(1, 2, 3));
     t.automation.insert(
         LaneId::generate(&mut ids),
         AutomationLane {

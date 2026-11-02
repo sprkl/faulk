@@ -239,6 +239,7 @@ pub fn fixture() -> Fixture {
         "Synth",
         project::OrderKey::first(),
     );
+    midi.color = Some(project::colors::palette_hue(0));
     midi.devices.insert(
         device.clone(),
         project::Device {
