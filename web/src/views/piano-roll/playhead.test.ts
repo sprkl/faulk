@@ -116,6 +116,13 @@ describe('playheadIn, the arrangement', () => {
     expect(playheadIn(input({ track, tick: 5000 }))).toBeNull()
   })
 
+  it('shows only the placement the roll was opened on, when one was (#494)', () => {
+    const track = { placements: { P1: place('C1', 0, 3840), P2: place('C1', 7680, 3840) } }
+    expect(playheadIn(input({ track, placement: 'P2', tick: 7680 + 10 }))).toBe(10)
+    expect(playheadIn(input({ track, placement: 'P2', tick: 10 }))).toBeNull()
+    expect(playheadIn(input({ track, placement: null, tick: 10 }))).toBe(10)
+  })
+
   it('has none for a placement of another clip', () => {
     const track = { placements: { P1: place('C2', 0, 3840) } }
     expect(playheadIn(input({ track, tick: 100 }))).toBeNull()

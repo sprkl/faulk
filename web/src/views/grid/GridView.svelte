@@ -189,7 +189,7 @@
   /** Points the piano roll at a clip of a track; `show` also brings the roll forward. */
   function open(track: string, clip: string, show: boolean) {
     select(track)
-    ui.editedClip = clip
+    ui.editClip(clip)
     if (show) ui.showPanel('piano-roll')
   }
 

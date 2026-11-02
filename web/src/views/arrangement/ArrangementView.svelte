@@ -50,8 +50,8 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
-  import { barTicks } from '../transport/time'
-  import { rovingKey, step as stepItem, zoomKey, type Direction } from '../../lib/roving'
+  import { PPQ, barTicks, beatTicks } from '../transport/time'
+  import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import {
     blocksOf,
     clampScrollY,
@@ -569,7 +569,7 @@
       if (!on) return
     } else if (!picked.has(block.id)) picked = new Set([block.id])
     // The piano roll follows the clip selected here (#470); a double click still brings the panel up.
-    ui.editedClip = block.clip
+    ui.editClip(block.clip, block.id)
     if (zone === 'body') {
       const ids = blocks.filter((b) => picked.has(b.id)).map((b) => b.id)
       gesture = {
@@ -892,7 +892,7 @@
     const hit = hitBlock(blocks, layout, x, y, shown, y0)
     if (hit) {
       // The clip opens in the piano roll below.
-      ui.editedClip = hit.block.clip
+      ui.editClip(hit.block.clip, hit.block.id)
       select(hit.block.track)
       ui.showPanel('piano-roll')
       return
@@ -1017,6 +1017,7 @@
     const b = blocks.find((x) => x.id === id)
     if (!b) return
     focusId = id
+    onCursor = false
     const [from, to] = visibleRange(shown, stageW)
     if (b.start < from || b.start > to) {
       follow = false
@@ -1044,14 +1045,23 @@
       event.stopPropagation()
       zoomBy(zoom > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
       if (current) void focusItem(current.id)
+      else if ((event.target as HTMLElement).dataset.cursor !== undefined) void focusCursor()
       return
     }
     const key = rovingKey(event)
-    if (!current || !key) return
+    if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
+    // Page Up and Page Down mean a velocity: a clip has none.
+    if (!current || !key || key.kind === 'velocity') return
     event.preventDefault()
     event.stopPropagation()
+    if (key.kind === 'free') {
+      // Escape frees the cursor at the clip's start on its track (#494); the selection stays (Escape again on the cursor clears it).
+      cursorAt = { row: current.row, tick: current.start }
+      void focusCursor()
+      return
+    }
     if (key.kind === 'open') {
-      ui.editedClip = current.clip
+      ui.editClip(current.clip, current.id)
       select(current.track)
       ui.showPanel('piano-roll')
       announce(t('arrangement.saidOpened', { name: current.name || t('arrangement.clipDefault') }))
@@ -1067,6 +1077,11 @@
       picked = new Set()
       announce(t('arrangement.saidDeleted', { n: chosen.length }))
       if (next && blocks.some((b) => b.id === next.id)) void focusItem(next.id)
+      else {
+        // No clip left to go to: the cursor takes the focus where this one was, so the keyboard stays in the grid.
+        cursorAt = { row: current.row, tick: current.start }
+        void focusCursor()
+      }
       return
     }
     if (key.kind === 'move') {
@@ -1100,13 +1115,141 @@
     if (key.kind === 'extend') picked = new Set([...picked, current.id, target.id])
     else picked = new Set([target.id])
     select(block.track)
-    ui.editedClip = block.clip
+    ui.editClip(block.clip, block.id)
     void focusItem(target.id)
   }
 
   function onItemsFocus(event: FocusEvent) {
-    const id = (event.target as HTMLElement).dataset.block
-    if (id) focusId = id
+    itemsHadFocus = true
+    const target = event.target as HTMLElement
+    if (target.dataset.block) {
+      focusId = target.dataset.block
+      onCursor = false
+    } else if (target.dataset.cursor !== undefined && cursorPos) {
+      // Pinned where it was found: it no longer follows the view.
+      cursorAt ??= cursorPos
+      onCursor = true
+    }
+  }
+
+  // --- the free cursor (#494) -----------------------------------------------------------------------------------------
+  // A track and a tick where no clip needs to be: the only cell in the tab order of an empty timeline, and where Escape on a
+  // clip leaves the focus. The arrows move it by the snap step (a beat at least) and a track (Shift+Left and Right: a bar); Enter creates a
+  // clip of one bar there (`clip.create`, placed), or goes to the clip already under it.
+  /** Where the cursor was left; null until it is first used (it then stands on the selected track, where the view looks). */
+  let cursorAt = $state<Cursor | null>(null)
+  /** Whether the cursor holds the tab stop rather than a clip. */
+  let onCursor = $state(false)
+  const cursorTab = $derived(entries.length > 0 && (onCursor || blocks.length === 0))
+  const cursorPos = $derived.by<Cursor | null>(() => {
+    if (entries.length === 0) return null
+    const last = Math.max(0, totalBars * bar - 1)
+    if (cursorAt) return { row: Math.min(cursorAt.row, entries.length - 1), tick: Math.min(cursorAt.tick, last) }
+    const row = Math.max(
+      0,
+      entries.findIndex((e) => e.id === project.selected?.id),
+    )
+    return { row, tick: Math.min(Math.ceil(Math.max(0, shown.scrollTick) / bar) * bar, last) }
+  })
+  /** The cursor's cell: one bar wide (the clip Enter would create), on its track's row. */
+  const cursorCell = $derived.by(() => {
+    if (!cursorPos) return null
+    const top = laneTop(layout, cursorPos.row, y0) + BLOCK_INSET
+    const height = Math.max(4, laneHeight(layout, cursorPos.row) - 2 * BLOCK_INSET)
+    const left = tickToX(cursorPos.tick, shown)
+    return { left, top, width: Math.max(4, tickToX(cursorPos.tick + bar, shown) - left), height }
+  })
+  const cursorText = $derived.by(() => {
+    const entry = cursorPos ? entries[cursorPos.row] : undefined
+    if (!cursorPos || !entry) return ''
+    const into = cursorPos.tick % bar
+    const vars = { track: trackLabel(entry, t), bar: Math.floor(cursorPos.tick / bar) + 1, beat: Number((into / PPQ + 1).toFixed(2)) }
+    return into === 0 ? t('arrangement.cursorBar', vars) : t('arrangement.cursorBeat', vars)
+  })
+
+  /** Brings the cursor into the window (time and rows), then gives it the focus. */
+  async function focusCursor() {
+    const at = cursorPos
+    if (!at) return
+    onCursor = true
+    const [from, to] = visibleRange(shown, stageW)
+    if (at.tick < from || at.tick > to) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: at.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    const top = layout.trackTop[at.row] ?? 0
+    const height = laneHeight(layout, at.row)
+    const room = stageH - RULER_HEIGHT
+    if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
+    else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    await tick()
+    itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+  }
+
+  function onCursorKey(event: KeyboardEvent, key: NonNullable<RovingKey>) {
+    const at = cursorPos
+    // Delete and Escape go on to the timeline (they remove or clear the selection); a velocity means nothing here.
+    if (!at || key.kind === 'delete' || key.kind === 'free' || key.kind === 'velocity') return
+    event.preventDefault()
+    event.stopPropagation()
+    if (key.kind === 'focus' || key.kind === 'extend') {
+      cursorAt = moveCursor(
+        at,
+        key.direction,
+        { tick: key.kind === 'extend' ? bar : timelineCursorStep(step, beatTicks(signature), bar), row: 1 },
+        entries.length,
+        totalBars * bar,
+      )
+      void focusCursor()
+      return
+    }
+    if (key.kind !== 'open') return
+    const under = itemAt(items, at)
+    const entry = entries[at.row]
+    if (under) {
+      const block = blocks.find((b) => b.id === under.id)!
+      picked = new Set([block.id])
+      select(block.track)
+      ui.editClip(block.clip, block.id)
+      void focusItem(block.id)
+      return
+    }
+    if (!entry) return
+    if (!isMidi(entry.track)) return announce(t('arrangement.saidNotMidi'))
+    if (!isFree(blocks, at.row, at.tick, at.tick + bar)) return announce(t('arrangement.saidNoRoom'))
+    select(entry.id)
+    run(createClipAt(entry.id, at.tick, bar))
+    const made = blocks.find((b) => b.row === at.row && b.start === at.tick)
+    if (!made) return
+    picked = new Set([made.id])
+    ui.editClip(made.clip, made.id)
+    announce(t('arrangement.saidCreated', { bar: Math.floor(at.tick / bar) + 1 }))
+    void focusItem(made.id)
+  }
+
+  // Undo and redo say what they did here too (#494), from wherever they were asked; what was said before the view opened is not said again.
+  let heardHistory = untrack(() => ui.historySaid.n)
+  $effect(() => {
+    const message = ui.historySaid
+    if (message.n === heardHistory) return
+    heardHistory = message.n
+    untrack(() => {
+      announce(message.text)
+      if (itemsHadFocus) void keepItemsFocus()
+    })
+  })
+  /** Whether the keyboard was last in the clips' grid (a focus that leaves it for another element clears it; a removed cell does not). */
+  let itemsHadFocus = false
+  function onItemsFocusOut(event: FocusEvent) {
+    const to = event.relatedTarget as Node | null
+    if (to && !itemsEl?.contains(to)) itemsHadFocus = false
+  }
+  /** An undo or a redo can take away the focused clip: the focus goes back to the grid's tab stop. */
+  async function keepItemsFocus() {
+    await tick()
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    itemsEl?.querySelector<HTMLElement>('[tabindex="0"]')?.focus()
   }
 
   // The window loses the pointer: nothing may stay half done.
@@ -1451,16 +1594,35 @@
         data-testid="arr-items"
         onkeydown={onItemKey}
         onfocusin={onItemsFocus}
+        onfocusout={onItemsFocusOut}
       >
-        {#each entries as entry (entry.id)}
+        {#each entries as entry, row (entry.id)}
           {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
-          {#if cells.length > 0}
+          {@const here = cursorPos?.row === row && cursorCell && stageW > 0 ? cursorCell : null}
+          {#if cells.length > 0 || here}
             <div role="row" aria-rowindex={entry.index + 1} aria-label={trackLabel(entry, t)}>
+              {#if here}
+                <div
+                  class="item cursor"
+                  role="gridcell"
+                  tabindex={cursorTab ? 0 : -1}
+                  aria-selected="false"
+                  aria-label={cursorText}
+                  data-cursor=""
+                  data-testid="arr-cursor"
+                  data-row={cursorPos?.row}
+                  data-tick={cursorPos?.tick}
+                  style:left="{here.left}px"
+                  style:top="{here.top - RULER_HEIGHT}px"
+                  style:width="{here.width}px"
+                  style:height="{here.height}px"
+                ></div>
+              {/if}
               {#each cells as cell (cell.block.id)}
                 <div
                   class="item"
                   role="gridcell"
-                  tabindex={cell.block.id === tabId ? 0 : -1}
+                  tabindex={cell.block.id === tabId && !cursorTab ? 0 : -1}
                   aria-selected={selectedIds.has(cell.block.id)}
                   aria-label={clipText(cell.block)}
                   data-block={cell.block.id}
@@ -1820,6 +1982,11 @@
   .item:focus-visible {
     outline: 2px solid var(--fk-accent-fg);
     outline-offset: 1px;
+  }
+  /* The free cursor (#494): seen only while it has the keyboard, as a tinted bar where Enter would create the clip. */
+  .cursor:focus-visible {
+    background: var(--fk-accent-tint);
+    outline-style: dashed;
   }
   .stage[data-cursor='move'] {
     cursor: grab;
