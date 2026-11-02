@@ -96,6 +96,8 @@
         return
       }
     }
+    // The open list holds the keyboard: no undo, redo or note behind it (the dialog keeps Escape and Tab itself).
+    if (ui.helpOpen) return
     const action = historyShortcut(event)
     if (!action) {
       // The computer keyboard plays in every view; what is no shortcut of the shell goes to the notes.

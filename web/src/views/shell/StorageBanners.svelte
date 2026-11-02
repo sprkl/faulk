@@ -49,7 +49,7 @@
 {:else if storage.banner === 'warning'}
   <p class="banner" role="status" data-testid="browser-warning">
     <span>{t(storage.browserWarning === 'volatile' ? 'save.banner.browserVolatile' : 'save.banner.browserOnly')}</span>
-    <button class="primary" data-testid="warning-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
+    <button data-testid="warning-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
     <button onclick={() => storage.dismissBrowserWarning()}>{t('save.banner.dismiss')}</button>
   </p>
 {:else if storage.banner === 'permission'}

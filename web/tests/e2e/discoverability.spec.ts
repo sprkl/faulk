@@ -34,7 +34,8 @@ test.describe('the shortcut list', () => {
     await expect(dialog(page)).toBeVisible()
     await expect(dialog(page)).toHaveAttribute('aria-modal', 'true')
     await expect(dialog(page)).toHaveAccessibleName('Keyboard shortcuts')
-    // The focus is inside, and Tab never leaves the dialog for the page behind (which is inert).
+    // The focus moved inside on open, and Tab never puts it on the page behind (which is inert).
+    expect(await page.evaluate(() => document.activeElement?.closest('dialog[open]') !== null)).toBe(true)
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('Tab')
       expect(await page.evaluate(() => document.activeElement?.closest('dialog[open]') !== null || document.activeElement === document.body)).toBe(true)
@@ -59,10 +60,34 @@ test.describe('the shortcut list', () => {
     await expect(page.getByTestId('view')).toHaveAttribute('data-view', 'arrangement')
     await page.keyboard.press('Shift+Slash')
     await expect(dialog(page)).toBeHidden()
+    // With Ctrl or Alt it is no ? shortcut.
+    await page.keyboard.press('Control+Shift+Slash')
+    await page.keyboard.press('Alt+Shift+Slash')
+    await expect(dialog(page)).toBeHidden()
     // The tempo field takes the character as text: no list.
     await page.getByTestId('transport-tempo').fill('')
     await page.keyboard.press('Shift+Slash')
     await expect(dialog(page)).toBeHidden()
+  })
+
+  test('the open list holds the keyboard: no undo and no note behind it', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await addTrack(page, 'Drums')
+    await expect(tracks(page)).toHaveCount(2)
+    await page.keyboard.press('Shift+Slash')
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.down('KeyA')
+    await page.keyboard.press('Control+KeyZ')
+    await page.keyboard.up('KeyA')
+    await expect(tracks(page)).toHaveCount(2)
+    await expect(page.getByTestId('voices')).toHaveText('Voices: 0')
+    await page.keyboard.press('Escape')
+    await expect(dialog(page)).toBeHidden()
+    await page.getByTestId('transport-position').click()
+    await page.keyboard.press('Control+KeyZ')
+    await expect(tracks(page)).toHaveCount(1)
   })
 
   test('the empty timeline has a guide, and its button opens the list', async ({ page }) => {
@@ -80,7 +105,9 @@ test.describe('the shortcut list', () => {
     await expect(noClips).toContainText('Press Space to play')
     await page.getByTestId('guide-shortcuts').click()
     await expect(dialog(page)).toBeVisible()
+    expect(await page.evaluate(() => document.activeElement?.closest('dialog[open]') !== null)).toBe(true)
     await page.keyboard.press('Escape')
+    await expect(page.getByTestId('guide-shortcuts')).toBeFocused()
     // It goes when the timeline has a clip: a double-click on a lane makes one.
     const stage = (await page.getByTestId('arr-stage').boundingBox())!
     await page.mouse.dblclick(stage.x + 400, stage.y + 28 + 22)

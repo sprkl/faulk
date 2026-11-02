@@ -59,7 +59,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     id: 'notes',
     title: 'shortcut.group.notes',
     shortcuts: [
-      { label: 'shortcut.typing', chords: [['`']], covers: [TYPING_TOGGLE_CODE] },
+      { label: 'shortcut.typing', chords: [['`'], ['²']], covers: [TYPING_TOGGLE_CODE] },
       { label: 'shortcut.notes', chords: [] },
       { label: 'shortcut.octave', chords: [['Z'], ['X']] },
     ],
