@@ -55,6 +55,11 @@ export const arrangement = defineFeature(
     'arrangement.saidSplit': 'Clips split: {n}',
     'arrangement.saidCopied': 'Clips copied: {n}',
     'arrangement.saidOpened': '{name} opened in the piano roll',
+    'arrangement.cursorBar': 'Cursor, {track}, bar {bar}',
+    'arrangement.cursorBeat': 'Cursor, {track}, bar {bar} beat {beat}',
+    'arrangement.saidCreated': 'Clip created, bar {bar}',
+    'arrangement.saidNoRoom': 'No room for a one-bar clip here',
+    'arrangement.saidNotMidi': 'Clips are created on MIDI tracks',
   },
   {
     'arrangement.empty': 'Ajoute une piste pour commencer à arranger.',
@@ -108,5 +113,10 @@ export const arrangement = defineFeature(
     'arrangement.saidSplit': 'Clips coupés : {n}',
     'arrangement.saidCopied': 'Clips copiés : {n}',
     'arrangement.saidOpened': '{name} ouvert dans le piano roll',
+    'arrangement.cursorBar': 'Curseur, {track}, mesure {bar}',
+    'arrangement.cursorBeat': 'Curseur, {track}, mesure {bar} temps {beat}',
+    'arrangement.saidCreated': 'Clip créé, mesure {bar}',
+    'arrangement.saidNoRoom': 'Pas de place pour un clip d’une mesure ici',
+    'arrangement.saidNotMidi': 'Les clips se créent sur les pistes MIDI',
   },
 )

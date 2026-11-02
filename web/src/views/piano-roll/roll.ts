@@ -240,6 +240,17 @@ export function shiftVelocity(selected: readonly Note[], delta: number): Change[
   return selected.map((from) => ({ from, to: { ...from, velocity: from.velocity + shift } }))
 }
 
+/**
+ * The velocity step of Page Up and Page Down (#494): each note of the selection by `delta`, clamped to 1–127 on its own (a note
+ * at 127 stays there while the others rise). When clamping alone would make two notes the same (the clip refuses that), the
+ * notes move together as `shiftVelocity` does. Only the notes that change; empty when none can.
+ */
+export function stepVelocity(all: readonly Note[], selected: readonly Note[], delta: number): Change[] {
+  const each = selected.map((from) => ({ from, to: { ...from, velocity: Math.round(clamp(from.velocity + finite(delta, 0), MIN_VELOCITY, MAX_VELOCITY)) } }))
+  const ok = acceptable(all, each) ?? acceptable(all, shiftVelocity(selected, delta))
+  return ok ?? []
+}
+
 /** The length of the next drawn note: the last one drawn or resized, else the snap step (a sixteenth when the snap is off). */
 export const defaultLength = (last: number | null, step: number | null): number => last ?? (step !== null && step > 0 ? step : SIXTEENTH)
 

@@ -435,7 +435,20 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'F2',
       ],
       'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
-      'views/piano-roll/PianoRollView.svelte': ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Backspace', 'Delete', 'Enter', 'Enter', 'Escape', 'Escape', 'F2'],
+      'views/piano-roll/PianoRollView.svelte': [
+        'ArrowDown',
+        'ArrowUp',
+        'ArrowUp',
+        'Backspace',
+        'Delete',
+        'Enter',
+        'Enter',
+        'Escape',
+        'Escape',
+        'F2',
+        'PageDown',
+        'PageUp',
+      ], // Page Up and Down: the selection's velocity (#494)
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
