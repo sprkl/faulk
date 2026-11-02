@@ -175,7 +175,8 @@
           aria-label={t('tracks.arm', { name })}
           title={t('tracks.armHint', { name })}
           data-testid="mixer-arm"
-          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}>In</button
+          onclick={() => dispatcher.run(armTrack(entry.id, !armed))}
+          ><svg width="7" height="7" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="3.5" fill="var(--fk-rec)" /></svg>Rec</button
         >
       {/if}
     </div>
@@ -364,6 +365,14 @@
     border-color: var(--fk-solo);
     color: #131211;
     text-decoration: underline;
+  }
+  /* Armed for recording (#470): the red dot of recording beside the word. */
+  .arm {
+    width: auto;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
   .arm[aria-pressed='true'] {
     background: var(--fk-text);

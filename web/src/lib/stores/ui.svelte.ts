@@ -41,6 +41,24 @@ export class UiStore {
    */
   editedClip = $state<string | null>(null)
   /**
+   * The placement of that clip the piano roll shows (#494): its origin, its play position and its entry in the clip list.
+   * Null for the clip's first placement. The roll ignores it when it no longer places the edited clip.
+   */
+  editedPlacement = $state<string | null>(null)
+  /** Points the piano roll at a clip, and at one of its placements (null: its first one). */
+  editClip(clip: string, placement: string | null = null) {
+    this.editedClip = clip
+    this.editedPlacement = placement
+  }
+  /**
+   * What undo or redo just did, in words (#494), for the live regions of the timeline and the piano roll; `n` counts
+   * the messages so that the same words twice are said twice. Set by `announceHistory`.
+   */
+  historySaid = $state<{ text: string; n: number }>({ text: '', n: 0 })
+  announceHistory(text: string) {
+    this.historySaid = { text, n: this.historySaid.n + 1 }
+  }
+  /**
    * Musical typing (#470): whether the bare letters of the computer keyboard play notes ('notes') or are left to
    * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
    */
@@ -61,9 +79,19 @@ export class UiStore {
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
 
+  /**
+   * Where a take of MIDI recording goes (#470, spec § 4.1): the last of the grid and the arrangement the user showed.
+   * The grid records into the scene of its last focused cell (`recordScene`, else the first scene), the arrangement
+   * at the play position. View state, not project data.
+   */
+  recordView = $state<'grid' | 'arrangement'>('arrangement')
+  /** The scene of the grid cell the user last focused or clicked: the grid's target for recording. */
+  recordScene = $state<string | null>(null)
+
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)
     this.panel = $state(panel)
+    if (view === 'grid' || view === 'arrangement') this.recordView = view
   }
 
   t = (key: MessageKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars)
@@ -76,6 +104,7 @@ export class UiStore {
   show(view: MainViewId) {
     if (view !== this.view) this.panelRevealed = false
     this.view = view
+    if (view === 'grid' || view === 'arrangement') this.recordView = view
     write(VIEW_KEY, view)
     this.keepSoon()
   }
@@ -221,6 +250,7 @@ export class UiStore {
     this.openLanes = owner
     this.panelRevealed = false
     this.view = 'arrangement'
+    this.recordView = 'arrangement'
   }
 
   /** The master's lanes (`showLanes` for the master). */

@@ -206,7 +206,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 4;
+pub const FEEDBACK_VERSION: u8 = 5;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1642,8 +1642,9 @@ pub struct TrackMeter {
 /// Size of a [`TrackMeter`] on the wire.
 pub const TRACK_METER_BYTES: usize = 20;
 
-/// A note the engine recorded since the last report (RE-2): the page turns the take into
-/// a clip with one undoable command.
+/// A note the engine recorded (RE-2, [`crate::recorder`]): its track slot, and the note with
+/// its start in transport ticks and its played length; the page turns the take into clips
+/// with one undoable command (`record.commit_take`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct RecordedNote {
@@ -1652,7 +1653,7 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 56;
+pub const FEEDBACK_HEADER_BYTES: usize = 72;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1673,10 +1674,19 @@ pub const FEEDBACK_HEADER_BYTES: usize = 56;
 ///     36    4 disk_underruns (u32, cumulative, AU-3)
 ///     40    4 tracks (u32)
 ///     44    4 active_clips (u32, at most 2 per track: one playing or, with none to show, one held by the grid ([`ClipState::Held`]); one queued)
-///     48    4 recorded (u32, notes recorded since the last report, drained)
+///     48    4 recorded (u32, the recorded notes this report carries: the last
+///             min(record_total, MAX_RECORDED_PER_REPORT) notes of the take, version 5)
 ///     52    4 voices (u32, MO-5: the most voices sounding in the tracks' devices during the
 ///             period, `Device::voices` summed over the tracks, `crate::host`)
-///     56      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///     56    4 record_take (u32, the number of the current or last take, 0 before the first;
+///             version 5)
+///     60    4 record_total (u32, notes finished in that take: the notes carried are the
+///             indices record_total - recorded .. record_total; version 5)
+///     64    4 record_dropped (u32, notes of that take lost because the recorder's held
+///             table was full; version 5)
+///     68    4 record_flags (u32, bit 0: the recorder captures; once it is 0 with this
+///             record_take, the take's notes are all in the report; version 5)
+///     72      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1702,7 +1712,13 @@ pub struct Feedback {
     pub master: TrackMeter,
     pub voices: u32,
     pub active_clips: Vec<ActiveClip>,
+    /// The last notes of the take, oldest first: indices `record_total - recorded.len()` on.
     pub recorded: Vec<RecordedNote>,
+    pub record_take: u32,
+    pub record_total: u32,
+    pub record_dropped: u32,
+    /// The recorder captures: while it does, the take may still grow.
+    pub record_capturing: bool,
 }
 
 impl Feedback {
@@ -1724,5 +1740,6 @@ impl Feedback {
 /// Size of a [`RecordedNote`] on the wire (padded).
 pub const RECORDED_NOTE_WIRE_BYTES: usize = 32;
 
-/// Most recorded notes one report carries; the rest wait for the next one.
-pub const MAX_RECORDED_PER_REPORT: usize = 1024;
+/// Most recorded notes one report carries, and the recorder keeps: the last ones of the take
+/// (`crate::recorder`), so a reader that falls further behind sees a gap in the indices.
+pub const MAX_RECORDED_PER_REPORT: usize = 256;

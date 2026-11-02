@@ -225,14 +225,16 @@ fn set(output: Output, event: ProjectEvent) -> Out {
 }
 
 /// Applies a command of this domain.
-pub fn apply(
-    command: &Command,
-    state: &mut State,
-    _ctx: &mut Context,
-) -> Result<Out, CommandError> {
+pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
+    // A stop or a pause ends the capture of a recording take (`record.*`).
+    let ends_take = |out: Out, ctx: &mut Context| -> Out {
+        let mut out = out;
+        out.events.extend(crate::record::end_capture(ctx));
+        out
+    };
     match command {
         Command::Play {} => Ok(unchanged(Output::Play {})),
-        Command::Stop {} => Ok(unchanged(Output::Stop {})),
+        Command::Stop {} => Ok(ends_take(unchanged(Output::Stop {}), ctx)),
         Command::Pause { tick } | Command::Seek { tick } => {
             if !(0..=MAX_TICK).contains(&tick.get()) {
                 return Err(invalid(
@@ -240,10 +242,10 @@ pub fn apply(
                     format!("a position is 0 to {MAX_TICK} ticks, not {}", tick.get()),
                 ));
             }
-            Ok(unchanged(match command {
-                Command::Pause { .. } => Output::Pause {},
-                _ => Output::Seek {},
-            }))
+            Ok(match command {
+                Command::Pause { .. } => ends_take(unchanged(Output::Pause {}), ctx),
+                _ => unchanged(Output::Seek {}),
+            })
         }
         Command::Get {} => {
             let p = &state.project;

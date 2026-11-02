@@ -231,3 +231,47 @@ fn a_refused_command_records_nothing_and_changes_nothing() {
     .unwrap_err();
     assert_eq!(s, before);
 }
+
+#[test]
+fn a_take_is_one_entry_that_counts_its_notes_in_its_tracks() {
+    use commands::record::{Command as R, RecordTarget, TakeNote, TakeTrack};
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    let bass = create_track(&mut s, &mut ctx, "Bass");
+    let note = |start| TakeNote {
+        start: Tick(start),
+        length: Tick(240),
+        pitch: 60,
+        velocity: 100,
+    };
+    let entries = s.history.undo.len();
+    run(
+        &Command::Record(R::CommitTake {
+            take: None,
+            target: RecordTarget::Arrangement {},
+            shift_ms: 0.0,
+            tracks: vec![
+                TakeTrack {
+                    track: f.track.clone(),
+                    notes: vec![note(0), note(480), note(960)],
+                    anchor: None,
+                },
+                TakeTrack {
+                    track: bass,
+                    notes: vec![note(0)],
+                    anchor: None,
+                },
+            ],
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(s.history.undo.len(), entries + 1, "one take, one entry");
+    let (name, subject, others) = top(&s);
+    assert_eq!(name, "record.commit_take");
+    assert_eq!(subject.count, 4);
+    assert_eq!(subject.within, ["Synth", "Bass"]);
+    assert_eq!(others, 0);
+}

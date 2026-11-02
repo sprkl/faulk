@@ -331,6 +331,17 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             } => Some(Subject::default().to(format!("{numerator}/{denominator}"))),
             _ => None,
         },
+        // One take is one entry (#470): its notes, counted, in the tracks it wrote to.
+        Command::Record(crate::record::Command::CommitTake { tracks, .. }) => {
+            let mut subject = Subject::many();
+            for take in tracks {
+                subject.count = subject
+                    .count
+                    .saturating_add(u32::try_from(take.notes.len()).unwrap_or(u32::MAX));
+                subject.add(None, track(p, &take.track));
+            }
+            Some(subject)
+        }
         Command::Launch(c) => match c {
             la::Command::Clip { clip: id } => clip_subject(p, id),
             la::Command::Scene { scene: id } => Some(Subject::one(scene(p, id), None)),

@@ -6,6 +6,8 @@ export const save = (): Command => ({ type: 'project.save' })
 export const saveAs = (): Command => ({ type: 'project.save_as' })
 export const exportPack = (): Command => ({ type: 'project.export_pack' })
 export const importPack = (): Command => ({ type: 'project.import_pack' })
+/** A `.faulkpack` hosted at a link (#497): the page downloads it and opens it as a new project. */
+export const openUrl = (url: string): Command => ({ type: 'project.open_url', url })
 /**
  * The commands for the projects the page keeps (#323): the banner of last time, the menu's lists, the
  * ways out of a conflict, the permission. The storage asks the user before it loses anything (a deleted
@@ -57,7 +59,8 @@ export const isStoredProjectCommand = (command: Command): boolean =>
   command.type === 'project.open_folder' ||
   command.type === 'project.open_recent' ||
   command.type === 'project.open_browser_project' ||
-  command.type === 'project.delete_browser_project'
+  command.type === 'project.delete_browser_project' ||
+  command.type === 'project.open_url'
 
 /**
  * Whether a command concerns the page's storage and never the engine: the helper does not take it (it

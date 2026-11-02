@@ -51,6 +51,7 @@ use crate::msg::{
     SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
     TransportState, limits, state_pairs, try_box,
 };
+use crate::recorder::{RecordClock, Recorder};
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use crate::transport::{Segment, Transport};
 
@@ -548,6 +549,7 @@ pub fn channel_with(
         leaked: 0,
         cut: None,
         limiter: Limiter::new(rate_of(&setup)),
+        recorder: Recorder::try_new()?,
     };
     Ok((preparer, engine))
 }
@@ -1709,6 +1711,8 @@ pub struct Engine {
     cut: Option<Cut>,
     /// The output protection (#402): the last stage of every rendered slice.
     limiter: Limiter,
+    /// MIDI recording (RE-2): the notes played on the armed tracks while recording.
+    recorder: Recorder,
 }
 
 /// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
@@ -1827,6 +1831,30 @@ impl Engine {
             } else {
                 &[]
             };
+            // Recording (RE-2): the clock of the start of the block and its live events.
+            self.recorder.block(
+                &self.state,
+                RecordClock {
+                    running: self.transport.is_running(),
+                    recording: self.state.playback.recording,
+                    position: self.transport.position(),
+                    sample: self.transport.total_samples(),
+                    samples_per_tick: self.transport.samples_per_tick(),
+                    frames,
+                },
+                live,
+                first && self.release_live,
+            );
+            // The count-in clicks whatever the metronome's setting (spec of recording, § 5),
+            // up to the cue only; after it the metronome follows its own setting.
+            let mut metronome = self.state.metronome;
+            let click_until = match self.recorder.counting_in() {
+                Some(cue) if !metronome.enabled => {
+                    metronome.enabled = true;
+                    Some(cue)
+                }
+                _ => None,
+            };
             self.graph.block(
                 &mut self.state,
                 &clock,
@@ -1836,9 +1864,10 @@ impl Engine {
                 &mut right[start..end],
             );
             self.clicker.render(
-                &self.state.metronome,
+                &metronome,
                 self.state.transport.signature,
                 self.segments.as_slice(),
+                click_until,
                 &mut left[start..end],
                 &mut right[start..end],
             );
@@ -2003,12 +2032,11 @@ impl Engine {
         let state = &mut *self.state;
         let m = state.metronome;
         let p = &mut state.playback;
-        // A recording started from a stopped clock with the metronome on begins
-        // `count_in_bars` early: the playhead runs through negative ticks, clicking, up
-        // to the cue.
+        // A recording started from a stopped clock begins `count_in_bars` early (the spec
+        // of recording, § 5: whatever the metronome's setting): the playhead runs through
+        // the bars before the cue, clicking, and the recorder waits for the cue.
         if p.playing
             && p.recording
-            && m.enabled
             && m.count_in_bars > 0
             && !self.transport.is_running()
             && let Some(cue) = p.cue
@@ -2024,6 +2052,7 @@ impl Engine {
                 .0
                 .saturating_mul(bars);
             p.cue = Some(cue.saturating_sub(Tick(ticks)));
+            self.recorder.count_in(cue);
         }
         self.transport.begin_block(state, frames);
     }
@@ -2054,6 +2083,11 @@ impl Engine {
     /// `crate::msg`) and were leaked rather than freed on the audio thread.
     pub fn leaked(&self) -> u32 {
         self.leaked
+    }
+
+    /// The recorder (RE-2): the take in progress and its last notes, for the report.
+    pub fn recorder(&self) -> &Recorder {
+        &self.recorder
     }
 
     /// The live events taken at the start of this block, in their order.

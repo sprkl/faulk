@@ -8,8 +8,8 @@
    * when the history changes, and only while it is shown.
    */
   import type { ActivityView, HistoryEntryView } from '../../lib/generated/protocol'
-  import { label } from './label'
-  import { redo, undo } from '../../lib/track-commands'
+  import { label } from '../../lib/history-label'
+  import { runHistory } from '../../lib/history-said'
   import { useStores } from '../../lib/stores'
 
   const { project, dispatcher, ui } = useStores()
@@ -46,10 +46,10 @@
 
 <div class="history" data-testid="history">
   <div class="head">
-    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())} data-testid="history-undo"
+    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => runHistory(dispatcher, ui, 'undo')} data-testid="history-undo"
       >{t('history.undo')}</button
     >
-    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => dispatcher.run(redo())} data-testid="history-redo"
+    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => runHistory(dispatcher, ui, 'redo')} data-testid="history-redo"
       >{t('history.redo')}</button
     >
   </div>

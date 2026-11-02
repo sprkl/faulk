@@ -4,9 +4,9 @@
  * in the user's language from a phrase per command (`history.say.<name>`, `.on` and `.off` for a switch) and a noun.
  * A command without a phrase, or whose entry says nothing of its objects, keeps its generic label (`history.cmd.<name>`).
  */
-import type { Subject } from '../../lib/generated/protocol'
-import { COMMAND_LABEL_PREFIX, PHRASE_PREFIX } from '../../lib/i18n/history'
-import { messages, type MessageKey } from '../../lib/i18n/app'
+import type { Subject } from './generated/protocol'
+import { COMMAND_LABEL_PREFIX, PHRASE_PREFIX } from './i18n/history'
+import { messages, type MessageKey } from './i18n/app'
 
 type T = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -15,7 +15,7 @@ export type Noun = 'clip' | 'note' | 'track' | 'device' | 'scene' | 'lane' | 'po
 
 /** The noun of a command's objects, from its name. */
 export function nounOf(name: string): Noun {
-  if (name.startsWith('clip.notes.')) return 'note'
+  if (name.startsWith('clip.notes.') || name === 'record.commit_take') return 'note'
   if (name.startsWith('automation.points.')) return 'point'
   if (name.startsWith('automation.')) return 'lane'
   if (name === 'arrangement.place_scene' || name.startsWith('scene.') || name === 'launch.scene') return 'scene'

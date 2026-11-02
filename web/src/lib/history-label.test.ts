@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { translate } from '../../lib/i18n/app'
-import type { Subject } from '../../lib/generated/protocol'
-import { label, nounOf } from './label'
+import { translate } from './i18n/app'
+import type { Subject } from './generated/protocol'
+import { label, nounOf } from './history-label'
 
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
 const fr = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('fr', key, vars)
@@ -27,6 +27,11 @@ describe('history labels that name the objects (#473)', () => {
     expect(label({ name: 'clip.delete', subject: subject({ objects: ['Bass 1'], within: ['Bass'] }) }, en)).toBe('Delete Bass 1 (Bass)')
     expect(label({ name: 'clip.notes.add', subject: subject({ count: 4, within: ['Bass 1'] }) }, en)).toBe('Add 4 notes (Bass 1)')
     expect(label({ name: 'clip.notes.add', subject: subject({ count: 1, within: ['Bass 1'] }) }, fr)).toBe('Ajouter une note (Bass 1)')
+  })
+
+  it('names a take by its notes and tracks: one take, one entry', () => {
+    expect(label({ name: 'record.commit_take', subject: subject({ count: 12, within: ['Bass', 'Drums'] }) }, en)).toBe('Record 12 notes (Bass, Drums)')
+    expect(label({ name: 'record.commit_take', subject: subject({ count: 1, within: ['Keys'] }) }, fr)).toBe('Enregistrer une note (Keys)')
   })
 
   it('says the new name or value', () => {

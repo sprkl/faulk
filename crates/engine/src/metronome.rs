@@ -137,12 +137,15 @@ impl Clicker {
     }
 
     /// Adds the metronome to the block: reads the `segments` of the clock's block, places
-    /// the clicks and renders them over `left` and `right`.
+    /// the clicks and renders them over `left` and `right`. `until`: only the beats before
+    /// this tick click (the count-in of a recording, which clicks while the metronome is
+    /// off, stops at its cue); `None` clicks every beat.
     pub fn render(
         &mut self,
         settings: &Metronome,
         signature: TimeSignature,
         segments: &[Segment],
+        until: Option<Tick>,
         left: &mut [f32],
         right: &mut [f32],
     ) {
@@ -163,7 +166,8 @@ impl Clicker {
             } else {
                 segment.from.0.saturating_add(beat - rest)
             };
-            while tick < segment.to.0 {
+            let to = until.map_or(segment.to.0, |u| u.0.min(segment.to.0));
+            while tick < to {
                 let at = segment.offset_of(Tick(tick)).max(cursor);
                 self.tail(left, right, cursor, at);
                 cursor = at;

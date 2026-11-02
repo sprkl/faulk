@@ -8,9 +8,11 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { takeOpenLink } from '../../lib/open-link'
+  import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut } from '../../lib/shortcuts'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
-  import { redo, undo } from '../../lib/track-commands'
+  import { runHistory } from '../../lib/history-said'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn, type MainViewId } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
@@ -61,7 +63,14 @@
     // `url` is the current path and query, already resolved against the base path.
     // eslint-disable-next-line svelte/no-navigation-without-resolve
     const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
-    dispatcher.takePairLink(location, clearAddress)
+    // A project link (`?open=`, #497): asked about first, then opened by `project.open_url`. The address
+    // is rewritten once, whether it held a project link, a pairing link or both.
+    let withoutLink = null as string | null
+    const link = takeOpenLink(location, (url) => (withoutLink = url))
+    const address = withoutLink === null ? location : new URL(withoutLink, location.href)
+    dispatcher.takePairLink(address, clearAddress)
+    if (withoutLink !== null && !isPairHash(address.hash)) clearAddress(withoutLink)
+    if (link !== null) storage.offerLink(link)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     // A reload or a closed tab keeps the layout of the moment.
@@ -114,7 +123,7 @@
     }
     event.preventDefault()
     // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
-    dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
+    runHistory(dispatcher, ui, action, { quiet: true })
   }
 
   onMount(() => {

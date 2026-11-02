@@ -436,6 +436,25 @@ pub enum ProjectEvent {
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+    /// A take of MIDI recording changed state (`record.*`, and `transport.stop` or
+    /// `transport.pause` during a take). Session state: the project does not change.
+    RecordingChanged { take: u64, state: TakeState },
+    /// The settings of MIDI recording changed (session state).
+    RecordSettingsChanged { offset_ms: i32 },
+}
+
+/// Where a take of MIDI recording stands ([`ProjectEvent::RecordingChanged`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TakeState {
+    /// The engine captures it.
+    Recording,
+    /// The capture ended; the take waits to be written (`record.commit_take`) or dropped.
+    Stopped,
+    /// Written into the project.
+    Committed,
+    /// Dropped without writing anything.
+    Discarded,
 }
 
 impl ProjectEvent {
@@ -448,6 +467,8 @@ impl ProjectEvent {
         !matches!(
             self,
             ProjectEvent::GestureUnchanged { .. }
+                | ProjectEvent::RecordingChanged { .. }
+                | ProjectEvent::RecordSettingsChanged { .. }
                 | ProjectEvent::HistoryChanged { .. }
                 | ProjectEvent::SoloChanged { .. }
                 | ProjectEvent::ArmChanged { .. }

@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { resolve } from '$app/paths'
   import { fill, type Lang } from '../i18n/lang'
+  import { openLinkHref } from '../open-link'
   import type { JourneyKey } from '../i18n/journey'
   import Cover from './Cover.svelte'
-  import { folderOf, midiUrl, sheetUrl } from './entries'
+  import { folderOf, midiUrl, packUrl, sheetUrl } from './entries'
   import { clock, dayName, dayParts, keyName } from './format'
   import Player from './Player.svelte'
   import type { JourneyEntry } from './types'
@@ -38,6 +40,8 @@
   /** Sub-headings sit one level under the entry title. */
   const sub = $derived(({ h1: 'h2', h2: 'h3', h3: 'h4' } as const)[heading])
   const agent = $derived(fill(j('entry.agent'), { model: entry.model, skills: entry.skills.join(', ') }))
+  /** The DAW, asked to open the day's project (it asks the visitor first, #497). */
+  const openHref = $derived(openLinkHref(resolve('/app'), packUrl(entry)))
 </script>
 
 {#snippet name()}
@@ -90,8 +94,14 @@
           {/each}
         </ul>
       </section>
-      <!-- The entry's actions, on every page that shows it (#497 adds "Open in Faulk" here). -->
+      <!-- The entry's actions, on every page that shows it: the project first, then the files. -->
       <ul class="links" data-fk-actions>
+        <li>
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- `resolve('/app')` plus the link to open -->
+          <a class="lp-pill lp-pill-accent open" href={openHref} data-sveltekit-reload aria-describedby="{id}-title" data-testid="open-in-faulk"
+            >{j('entry.open')}</a
+          >
+        </li>
         <li><a href={sheetUrl(entry)} rel="external">{j('entry.sheet')}</a></li>
         <li><a href={midiUrl(entry)} rel="external">{j('entry.midi')}</a></li>
         <li><a href={entry.journal} rel="external">{j('entry.journal')}</a></li>
@@ -371,6 +381,7 @@
   .links {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px 20px;
     margin: 0;
     padding: 0;
@@ -378,10 +389,16 @@
     font-size: 15px;
     font-weight: 500;
   }
-  .links a {
+  .links a:not(.open) {
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 4px;
+  }
+  /* The entry's one call to action: smaller than the landing page's hero pill, so a list of days stays calm. */
+  .links .open {
+    height: 44px;
+    padding: 0 22px;
+    font-size: 15px;
   }
   .agent {
     font-family: var(--fk-font-mono);

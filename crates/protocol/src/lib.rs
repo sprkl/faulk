@@ -9,9 +9,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 
-// Version 13 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
+// Version 14 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
+
+// Version 13 (#470): MIDI recording. The commands gain `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` and `record.restore`; the events gain `recording_changed` and `record_settings_changed`; the session gains `record` (the manual latency offset). The feedback layout is version 5: a 72-byte header with the take's number, its count of notes, the notes lost and whether the engine captures, then the take's last notes (at most 256) after the active clips. A page and a helper of different versions refuse each other.
 
 // Version 12 (#469): the feedback layout is version 4: each meter carries the largest gain reduction, in decibels, of the devices of its strip (the Compressor), 20 bytes instead of 16. A page and a helper of different versions refuse each other.
 

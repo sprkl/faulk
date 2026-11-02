@@ -31,6 +31,8 @@ export interface RollFrame {
   trackColor: string
   /** The notes of the other tracks' clips at the same time range (#470): hollow, neutral, read-only. Empty when hidden. */
   others: readonly GhostNote[]
+  /** The notes of the take being recorded into this clip (#470), where the clip played them: drawn like the notes, not yet in the project. */
+  taking?: readonly Note[]
 }
 
 /** Under this row height only the Cs are named. */
@@ -183,8 +185,9 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
     }
     ctx.stroke()
   }
-  paint(visible, false)
-  outline(visible)
+  const taking = roll.taking ?? []
+  paint([...visible, ...taking], false)
+  outline([...visible, ...taking])
   paint(chosen, true)
   paint(roll.ghosts, true)
   // A bright edge on the selected notes and the notes of a gesture, so that they read on any fill.
@@ -273,7 +276,10 @@ export function drawKeys(
   ctx.restore()
 }
 
-/** The velocity lane: one bar per note at its start, as high as its velocity, the selected ones bright. */
+/**
+ * The velocity lane: one bar per note at its start, as high as its velocity, in the colour of the track (#470, like the
+ * notes), the selected ones bright.
+ */
 export function drawLane(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -286,6 +292,7 @@ export function drawLane(
   clipLength: number,
   colors: Colors,
   hover: string | null = null,
+  trackColor: string = colors.accent,
 ): void {
   ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, height)
@@ -319,7 +326,7 @@ export function drawLane(
     if (x > width) break
     const key = hasHidden || selected.size > 0 ? noteKey(n) : ''
     if (hasHidden && hidden.has(key)) continue
-    bar(n, selected.size > 0 && selected.has(key) ? colors.text : colors.accent)
+    bar(n, selected.size > 0 && selected.has(key) ? colors.text : trackColor)
   }
   ctx.globalAlpha = 1
   for (const n of ghosts) bar(n, colors.text)

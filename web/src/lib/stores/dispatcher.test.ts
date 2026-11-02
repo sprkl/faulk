@@ -1017,14 +1017,17 @@ describe('the project in a folder (SV-2)', () => {
     vi.spyOn(session.storage, 'saveAs').mockResolvedValue(true)
     vi.spyOn(session.storage, 'exportPack').mockResolvedValue(true)
     vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
+    const openUrl = vi.spyOn(session.storage, 'openUrl').mockResolvedValue(true)
     const newProject = vi.spyOn(session.storage, 'newProject').mockResolvedValue(true)
     const sent = nativeEngine.send.mock.calls.length
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
     session.dispatcher.run({ type: 'project.export_pack' })
     session.dispatcher.run({ type: 'project.import_pack' })
+    session.dispatcher.run({ type: 'project.open_url', url: 'https://example.org/a.faulkpack' })
     session.dispatcher.run({ type: 'project.new' })
     expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(openUrl).toHaveBeenCalledTimes(1)
     expect(session.storage.save).toHaveBeenCalledTimes(1)
     expect(session.storage.exportPack).toHaveBeenCalledTimes(1)
     expect(session.storage.importPack).toHaveBeenCalledTimes(1)
@@ -1295,6 +1298,19 @@ describe('the commands for the projects the page keeps (#323)', () => {
     fresh.dispatcher.run({ type: 'project.keep_mine' })
     await Promise.resolve()
     expect(keep).not.toHaveBeenCalled()
+  })
+
+  it('project.open_url (#497) reaches the storage on a fresh page, and a link the project refuses never does', async () => {
+    const session = newSession()
+    const open = vi.spyOn(session.storage, 'openUrl').mockResolvedValue(true)
+    const link = 'https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/a/project.faulkpack'
+    session.dispatcher.run({ type: 'project.open_url', url: link })
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith(link))
+    for (const url of ['', 'ftp://example.org/a.faulkpack', 'http://example.org/a.faulkpack', 'https://user:pw@example.org/a']) {
+      session.dispatcher.run({ type: 'project.open_url', url }, { quiet: true })
+    }
+    await Promise.resolve()
+    expect(open).toHaveBeenCalledTimes(1)
   })
 
   it('in Boost these commands stay in the page too', async () => {
