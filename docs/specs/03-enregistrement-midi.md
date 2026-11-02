@@ -7,9 +7,20 @@ status: draft
 
 # Enregistrement MIDI
 
-> **Proposition, rien n'est implémenté.** Cette spec répond à la première case de l'issue #470 (chantier 2 de l'épique #468 : jouer des notes). Elle reprend le découpage des tâches RE-1 à RE-5 du [découpage du MVP](02-decoupage-mvp.md) et le précise. Aujourd'hui seul RE-1 existe : le MIDI en direct va à la piste sélectionnée et aux pistes armées, et rien n'est capturé. Le bouton « In » des pistes (anciennement « R ») le dit.
+> Cette spec répond à la première case de l'issue #470 (chantier 2 de l'épique #468 : jouer des notes). Elle reprend le découpage des tâches RE-1 à RE-5 du [découpage du MVP](02-decoupage-mvp.md) et le précise.
 >
-> Les questions de produit qui restent ouvertes sont marquées **[Question ouverte]** et regroupées au [§ 11](#11-questions-ouvertes). La spec propose une réponse par défaut pour chacune, pour que l'implémentation puisse démarrer sans attendre.
+> Les questions de produit sont marquées **[Question ouverte]** et regroupées au [§ 11](#11-questions-ouvertes) ; le lead a retenu les réponses par défaut (commentaire de #470 du 2026-11-01).
+>
+> **État de l'implémentation (#470, étape 2).** Livré : la capture dans le moteur (`crates/engine/src/recorder.rs`), les notes dans le rapport (version 5), les commandes `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` et `record.restore` (`crates/commands/src/record.rs`), le bouton d'enregistrement avec la cible affichée et le décompte, le bouton « Rec » des pistes, les notes de la prise dans le piano roll. Écarts avec le texte ci-dessous, à lire comme la référence :
+>
+> - les notes sont placées au début du bloc qui les applique (2,7 ms à 48 kHz en Web), pas à ± 1 ms : #499 ;
+> - le mode remplacement et la quantification à l'entrée ne sont pas livrés (§ 4.2, § 6 ; choix par défaut : ajout, quantification après coup) : #500 ;
+> - l'enregistrement en Boost attend BO-1 : le bouton est désactivé en Boost, avec la raison ; le décalage manuel est déjà dans la session : #501 ;
+> - `record.set_settings` ne porte que `offset_ms` ; c'est un état de session, comme l'armement, donc il n'entre pas dans l'historique (§ 9 le disait annulable) ;
+> - `record.stop` n'écrit pas la prise : la page, qui lit le rapport du moteur, lance `record.commit_take` dès que le moteur a rendu ses dernières notes (§ 9) ; `record.start` refuse une nouvelle prise tant que la précédente n'est ni écrite ni abandonnée ;
+> - la cible de la grille est la scène de la dernière cellule touchée (sinon la première scène) ; avec le transport arrêté, `record.start` lance le clip de cette scène sur chaque piste armée, et la prise s'y ajoute en suivant sa boucle ;
+> - dans l'arrangement, une note jouée dans un clip placé s'y ajoute ; les autres font un nouveau clip par intervalle libre, de la mesure de la première note à la mesure après la dernière, coupé au clip suivant ;
+> - le décompte sonne même métronome éteint et s'arrête au repère (§ 5) ; il n'a lieu que transport arrêté.
 
 ## 1. Ce que l'utilisateur veut
 
