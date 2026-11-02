@@ -5,7 +5,7 @@
    * goes while the pointer moves. The selection, the snap, the zoom and the scroll are the page's view state,
    * not project data.
    */
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import {
     barStart,
     createClipAt,
@@ -51,6 +51,7 @@
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
   import { barTicks } from '../transport/time'
+  import { rovingKey, step as stepItem, zoomKey, type Direction } from '../../lib/roving'
   import {
     blocksOf,
     clampScrollY,
@@ -63,6 +64,9 @@
     moved,
     resizeTo,
     resized,
+    laneHeight,
+    laneTop,
+    BLOCK_INSET,
     rowAt,
     splittable,
     type Block,
@@ -437,6 +441,8 @@
   /** A scroll by the wheel or the keys, in the grid, is a hand scroll. */
   function handScroll(event: WheelEvent | KeyboardEvent) {
     if ('key' in event) {
+      // The arrows on a clip's cell move between clips: the view moves only when the clip is out of sight (`focusItem`).
+      if ((event.target as Element | null)?.closest?.('[data-block]')) return
       if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) follow = false
       return
     }
@@ -666,8 +672,11 @@
     }
     const ids = blocks.filter((b) => g.ids.includes(b.id)).map((b) => b.id)
     if (ids.length !== g.ids.length || g.delta === 0) return
-    if (g.kind === 'move') run(movePlacements(ids, g.delta))
-    else copyAndSelect(ids, g.linked, g.delta)
+    if (g.kind === 'move') {
+      run(movePlacements(ids, g.delta))
+      const moved = blocks.find((b) => b.id === g.grabbed.id)
+      if (moved) announce(t('arrangement.saidMoved', { n: ids.length, bar: barsOf(moved).from }))
+    } else copyAndSelect(ids, g.linked, g.delta)
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
@@ -676,6 +685,7 @@
     run(duplicatePlacements(ids, linked, by))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
+    if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
   }
 
   // --- the lanes' gestures ---------------------------------------------------------------------------
@@ -853,8 +863,10 @@
 
   function removeSelected() {
     if (selection.length === 0) return
+    const n = selection.length
     run(deletePlacements(selection.map((b) => b.id)))
     picked = new Set()
+    announce(t('arrangement.saidDeleted', { n }))
   }
 
   /** The tick of the play position, whole. */
@@ -864,6 +876,7 @@
   function splitSelected() {
     if (position === null || cuts.length === 0) return
     inGroup(cuts.map((b) => splitPlacement(b.id, position)))
+    announce(t('arrangement.saidSplit', { n: cuts.length }))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -958,6 +971,143 @@
     const owner = untrack(() => ui.takeLanesRequest())
     if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
   })
+
+  // --- the clips from the keyboard and for assistive technology (#471) ---------------------------------------------
+  // The canvas has no children: a layer of named cells lies over it, one per clip in sight (and the focused one), in a
+  // grid whose rows are the tracks. One cell is in the tab order (roving focus); the arrows move it (the selection
+  // follows), Shift+arrows extend the selection, Alt+Left and Alt+Right move the selected clips by the snap step, Enter
+  // opens the clip in the piano roll, Delete removes the selection. Every edit is a command; a polite live region says
+  // what it did.
+  let focusId = $state<string | null>(null)
+  let itemsEl: HTMLDivElement | undefined = $state()
+  /** What the live region says; a counter makes a repeated message a new one. */
+  let said = $state({ text: '', n: 0 })
+  function announce(text: string) {
+    // The same words twice are still a new message: an invisible space every other time changes the text.
+    said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
+  }
+
+  const items = $derived(blocks.map((b) => ({ id: b.id, row: b.row, start: b.start, end: b.end })))
+  /** The cell in the tab order: the focused clip when it still exists, else the first selected, else the first clip. */
+  const tabId = $derived((focusId && blocks.some((b) => b.id === focusId) ? focusId : null) ?? selection[0]?.id ?? blocks[0]?.id ?? null)
+  const barsOf = (b: Block) => ({ from: Math.floor(b.start / bar) + 1, to: Math.max(Math.floor(b.start / bar) + 1, Math.ceil(b.end / bar)) })
+  function clipText(b: Block): string {
+    const entry = entries[b.row]
+    const name = b.name || t('arrangement.clipDefault')
+    const where = barsOf(b)
+    const base = t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })
+    return selectedIds.has(b.id) ? `${base}, ${t('arrangement.clipSelected')}` : base
+  }
+  /** The cells drawn: the clips in sight, and the one in the tab order wherever it is (so that Tab still finds it). */
+  const shownItems = $derived.by(() => {
+    if (stageW === 0) return []
+    const [from, to] = visibleRange(shown, stageW)
+    return blocks
+      .filter((b) => b.id === tabId || (b.end >= from && b.start <= to))
+      .map((b) => {
+        const top = laneTop(layout, b.row, y0) + BLOCK_INSET
+        const height = Math.max(4, laneHeight(layout, b.row) - 2 * BLOCK_INSET)
+        const left = tickToX(b.start, shown)
+        return { block: b, left, top, width: Math.max(4, tickToX(b.end, shown) - left), height }
+      })
+  })
+
+  /** Brings a clip into the window (time and rows), then focuses its cell. */
+  async function focusItem(id: string) {
+    const b = blocks.find((x) => x.id === id)
+    if (!b) return
+    focusId = id
+    const [from, to] = visibleRange(shown, stageW)
+    if (b.start < from || b.start > to) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: b.start - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    const top = layout.trackTop[b.row] ?? 0
+    const height = laneHeight(layout, b.row)
+    const room = stageH - RULER_HEIGHT
+    if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
+    else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    await tick()
+    itemsEl?.querySelector<HTMLElement>(`[data-block="${id}"]`)?.focus()
+  }
+
+  /** The step of a keyboard move: the snap step, else a bar (the snap off moves by a bar, as a nudge). */
+  const nudge = $derived(step ?? bar)
+
+  function onItemKey(event: KeyboardEvent) {
+    const id = (event.target as HTMLElement).dataset.block
+    const current = id ? blocks.find((b) => b.id === id) : undefined
+    // Ctrl or Cmd with plus or minus zooms the timeline from a cell too (the page's zoom would take it otherwise).
+    const zoom = zoomKey(event)
+    if (zoom !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      zoomBy(zoom > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
+      if (current) void focusItem(current.id)
+      return
+    }
+    const key = rovingKey(event)
+    if (!current || !key) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (key.kind === 'open') {
+      ui.editedClip = current.clip
+      select(current.track)
+      ui.showPanel('piano-roll')
+      announce(t('arrangement.saidOpened', { name: current.name || t('arrangement.clipDefault') }))
+      return
+    }
+    if (key.kind === 'delete') {
+      const chosen = selection.length > 0 && selectedIds.has(current.id) ? selection : [current]
+      // The neighbour that stays: the clips deleted with this one are skipped.
+      const gone = new Set(chosen.map((b) => b.id))
+      const left = items.filter((i) => i.id === current.id || !gone.has(i.id))
+      const next = stepItem(left, current, 'right') ?? stepItem(left, current, 'left') ?? stepItem(left, current, 'down') ?? stepItem(left, current, 'up')
+      run(deletePlacements(chosen.map((b) => b.id)))
+      picked = new Set()
+      announce(t('arrangement.saidDeleted', { n: chosen.length }))
+      if (next && blocks.some((b) => b.id === next.id)) void focusItem(next.id)
+      return
+    }
+    if (key.kind === 'move') {
+      // No command moves a clip to another track: say so rather than nothing.
+      if (key.direction === 'up' || key.direction === 'down') return announce(t('arrangement.saidSameTrack'))
+      const chosen = selectedIds.has(current.id) ? selection : [current]
+      if (!selectedIds.has(current.id)) picked = new Set([current.id])
+      const sign = key.direction === 'left' ? -1 : 1
+      const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
+      if (delta === 0) return announce(t('arrangement.saidCannotMove'))
+      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      const ids = new Set(chosen.map((b) => b.id))
+      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
+      run(movePlacements([...ids], delta))
+      const after = blocks.filter((b) => !ids.has(b.id))
+      const carved = [...others].filter(([bid, span]) => {
+        const now = after.find((b) => b.id === bid)
+        return !now || `${now.start}:${now.end}` !== span
+      }).length
+      const moved = blocks.find((b) => b.id === current.id)
+      if (moved) {
+        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
+        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
+      }
+      void focusItem(current.id)
+      return
+    }
+    const target = stepItem(items, current, key.direction as Direction)
+    if (!target) return
+    const block = blocks.find((b) => b.id === target.id)!
+    if (key.kind === 'extend') picked = new Set([...picked, current.id, target.id])
+    else picked = new Set([target.id])
+    select(block.track)
+    ui.editedClip = block.clip
+    void focusItem(target.id)
+  }
+
+  function onItemsFocus(event: FocusEvent) {
+    const id = (event.target as HTMLElement).dataset.block
+    if (id) focusId = id
+  }
 
   // The window loses the pointer: nothing may stay half done.
   const silence = () => cancel()
@@ -1276,6 +1426,45 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      <!-- The clips as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through to the canvas. -->
+      <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
+      <!-- svelte-ignore a11y_interactive_supports_focus -->
+      <div
+        class="items"
+        bind:this={itemsEl}
+        role="grid"
+        aria-label={t('arrangement.clipsGrid')}
+        aria-rowcount={entries.length}
+        aria-multiselectable="true"
+        style:top="{RULER_HEIGHT}px"
+        data-testid="arr-items"
+        onkeydown={onItemKey}
+        onfocusin={onItemsFocus}
+      >
+        {#each entries as entry (entry.id)}
+          {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
+          {#if cells.length > 0}
+            <div role="row" aria-rowindex={entry.index + 1} aria-label={trackLabel(entry, t)}>
+              {#each cells as cell (cell.block.id)}
+                <div
+                  class="item"
+                  role="gridcell"
+                  tabindex={cell.block.id === tabId ? 0 : -1}
+                  aria-selected={selectedIds.has(cell.block.id)}
+                  aria-label={clipText(cell.block)}
+                  data-block={cell.block.id}
+                  data-testid="arr-item"
+                  style:left="{cell.left}px"
+                  style:top="{cell.top - RULER_HEIGHT}px"
+                  style:width="{cell.width}px"
+                  style:height="{cell.height}px"
+                ></div>
+              {/each}
+            </div>
+          {/if}
+        {/each}
+      </div>
+      <p class="sr-only" aria-live="polite" data-testid="arr-said" data-n={said.n}>{said.text}</p>
       {#if limitNote}
         <p class="limit-note" role="status" data-testid="value-note" style:left="{limitNote.x}px" style:top="{limitNote.y + 14}px">{limitNote.text}</p>
       {/if}
@@ -1595,6 +1784,23 @@
     min-width: 0;
     min-height: 0;
     touch-action: none;
+  }
+  /* The clips' cells: invisible over the canvas, except the keyboard's focus, which draws its ring around the clip. */
+  .items {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .item {
+    position: absolute;
+    border-radius: var(--fk-radius-work);
+  }
+  .item:focus-visible {
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: 1px;
   }
   .stage[data-cursor='move'] {
     cursor: grab;

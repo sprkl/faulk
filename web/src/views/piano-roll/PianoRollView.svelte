@@ -25,13 +25,24 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
-  import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
+  import {
+    DEFAULT_PX_PER_TICK,
+    SNAP_SETTINGS,
+    clampView,
+    snapStep,
+    snapTick,
+    xToTick,
+    zoomAt,
+    type SnapSetting,
+    type View,
+  } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
-  import { barTicks } from '../transport/time'
+  import { barTicks, PPQ } from '../transport/time'
+  import { rovingKey, step as stepItem, zoomKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
   import { clipLabel, clipOrigin, editedClip, ghostNotes, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
@@ -47,6 +58,10 @@
     initialScrollY,
     moveNotes,
     noteKey,
+    SIXTEENTH,
+    noteRect,
+    pitchName,
+    MAX_PITCH,
     notesInRect,
     pitchAt,
     rectBetween,
@@ -458,8 +473,10 @@
 
   function removeSelected() {
     if (!edited || chosenNotes.length === 0) return
+    const n = chosenNotes.length
     run(removeNotes(edited.id, chosenNotes))
     picked = new Set()
+    announce(t('pianoRoll.saidDeleted', { n }))
   }
 
   /**
@@ -504,6 +521,122 @@
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else return
     event.preventDefault()
+  }
+
+  // --- the notes from the keyboard and for assistive technology (#471) ---------------------------------------------
+  // As the arrangement's clips: named cells over the canvas, one in the tab order. Left and Right go to the previous or
+  // next note in time, Up and Down to the nearest higher or lower note; the selection follows, Shift extends it.
+  // Alt+Left and Alt+Right move the selected notes by the snap step, Alt+Up and Alt+Down transpose them by a semitone
+  // (Shift: an octave). Enter sounds the note. Delete removes the selection. Every edit is a command; a polite live
+  // region says what it did.
+  let focusKey = $state<string | null>(null)
+  let itemsEl: HTMLDivElement | undefined = $state()
+  let said = $state({ text: '', n: 0 })
+  function announce(text: string) {
+    // The same words twice are still a new message: an invisible space every other time changes the text.
+    said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
+  }
+  const noteItems = $derived(notes.map((n) => ({ id: noteKey(n), row: MAX_PITCH - n.pitch, start: n.start, end: n.start + n.length, note: n })))
+  const tabKey = $derived(
+    (focusKey && noteItems.some((i) => i.id === focusKey) ? focusKey : null) ?? (chosenNotes[0] ? noteKey(chosenNotes[0]) : null) ?? noteItems[0]?.id ?? null,
+  )
+  function lengthText(ticks: number): string {
+    const beats = ticks / PPQ
+    return beats === 1 ? t('pianoRoll.noteBeat') : t('pianoRoll.noteBeats', { n: Number(beats.toFixed(2)) })
+  }
+  function noteText(n: Note): string {
+    const beatsPerBar = bar / PPQ
+    const beat = n.start / PPQ
+    const base = t('pianoRoll.noteItem', {
+      pitch: keyNames?.get(n.pitch) ?? pitchName(n.pitch),
+      bar: Math.floor(beat / beatsPerBar) + 1,
+      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
+      length: lengthText(n.length),
+      velocity: n.velocity,
+    })
+    return chosenKeys.has(noteKey(n)) ? `${base}, ${t('pianoRoll.noteSelected')}` : base
+  }
+  /** The cells drawn: the notes in sight, and the one in the tab order wherever it is. */
+  const shownNotes = $derived.by(() => {
+    if (stageW === 0) return []
+    return noteItems
+      .map((i) => ({ item: i, rect: noteRect(i.note, shown, layout) }))
+      .filter(({ item, rect }) => item.id === tabKey || (rect.x + rect.w >= 0 && rect.x <= stageW && rect.y + rect.h >= RULER_HEIGHT && rect.y <= stageH))
+  })
+
+  async function focusNote(key: string) {
+    const item = noteItems.find((i) => i.id === key)
+    if (!item) return
+    focusKey = key
+    const rect = noteRect(item.note, shown, layout)
+    if (rect.x < 0 || rect.x > stageW - 8)
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: Math.max(0, item.start - (stageW / shown.pxPerTick) * 0.1) }, stageW, totalBars * bar)
+    if (rect.y < RULER_HEIGHT || rect.y + rect.h > stageH)
+      scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
+    await tick()
+    itemsEl?.querySelector<HTMLElement>(`[data-note="${CSS.escape(key)}"]`)?.focus()
+  }
+
+  function onNoteKey(event: KeyboardEvent) {
+    const key = (event.target as HTMLElement).dataset.note
+    const current = key ? noteItems.find((i) => i.id === key) : undefined
+    // Ctrl or Cmd with plus or minus zooms the roll from a cell too (the page's zoom would take it otherwise).
+    const zoom = zoomKey(event)
+    if (zoom !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      view = zoomAt(shown, zoom > 0 ? 1.25 : 1 / 1.25, stageW / 2, stageW, totalBars * bar)
+      if (current) void focusNote(current.id)
+      return
+    }
+    const action = rovingKey(event)
+    if (!current || !action || !edited) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (action.kind === 'open') {
+      sound(current.note.pitch, current.note.velocity)
+      release()
+      return
+    }
+    if (action.kind === 'delete') {
+      const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
+      // The neighbour that stays: the notes deleted with this one are skipped.
+      const gone = new Set(chosen.map(noteKey))
+      const left = noteItems.filter((i) => i.id === current.id || !gone.has(i.id))
+      const next = stepItem(left, current, 'right', true) ?? stepItem(left, current, 'left', true)
+      run(removeNotes(edited.id, [...chosen]))
+      picked = new Set()
+      announce(t('pianoRoll.saidDeleted', { n: chosen.length }))
+      if (next) void focusNote(next.id)
+      return
+    }
+    if (action.kind === 'move') {
+      if (!chosenKeys.has(current.id)) picked = new Set([current.id])
+      const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
+      let changes: Change[] | null
+      if (action.direction === 'up' || action.direction === 'down') {
+        changes = transposeChanges(chosen, (action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
+      } else {
+        const nudge = drawing ?? SIXTEENTH
+        changes = moveNotes(chosen, action.direction === 'left' ? -nudge : nudge, 0, clipLength)
+      }
+      const ok = changes ? acceptable(notes, changes) : null
+      if (!ok || ok.length === 0 || ok.every((c) => noteKey(c.from) === noteKey(c.to))) return announce(t('pianoRoll.saidCannotMove'))
+      run(updateNotes(edited.id, ok))
+      picked = afterChanges(new Set(chosen.map(noteKey)), ok)
+      const mine = ok.find((c) => noteKey(c.from) === current.id)
+      if (mine) {
+        announce(t('pianoRoll.saidMoved', { pitch: keyNames?.get(mine.to.pitch) ?? pitchName(mine.to.pitch) }))
+        sound(mine.to.pitch, mine.to.velocity)
+        release()
+        void focusNote(noteKey(mine.to))
+      }
+      return
+    }
+    const target = stepItem(noteItems, current, action.direction, true)
+    if (!target) return
+    picked = action.kind === 'extend' ? new Set([...picked, current.id, target.id]) : new Set([target.id])
+    void focusNote(target.id)
   }
 
   // The window loses the pointer or the tab hides: nothing may keep sounding.
@@ -907,6 +1040,42 @@
         onkeydown={onKeyDown}
       >
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} {playhead} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
+        <!-- The notes as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through. -->
+        <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
+        <!-- svelte-ignore a11y_interactive_supports_focus -->
+        <div
+          class="items"
+          bind:this={itemsEl}
+          role="grid"
+          aria-label={t('pianoRoll.notesGrid', { name: clipName })}
+          aria-multiselectable="true"
+          data-testid="roll-items"
+          style:clip-path="inset({RULER_HEIGHT}px 0 0 0)"
+          onkeydown={onNoteKey}
+          onfocusin={(event) => {
+            const key = (event.target as HTMLElement).dataset.note
+            if (key) focusKey = key
+          }}
+        >
+          <div role="row">
+            {#each shownNotes as cell (cell.item.id)}
+              <div
+                class="item"
+                role="gridcell"
+                tabindex={cell.item.id === tabKey ? 0 : -1}
+                aria-selected={chosenKeys.has(cell.item.id)}
+                aria-label={noteText(cell.item.note)}
+                data-note={cell.item.id}
+                data-testid="roll-item"
+                style:left="{cell.rect.x}px"
+                style:top="{cell.rect.y}px"
+                style:width="{cell.rect.w}px"
+                style:height="{cell.rect.h}px"
+              ></div>
+            {/each}
+          </div>
+        </div>
+        <p class="sr-only" aria-live="polite" data-testid="roll-said" data-n={said.n}>{said.text}</p>
       </div>
       <div class="corner"></div>
       <div
@@ -950,6 +1119,21 @@
 {/if}
 
 <style>
+  /* The notes' cells: invisible over the canvas, except the keyboard's focus ring; the ruler stays clear. */
+  .items {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .item {
+    position: absolute;
+    border-radius: var(--fk-radius-work);
+  }
+  .item:focus-visible {
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: 1px;
+  }
   .roll {
     display: flex;
     flex-direction: column;
@@ -1045,6 +1229,8 @@
     touch-action: none;
   }
   .stage {
+    /* The notes' cells (#471) are placed in the stage's own coordinates. */
+    position: relative;
     min-width: 0;
     min-height: 0;
     touch-action: none;
