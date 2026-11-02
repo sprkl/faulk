@@ -455,7 +455,7 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     session.host.write_feedback();
     let mut bytes = vec![0xAA; 3];
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
-    assert_eq!(bytes.len(), 56 + 3 * 20, "header, two tracks, the output");
+    assert_eq!(bytes.len(), 72 + 3 * 20, "header, two tracks, the output");
     assert_eq!(bytes[0], engine::msg::FEEDBACK_VERSION);
     let decoded = engine::host::decode_feedback(&bytes).unwrap();
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
@@ -613,7 +613,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
     assert_eq!(
         bytes.len(),
-        56 + 2 * 20 + 16,
+        72 + 2 * 20 + 16,
         "header, a track and the output, a cell"
     );
     assert_eq!(&bytes[44..48], &1u32.to_le_bytes());
@@ -651,7 +651,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     // The anchor travels as a little-endian i64 after the cell's first eight bytes.
     let mut anchored = bytes.clone();
     for anchor in [3840i64, -960, i64::MAX, i64::MIN] {
-        let at = 56 + 2 * 20 + 8;
+        let at = 72 + 2 * 20 + 8;
         anchored[at..at + 8].copy_from_slice(&anchor.to_le_bytes());
         let cells = engine::host::decode_feedback(&anchored)
             .unwrap()
@@ -663,7 +663,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     many[44..48].copy_from_slice(&3u32.to_le_bytes());
     assert!(engine::host::decode_feedback(&many).is_none());
     let mut unknown = bytes.clone();
-    let state_at = 56 + 2 * 20 + 6;
+    let state_at = 72 + 2 * 20 + 6;
     for state in [0u8, 6, 255] {
         unknown[state_at] = state;
         assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
@@ -685,9 +685,9 @@ fn the_launch_grid_states_travel_in_the_report() {
             anchor: Tick(0),
         }]
     );
-    assert_eq!(held[56 + 2 * 20 + 6], ClipState::Held as u8);
+    assert_eq!(held[72 + 2 * 20 + 6], ClipState::Held as u8);
     // A report with no cell (what an older engine writes) decodes with none.
-    let mut none = bytes[..56 + 2 * 20].to_vec();
+    let mut none = bytes[..72 + 2 * 20].to_vec();
     none[44..48].copy_from_slice(&0u32.to_le_bytes());
     assert!(
         engine::host::decode_feedback(&none)
@@ -780,7 +780,7 @@ fn the_reduction_travels_in_the_report_bytes() {
     assert!(decoded.meters[1].gain_reduction_db > 6.0);
     assert!(decoded.master.gain_reduction_db > 6.0);
     // The track's reduction is the fifth float of its meter (the slot 0 meter comes first).
-    let at = 56 + 20 + 16;
+    let at = 72 + 20 + 16;
     let wire = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
     assert_eq!(wire, decoded.meters[1].gain_reduction_db);
     // A report of the previous version is refused by its first byte.

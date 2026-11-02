@@ -17,8 +17,8 @@
 //! after the master, the voices of the tracks' devices, the transport state and playhead
 //! (`Engine::report_transport`), the counters the prepare side published and, when the
 //! caller times its renders ([`Host::add_render_time`]), the CPU load. Not produced yet,
-//! written as zero: the disk underruns (AU-3), the recorded notes (RE-2). The active clips
-//! of the launch grid (GR-1) follow the meters.
+//! written as zero: the disk underruns (AU-3). The active clips of the launch grid (GR-1)
+//! follow the meters, then the last notes of the take ([`crate::recorder`], RE-2).
 //!
 //! [`factory`] resolves a device kind through the registry of the built-in devices
 //! ([`crate::devices`], DV-1).
@@ -32,7 +32,8 @@ use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
-    Feedback, MsgError, TRACK_METER_BYTES, TrackMeter, TransportState, limits,
+    Feedback, MAX_RECORDED_PER_REPORT, MsgError, Note, RECORDED_NOTE_WIRE_BYTES, RecordedNote,
+    TRACK_METER_BYTES, TrackMeter, TrackSlot, TransportState, limits,
 };
 
 /// The device kinds the shipping hosts build: the registry of the built-in devices
@@ -288,9 +289,9 @@ impl Host {
     ///
     /// Written: version, transport state and playhead, CPU load, epoch and the counters the
     /// prepare side published, the most voices sounding during the period, the meters of
-    /// every track slot up to the last track and the output's, then the active clips (GR-1).
-    /// Not produced yet, written as zero: the disk underruns (AU-3), the recorded notes
-    /// (RE-2).
+    /// every track slot up to the last track and the output's, then the active clips (GR-1),
+    /// then the take's number, count and last notes (RE-2). Not produced yet, written as
+    /// zero: the disk underruns (AU-3).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -332,7 +333,6 @@ impl Host {
         put(32, self.status.rejected.load(Ordering::Relaxed));
         put(36, 0);
         put(40, tracks as u32);
-        put(48, 0);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
         for m in self.meters[..tracks].iter().chain([&master]) {
@@ -357,6 +357,34 @@ impl Host {
             }
         });
         put(44, clips as u32);
+        // The take's last notes, after the clips (RE-2): the region has room for
+        // `MAX_RECORDED_PER_REPORT`, the recorder keeps no more.
+        let recorder = self.engine.recorder();
+        let mut recorded = 0u32;
+        recorder.recent(|_, r| {
+            if (recorded as usize) < MAX_RECORDED_PER_REPORT {
+                let start = r.note.start.0 as u64;
+                let length = r.note.length.0 as u64;
+                put(at, r.track.0);
+                put(at + 4, 0);
+                put(at + 8, start as u32);
+                put(at + 12, (start >> 32) as u32);
+                put(at + 16, length as u32);
+                put(at + 20, (length >> 32) as u32);
+                put(
+                    at + 24,
+                    u32::from_le_bytes([r.note.pitch, r.note.velocity, 0, 0]),
+                );
+                put(at + 28, 0);
+                at += RECORDED_NOTE_WIRE_BYTES;
+                recorded += 1;
+            }
+        });
+        put(48, recorded);
+        put(56, recorder.take());
+        put(60, recorder.total());
+        put(64, recorder.dropped());
+        put(68, u32::from(recorder.capturing()));
         self.meter_frames = 0;
         self.busy_secs = 0.0;
         self.timed = false;
@@ -377,12 +405,14 @@ pub fn feedback_voices(region: &[AtomicU32]) -> u32 {
     })
 }
 
-/// Bytes of a report of `tracks` tracks and `clips` active clips (at most two per track):
-/// the fixed part, the track meters and the output's, then the clips.
-fn report_len(tracks: u32, clips: u32) -> usize {
+/// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track) and
+/// `recorded` notes: the fixed part, the track meters and the output's, the clips, then the
+/// notes.
+fn report_len(tracks: u32, clips: u32, recorded: u32) -> usize {
     let tracks = (tracks as usize).min(limits::MAX_TRACKS as usize);
     let clips = (clips as usize).min(2 * tracks);
-    Feedback::size_for(tracks, clips, 0)
+    let recorded = (recorded as usize).min(MAX_RECORDED_PER_REPORT);
+    Feedback::size_for(tracks, clips, recorded)
 }
 
 /// Copies the report of a region into `out` as the little-endian bytes of the `Feedback`
@@ -404,7 +434,7 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
     if seq == 0 || seq & 1 == 1 {
         return false;
     }
-    let len = report_len(load(10), load(11)).min(region.len() * 4);
+    let len = report_len(load(10), load(11), load(12)).min(region.len() * 4);
     out.clear();
     out.extend((0..len.div_ceil(4)).flat_map(|i| load(i).to_le_bytes()));
     out.truncate(len);
@@ -432,7 +462,7 @@ pub fn read_feedback(region: &[AtomicU32]) -> Option<Feedback> {
 
 /// Decodes the bytes of a report ([`copy_feedback`]): `None` for a version this code does
 /// not read, a buffer shorter than its meters and active clips, or a clip state it does not
-/// know. The recorded notes are not decoded (nothing writes them yet).
+/// know.
 pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let u32_at = |at: usize| -> Option<u32> {
         Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
@@ -445,7 +475,11 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     }
     let tracks = u32_at(40)?;
     let clips = u32_at(44)?;
-    if tracks > limits::MAX_TRACKS || clips > 2 * tracks || bytes.len() < report_len(tracks, clips)
+    let recorded = u32_at(48)?;
+    if tracks > limits::MAX_TRACKS
+        || clips > 2 * tracks
+        || recorded as usize > MAX_RECORDED_PER_REPORT
+        || bytes.len() < report_len(tracks, clips, recorded)
     {
         return None;
     }
@@ -475,6 +509,23 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
+    let notes_at = clips_at + clips as usize * ACTIVE_CLIP_BYTES;
+    let recorded = (0..recorded as usize)
+        .map(|i| {
+            let at = notes_at + i * RECORDED_NOTE_WIRE_BYTES;
+            let keys = u32_at(at + 24)?.to_le_bytes();
+            Some(RecordedNote {
+                track: TrackSlot(u32_at(at)?),
+                note: Note {
+                    start: crate::time::Tick(u64_at(at + 8)? as i64),
+                    length: crate::time::Tick(u64_at(at + 16)? as i64),
+                    pitch: keys[0],
+                    velocity: keys[1],
+                    ..Note::default()
+                },
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(Feedback {
         transport: match bytes[1] {
             1 => TransportState::Playing,
@@ -493,6 +544,10 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,
         active_clips,
-        recorded: Vec::new(),
+        recorded,
+        record_take: u32_at(56)?,
+        record_total: u32_at(60)?,
+        record_dropped: u32_at(64)?,
+        record_capturing: u32_at(68)? & 1 == 1,
     })
 }
