@@ -6,7 +6,7 @@
    * devices are. The volume shows here on hover and on focus, and is typed here: on the selected track's head, a digit
    * opens the field with that digit, Enter or F2 on the current value (`lane-keys.ts`). Every action is a command.
    */
-  import { tick, type Snippet } from 'svelte'
+  import { tick, untrack, type Snippet } from 'svelte'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
   import { formatGain, instrumentName, MAX_GAIN_DB, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../../lib/project/tracks'
@@ -77,10 +77,22 @@
     if (!action) return
     // The key opens the field and is not typed a second time into it, nor does Enter press the button.
     event.preventDefault()
+    discard = false
     typing = action.open === 'typed' ? { text: action.text, typed: true } : { text: volumeText, typed: false }
   }
 
+  // A field opened on the selected row closes when the selection moves away: the row's keys are the selected track's.
+  // What is typed there is dropped, not applied by the blur that closing the field fires.
+  let discard = false
+  $effect(() => {
+    if (!selected && untrack(() => typing)) {
+      discard = true
+      typing = null
+    }
+  })
+
   function commitVolume(text: string): boolean {
+    if (discard) return true
     const parsed = parseGainEntry(text)
     if (!parsed) return false
     // The same gain is no command, and no empty history entry.
@@ -90,9 +102,10 @@
   }
 
   function say(text: string) {
-    const rect = head?.getBoundingClientRect()
-    if (!rect) return
-    note = { text, left: Math.max(4, rect.left + 8), top: Math.min(rect.bottom + 4, window.innerHeight - 32) }
+    // Beside the row, on the timeline's side: under it, the note would cover the next row's name (the master's, on the last track).
+    const row = head?.closest('[data-testid="track-header"]')?.getBoundingClientRect()
+    if (!row) return
+    note = { text, left: Math.min(row.right + 8, window.innerWidth - 160), top: Math.max(4, Math.min(row.top + row.height / 2 - 12, window.innerHeight - 32)) }
     clearTimeout(noteTimer)
     noteTimer = setTimeout(() => (note = null), 2000)
   }
@@ -104,6 +117,9 @@
   let field = $state<HTMLInputElement | null>(null)
 
   async function startRename() {
+    // A volume field still open gives way, unapplied: one field at a time on a row.
+    if (typing) discard = true
+    typing = null
     draft = name
     renaming = true
     await tick()
@@ -308,8 +324,8 @@
 {#if typing && head}
   <ValueField
     anchor={head}
-    initial={typing.text}
-    typed={typing.typed}
+    initial={typing?.text ?? ''}
+    typed={typing?.typed ?? false}
     label={t('arrangement.laneVolume', { name })}
     commit={commitVolume}
     onclose={(refocus) => {

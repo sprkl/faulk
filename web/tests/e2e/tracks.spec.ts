@@ -151,6 +151,8 @@ for (const lang of ['en', 'fr'] as const) {
       await header(page, 'Synth').getByTestId('track-name').click()
       await expect(header(page, 'Synth')).toHaveAttribute('aria-current', 'true')
       await expect(page.getByTestId('inspector-name')).toHaveText('Synth')
+      await page.getByTestId('panel-keyboard').click()
+      await expect(page.getByTestId('keys-target')).toContainText('Synth')
       await page.keyboard.down('KeyA')
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
       await page.keyboard.up('KeyA')

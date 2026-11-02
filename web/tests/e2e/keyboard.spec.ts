@@ -57,6 +57,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.getByTestId('engine-state').getByRole('button').click()
     await expect(page.getByTestId('engine-mode')).toBeVisible()
     await expect(page.getByTestId('inspector-name')).toHaveText('Synth')
+    await page.getByTestId('panel-keyboard').click()
     await expect(page.getByTestId('keys-target')).toHaveText(x.target('Synth'))
     await expect(page.getByText(x.octave(4), { exact: true })).toBeVisible()
     // The tracks are selected, armed and muted on their rows in the arrangement (#471); the keyboard plays in every view.
@@ -108,9 +109,7 @@ for (const lang of ['en', 'fr'] as const) {
     const arm = header(page, 'Synth').getByRole('button', { name: x.arm('Synth'), exact: true })
     await arm.click()
     await expect(arm).toHaveAttribute('aria-pressed', 'true')
-    await page.getByTestId('nav-play').click()
     await expect(page.getByTestId('keys-target')).toContainText(x.armed)
-    await page.getByTestId('nav-arrangement').click()
     await page.keyboard.down('KeyA')
     await expect.poll(async () => Math.min(...(await peaks(page)).slice(0, 2))).toBeGreaterThan(0.01)
     await page.keyboard.up('KeyA')

@@ -39,12 +39,18 @@ test('16 tracks fit at 1920x1080 with the bottom panel at 220 px, each row at th
     return {
       heights: [...new Set(rows.map((r) => Math.round(r.height)))],
       inside: rows.filter((r) => r.top >= stage.top && r.bottom <= stage.bottom + 0.5).length,
+      master: (() => {
+        const m = document.querySelector('[data-testid=arr-master-row]')!.getBoundingClientRect()
+        return m.top >= stage.top && m.bottom <= stage.bottom + 0.5
+      })(),
       token: getComputedStyle(document.documentElement).getPropertyValue('--fk-lane').trim(),
     }
   })
   expect(fit.token).toBe('44px')
   expect(fit.heights).toEqual([44])
   expect(fit.inside).toBe(16)
+  // The master row is in sight too.
+  expect(fit.master).toBe(true)
   // The rows and the clips' rows line up: the canvas draws a line under each row where the header's border is.
   const heads = page.getByTestId('arr-heads')
   await expect(heads.getByTestId('track-name')).toHaveCount(16)
@@ -164,7 +170,23 @@ test('the inspector follows the selection, and the volume is typed on the select
   await page.keyboard.type('9')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('value-note')).toBeVisible()
+  // The note sits beside the row, on the timeline's side: it covers no other row's name.
+  const note = (await page.getByTestId('value-note').boundingBox())!
+  const heads = (await page.getByTestId('arr-heads').boundingBox())!
+  expect(note.x).toBeGreaterThanOrEqual(heads.x + heads.width)
   await expect(inspector.getByTestId('track-gain-readout')).toHaveText('6.0')
+  // A field opened on a row closes, without applying, when the selection moves to another track (an agent's select here, which
+  // takes no focus from the field).
+  if ((await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) === 'function') {
+    await page.keyboard.press('3')
+    await expect(page.getByTestId('value-field')).toHaveCount(1)
+    const first = await rows.first().getAttribute('data-track')
+    await page.evaluate((track) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'view.select_track', track }), first)
+    await expect(page.getByTestId('value-field')).toHaveCount(0)
+    await page.getByTestId('arr-track').nth(2).click()
+    await expect(inspector.getByTestId('track-gain-readout')).toHaveText('6.0')
+    await page.getByTestId('arr-track').nth(2).focus()
+  }
   // Each entry is one history step.
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(inspector.getByTestId('track-gain-readout')).toHaveText('−6.0')

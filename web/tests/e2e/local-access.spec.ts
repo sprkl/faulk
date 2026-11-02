@@ -45,6 +45,7 @@ for (const lang of ['en', 'fr'] as const) {
       // The setting took effect for the page (a permission left at its default would pass `prompt` by itself).
       expect(await page.evaluate(async (name) => (await navigator.permissions.query({ name: name as PermissionName })).state, PERMISSION)).toBe(state)
       await page.getByTestId('engine-state').getByRole('button').click()
+      await page.getByTestId('engine-mode').click()
       await expect(page.getByTestId(shown)).toHaveText(TEXTS[lang][state === 'denied' ? 'blocked' : 'pending'])
       await expect(page.getByTestId(hidden)).toHaveCount(0)
       // Blocked replaces "No helper found"; pending comes with it.

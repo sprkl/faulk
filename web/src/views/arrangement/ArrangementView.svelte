@@ -82,7 +82,7 @@
     yOfPos,
     type Delta,
   } from './automation/gestures'
-  import { CLIP_ROW, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
+  import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
@@ -207,6 +207,8 @@
   })
   /** The lanes each unfolded track (and the master) shows. */
   const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
+  /** The master row's height: the `row` token (28 px), the lowest a track's row goes. */
+  const MASTER_ROW = CLIP_ROW_MIN
   // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own (#471).
   let laneBase = $state(CLIP_ROW)
   const layout = $derived(
@@ -214,7 +216,8 @@
       allEntries,
       open,
       (id) => (shownLanes.get(id) ?? []).map((l) => l.id),
-      (id) => ui.laneHeights[id],
+      // The master holds no clips: its row stays at the control line's height, so that 16 tracks and the master fit at 1080p.
+      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeights[id]),
       laneBase,
     ),
   )

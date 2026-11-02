@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // MX-1 (#90): the track controls act on the sound in the real page. The hidden `feedback`
 // element carries the engine's report (the meters, after the fader): the volume lowers the
@@ -17,7 +17,7 @@ test('volume, mute and solo of a track change what the engine sounds', async ({ 
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   const synth = page.getByTestId('track-inspector')
 

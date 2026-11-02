@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, STRICT_TIMING, watch } from './support'
+import { STRICT_TIMING, chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // AM-4 (#121): the automation lanes in the arrangement timeline, in a real browser with the real worklet, engine and
 // project core. Every gesture is a command (a refused command would be a console warning, which the tests forbid), a
@@ -56,7 +56,7 @@ async function open(page: Page, width = 1600, midi = false, lang = 'en') {
   await page.goto('/app')
   await startAudio(page)
   await expect(page.getByTestId('engine-mode')).toBeVisible()
-  if (midi) await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  if (midi) await chooseMidiInput(page, 'E2E Keys')
   await page.getByTestId('nav-arrangement').click()
   await expect(arr(page)).toBeVisible()
   await expect.poll(async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)

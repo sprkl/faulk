@@ -9,6 +9,9 @@
   import DeviceBrowser from './DeviceBrowser.svelte'
   import DeviceCard from './DeviceCard.svelte'
 
+  /** `compact`: a narrow column beside the piano roll: the browser on top, the cards stacked. */
+  let { compact = false }: { compact?: boolean } = $props()
+
   const { project, ui } = useStores()
   const t = ui.t
 
@@ -19,7 +22,7 @@
 </script>
 
 {#if master}
-  <div class="devices" data-testid="devices" data-target="master">
+  <div class="devices" class:compact data-testid="devices" data-target="master">
     <DeviceBrowser track="" midi={false} {chain} master />
     <div class="chain" role="group" aria-label={t('devices.chain', { name: t('mixer.master') })} data-testid="device-chain">
       {#each chain as entry (entry.id)}
@@ -28,7 +31,7 @@
     </div>
   </div>
 {:else if selected}
-  <div class="devices" data-testid="devices">
+  <div class="devices" class:compact data-testid="devices">
     <DeviceBrowser track={selected.id} midi={isMidi(selected.track)} {chain} />
     <div class="chain" role="group" aria-label={t('devices.chain', { name: trackLabel(selected, t) })} data-testid="device-chain">
       {#each chain as entry (entry.id)}
@@ -51,9 +54,26 @@
     min-width: 0;
     display: flex;
     gap: var(--fk-space-3);
+    flex-wrap: wrap;
     align-items: flex-start;
+    align-content: flex-start;
     padding: var(--fk-space-3);
     overflow: auto;
+  }
+  .compact.devices {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+  .compact :global(.browser) {
+    display: none;
+  }
+  .compact .chain {
+    flex: none;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    overflow: visible;
   }
   .empty {
     margin: 0;
