@@ -421,3 +421,38 @@ fn the_report_carries_the_take_its_count_its_last_notes_and_whether_it_captures(
     assert_eq!(report.record_total, notes as u32);
     assert!(report.recorded.is_empty());
 }
+
+#[test]
+fn an_all_notes_off_closes_its_track_and_an_overflow_closes_every_note() {
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.blocks(2);
+    rig.on(0, 60);
+    rig.on(2, 64);
+    rig.blocks(4);
+    // All notes off on track 2 only: its note ends here, track 0's still holds.
+    rig.send(&[M::AllNotesOff {
+        track: TrackSlot(2),
+    }]);
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].track, TrackSlot(2));
+    assert_eq!(
+        notes[0].note.length,
+        Tick((4.0 * BLOCK as f64 / SPT).round() as i64)
+    );
+    // The live queue overflows (more events than it holds before a block): every held note
+    // ends in the next block, the overflow's release.
+    for i in 0..=limits::LIVE_QUEUE_CAPACITY {
+        let _ = rig.p.handle(M::NoteOff {
+            track: TrackSlot(1),
+            pitch: (i % 128) as u8,
+        });
+    }
+    rig.blocks(2);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert_eq!(notes[1].track, TrackSlot(0));
+    assert_eq!(notes[1].note.pitch, 60);
+}

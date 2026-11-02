@@ -118,6 +118,18 @@ export class Recorder {
     this.lastTake = null
   }
 
+  /**
+   * The engine that captures the take is about to be left (a switch to Boost): the take is dropped, in the project too
+   * (`record.discard_take`), and said, so that the next take can start on the new engine.
+   */
+  abandon() {
+    if (!this.take) return
+    this.ports.run({ type: 'record.discard_take' })
+    this.reset()
+    this.dropped = 'engine'
+    this.lastTake = null
+  }
+
   /** A report of the engine. */
   feedback(report: FeedbackReport) {
     this.lastTake = report.recordTake
@@ -172,8 +184,8 @@ export class Recorder {
     if (take.target.at !== 'scene' || !slots) return
     const scene = slots.scenes[take.target.scene]
     if (scene === undefined) return
-    for (const id of take.tracks) {
-      const track = slots.tracks[id]
+    // Every track: one armed during the take records too.
+    for (const [id, track] of Object.entries(slots.tracks)) {
       const cell = report.clips.find((c) => c.track === track && c.scene === scene && (c.state === 'playing' || c.state === 'stopping'))
       if (cell) this.anchors.set(id, cell.anchor)
     }

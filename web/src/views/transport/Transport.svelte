@@ -97,6 +97,19 @@
   )
   const recordTitle = $derived(recording ? t('transport.recordStop') : (recordBlocked ?? `${t('transport.record')}: ${recordTarget}`))
 
+  /** What the last take lost, said until the next take starts (spec § 9: a lost note is shown, never hidden). */
+  const takeNotice = $derived(
+    recorder.phase !== 'idle'
+      ? null
+      : recorder.dropped === 'engine'
+        ? t('transport.takeDroppedEngine')
+        : recorder.dropped === 'refused'
+          ? t('transport.takeDroppedRefused')
+          : recorder.lost > 0
+            ? t('transport.takeLost', { n: recorder.lost })
+            : null,
+  )
+
   /** The target as it was when the take started: the play position moves on during the take, the target does not. */
   let takeTarget = $state<string | null>(null)
   $effect(() => {
@@ -274,7 +287,9 @@
   >
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--fk-rec)" /></svg>
   </button>
-  {#if recording || (armedMidi.length > 0 && recordBlocked === null)}
+  {#if takeNotice}
+    <span class="rec-target warn" data-testid="transport-record-notice" role="status" title={takeNotice}>{takeNotice}</span>
+  {:else if recording || (armedMidi.length > 0 && recordBlocked === null)}
     <!-- The target, shown before the take starts (spec § 4.1), and the count-in while it runs. -->
     <span class="rec-target" class:live={recording} data-testid="transport-record-target" aria-live="polite">
       {countingIn ? t('transport.countIn') : recording ? (takeTarget ?? recordTarget) : recordTarget}
@@ -460,7 +475,8 @@
     font-size: 11px;
     color: var(--fk-text-muted);
   }
-  .rec-target.live {
+  .rec-target.live,
+  .rec-target.warn {
     color: var(--fk-text);
   }
   .tool:disabled {

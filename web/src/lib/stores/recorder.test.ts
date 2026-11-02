@@ -193,6 +193,26 @@ describe('Recorder', () => {
     expect(r.recorder.notes.a?.map((n) => n.start)).toEqual([5])
   })
 
+  it('drops the take in the project when the engine is left for Boost, and keeps the anchor of a track armed later', () => {
+    const r = rig()
+    start(r, { at: 'scene', scene: 's1' })
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, clips: [{ track: 1, scene: 0, state: 'playing', anchor: 960 }] }))
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, recordTotal: 1, recorded: [note(0, 1, 2000)] }))
+    r.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
+    r.at(SETTLE_MS)
+    r.recorder.feedback(report({ recordTake: 1, recordTotal: 1 }))
+    const commit = r.ran[0] as Extract<Command, { type: 'record.commit_take' }>
+    expect(commit.tracks).toEqual([{ track: 'b', anchor: 960, notes: [{ start: 2000, length: 240, pitch: 60, velocity: 100 }] }])
+    const left = rig()
+    start(left)
+    left.recorder.abandon()
+    expect(left.ran).toEqual([{ type: 'record.discard_take' }])
+    expect(left.recorder.phase).toBe('idle')
+    expect(left.recorder.dropped).toBe('engine')
+    left.recorder.abandon()
+    expect(left.ran).toHaveLength(1)
+  })
+
   it('ends when another author discards or commits the take', () => {
     const r = rig()
     start(r)

@@ -616,6 +616,8 @@ export class Dispatcher {
     let opened: NativeEngine | null = null
     try {
       const session = (opened = await NativeEngine.connect(token, this.events('native', this.boosts + 1)))
+      // A take in progress stays with the Web engine that captured it: it is dropped before the helper takes over (#470).
+      this.recorder?.abandon()
       // The Web engine plays until now: it gets its notes released before the helper takes over.
       releaseAllNotes((command) => this.run(command))
       this.state.activeNotes = []
