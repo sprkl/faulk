@@ -1412,7 +1412,6 @@
     <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
       >{t('arrangement.follow')}</button
     >
-    <span class="help" title={t('arrangement.help')}>?</span>
     <span class="count" data-testid="arr-count"
       >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
         · {t('arrangement.selected', { n: selection.length })}{/if}{#if autoSel}
@@ -1421,11 +1420,23 @@
   </div>
 
   <div class="board" class:scrolls={overflowing} style:--head="276px" style:--ruler="{RULER_HEIGHT}px">
-    {#if entries.length === 0}
-      <!-- No track yet: the master row stays visible; the welcome message sits in the empty tracks area below it. -->
-      <p class="empty" data-testid="arrangement-empty" style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 56))}px">
-        {t('arrangement.empty')}
-      </p>
+    {#if blocks.length === 0}
+      <!-- Nothing to arrange yet. No track: the master row stays visible and the welcome message sits in the empty tracks area below it.
+           A track and no clip: the same guide, one step shorter (#474). Under the last row, out of the lanes' way. -->
+      <div
+        class="empty"
+        data-testid={entries.length === 0 ? 'arrangement-empty' : 'arrangement-no-clips'}
+        style:top="{Math.min(RULER_HEIGHT + layout.total - y0, Math.max(RULER_HEIGHT, stageH - 140))}px"
+      >
+        <p class="lead">{t(entries.length === 0 ? 'arrangement.empty' : 'timeline.guide.noClips')}</p>
+        <ol class="guide">
+          {#if !engine.started}<li>{t('timeline.guide.step0')}</li>{/if}
+          {#if entries.length === 0}<li>{t('timeline.guide.step1')}</li>{/if}
+          <li>{t('timeline.guide.step2')}</li>
+          <li>{t('timeline.guide.step3')}</li>
+        </ol>
+        <button type="button" class="guide-keys" data-testid="guide-shortcuts" onclick={() => (ui.helpOpen = true)}>{t('timeline.guide.shortcuts')}</button>
+      </div>
     {/if}
     <div class="heads" bind:this={heads} onscroll={onHeadsScroll} onfocusin={onHeadsFocus} data-testid="arr-heads">
       <div class="slide" style:top="{-y0}px">
@@ -1723,13 +1734,31 @@
 <style>
   .empty {
     position: absolute;
-    left: var(--head);
-    right: 0;
+    left: calc(var(--head) + var(--fk-space-4));
+    width: min(66ch, calc(100% - var(--head) - 2 * var(--fk-space-4)));
     z-index: 1;
     margin: 0;
     padding: var(--fk-space-4);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-bg);
     color: var(--fk-text-muted);
     pointer-events: none;
+  }
+  .empty .lead {
+    margin: 0 0 var(--fk-space-2);
+    color: var(--fk-text);
+    font-weight: 600;
+  }
+  .guide {
+    margin: 0 0 var(--fk-space-3);
+    padding-left: var(--fk-space-5);
+    max-width: 62ch;
+    display: grid;
+    gap: var(--fk-space-1);
+  }
+  .guide-keys {
+    pointer-events: auto;
   }
   .arr {
     display: flex;
@@ -1768,16 +1797,6 @@
   button:disabled {
     opacity: 0.45;
     cursor: default;
-  }
-  .help {
-    display: inline-grid;
-    place-items: center;
-    width: 18px;
-    height: 18px;
-    border: 1px solid var(--fk-line);
-    border-radius: 50%;
-    color: var(--fk-text-muted);
-    cursor: help;
   }
   .count {
     margin-left: auto;

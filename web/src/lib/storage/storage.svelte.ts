@@ -185,7 +185,18 @@ export class ProjectStorage {
   /** The warning "your projects are in the browser; export them" was read this session. */
   private browserWarned = $state(false)
   /** Something the user should read: why a folder was not taken, why a save did not happen. */
-  notice = $state<MessageKey | null>(null)
+  private shownNotice = $state<MessageKey | null>(null)
+  /** What the notice names (a project), and the project of the browser it can open for the user (#474). Cleared with every new notice. */
+  noticeVars = $state.raw<{ name: string } | null>(null)
+  noticeOpen = $state.raw<string | null>(null)
+  get notice(): MessageKey | null {
+    return this.shownNotice
+  }
+  set notice(key: MessageKey | null) {
+    this.shownNotice = key
+    this.noticeVars = null
+    this.noticeOpen = null
+  }
   /** A question the interface is asking (New or Open on a project whose changes cannot be kept). */
   confirm = $state.raw<{ action: Discard; name: string | null } | null>(null)
 
@@ -947,7 +958,11 @@ export class ProjectStorage {
       // The folder may have been replaced while the permission was asked.
       if (this.current !== current) return false
     }
-    if (this.block === 'permission') this.block = null
+    if (this.block === 'permission') {
+      this.block = null
+      // The notice that told an agent to click is answered by the click.
+      this.notice = null
+    }
     return this.autosave().then(() => !this.dirty)
   }
 
@@ -1063,6 +1078,19 @@ export class ProjectStorage {
     return this.write('rewrite')
   }
 
+  /**
+   * The one banner the page shows (#474): banners never stack. What stops the work comes first (a write
+   * that cannot happen, a folder edited from outside): a notice nobody dismissed must never hide it. Then
+   * a notice, which answers what the user just did and goes with its Dismiss, the project of last time,
+   * and the advice about the browser's storage. The others wait: they show when this one is gone.
+   */
+  get banner(): 'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | null {
+    if (this.block) return this.block
+    if (this.notice) return 'notice'
+    if (this.reopen) return 'reopen'
+    return this.browserWarning ? 'warning' : null
+  }
+
   /** The user does not want the project of last time back. */
   dismissReopen() {
     this.reopen = null
@@ -1076,9 +1104,9 @@ export class ProjectStorage {
   // ------------------------------------------------------------------ the start of a page
 
   /**
-   * On a fresh page: the project that was open last time comes back. With the permission still
-   * granted it opens at once; otherwise a banner offers it, because the browser wants a click
-   * before it gives the folder back.
+   * On a fresh page: the project that was open last time comes back. A project kept in the browser opens
+   * at once; so does a folder whose permission is still granted. Otherwise a banner offers the folder,
+   * because the browser wants a click before it gives it back.
    */
   async restore() {
     // The core is made now, not at the first click: a click on Open must reach the chooser while it still has its activation.
@@ -1096,10 +1124,8 @@ export class ProjectStorage {
     // The project the musician worked on last wins: a folder is dated by when it was opened or saved
     // into, a project in the browser by its newest file.
     if (draft && (!last || draft.modified > last.at)) {
-      // Where the browser has no folder, its storage is the home and the project reopens by itself;
-      // otherwise it is a draft, offered with a click.
-      if (!this.supported) await this.openBrowserProject(draft.dir)
-      else this.offer({ id: draft.dir, name: draft.name, kind: 'browser' })
+      // A project kept in the browser needs no permission: it opens by itself, in every browser (#474).
+      await this.openBrowserProject(draft.dir)
       return
     }
     if (!last) return
@@ -1270,9 +1296,13 @@ export class ProjectStorage {
     // The pack keeps its identity, so what it gives back is the project it was made from. A project
     // of that identity that is already here (open, or kept in the browser) is never overwritten by it.
     if (id) {
-      const known = this.deps.browser.available ? (await this.deps.browser.list()).projects.some((p) => p.id === id) : false
-      if (known || this.host.projectId() === id) {
-        this.notice = 'pack.alreadyHere'
+      const kept = this.deps.browser.available ? (await this.deps.browser.list()).projects.find((p) => p.id === id) : undefined
+      if (kept || this.host.projectId() === id) {
+        // Names the project and, when it is kept in the browser and not the one open, offers to open it.
+        const open = this.host.projectId() === id ? null : (kept?.dir ?? null)
+        this.notice = open === null ? 'pack.alreadyOpen' : 'pack.alreadyHere'
+        this.noticeVars = { name: kept?.name ?? name }
+        this.noticeOpen = open
         return false
       }
     }

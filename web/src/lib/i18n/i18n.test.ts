@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICE_NAME_KEYS, features } from './app'
-import { defaultLang, landingMessages, messages, translate } from './index'
+import { defaultLang, journeyMessages, landingMessages, messages, translate } from './index'
 import { DEVICES } from '../generated/protocol'
 import { LANDING_DEVICE_NAME_KEYS } from './landing'
 
-/** Every catalogue of the app: the DAW and the landing page. */
-const catalogues = { app: messages, landing: landingMessages } as const
+/** Every catalogue of the app: the DAW, the landing page and the Journey page. */
+const catalogues = { app: messages, landing: landingMessages, journey: journeyMessages } as const
 
 describe('i18n', () => {
   for (const [name, catalogue] of Object.entries(catalogues)) {

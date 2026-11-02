@@ -10,30 +10,33 @@ import { defineConfig } from 'vitest/config'
 import { vercelHeaders } from './scripts/vercel-headers.ts'
 
 /**
- * The landing page's animation module (`src/lib/landing/anim/index.ts`) is not imported by any
- * page: the prerendered pages stay plain HTML (`csr = false`) and only load it lazily, from an
- * inline bootstrap, when a sound object nears the viewport. This plugin bundles it as its own entry
- * of the client build, and exposes its URL to the server build (which prerenders the pages)
- * through the virtual module `virtual:landing-anim`.
+ * A module that no page imports: the prerendered pages stay plain HTML (`csr = false`) and only
+ * load it lazily, from an inline bootstrap. This plugin bundles it as its own entry of the client
+ * build (`<folder>/index.ts`), and exposes its URL to the server build (which prerenders the pages)
+ * through the virtual module `virtual:<name>`.
  *
  * The server build runs before the client build, so the file name cannot come from the bundle: it
- * carries a hash of the module's sources and of its one dependency's version (OGL) instead,
- * computed up front. `anim.test.ts` checks that the module imports nothing else.
+ * carries a hash of the folder's sources and of its dependencies' versions instead, computed up
+ * front. Each module's tests check that it imports nothing else (`anim.test.ts`, `live.test.ts`).
+ *
+ * - `landing-anim`: the landing page's sound objects (`src/lib/landing/anim/`, with OGL), loaded
+ *   when one nears the viewport;
+ * - `journey-live`: the Journey page's players and their visualiser (`src/lib/journey/live/`).
  */
-function landingAnim(): Plugin {
-  const virtualId = 'virtual:landing-anim'
+function lazyModule(name: string, folder: string, fileStem: string, versions: string[]): Plugin {
+  const virtualId = `virtual:${name}`
   const resolvedId = '\0' + virtualId
-  const dir = fileURLToPath(new URL('./src/lib/landing/anim/', import.meta.url))
+  const dir = fileURLToPath(new URL(`./src/lib/${folder}/`, import.meta.url))
   const hash = createHash('sha256')
-  hash.update(String(dependencies.ogl))
+  for (const version of versions) hash.update(version)
   for (const file of readdirSync(dir, { recursive: true, encoding: 'utf8' }).sort()) {
     const path = join(dir, file)
     if (statSync(path).isFile()) hash.update(file).update(readFileSync(path))
   }
-  const fileName = `landing/anim.${hash.digest('hex').slice(0, 8)}.js`
+  const fileName = `${fileStem}.${hash.digest('hex').slice(0, 8)}.js`
   let serve = false
   return {
-    name: 'faulk-landing-anim',
+    name: `faulk-${name}`,
     configResolved(config) {
       serve = config.command === 'serve'
     },
@@ -46,7 +49,7 @@ function landingAnim(): Plugin {
     },
     load(id) {
       if (id !== resolvedId) return
-      return `export const url = ${JSON.stringify(serve ? '/src/lib/landing/anim/index.ts' : '/' + fileName)}`
+      return `export const url = ${JSON.stringify(serve ? `/src/lib/${folder}/index.ts` : '/' + fileName)}`
     },
   }
 }
@@ -61,7 +64,8 @@ export default defineConfig({
       // Every page is static: the landing page is prerendered HTML, `/app` an empty client-side shell.
       adapter: adapter({ pages: 'dist', assets: 'dist', strict: true }),
     }),
-    landingAnim(),
+    lazyModule('landing-anim', 'landing/anim', 'landing/anim', [String(dependencies.ogl)]),
+    lazyModule('journey-live', 'journey/live', 'journey/live', []),
     // Production's response headers (cross-origin isolation) on the local servers too.
     vercelHeaders(new URL('./vercel.json', import.meta.url)),
   ],

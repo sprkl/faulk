@@ -320,6 +320,10 @@ test.describe('the project in a folder', () => {
     await page.evaluate(() => sessionStorage.setItem('perm', 'prompt'))
     await page.reload()
     await expect(page.getByTestId('reopen-banner')).toBeVisible()
+    // One clear main action (#474): it names the folder, and the start button gives up its violet while it waits.
+    await expect(page.getByTestId('reopen')).toHaveText('Reopen “song-again”')
+    await expect(page.getByTestId('engine-state').getByRole('button')).not.toHaveClass(/\bprimary\b/)
+    await expect(page.locator('p.banner')).toHaveCount(1)
     await expect(tracks(page)).toHaveCount(0)
     await page.getByTestId('reopen').click()
     await expect(tracks(page)).toHaveCount(2)
