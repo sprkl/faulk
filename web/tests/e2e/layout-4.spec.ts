@@ -41,17 +41,20 @@ async function expectOneRow(page: Page, what: string) {
 
 for (const size of SIZES) {
   for (const lang of ['en', 'fr'] as const) {
-    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name`, async ({ page }) => {
+    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name`, async ({ page }, info) => {
       const { errors } = watch(page)
       await page.setViewportSize(size)
       await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
       await start(page)
-      await page.evaluate(() =>
-        (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({
-          type: 'project.rename',
-          name: 'A very long project name for the layout test',
-        }),
-      )
+      // The long name goes through the command hook, which the dev server has only; the preview build checks the default name.
+      if (info.project.name === 'dev') {
+        await page.evaluate(() =>
+          (window as unknown as { __faulkRun: (c: unknown) => void }).__faulkRun({
+            type: 'project.rename',
+            name: 'A very long project name for the layout test',
+          }),
+        )
+      }
       for (const view of ['arrangement', 'grid', 'mixer']) {
         await page.getByTestId(`nav-${view}`).click()
         await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)

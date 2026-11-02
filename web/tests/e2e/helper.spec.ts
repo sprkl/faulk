@@ -77,6 +77,8 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-mode')).toContainText('Boost')
   await expect(page.getByTestId('latency')).toContainText('5')
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
+  await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
 
   // Commands reach the helper over the session. (The dialog gave the focus back to the pill, a control the keyboard focused: it keeps its keys until the focus leaves.)
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
@@ -88,6 +90,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await page.getByTestId('engine-mode').click()
   await page.getByRole('button', { name: 'Back to Web' }).click()
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   // The Web engine caught up by snapshot: a key sounds again.
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
