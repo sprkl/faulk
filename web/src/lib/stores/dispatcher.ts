@@ -398,6 +398,11 @@ export class Dispatcher {
     // A command the recorder answers otherwise (an undo during a take drops the take, #470).
     const instead = this.recorder?.instead(command)
     if (instead) return this.run(instead, options)
+    const refusal = this.recorder?.refusal(command)
+    if (refusal) {
+      this.state.notice = refusal
+      return false
+    }
     const core = this.core
     // The banner that offers the project of last time shows on a fresh page, before any core exists: the
     // core is made, then the command runs (a click's permission to prompt outlasts the few milliseconds).

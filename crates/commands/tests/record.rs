@@ -621,3 +621,50 @@ fn a_commit_without_the_take_number_leaves_the_take_waiting() {
 fn take_notes(r: &Rec) -> Vec<commands::record::TakeTrack> {
     take(r, vec![note(100, 60, 100)], None)
 }
+
+#[test]
+fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
+    let r = rec();
+    // 7660 is 20 ticks before bar 2 (7680), within a sixteenth: the clip starts at bar 2 and the
+    // note on its first tick; one bar long.
+    let (state, out, _) = commit(
+        &r,
+        RecordTarget::Scene {
+            scene: r.empty.clone(),
+        },
+        0.0,
+        take(&r, vec![note(7660, 60, 240), note(8640, 62, 240)], None),
+    );
+    let RO::CommitTake { clips, dropped } = out else {
+        panic!()
+    };
+    assert_eq!(dropped, 0);
+    let clip = &state.project.tracks[&r.track].clips[&clips[0].clip];
+    let ClipContent::Midi { length, notes, .. } = &clip.content else {
+        panic!()
+    };
+    assert_eq!(*length, Tick(3840));
+    assert_eq!(
+        notes.iter().copied().collect::<Vec<_>>(),
+        vec![
+            Note::new(Tick(0), 60, Tick(240), 100),
+            Note::new(Tick(960), 62, Tick(240), 100),
+        ]
+    );
+    // In the arrangement too: the new clip is placed on bar 2 (the gap before the clip of bar 3).
+    let (state, out, _) = commit(
+        &r,
+        RecordTarget::Arrangement {},
+        0.0,
+        take(&r, vec![note(3830, 60, 240)], None),
+    );
+    let RO::CommitTake { clips, .. } = out else {
+        panic!()
+    };
+    let p = state.project.tracks[&r.track]
+        .placements
+        .values()
+        .find(|p| p.clip == clips[0].clip)
+        .unwrap();
+    assert_eq!(p.start, Tick(3840));
+}

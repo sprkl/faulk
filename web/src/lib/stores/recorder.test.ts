@@ -5,7 +5,7 @@ import { GIVE_UP_MS, Recorder, SETTLE_MS } from './recorder.svelte'
 
 const SLOTS: ViewSlots = { epoch: 1, tracks: { a: 0, b: 1 }, scenes: { s1: 0, s2: 1 } }
 
-function rig(applies = true) {
+function rig(applies = true, mode: 'web' | 'native' = 'web') {
   let now = 0
   const ran: Command[] = []
   const recorder = new Recorder({
@@ -15,6 +15,7 @@ function rig(applies = true) {
     },
     slots: () => SLOTS,
     now: () => now,
+    mode: () => mode,
   })
   return {
     recorder,
@@ -211,6 +212,20 @@ describe('Recorder', () => {
     expect(left.recorder.dropped).toBe('engine')
     left.recorder.abandon()
     expect(left.ran).toHaveLength(1)
+  })
+
+  it('refuses a take in Boost, and counts the notes the commit or a full live queue lost', () => {
+    expect(rig(true, 'native').recorder.refusal({ type: 'record.start' })).toBe('transport.recordBoost')
+    expect(rig(true, 'native').recorder.refusal({ type: 'record.stop' })).toBeNull()
+    expect(rig().recorder.refusal({ type: 'record.start' })).toBeNull()
+    const r = rig()
+    r.recorder.feedback(report({ liveOverflows: 3 }))
+    start(r)
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, liveOverflows: 3 }))
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, liveOverflows: 5, recordTotal: 1, recorded: [note(0, 0, 0)] }))
+    expect(r.recorder.lost).toBe(2)
+    r.recorder.ran({ type: 'record.commit_take', take: 1, target: { at: 'arrangement' }, tracks: [] }, { clips: [], dropped: 4 }, [])
+    expect(r.recorder.lost).toBe(6)
   })
 
   it('ends when another author discards or commits the take', () => {

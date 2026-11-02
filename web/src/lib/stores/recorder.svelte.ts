@@ -31,6 +31,8 @@ export type RecorderPhase = 'idle' | 'recording' | 'closing'
 export interface RecorderPorts {
   /** Runs a command; whether the project applied it. */
   run(command: Command): boolean
+  /** Which engine plays: recording works with the Web engine only, until the helper holds the page's project (#501). */
+  mode(): 'web' | 'native'
   /** The engine slots of the project's tracks and scenes. */
   slots(): ViewSlots | null
   now(): number
@@ -58,6 +60,10 @@ export class Recorder {
   private endedAt = 0
   /** Notes the page missed between two reports it read. */
   private gaps = 0
+  /** The engine's count of live events lost to a full live queue when the take started (`null`: no report yet). */
+  private overflowBase: number | null = null
+  /** Live events lost to a full live queue during the take: notes the engine never received. */
+  private overflowed = 0
   /** The engine's take number in the last report, `null` before the first report of a new engine. */
   private lastTake: number | null = 0
 
@@ -71,8 +77,21 @@ export class Recorder {
     return command.type === 'history.undo' && this.phase !== 'idle' ? { type: 'record.discard_take' } : null
   }
 
+  /**
+   * Why `command` is refused before it reaches the project, if it is: a take does not start in Boost (#501), whoever
+   * asks (the button is disabled there, an agent's `record.start` is refused here with the same reason).
+   */
+  refusal(command: Command): 'transport.recordBoost' | null {
+    return command.type === 'record.start' && this.ports.mode() === 'native' ? 'transport.recordBoost' : null
+  }
+
   /** A command the dispatcher ran, with its output and its events. */
   ran(command: Command, output: unknown, events: readonly ProjectEvent[]) {
+    // Notes the project could not place (before tick 0, before their clip): lost too, and said.
+    if (command.type === 'record.commit_take' && output && typeof output === 'object' && 'dropped' in output) {
+      const dropped = Number((output as { dropped: number }).dropped) || 0
+      if (dropped > 0) this.lost += dropped
+    }
     if (command.type === 'record.start' && output && typeof output === 'object' && 'take' in output) {
       const o = output as { take: number; target: RecordTarget; tracks: string[]; shift_ms: number; count_in: boolean }
       this.begin({ take: o.take, target: o.target, tracks: o.tracks, shiftMs: o.shift_ms, countIn: o.count_in })
@@ -99,6 +118,8 @@ export class Recorder {
     this.notes = {}
     this.lost = 0
     this.gaps = 0
+    this.overflowBase = null
+    this.overflowed = 0
     this.dropped = null
   }
 
@@ -140,6 +161,11 @@ export class Recorder {
     // This take is the first engine take after the baseline; without a baseline (no report read since the engine was
     // replaced), the first one seen capturing.
     if (this.engineTake === null && (this.baseline === null ? report.recordCapturing : report.recordTake > this.baseline)) this.engineTake = report.recordTake
+    if (this.overflowBase === null) this.overflowBase = report.liveOverflows
+    else if (report.liveOverflows > this.overflowBase) {
+      this.overflowed = report.liveOverflows - this.overflowBase
+      this.lost = this.gaps + report.recordDropped + this.overflowed
+    }
     if (this.engineTake !== null && report.recordTake === this.engineTake) this.gather(report, slots)
     this.watchAnchors(report, take, slots)
     if (this.phase !== 'closing') return
@@ -162,7 +188,7 @@ export class Recorder {
       changed = true
     }
     this.next = Math.max(this.next, report.recordTotal)
-    this.lost = this.gaps + report.recordDropped
+    this.lost = this.gaps + report.recordDropped + this.overflowed
     if (changed) this.notes = this.byTrack(slots)
   }
 

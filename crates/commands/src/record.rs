@@ -464,7 +464,24 @@ enum Write {
 }
 
 /// A note at `pos` in a clip of `length`, cut at its end; `None` when it starts outside.
+/// How early a note may be played before the bar a new clip starts on and still belong to it,
+/// in ticks: a sixteenth. A downbeat played in time, then moved earlier by the latency shift,
+/// lands a few ticks before the bar line; it starts the clip on that bar, not on the bar before.
+pub const EARLY: i64 = PPQ / 4;
+
+/// The bar a take's first note starts a clip on, with [`EARLY`] of tolerance.
+fn bar_of(first: i64, bar: i64) -> i64 {
+    floor_to(first.saturating_add(EARLY), bar)
+}
+
+/// A position `e` ticks from a clip start taken from the first note: up to [`EARLY`] before it
+/// counts as the start.
+fn early(e: i64) -> i64 {
+    if (-EARLY..0).contains(&e) { 0 } else { e }
+}
+
 fn place(n: &TakeNote, pos: i64, length: i64) -> Option<Note> {
+    let pos = early(pos);
     if pos < 0 || pos >= length {
         return None;
     }
@@ -533,7 +550,7 @@ fn plan_track(
                 .and_then(|(id, c)| Some((id.clone(), Geo::of(c)?)));
             match cell {
                 Some((clip, geo)) => {
-                    let origin = anchor.map_or(floor_to(first, bar), Tick::get);
+                    let origin = anchor.map_or(bar_of(first, bar), Tick::get);
                     let grows = geo.looping.is_none();
                     let original = geo.length;
                     let mut length = geo.length;
@@ -545,7 +562,11 @@ fn plan_track(
                     let mut out = Vec::new();
                     for n in notes {
                         match geo
-                            .position(n.start.get() - origin)
+                            .position(if anchor.is_some() {
+                                n.start.get() - origin
+                            } else {
+                                early(n.start.get() - origin)
+                            })
                             .and_then(|pos| place(n, pos, length))
                         {
                             Some(note) => out.push(note),
@@ -559,7 +580,7 @@ fn plan_track(
                     });
                 }
                 None => {
-                    let origin = floor_to(first, bar);
+                    let origin = bar_of(first, bar);
                     let length = ceil_to(last_end - origin, bar).max(bar);
                     let out = notes
                         .iter()
@@ -654,7 +675,7 @@ fn plan_track(
                     .map(|n| n.start.get().saturating_add(n.length.get()))
                     .max()
                     .unwrap_or(first + 1);
-                let start = floor_to(first, bar).max(before);
+                let start = bar_of(first, bar).max(before);
                 let mut end = ceil_to(last, bar).max(start + 1);
                 if let Some(next) = after {
                     end = end.min(next);

@@ -60,6 +60,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   dispatcher.audioExport = audioExport
   const recorder = new Recorder({
     run: (command) => dispatcher.run(command),
+    mode: () => engine.mode,
     slots: () => project.view?.slots ?? null,
     now: () => performance.now(),
   })
