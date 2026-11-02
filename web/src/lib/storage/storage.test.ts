@@ -1570,14 +1570,12 @@ describe('the start of a page with drafts', () => {
     return { w, dir: first.dir, draft: first.store }
   }
 
-  it('offers the draft with a banner where there is a picker, and reopens it on the click', async () => {
+  it('reopens the draft by itself where there is a picker too: the browser’s storage asks no permission (#474)', async () => {
     const { w, dir } = await leftBehind(true)
     await w.storage.restore()
-    expect(w.host.opened).toEqual([])
-    expect(w.storage.reopen).toEqual({ id: dir, name: 'Song', kind: 'browser' })
-    expect(await w.storage.reopenLast()).toBe(true)
-    expect(w.storage.reopen).toBeNull()
     expect(w.host.opened.length).toBe(1)
+    expect(w.storage.reopen).toBeNull()
+    expect(w.storage.banner).toBeNull()
     expect(w.storage.place).toBe('browser')
     expect([...w.locks].sort()).toEqual([`dir.${dir}`].sort())
     // Reopened, a change goes to the same draft.
@@ -1606,10 +1604,13 @@ describe('the start of a page with drafts', () => {
     await w.storage.restore()
     expect(w.storage.reopen).toEqual({ id: 'song', name: 'song', kind: 'folder' })
 
+    // The draft worked on after the folder opens by itself.
     w.storage.dismissReopen()
     w.browser.touch(dir, 3000)
     await w.storage.restore()
-    expect(w.storage.reopen?.kind).toBe('browser')
+    expect(w.storage.reopen).toBeNull()
+    expect(w.host.opened.length).toBe(1)
+    expect(w.storage.place).toBe('browser')
   })
 
   it('leaves alone a draft that another tab has open, and a page that was already changed', async () => {
@@ -1788,13 +1789,23 @@ describe('import a .faulkpack', () => {
     w.host.unpacked = packOf('project-1')
     w.packs.push(packFile())
     expect(await w.storage.importPack()).toBe(false)
-    expect(w.storage.notice).toBe('pack.alreadyHere')
-    // Another project is open now; the first is still in the browser.
+    // The project is the open one: the notice names it and has nothing to open.
+    expect(w.storage.notice).toBe('pack.alreadyOpen')
+    expect(w.storage.noticeVars).toEqual({ name: expect.any(String) })
+    expect(w.storage.noticeOpen).toBeNull()
+    // Another project is open now; the first is still in the browser: the notice names it and offers to open it (#474).
     await w.storage.newProject()
     w.storage.dismissNotice()
     w.packs.push(packFile())
     expect(await w.storage.importPack()).toBe(false)
     expect(w.storage.notice).toBe('pack.alreadyHere')
+    expect(w.storage.noticeVars?.name).toEqual(expect.any(String))
+    expect(w.storage.noticeOpen).toEqual(expect.any(String))
+    expect(w.storage.banner).toBe('notice')
+    // The next notice forgets the name and the action of this one.
+    w.storage.dismissNotice()
+    expect(w.storage.noticeVars).toBeNull()
+    expect(w.storage.noticeOpen).toBeNull()
     expect(w.browser.created.length).toBe(1)
   })
 
@@ -2313,5 +2324,50 @@ describe('open a .faulkpack by its link (#497)', () => {
     w.storage.offerLink('http://example.org/a.faulkpack')
     expect(w.storage.linkOffer).toBeNull()
     expect(w.storage.notice).toBe('openUrl.refused')
+  })
+
+  it('shows the download, then its failure, before any notice, and never above what stops the work (#474)', () => {
+    const w = world()
+    w.storage.notice = 'storage.refused'
+    w.storage.downloadFailed = 'cdn.example.org'
+    expect(w.storage.banner).toBe('downloadFailed')
+    w.storage.downloading = 'cdn.example.org'
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.block = 'error'
+    expect(w.storage.banner).toBe('error')
+    w.storage.block = null
+    w.storage.downloading = null
+    w.storage.dismissDownloadFailed()
+    expect(w.storage.banner).toBe('notice')
+  })
+})
+
+describe('one banner at a time (#474)', () => {
+  it('shows what stops the work first, then a notice, then the project of last time, and brings each back when the one before it is gone', () => {
+    const w = world()
+    expect(w.storage.banner).toBeNull()
+    w.storage.reopen = { id: 'song', name: 'song', kind: 'folder' }
+    expect(w.storage.banner).toBe('reopen')
+    w.storage.block = 'error'
+    expect(w.storage.banner).toBe('error')
+    w.storage.notice = 'storage.refused'
+    // A notice nobody dismissed never hides what stops the work.
+    expect(w.storage.banner).toBe('error')
+    w.storage.block = null
+    expect(w.storage.banner).toBe('notice')
+    w.storage.dismissNotice()
+    expect(w.storage.banner).toBe('reopen')
+    w.storage.dismissReopen()
+    expect(w.storage.banner).toBeNull()
+  })
+
+  it('forgets the name and the action of a notice when another notice replaces it', () => {
+    const w = world()
+    w.storage.notice = 'pack.alreadyHere'
+    w.storage.noticeVars = { name: 'Song' }
+    w.storage.noticeOpen = 'dir-1'
+    w.storage.notice = 'pack.invalid'
+    expect(w.storage.noticeVars).toBeNull()
+    expect(w.storage.noticeOpen).toBeNull()
   })
 })

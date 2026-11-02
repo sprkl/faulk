@@ -19,6 +19,8 @@ Answer in the language the user writes in; pattern names and the notation stay a
 
 Extract from the brief or the project: genre or references, mood, tempo if given, instruments or sounds available, length, what already exists and what is stuck. When the brief is thin, decide and state your assumptions rather than asking; the user can redirect a concrete draft faster than they can answer a questionnaire. Stop to ask only when two readings would produce different tracks and nothing in the brief settles it.
 
+Where the brief asks for a **style profile** ("style: morzak"), read [references/styles/README.md](references/styles/README.md) and that profile at Frame, and apply it as the README says. Without that request, ignore the profiles.
+
 Where a reference track is named, work from a **catalog of attributes** (one concrete line each for sound, harmony, melody, rhythm, form, plus tempo) and never from the reference itself: see [creative-strategies.md](references/creative-strategies.md) → Catalog of attributes.
 
 ## Workflow
@@ -61,8 +63,8 @@ One Markdown file, written in the user's language from the title to the headings
 
 ```
 # <Working title>
-## Brief and constraints      tempo, key, palette, length, the 2–3 constraints, assumptions
-## Catalog of attributes      only when references were given
+## Brief and constraints      tempo, key, palette, length, the 2–3 constraints, assumptions, style profile used (if any)
+## Catalog of attributes      only when references or a style profile were given
 ## Seed loop                  pattern blocks + one line each on why
 ## Variations                 the generations, one line each on what changed
 ## Arrangement                the arrangement block, then seams and unique events by bar
@@ -98,3 +100,4 @@ The report states what was produced, what was verified and how (quote the check)
 | [references/theory.md](references/theory.md) | when choosing key, scale, chords, bass or melody notes, or when the check reports out-of-key notes |
 | [references/patterns.md](references/patterns.md) | when seeding a part from an archetype, or when a part sounds generic and needs a different model |
 | [references/arrangement.md](references/arrangement.md) | in phases 4 and 5: forms by bar count, seams, unique events, endings, the good-enough list |
+| [references/styles/README.md](references/styles/README.md) | only when the brief names a style profile: how to apply it, and the list of profiles |

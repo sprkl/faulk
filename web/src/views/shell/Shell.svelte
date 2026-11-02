@@ -10,6 +10,7 @@
   import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
+  import { helpShortcut } from '../../lib/shortcuts'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
@@ -18,6 +19,7 @@
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
@@ -94,6 +96,17 @@
       }
       return
     }
+    // `?` opens the shortcut list, and closes it again; no other dialog or menu has to be open (#474).
+    if (helpShortcut(event)) {
+      const other = document.querySelector('[aria-modal="true"]:not([data-testid="shortcuts-dialog"])')
+      if (ui.helpOpen || (!other && !(event.target as Element | null)?.closest?.('[role="menu"]'))) {
+        event.preventDefault()
+        ui.helpOpen = !ui.helpOpen
+        return
+      }
+    }
+    // The open list holds the keyboard: no undo, redo or note behind it (the dialog keeps Escape and Tab itself).
+    if (ui.helpOpen) return
     const action = historyShortcut(event)
     if (!action) {
       // The computer keyboard plays in every view; what is no shortcut of the shell goes to the notes.
@@ -153,6 +166,7 @@
   <StorageBanners />
   <ExportDialog />
   <EngineDialog />
+  <ShortcutsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}

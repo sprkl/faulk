@@ -6,7 +6,7 @@
    * A project opened by its link (#497): the question before a link of the address is downloaded, the
    * download under way, and a download that failed, with the way out (import a file instead).
    */
-  import { allowAccess, deleteBrowserProject, exportPack, importPack, keepMine, loadFolderVersion, openUrl, reopenLast, save } from '../../lib/project-commands'
+  import { allowAccess, exportPack, importPack, keepMine, loadFolderVersion, openBrowserProject, openUrl, reopenLast, save } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, dispatcher } = useStores()
@@ -51,70 +51,61 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#if storage.reopen}
+{#if storage.banner === 'reopen' && storage.reopen}
   <p class="banner" role="status" data-testid="reopen-banner">
-    <span>{t(storage.reopen.kind === 'browser' ? 'save.banner.reopenDraft' : 'save.banner.reopen', { name: storage.reopen.name })}</span>
-    <button class="primary" data-testid="reopen" onclick={() => dispatcher.run(reopenLast())}>{t('save.banner.reopenButton')}</button>
-    {#if storage.reopen.kind === 'browser'}
-      <button data-testid="delete-draft" onclick={() => storage.reopen && dispatcher.run(deleteBrowserProject(storage.reopen.id))}
-        >{t('save.banner.deleteDraft')}</button
-      >
-    {/if}
+    <span>{t('save.banner.reopen', { name: storage.reopen.name })}</span>
+    <button class="primary" data-testid="reopen" onclick={() => dispatcher.run(reopenLast())}
+      >{t('save.banner.reopenButton', { name: storage.reopen.name })}</button
+    >
     <button onclick={() => storage.dismissReopen()}>{t('save.banner.dismiss')}</button>
   </p>
-{/if}
-
-{#if storage.browserWarning}
+{:else if storage.banner === 'warning'}
   <p class="banner" role="status" data-testid="browser-warning">
     <span>{t(storage.browserWarning === 'volatile' ? 'save.banner.browserVolatile' : 'save.banner.browserOnly')}</span>
-    <button class="primary" data-testid="warning-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
+    <button data-testid="warning-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
     <button onclick={() => storage.dismissBrowserWarning()}>{t('save.banner.dismiss')}</button>
   </p>
-{/if}
-
-{#if storage.block === 'permission'}
+{:else if storage.banner === 'permission'}
   <p class="banner" role="alert" data-testid="permission-banner">
     <span>{t('save.banner.permission', { name })}</span>
     <button class="primary" data-testid="allow" onclick={() => dispatcher.run(allowAccess())}>{t('save.banner.allow')}</button>
   </p>
-{:else if storage.block === 'full'}
+{:else if storage.banner === 'full'}
   <p class="banner" role="alert" data-testid="full-banner" title={storage.errorDetail ?? ''}>
     <span>{t('save.banner.full')}</span>
     <button class="primary" data-testid="full-export" onclick={() => dispatcher.run(exportPack())}>{t('project.menu.exportPack')}</button>
     <button onclick={() => dispatcher.run(save())}>{t('save.banner.retry')}</button>
   </p>
-{:else if storage.block === 'error'}
+{:else if storage.banner === 'error'}
   <p class="banner" role="alert" data-testid="error-banner" title={storage.errorDetail ?? ''}>
     <span>{storage.folder ? t('save.banner.error', { name }) : t('save.banner.errorBrowser')}</span>
     <button class="primary" onclick={() => dispatcher.run(save())}>{t('save.banner.retry')}</button>
   </p>
-{:else if storage.block === 'external'}
+{:else if storage.banner === 'external'}
   <p class="banner" role="alert" data-testid="external-banner">
     <span>{t('save.banner.external', { name })}</span>
     <button class="primary" data-testid="keep-mine" onclick={() => dispatcher.run(keepMine())}>{t('save.banner.keepMine')}</button>
     <button data-testid="load-disk" onclick={() => dispatcher.run(loadFolderVersion())}>{t('save.banner.loadDisk')}</button>
   </p>
-{/if}
-
-{#if storage.downloading}
+{:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">
-    <span>{t('openUrl.downloading', { host: storage.downloading })}</span>
+    <span>{t('openUrl.downloading', { host: storage.downloading ?? '' })}</span>
   </p>
-{/if}
-
-{#if storage.downloadFailed}
+{:else if storage.banner === 'downloadFailed'}
   <p class="banner" role="alert" data-testid="download-failed" title={storage.errorDetail ?? ''}>
-    <span>{t('openUrl.failed', { host: storage.downloadFailed })}</span>
+    <span>{t('openUrl.failed', { host: storage.downloadFailed ?? '' })}</span>
     <button class="primary" data-testid="download-import" onclick={() => (storage.dismissDownloadFailed(), dispatcher.run(importPack()))}
       >{t('openUrl.importFile')}</button
     >
     <button onclick={() => storage.dismissDownloadFailed()}>{t('save.banner.dismiss')}</button>
   </p>
-{/if}
-
-{#if storage.notice}
+{:else if storage.banner === 'notice' && storage.notice}
   <p class="banner" role="status" data-testid="storage-notice">
-    <span>{t(storage.notice)}</span>
+    <span>{t(storage.notice, storage.noticeVars ?? undefined)}</span>
+    {#if storage.noticeOpen && storage.noticeVars}
+      {@const dir = storage.noticeOpen}
+      <button class="primary" data-testid="notice-open" onclick={() => dispatcher.run(openBrowserProject(dir))}>{t('pack.openIt', storage.noticeVars)}</button>
+    {/if}
     <button onclick={() => storage.dismissNotice()}>{t('save.banner.dismiss')}</button>
   </p>
 {/if}
