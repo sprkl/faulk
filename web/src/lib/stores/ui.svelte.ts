@@ -57,6 +57,8 @@ export class UiStore {
   panelFocus = $state(0)
   /** The engine dialog (audio, helper, MIDI, keyboard) is open. Page state, not project state. */
   engineOpen = $state(false)
+  /** The shortcut list is open (#474). Page state, not project state. */
+  helpOpen = $state(false)
 
   /**
    * Where a take of MIDI recording goes (#470, spec § 4.1): the last of the grid and the arrangement the user showed.

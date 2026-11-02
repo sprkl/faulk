@@ -15,6 +15,7 @@
   import { backToArrangement } from '../../lib/scene-commands'
   import { pause, play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
   import { allSoundOff } from '../../lib/synth-commands'
+  import { withShortcut } from '../../lib/shortcuts'
   import {
     barTicks,
     DEFAULT_LOOP_BARS,
@@ -22,6 +23,8 @@
     formatPosition,
     formatTempo,
     formatTime,
+    MAX_TEMPO,
+    MIN_TEMPO,
     parseNumerator,
     parseTempo,
     secondsOf,
@@ -128,17 +131,33 @@
     }
   }
 
-  function commitTempo() {
+  // What the tempo field says when its text is refused (#474): the range, never a silent return to the old value.
+  let tempoError = $state(false)
+  let tempoErrorTimer: ReturnType<typeof setTimeout> | undefined
+  function showTempoError() {
+    tempoError = true
+    clearTimeout(tempoErrorTimer)
+    tempoErrorTimer = setTimeout(() => (tempoError = false), 6000)
+  }
+
+  /** Applies the field's text. Refused text: kept and said while the field has the focus (Enter), put back when it loses it. */
+  function commitTempo(leaving = false) {
     // Only a text the user changed counts: leaving the field untouched must not round a tempo with more than two decimals.
-    const value = bpm !== null && tempoDraft === formatTempo(bpm) ? null : parseTempo(tempoDraft)
+    const unchanged = bpm !== null && tempoDraft === formatTempo(bpm)
+    const value = unchanged ? null : parseTempo(tempoDraft)
+    if (!unchanged && value === null && tempoDraft.trim() !== '') {
+      showTempoError()
+      if (!leaving) return
+    } else tempoError = false
     if (value !== null && value !== bpm) run(setTempo(value))
-    // A refused text, or an applied one, shows what the project holds.
+    // A refused text on leaving, or an applied one, shows what the project holds.
     tempoDraft = bpm === null ? '' : formatTempo(bpm)
   }
 
   function onTempoKey(event: KeyboardEvent) {
     if (event.key === 'Enter') commitTempo()
     else if (event.key === 'Escape') {
+      tempoError = false
       tempoDraft = bpm === null ? '' : formatTempo(bpm)
       ;(event.currentTarget as HTMLElement).blur()
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -202,7 +221,7 @@
   onMount(() => trackFocusOrigin())
 
   function onSpace(event: KeyboardEvent) {
-    if (event.code !== 'Space' || !ready || ignoreKeyEvent(event)) return
+    if (event.code !== 'Space' || !ready || ignoreKeyEvent(event) || ui.helpOpen) return
     // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
     if (!spaceTogglesTransport(event.target)) return
     event.preventDefault()
@@ -234,7 +253,7 @@
     disabled={!ready}
     aria-pressed={playing}
     aria-label={t('transport.play')}
-    title={t('transport.play')}
+    title={withShortcut(t('transport.play'), ['Space'])}
     data-testid="transport-play"
     onclick={press(() => run(play()))}
   >
@@ -346,15 +365,20 @@
       disabled={!ready}
       aria-label={t('transport.tempo')}
       title={t('transport.tempo')}
+      aria-invalid={tempoError}
+      aria-describedby={tempoError ? 'tempo-error' : undefined}
       data-testid="transport-tempo"
       bind:value={tempoDraft}
       onfocus={() => (tempoFocus = true)}
       onblur={() => {
-        commitTempo()
+        commitTempo(true)
         tempoFocus = false
       }}
       onkeydown={onTempoKey}
     />
+    {#if tempoError}
+      <span class="tempo-error" id="tempo-error" role="alert" data-testid="tempo-error">{t('transport.tempoRange', { min: MIN_TEMPO, max: MAX_TEMPO })}</span>
+    {/if}
   </label>
 
   <div class="field" role="group" aria-label={t('transport.signature')}>
@@ -507,6 +531,24 @@
     align-items: center;
     gap: 2px;
     margin-left: var(--fk-space-1);
+    position: relative;
+  }
+  /* The range a refused tempo must fit, under the field: text on a surface, the record hue only on its border. */
+  .tempo-error {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    width: max-content;
+    max-width: 260px;
+    padding: var(--fk-space-2) var(--fk-space-3);
+    border: 1px solid var(--fk-rec);
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-surface);
+    color: var(--fk-text);
+    font-size: 12px;
+    line-height: 1.4;
+    box-shadow: var(--fk-shadow-float);
   }
   select.quant {
     width: 100px;
