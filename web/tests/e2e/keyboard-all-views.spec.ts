@@ -79,14 +79,17 @@ test('a text field, a keyboard-focused control and a modifier keep their keys', 
     await page.keyboard.down('KeyA')
     await page.keyboard.up('KeyA')
   })
-  // 2. A button the keyboard focused (Tab) keeps its keys; the one the mouse clicked does not.
-  await silent(page, 'keyboard-focused button', async () => {
-    await page.getByTestId('nav-grid').focus()
-    await page.keyboard.press('Tab')
-    await page.keyboard.press('Shift+Tab')
+  // 2. A slider the keyboard focused keeps its keys; a plain button does not, however it got the focus (#472).
+  await page.getByTestId('nav-mixer').click()
+  await silent(page, 'keyboard-focused fader', async () => {
+    await page.getByTestId('mixer-fader').first().focus()
     await page.keyboard.down('KeyA')
     await page.keyboard.up('KeyA')
   })
+  await page.getByTestId('nav-grid').focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await playsA(page, 'button focused with the keyboard')
   await page.getByTestId('nav-mixer').click()
   await playsA(page, 'button clicked with the mouse')
   // 3. Ctrl + A is a shortcut, not a note.

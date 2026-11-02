@@ -80,8 +80,8 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-dialog')).toBeHidden()
   await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
 
-  // Commands reach the helper over the session. (The dialog gave the focus back to the pill, a control the keyboard focused: it keeps its keys until the focus leaves.)
-  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  // Commands reach the helper over the session. The dialog gave the focus back to the pill: the letters still play (a push button keeps Space and Enter only).
+  await expect(page.getByTestId('engine-mode')).toBeFocused()
   await page.keyboard.down('KeyA')
   await page.keyboard.up('KeyA')
   await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.input_note_on')).toBe(true)
@@ -93,7 +93,6 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-dialog')).toBeHidden()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
   // The Web engine caught up by snapshot: a key sounds again.
-  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
   await page.keyboard.down('KeyA')
   await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
   await page.keyboard.up('KeyA')

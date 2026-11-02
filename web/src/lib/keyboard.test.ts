@@ -14,7 +14,7 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
-import { layoutShortcut } from './keyboard'
+import { isPlainButton, layoutShortcut } from './keyboard'
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
@@ -496,14 +496,18 @@ describe('the keys are shared in every view (#361)', () => {
 
   it('2. a control the keyboard focused keeps its keys, one the mouse clicked does not', () => {
     for (const html of [
-      '<button></button>',
       '<a href="#"></a>',
+      '<button role="radio" aria-checked="false"></button>',
+      '<div role="radiogroup"><button></button></div>',
+      '<div role="grid"><button></button></div>',
+      '<div role="tablist"><button></button></div>',
       '<input type="checkbox">',
       '<input type="radio">',
       '<input type="range">',
       '<div role="slider" tabindex="0"></div>',
     ]) {
-      const target = fixture(html)
+      const root = fixture(html)
+      const target = root.querySelector('button') ?? root
       expect(
         playsNote(event({ target }), () => true),
         `${html} focused by the keyboard`,
@@ -513,6 +517,17 @@ describe('the keys are shared in every view (#361)', () => {
         `${html} focused by the mouse`,
       ).toBe(true)
     }
+    // A plain push button uses Space and Enter only: the letters play on it, however it got the focus (#472).
+    for (const html of ['<button></button>', '<button role="button"></button>', '<button><span></span></button>']) {
+      const target = fixture(html)
+      expect(
+        playsNote(event({ target: target.querySelector('span') ?? target }), () => true),
+        `${html} focused by the keyboard`,
+      ).toBe(true)
+      expect(isPlainButton(target), html).toBe(true)
+    }
+    expect(isPlainButton(fixture('<a href="#"></a>'))).toBe(false)
+    expect(isPlainButton(fixture('<button role="menuitem"></button>'))).toBe(false)
     // Not a control: a view's own surface (a time grid, a panel) plays whoever focused it.
     expect(playsNote(event({ target: fixture('<div tabindex="0"></div>') }), () => true)).toBe(true)
   })

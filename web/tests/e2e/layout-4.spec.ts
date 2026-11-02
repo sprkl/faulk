@@ -106,9 +106,8 @@ test('the engine pill is a button that opens an accessible dialog with the audio
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   await expect(pill).toBeFocused()
+  // The focus is back on the pill, a plain button: the letters still play (open the dialog, pick an input, Escape, play).
   // All notes off is in the dialog too: it releases a note that sounds (a held key whose key-up the page never gets).
-  await page.getByTestId('engine-state').focus()
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await page.keyboard.down('KeyA')
   await expect(page.getByTestId('voices')).toHaveText('Voices: 1')
   await pill.click()
