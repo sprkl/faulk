@@ -51,21 +51,22 @@ export function sourceOf(
 
 /** The placement that plays at `tick`: the last one started, if it has not ended or been cut by the next one. */
 function placementAt(track: Pick<Track, 'placements'>, tick: number) {
-  const placed = Object.values(track.placements)
-    .filter((p) => p !== undefined && 'ticks' in p.span)
-    .sort((a, b) => a!.start - b!.start)
+  const placed = Object.entries(track.placements)
+    .filter(([, p]) => p !== undefined && 'ticks' in p.span)
+    .sort(([, a], [, b]) => a!.start - b!.start)
   let found: (typeof placed)[number] | undefined
   let next: number | undefined
-  for (const p of placed) {
-    if (p!.start <= tick) found = p
+  for (const entry of placed) {
+    if (entry[1]!.start <= tick) found = entry
     else {
-      next = p!.start
+      next = entry[1]!.start
       break
     }
   }
-  if (!found || !('ticks' in found.span)) return null
-  const end = Math.min(found.start + found.span.ticks.length, next ?? Infinity)
-  return tick < end ? { placement: found, offset: Math.max(0, found.span.ticks.offset) } : null
+  const placement = found?.[1]
+  if (!found || !placement || !('ticks' in placement.span)) return null
+  const end = Math.min(placement.start + placement.span.ticks.length, next ?? Infinity)
+  return tick < end ? { id: found[0], placement, offset: Math.max(0, placement.span.ticks.offset) } : null
 }
 
 /**
@@ -99,6 +100,8 @@ export interface PlayheadInput {
   looping: TickLoop | null
   /** The transport position, in ticks. */
   tick: number
+  /** The placement the roll was opened on (#494): the arrangement's position shows only while it plays; none, any placement of the clip. */
+  placement?: string | null
 }
 
 /**
@@ -117,6 +120,7 @@ export function playheadIn(input: PlayheadInput): number | null {
   }
   const at = placementAt(track, tick)
   if (!at || at.placement.clip !== clipId) return null
+  if (input.placement != null && at.id !== input.placement) return null
   return clipLocal(tick - (at.placement.start - at.offset), length, looping)
 }
 

@@ -5,10 +5,8 @@
    * brings them back. Undo and redo sit at its head. It reads the entries from the project core
    * when the history changes, and only while it is shown.
    */
-  import { messages } from '../../lib/i18n/app'
-  import { COMMAND_LABEL_PREFIX } from '../../lib/i18n/history'
   import type { HistoryEntryView } from '../../lib/generated/protocol'
-  import { redo, undo } from '../../lib/track-commands'
+  import { commandLabel, runHistory } from '../../lib/history-said'
   import { useStores } from '../../lib/stores'
 
   const { project, dispatcher, ui } = useStores()
@@ -28,11 +26,7 @@
   const hidden = $derived(all.length - entries.length)
 
   /** The label of an entry: its first command's, translated; a command without one shows its name in words. */
-  function label(name: string): string {
-    const key = COMMAND_LABEL_PREFIX + name
-    if (key in messages.en) return t(key as Parameters<typeof t>[0])
-    return name.replace(/[._]/g, ' ')
-  }
+  const label = (name: string): string => commandLabel(t, name)
 
   function author(entry: HistoryEntryView): string {
     const agent = entry.author.startsWith('agent:') ? entry.author.slice('agent:'.length) : null
@@ -45,10 +39,10 @@
 
 <div class="history" data-testid="history">
   <div class="head">
-    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())} data-testid="history-undo"
+    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => runHistory(dispatcher, ui, 'undo')} data-testid="history-undo"
       >{t('history.undo')}</button
     >
-    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => dispatcher.run(redo())} data-testid="history-redo"
+    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => runHistory(dispatcher, ui, 'redo')} data-testid="history-redo"
       >{t('history.redo')}</button
     >
   </div>

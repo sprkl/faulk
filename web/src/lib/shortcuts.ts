@@ -87,6 +87,17 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },
+      // The free cursor (#494): the timeline's and the piano roll's.
+      { label: 'shortcut.cursorFree', chords: [['Esc']] },
+      { label: 'shortcut.cursorMove', chords: [['←'], ['→'], ['↑'], ['↓']] },
+      {
+        label: 'shortcut.cursorBar',
+        chords: [
+          ['Shift', '←'],
+          ['Shift', '→'],
+        ],
+      },
+      { label: 'shortcut.clipCreate', chords: [['Enter']] },
       { label: 'shortcut.remove', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
       { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
       { label: 'shortcut.laneVolume', chords: [['Enter'], ['F2'], ['0-9']] },
@@ -108,6 +119,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.noteDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.noteTranspose', chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
+      { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
+      { label: 'shortcut.noteCreate', chords: [['Enter']] },
+      {
+        label: 'shortcut.noteVelocity',
+        chords: [['Page Up'], ['Page Down'], ['Shift', 'Page Up'], ['Shift', 'Page Down']],
+        covers: ['PageUp', 'PageDown'],
+      },
     ],
   },
   {

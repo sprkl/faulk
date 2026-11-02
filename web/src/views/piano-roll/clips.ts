@@ -19,21 +19,37 @@ export interface MidiClip {
   scene: string | null
   /** The tick of its earliest placement in the arrangement, null when it is not placed. */
   firstStart: Tick | null
+  /** Its placements in the arrangement, earliest first (then by identifier). */
+  placements: readonly { id: string; start: Tick }[]
 }
 
 /** The MIDI clips of a track in the order the roll offers them. */
 export function midiClips(track: Track): MidiClip[] {
   const firstStart = new Map<string, number>()
-  for (const placement of Object.values(track.placements)) {
+  const placed = new Map<string, { id: string; start: Tick }[]>()
+  for (const [id, placement] of Object.entries(track.placements)) {
     if (!placement) continue
     const seen = firstStart.get(placement.clip)
     if (seen === undefined || placement.start < seen) firstStart.set(placement.clip, placement.start)
+    const list = placed.get(placement.clip) ?? []
+    list.push({ id, start: placement.start })
+    placed.set(placement.clip, list)
   }
+  for (const list of placed.values()) list.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const clips: MidiClip[] = []
   for (const [id, clip] of Object.entries(track.clips)) {
     if (!clip || !('midi' in clip.content)) continue
     const { length, looping, notes } = clip.content.midi
-    clips.push({ id, clip, length, looping: looping ?? null, notes, scene: clip.slot ?? null, firstStart: firstStart.get(id) ?? null })
+    clips.push({
+      id,
+      clip,
+      length,
+      looping: looping ?? null,
+      notes,
+      scene: clip.slot ?? null,
+      firstStart: firstStart.get(id) ?? null,
+      placements: placed.get(id) ?? [],
+    })
   }
   return clips.sort((a, b) => {
     const sa = firstStart.get(a.id) ?? Infinity
@@ -47,6 +63,29 @@ export function editedClip(clips: readonly MidiClip[], chosen: string | null): M
   return clips.find((c) => c.id === chosen) ?? clips[0] ?? null
 }
 
+/** The placement of the edited clip the roll shows (#494): the chosen one when it still places that clip, else its first, else none. */
+export function editedPlacement(clip: MidiClip | null, chosen: string | null): { id: string; start: Tick } | null {
+  if (!clip) return null
+  return clip.placements.find((p) => p.id === chosen) ?? clip.placements[0] ?? null
+}
+
+/** An entry of the roll's clip list (#494): a clip, at one of its placements (one entry each), or as a whole when it has none. */
+export interface ClipEntry {
+  /** The value of the list's option: `placement:<id>`, or `clip:<id>` for a clip with no placement. */
+  key: string
+  clip: MidiClip
+  placement: { id: string; start: Tick } | null
+}
+
+/** The roll's clip list: each clip once per placement, earliest first, a clip with no placement once; in the clips' order. */
+export function clipEntries(clips: readonly MidiClip[]): ClipEntry[] {
+  return clips.flatMap((clip): ClipEntry[] =>
+    clip.placements.length === 0
+      ? [{ key: `clip:${clip.id}`, clip, placement: null }]
+      : clip.placements.map((p) => ({ key: `placement:${p.id}`, clip, placement: p })),
+  )
+}
+
 /** A note of another track's clip, in the time of the edited clip (#470): drawn hollow and neutral, never edited. */
 export type GhostNote = Pick<Note, 'start' | 'length' | 'pitch'>
 
@@ -57,14 +96,25 @@ const ticksOf = (placement: Placement): { length: number; offset: number } | nul
  * A clip of the arrangement is compared with the placements of the other tracks that overlap its first placement;
  * a clip that is only in the launch grid, with the clips of the other tracks in the same scene. Looping is not unrolled.
  */
-export function ghostNotes(tracks: readonly { id: string; track: Track }[], trackId: string, edited: MidiClip | null, editedTrack: Track | null): GhostNote[] {
+export function ghostNotes(
+  tracks: readonly { id: string; track: Track }[],
+  trackId: string,
+  edited: MidiClip | null,
+  editedTrack: Track | null,
+  /** The placement shown (#494): the other tracks are read at its time; null or another clip's, at the first placement. */
+  placementId: string | null = null,
+): GhostNote[] {
   if (!edited || !editedTrack) return []
   const out: GhostNote[] = []
   let anchor: { start: number; offset: number } | null = null
-  for (const placement of Object.values(editedTrack.placements)) {
-    const span = placement && placement.clip === edited.id ? ticksOf(placement) : null
-    if (placement && span && (anchor === null || placement.start < anchor.start)) anchor = { start: placement.start, offset: span.offset }
-  }
+  const chosen = placementId === null ? undefined : editedTrack.placements[placementId]
+  const chosenSpan = chosen && chosen.clip === edited.id ? ticksOf(chosen) : null
+  if (chosen && chosenSpan) anchor = { start: chosen.start, offset: chosenSpan.offset }
+  else
+    for (const placement of Object.values(editedTrack.placements)) {
+      const span = placement && placement.clip === edited.id ? ticksOf(placement) : null
+      if (placement && span && (anchor === null || placement.start < anchor.start)) anchor = { start: placement.start, offset: span.offset }
+    }
   for (const other of tracks) {
     if (other.id === trackId || other.track.kind !== 'midi') continue
     if (anchor) {
@@ -102,10 +152,14 @@ export interface OriginLabels {
   arrangement: (start: Tick) => string
 }
 
-/** Where a clip comes from: its grid cell, the arrangement, or both. Empty for a clip that is nowhere. */
-export function clipOrigin(entry: MidiClip, labels: OriginLabels): string {
+/**
+ * Where a clip comes from: its grid cell, the arrangement, or both. Empty for a clip that is nowhere. The arrangement's part
+ * names `start` when given (the placement shown, #494), else the clip's first placement.
+ */
+export function clipOrigin(entry: MidiClip, labels: OriginLabels, start: Tick | null = null): string {
   const where: string[] = []
   if (entry.scene !== null) where.push(labels.grid(entry.scene))
-  if (entry.firstStart !== null) where.push(labels.arrangement(entry.firstStart))
+  const at = start ?? entry.firstStart
+  if (at !== null) where.push(labels.arrangement(at))
   return where.join(', ')
 }

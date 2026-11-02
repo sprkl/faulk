@@ -40,6 +40,24 @@ export class UiStore {
    */
   editedClip = $state<string | null>(null)
   /**
+   * The placement of that clip the piano roll shows (#494): its origin, its play position and its entry in the clip list.
+   * Null for the clip's first placement. The roll ignores it when it no longer places the edited clip.
+   */
+  editedPlacement = $state<string | null>(null)
+  /** Points the piano roll at a clip, and at one of its placements (null: its first one). */
+  editClip(clip: string, placement: string | null = null) {
+    this.editedClip = clip
+    this.editedPlacement = placement
+  }
+  /**
+   * What undo or redo just did, in words (#494), for the live regions of the timeline and the piano roll; `n` counts
+   * the messages so that the same words twice are said twice. Set by `announceHistory`.
+   */
+  historySaid = $state<{ text: string; n: number }>({ text: '', n: 0 })
+  announceHistory(text: string) {
+    this.historySaid = { text, n: this.historySaid.n + 1 }
+  }
+  /**
    * Musical typing (#470): whether the bare letters of the computer keyboard play notes ('notes') or are left to
    * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
    */
