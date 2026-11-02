@@ -84,6 +84,26 @@ pub struct HistoryView {
     pub undo: Vec<HistoryEntryView>,
     /// What `history.redo` redoes, oldest first: the last one goes first.
     pub redo: Vec<HistoryEntryView>,
+    /// The settings changed outside the undo history (the loop switch, the metronome),
+    /// oldest first: shown among the entries, by id, as not undoable (#473).
+    pub activity: Vec<ActivityView>,
+}
+
+/// One row of the activity log: a setting changed outside the undo history.
+#[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivityView {
+    /// From the same counter as the entries' ids: ordering both by id gives the order they
+    /// happened in.
+    pub id: u64,
+    /// When it happened, in milliseconds since the Unix epoch (0 when the host gave no clock).
+    pub at: u64,
+    /// The command's name (`transport.toggle_loop`...).
+    pub name: String,
+    /// What it acted on, by name, when it says.
+    pub subject: Option<crate::describe::Subject>,
+    /// Who ran it.
+    pub author: crate::Author,
 }
 
 /// One entry of the history: one command, or every command of one history group.
@@ -96,6 +116,11 @@ pub struct HistoryEntryView {
     pub at: u64,
     /// The name of the entry's first command (`note.move`...).
     pub name: String,
+    /// What the entry's commands of that name acted on, by name (#473): the panel's label
+    /// names them ("Mute Lead"). `null` when a command does not say.
+    pub subject: Option<crate::describe::Subject>,
+    /// How many commands of the entry have another name than its first: "and n other edits".
+    pub others: u32,
     /// Who ran it.
     pub author: crate::Author,
     /// The history group it belongs to, if any.

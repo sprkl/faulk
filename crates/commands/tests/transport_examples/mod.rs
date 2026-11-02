@@ -70,16 +70,18 @@ pub fn examples() -> Vec<(Command, State)> {
         (
             tr(T::SetLoop {
                 loop_region: Some(region(960, 3840)),
+                enabled: None,
             }),
             base.clone(),
         ),
         (
             tr(T::SetLoop {
                 loop_region: Some(region(0, 1)),
+                enabled: None,
             }),
             with_region(),
         ),
-        (tr(T::SetLoop { loop_region: None }), with_region()),
+        (tr(T::SetLoop { loop_region: None, enabled: None }), with_region()),
         (tr(T::ToggleLoop {}), with_region()),
         (tr(T::ToggleLoop {}), looping()),
         (

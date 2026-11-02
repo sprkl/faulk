@@ -22,9 +22,9 @@ fn a_new_project_replaces_everything_with_its_own_identity() {
     ctx.folder = Some(Folder::new("left over", ::project::file::MemFs::new()));
     let old_id = state.project.id.clone();
 
-    let outcome = commands::run(&project(cmd::Command::New {}), &mut state, &mut ctx).unwrap();
+    let outcome = commands::run(&project(cmd::Command::New { name: None }), &mut state, &mut ctx).unwrap();
 
-    assert_eq!(state.project.name, "Untitled");
+    assert_eq!(state.project.name, commands::project::DEFAULT_NAME);
     assert_ne!(state.project.id, old_id, "a new project is a new identity");
     assert_eq!(state.project.tracks.len(), 1, "the page's one synth");
     assert!(state.session.solo.is_empty() && state.session.selected_track.is_none());
@@ -40,20 +40,20 @@ fn a_new_project_replaces_everything_with_its_own_identity() {
     assert_eq!(
         outcome.output,
         Output::Project(cmd::Output::New {
-            name: "Untitled".into()
+            name: "Sketch".into()
         })
     );
     assert!(matches!(
         outcome.events.first(),
-        Some(ProjectEvent::ProjectOpened { name }) if name == "Untitled"
+        Some(ProjectEvent::ProjectOpened { name }) if name == "Sketch"
     ));
     assert!(commands::engine_msgs::replaces_project(&project(
-        cmd::Command::New {}
+        cmd::Command::New { name: None }
     )));
 
     // Two new projects are two identities.
     let mut other = fixture().state;
-    commands::run(&project(cmd::Command::New {}), &mut other, &mut ctx).unwrap();
+    commands::run(&project(cmd::Command::New { name: None }), &mut other, &mut ctx).unwrap();
     assert_ne!(other.project.id, state.project.id);
 }
 

@@ -11,6 +11,7 @@ use crate::contract::{
     Author, CommandError, Context, ControlMsg, GroupId, Kind, Meta, Outcome, ProjectEvent, State,
     Undo,
 };
+use crate::describe::Subject;
 use crate::macros::domain;
 
 domain! {
@@ -71,6 +72,11 @@ pub struct Entry {
     pub at: u64,
     /// The name of the entry's first command, for the history panel (PR-7).
     pub name: &'static str,
+    /// What the commands of that name acted on, by name (#473), when they say.
+    pub subject: Option<Subject>,
+    /// How many commands of the entry have another name than its first (a group that mixes
+    /// edits, like an agent's turn): the panel says "and n other edits".
+    pub others: u32,
     pub author: Author,
     pub group: Option<GroupId>,
     /// What undoes (on the undo stack) or redoes (on the redo stack) the entry, in
@@ -78,12 +84,31 @@ pub struct Entry {
     pub commands: Vec<crate::Command>,
 }
 
-/// The undo and redo stacks, and the open group. Kept in the [`State`]; changed only by
-/// [`run`] and the `history.*` commands.
+/// A command that changed a setting of the project outside the undo history (a
+/// [`Kind::Setting`]: the loop switch, the metronome), kept so that the history panel still
+/// shows who did it and when (#473).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Activity {
+    /// Taken from the same counter as [`Entry::id`]: the panel orders both by it.
+    pub id: u64,
+    pub at: u64,
+    pub name: &'static str,
+    pub subject: Option<Subject>,
+    pub author: Author,
+}
+
+/// The most rows the activity log keeps; the oldest goes first.
+pub const MAX_ACTIVITY: usize = 200;
+
+/// The undo and redo stacks, the open group and the activity log. Kept in the [`State`];
+/// changed only by [`run`] and the `history.*` commands.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct History {
     pub undo: Vec<Entry>,
     pub redo: Vec<Entry>,
+    /// The settings changed outside the undo history, oldest first, at most
+    /// [`MAX_ACTIVITY`]. Undo and redo never touch it.
+    pub activity: Vec<Activity>,
     /// The group opened by `history.begin_group`, if any, and who opened it: only that
     /// author's edits join it, and only that author ends it.
     pub open_group: Option<(GroupId, Author)>,
@@ -124,6 +149,8 @@ impl History {
                     id: entry.id,
                     at: entry.at,
                     name: entry.name.to_owned(),
+                    subject: entry.subject.clone(),
+                    others: entry.others,
                     author: entry.author.clone(),
                     group: entry.group,
                 })
@@ -132,7 +159,34 @@ impl History {
         crate::host::HistoryView {
             undo: rows(&self.undo),
             redo: rows(&self.redo),
+            activity: self
+                .activity
+                .iter()
+                .map(|row| crate::host::ActivityView {
+                    id: row.id,
+                    at: row.at,
+                    name: row.name.to_owned(),
+                    subject: row.subject.clone(),
+                    author: row.author.clone(),
+                })
+                .collect(),
         }
+    }
+
+    /// Adds a setting changed outside the undo history to the activity log, the oldest row
+    /// dropped past [`MAX_ACTIVITY`].
+    pub fn log(&mut self, name: &'static str, subject: Option<Subject>, author: &Author, at: u64) {
+        self.next_entry += 1;
+        if self.activity.len() >= MAX_ACTIVITY {
+            self.activity.remove(0);
+        }
+        self.activity.push(Activity {
+            id: self.next_entry,
+            at,
+            name,
+            subject,
+            author: author.clone(),
+        });
     }
 
     pub fn can_undo(&self) -> bool {
@@ -164,6 +218,11 @@ impl History {
     ///   inverses recorded before it may no longer apply.
     /// - Anything else (an edit that changed nothing, `live`, `query`) leaves the
     ///   history as it is.
+    ///
+    /// `subject` is what the command acted on ([`crate::describe`]): a new entry takes it; a
+    /// command of the same name that joins the top entry merges into it; a command of another
+    /// name counts in [`Entry::others`].
+    #[allow(clippy::too_many_arguments)]
     pub fn record(
         &mut self,
         meta: Meta,
@@ -171,6 +230,7 @@ impl History {
         author: &Author,
         group: Option<GroupId>,
         at: u64,
+        subject: Option<Subject>,
     ) -> bool {
         match (meta.kind, undo) {
             (Kind::Edit, Undo::Inverse(inverse)) => {
@@ -178,6 +238,15 @@ impl History {
                 match self.undo.last_mut() {
                     Some(top) if group.is_some() && top.group == group => {
                         top.commands.push((**inverse).clone());
+                        if top.name == meta.name {
+                            match (&mut top.subject, subject) {
+                                (Some(mine), Some(theirs)) => mine.merge(&theirs),
+                                // One command of the name said nothing: the count is unknown.
+                                (mine, _) => *mine = None,
+                            }
+                        } else {
+                            top.others = top.others.saturating_add(1);
+                        }
                     }
                     _ => {
                         self.next_entry += 1;
@@ -185,6 +254,8 @@ impl History {
                             id: self.next_entry,
                             at,
                             name: meta.name,
+                            subject,
+                            others: 0,
                             author: author.clone(),
                             group,
                             commands: vec![(**inverse).clone()],
@@ -198,6 +269,10 @@ impl History {
                 self.undo.clear();
                 self.redo.clear();
                 changed
+            }
+            (Kind::Setting, _) => {
+                self.log(meta.name, subject, author, at);
+                true
             }
             _ => false,
         }
@@ -213,10 +288,19 @@ pub fn run(
     state: &mut State,
     ctx: &mut Context,
 ) -> Result<crate::Outcome, CommandError> {
-    let mut outcome = command.apply(state, ctx)?;
     if matches!(command, crate::Command::History(_)) {
-        return Ok(outcome);
+        return command.apply(state, ctx);
     }
+    let meta = command.meta();
+    // Read before the command applies: a delete takes the names away.
+    let described = matches!(meta.kind, Kind::Edit | Kind::Setting)
+        .then(|| crate::describe::before(command, &state.project))
+        .flatten();
+    let mut outcome = command.apply(state, ctx)?;
+    let subject = described.or_else(|| match meta.kind {
+        Kind::Edit | Kind::Setting => crate::describe::after(&outcome.output, &state.project),
+        _ => None,
+    });
     let group = ctx.group.or_else(|| {
         state
             .history
@@ -225,12 +309,17 @@ pub fn run(
             .filter(|(_, opener)| *opener == ctx.author)
             .map(|(group, _)| *group)
     });
+    // A setting that changed nothing (no event) is not logged.
+    if meta.kind == Kind::Setting && outcome.events.is_empty() {
+        return Ok(outcome);
+    }
     if state.history.record(
-        command.meta(),
+        meta,
         &outcome.undo,
         &ctx.author,
         group,
         ctx.now_ms,
+        subject,
     ) {
         outcome.events.push(state.history.changed_event());
     }
