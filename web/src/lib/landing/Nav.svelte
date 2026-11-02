@@ -5,20 +5,34 @@
   import LangSwitch from './LangSwitch.svelte'
   import type { Text } from './types'
 
-  let { t, lang }: { t: Text; lang: Lang } = $props()
+  /** `page`: the page showing the bar; on the Journey page the section links go back to the landing page. */
+  let { t, lang, page = 'home', langHref: pageLangHref }: { t: Text; lang: Lang; page?: 'home' | 'journey'; langHref?: (l: Lang) => string } = $props()
+
+  const home = $derived(resolve('/[lang=lang]', { lang }))
+  const journey = $derived(resolve('/[lang=lang]/journey', { lang }))
+  const section = (id: string) => (page === 'home' ? `#${id}` : `${home}#${id}`)
+  /** The language switch leads to this page in the other language: `langHref`, else the landing page. */
+  const langHref = (l: Lang) => pageLangHref?.(l) ?? resolve('/[lang=lang]', { lang: l })
+  const SECTIONS = [
+    ['modes', 'nav.modes'],
+    ['boost', 'nav.boost'],
+    ['modules', 'nav.modules'],
+  ] as const
 </script>
 
 <header class="lp-wrap nav">
-  <a class="brand" href={resolve('/[lang=lang]', { lang })} aria-label={t('nav.home')}>
+  <a class="brand" href={home} aria-label={t('nav.home')}>
     <Monogram size={24} />
     <span class="lp-display word" aria-hidden="true">FAULK</span>
   </a>
   <nav aria-label={t('nav.label')}>
-    <a href="#modes">{t('nav.modes')}</a>
-    <a href="#boost">{t('nav.boost')}</a>
-    <a href="#modules">{t('nav.modules')}</a>
+    {#each SECTIONS as [id, label] (id)}
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- a fragment, or the resolved landing page plus a fragment -->
+      <a href={section(id)}>{t(label)}</a>
+    {/each}
+    <a href={journey} aria-current={page === 'journey' ? 'page' : undefined}>{t('nav.journey')}</a>
   </nav>
-  <LangSwitch {t} {lang} />
+  <LangSwitch {t} {lang} href={langHref} />
   <a class="open" href={resolve('/app')} data-sveltekit-reload>{t('nav.open')}</a>
 </header>
 
@@ -50,6 +64,11 @@
   }
   nav a {
     text-decoration: none;
+  }
+  nav a[aria-current='page'] {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 6px;
   }
   .open {
     display: inline-flex;
