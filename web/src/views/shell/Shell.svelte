@@ -8,6 +8,8 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { takeOpenLink } from '../../lib/open-link'
+  import { isPairHash } from '../../lib/pair-link'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
@@ -55,7 +57,14 @@
     // `url` is the current path and query, already resolved against the base path.
     // eslint-disable-next-line svelte/no-navigation-without-resolve
     const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
-    dispatcher.takePairLink(location, clearAddress)
+    // A project link (`?open=`, #497): asked about first, then opened by `project.open_url`. The address
+    // is rewritten once, whether it held a project link, a pairing link or both.
+    let withoutLink = null as string | null
+    const link = takeOpenLink(location, (url) => (withoutLink = url))
+    const address = withoutLink === null ? location : new URL(withoutLink, location.href)
+    dispatcher.takePairLink(address, clearAddress)
+    if (withoutLink !== null && !isPairHash(address.hash)) clearAddress(withoutLink)
+    if (link !== null) storage.offerLink(link)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     return () => {

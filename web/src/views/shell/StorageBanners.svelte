@@ -3,8 +3,10 @@
    * What the project's storage needs the user to see or decide (SV-2): the project of last time waiting
    * for a click, the browser's permission gone, a write that failed, a folder edited from outside while
    * changes are unsaved, a notice (a folder refused), and the question before New or Open discards changes.
+   * A project opened by its link (#497): the question before a link of the address is downloaded, the
+   * download under way, and a download that failed, with the way out (import a file instead).
    */
-  import { allowAccess, deleteBrowserProject, exportPack, keepMine, loadFolderVersion, reopenLast, save } from '../../lib/project-commands'
+  import { allowAccess, deleteBrowserProject, exportPack, importPack, keepMine, loadFolderVersion, openUrl, reopenLast, save } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, dispatcher } = useStores()
@@ -30,9 +32,20 @@
   $effect(() => {
     if (storage.confirm) cancel?.focus()
   })
+  let linkCancel = $state<HTMLButtonElement | null>(null)
+  $effect(() => {
+    if (storage.linkOffer && !storage.confirm) linkCancel?.focus()
+  })
+
+  function answerLink(open: boolean) {
+    const url = storage.answerLink(open)
+    if (url) dispatcher.run(openUrl(url))
+  }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && storage.confirm) storage.respond(false)
+    if (event.key !== 'Escape') return
+    if (storage.confirm) storage.respond(false)
+    else if (storage.linkOffer) answerLink(false)
   }
 </script>
 
@@ -83,11 +96,41 @@
   </p>
 {/if}
 
+{#if storage.downloading}
+  <p class="banner" role="status" data-testid="download-banner">
+    <span>{t('openUrl.downloading', { host: storage.downloading })}</span>
+  </p>
+{/if}
+
+{#if storage.downloadFailed}
+  <p class="banner" role="alert" data-testid="download-failed" title={storage.errorDetail ?? ''}>
+    <span>{t('openUrl.failed', { host: storage.downloadFailed })}</span>
+    <button class="primary" data-testid="download-import" onclick={() => (storage.dismissDownloadFailed(), dispatcher.run(importPack()))}
+      >{t('openUrl.importFile')}</button
+    >
+    <button onclick={() => storage.dismissDownloadFailed()}>{t('save.banner.dismiss')}</button>
+  </p>
+{/if}
+
 {#if storage.notice}
   <p class="banner" role="status" data-testid="storage-notice">
     <span>{t(storage.notice)}</span>
     <button onclick={() => storage.dismissNotice()}>{t('save.banner.dismiss')}</button>
   </p>
+{/if}
+
+{#if storage.linkOffer && !storage.confirm}
+  <div class="overlay">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="link-title" aria-describedby="link-body" data-testid="open-link">
+      <h2 id="link-title">{t('openUrl.confirm.title', { host: storage.linkOffer.host })}</h2>
+      <p id="link-body">{t('openUrl.confirm.body')}</p>
+      <p class="link" data-testid="open-link-url">{storage.linkOffer.url}</p>
+      <div class="actions">
+        <button bind:this={linkCancel} data-testid="open-link-cancel" onclick={() => answerLink(false)}>{t('confirm.cancel')}</button>
+        <button class="primary" data-testid="open-link-open" onclick={() => answerLink(true)}>{t('openUrl.confirm.open')}</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if storage.confirm}
@@ -171,6 +214,16 @@
   }
   .dialog p {
     margin: 0 0 var(--fk-space-4);
+  }
+  /* The whole link, so the user sees where the file comes from; a long one wraps instead of widening the dialog. */
+  .dialog p.link {
+    padding: var(--fk-space-2) var(--fk-space-3);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius);
+    background: var(--fk-surface-2);
+    color: var(--fk-text-muted, var(--fk-text));
+    font-size: 12px;
+    overflow-wrap: anywhere;
   }
   .actions {
     display: flex;
