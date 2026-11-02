@@ -222,6 +222,31 @@ export function currentRef(cwd) {
 /** Whether `ref` names a branch of the checkout (not a commit). */
 const isBranchName = (ref) => !/^[0-9a-f]{40}$/.test(ref);
 
+/** The commit `ref` points to, or `undefined` when it no longer exists. */
+export function refTip(cwd, ref) {
+  try {
+    return git(cwd, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the commit `tip` is contained in `origin/develop` (the local remote-tracking ref, no fetch): an unpushed local merge is not settled. */
+export function mergedIntoDevelop(cwd, tip) {
+  if (!/^[0-9a-f]{40}$/.test(String(tip))) {
+    return false;
+  }
+  return ["origin/develop"].some((develop) => {
+    try {
+      git(cwd, "merge-base", "--is-ancestor", tip, develop);
+      return true;
+    } catch {
+      // Not an ancestor, or a missing ref or commit: not merged by this one.
+      return false;
+    }
+  });
+}
+
 /**
  * Fingerprint of the committed content of a branch (or commit) against its
  * merge base with `develop`, in the same form as `changeFingerprint` (so a

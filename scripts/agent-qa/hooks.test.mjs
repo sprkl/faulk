@@ -344,6 +344,97 @@ describe("Stop hook: what blocks", () => {
     assert.equal(stop(root), null);
   });
 
+  describe("a task branch deleted after the session wrote on it", () => {
+    const WARNING = /wrote code on feat\/6-x in .*, which no longer exists/;
+    /** The session writes and commits on feat/6-x, verified and reviewed; one stop records the branch tip. */
+    function wroteAndLeft() {
+      const root = makeRepo();
+      startSession(root);
+      toolCall(root, "s1", () => writeCode(root));
+      toolCall(root, "s1", () => git(root, "commit", "-q", "-am", "work"));
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      deliveryReview(root);
+      assert.equal(review(root).status, 0);
+      toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+      assert.equal(stop(root), null);
+      return root;
+    }
+    const sessionOf = (project, key) => sessionState(toplevel(project), key);
+    const markerFiles = (root) =>
+      readdirSync(qa(root, "sessions", "s1")).filter((name) => name.startsWith("wrote-"));
+
+    it("still warns when its last commit is only in the local develop (an unpushed merge)", () => {
+      const root = wroteAndLeft();
+      assert.equal(markerFiles(root).length, 1);
+      git(root, "merge", "-q", "--no-ff", "-m", "merge", "feat/6-x");
+      git(root, "branch", "-d", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+      assert.equal(markerFiles(root).length, 1);
+    });
+
+    it("warns again when a warned branch comes back and is lost again", () => {
+      const root = wroteAndLeft();
+      const tip = git(root, "rev-parse", "feat/6-x").trim();
+      git(root, "branch", "-D", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+      assert.equal(stop(root), null); // warned once
+      git(root, "branch", "feat/6-x", tip);
+      assert.equal(stop(root), null); // the ref exists: the flag is cleared
+      git(root, "branch", "-D", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+    });
+
+    it("is settled silently when origin/develop contains its last commit", () => {
+      const root = wroteAndLeft();
+      git(root, "merge", "-q", "--no-ff", "-m", "merge", "feat/6-x");
+      git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+      git(root, "reset", "-q", "--hard", "HEAD~1");
+      git(root, "branch", "-D", "feat/6-x");
+      assert.equal(stop(root), null);
+      assert.equal(markerFiles(root).length, 0);
+    });
+
+    it("still warns, once, when its last commit is not in develop", () => {
+      const root = wroteAndLeft();
+      // An agent's marker on the same branch says the same: one message.
+      sessionOf(root, "s1").markWriter(toplevel(root), "Edit", "feat/6-x", "a1");
+      sessionOf(root, "s1").noteTip(toplevel(root), "feat/6-x", "a1", git(root, "rev-parse", "feat/6-x").trim());
+      sessionOf(root, "s1").endAgent("a1");
+      git(root, "branch", "-D", "feat/6-x");
+      const output = stop(root);
+      assert.match(output.systemMessage, WARNING);
+      assert.equal(output.systemMessage.match(/which no longer exists/g).length, 1);
+      assert.equal(markerFiles(root).length, 2);
+      assert.equal(stop(root), null); // not repeated at the next turn
+    });
+
+    it("warns once for a marker written without a commit", () => {
+      const root = wroteAndLeft();
+      const [name] = markerFiles(root);
+      const path = qa(root, "sessions", "s1", name);
+      const marker = JSON.parse(readFileSync(path, "utf8"));
+      assert.match(marker.tip, /^[0-9a-f]{40}$/);
+      delete marker.tip;
+      writeFileSync(path, JSON.stringify(marker));
+      git(root, "merge", "-q", "--no-ff", "-m", "merge", "feat/6-x");
+      git(root, "branch", "-d", "feat/6-x");
+      assert.match(stop(root).systemMessage, WARNING);
+      assert.equal(markerFiles(root).length, 1);
+    });
+
+    it("follows the branch: a commit made after the last stop is the known tip", () => {
+      const root = wroteAndLeft();
+      toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+      toolCall(root, "s1", () => {
+        writeCode(root, "pub fn gain() -> f32 { 0.6 }\n");
+        git(root, "commit", "-q", "-am", "more");
+      });
+      toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+      git(root, "branch", "-D", "feat/6-x"); // the new commit never reached develop
+      assert.match(stop(root).systemMessage, WARNING);
+    });
+  });
+
   it("merging develop into the task branch is not authoring; merging another task branch is", () => {
     const root = makeRepo();
     git(root, "switch", "-q", "develop");

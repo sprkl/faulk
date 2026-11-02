@@ -13,7 +13,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CODE_PATHS, checkoutRoot, qaDir } from "./fingerprint.mjs";
 
@@ -80,6 +80,22 @@ function write(path, value, exclusive = false) {
   }
 }
 
+/**
+ * Rewrites a marker with `patch`, keeping its `at`. Written beside then renamed:
+ * a concurrent hook never reads a truncated marker. Best effort (the rename can
+ * fail on Windows while another hook reads the file): it must never abort a
+ * judgement, and the next call tries again.
+ */
+function patchMarker(path, marker, patch) {
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify({ ...marker, ...patch })}\n`);
+    renameSync(temp, path);
+  } catch {
+    rmSync(temp, { force: true });
+  }
+}
+
 /** A session's view of the checkouts. */
 export function sessionState(state, key) {
   const dir = sessionDir(state, key);
@@ -139,6 +155,31 @@ export function sessionState(state, key) {
     /** `ref`: the branch (or commit, on a detached head) the session wrote on. Keeps the first time. */
     markWriter: (root, tool, ref, agent) =>
       write(writerPath(root, ref, agent), { root, ref: ref ?? null, tool, ...(agent ? { agent } : {}) }, true),
+    /**
+     * Remembers `tip`, the last known commit of the branch `ref` the session
+     * wrote on, in its marker (written without one by older versions), so that
+     * the guard can tell a branch merged then deleted from a lost one. Keeps
+     * the marker's `at`. No marker, no tip or the same tip: nothing is written.
+     */
+    noteTip: (root, ref, agent, tip) => {
+      const path = writerPath(root, ref, agent);
+      const marker = read(path);
+      if (typeof marker?.root !== "string" || typeof tip !== "string" || (marker.tip === tip && marker.warned !== true)) {
+        return;
+      }
+      // The branch exists: a later loss deserves its own warning.
+      patchMarker(path, marker, { tip, warned: false });
+    },
+    /** The "branch no longer exists" warning was shown for this marker: it is not repeated at later stops. */
+    markWarned: (root, ref, agent) => {
+      const path = writerPath(root, ref, agent);
+      const marker = read(path);
+      if (typeof marker?.root === "string" && marker.warned !== true) {
+        patchMarker(path, marker, { warned: true });
+      }
+    },
+    /** The session no longer needs this marker: its branch is settled. */
+    dropWriter: (root, ref, agent) => rmSync(writerPath(root, ref, agent), { force: true }),
     /**
      * The subagent is alive: called by each hook event it fires. `call`: the
      * id of its tool call, started (`done` false: before the call) or ended.
