@@ -11,7 +11,7 @@
   import Transport from '../transport/Transport.svelte'
   import ProjectMenu from './ProjectMenu.svelte'
 
-  const { engine, ui, dispatcher, keys, meters } = useStores()
+  const { engine, ui, dispatcher, keys, meters, storage } = useStores()
   const t = ui.t
 
   const latency = $derived(
@@ -100,9 +100,22 @@
         data-track-peaks={engine.feedback?.tracks.map((m) => Math.max(m.peakL, m.peakR).toFixed(4)).join(',') ?? ''}
       ></span>
     {:else}
-      <button class="primary" disabled={engine.starting} title={t('start.body')} onclick={() => dispatcher.start()}>{t('start.button')}</button>
+      <!-- One main action before the audio runs (#474): while a project waits for its click, that click is the main one. -->
+      <button class:primary={!storage.reopen} disabled={engine.starting} title={t('start.body')} onclick={() => dispatcher.start()}>{t('start.button')}</button>
     {/if}
   </div>
+
+  <!-- A real button, in the tab order: the list of every shortcut (#474). `?` opens it too. -->
+  <button
+    class="help"
+    type="button"
+    aria-haspopup="dialog"
+    aria-keyshortcuts="?"
+    aria-label={t('shortcut.open')}
+    title={t('shortcut.openHint')}
+    data-testid="shortcuts-open"
+    onclick={() => (ui.helpOpen = true)}>?</button
+  >
 </header>
 
 <style>
@@ -193,6 +206,27 @@
   .mode.boost {
     background: var(--fk-accent);
     color: #fff;
+  }
+  .help {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--fk-line);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--fk-text-muted);
+    font: inherit;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background var(--fk-dur-fast) ease-out;
+  }
+  .help:hover {
+    background: var(--fk-surface-2);
+    color: var(--fk-text);
   }
   .muted {
     color: var(--fk-text-muted);

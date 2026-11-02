@@ -144,7 +144,9 @@ test.describe('the projects the page keeps, by command', () => {
     await expect(state(page)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
     const [dir] = await browserDirs(page)
     await page.reload()
-    await expect(page.getByTestId('reopen-banner')).toBeVisible()
+    // The draft comes back by itself (#474): no banner, and it is the open project.
+    await expect(tracks(page)).toHaveCount(2)
+    await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
 
     // The list the commands take their names from, newest first.
     const listed = await stored(page)
@@ -161,36 +163,30 @@ test.describe('the projects the page keeps, by command', () => {
     // A name the command itself refuses (empty) never gets to the storage.
     await run(page, { type: 'project.delete_browser_project', dir: '' })
     expect(await browserDirs(page)).toEqual([dir])
-
-    // Deleting asks, whoever sends it: Cancel keeps the draft, Delete removes it.
-    await run(page, { type: 'project.delete_browser_project', dir })
-    await expect(page.getByTestId('confirm')).toContainText('Delete this project?')
-    await page.getByTestId('confirm-cancel').click()
+    // The open project cannot be deleted by a command.
+    await run(page, { type: 'project.delete_browser_project', dir: dir! })
+    await expect(notice(page)).toContainText('is open')
     expect(await browserDirs(page)).toEqual([dir])
-    await run(page, { type: 'project.delete_browser_project', dir })
-    await page.getByTestId('confirm-discard').click()
-    await expect.poll(() => browserDirs(page)).toEqual([])
-    await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
-    expect((await stored(page)).browser).toEqual([])
 
-    // Nothing left to reopen: said, not silent.
+    // Nothing waits for a click, so there is nothing to reopen: said, not silent.
     await run(page, { type: 'project.reopen_last' })
     await expect(notice(page)).toContainText('no project to reopen')
 
-    // A draft again, and this time the commands bring it back.
-    await start(page)
-    await addTrack(page, 'Drums')
-    await expect(state(page)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
-    const [again] = await browserDirs(page)
-    await page.reload()
-    await expect(page.getByTestId('reopen-banner')).toBeVisible()
-    await run(page, { type: 'project.reopen_last' })
+    // Away from it, the draft is one of the list: deleting asks, whoever sends it.
+    await run(page, { type: 'project.new' })
+    await expect(tracks(page)).toHaveCount(1)
+    await run(page, { type: 'project.delete_browser_project', dir: dir! })
+    await expect(page.getByTestId('confirm')).toContainText('Delete this project?')
+    await page.getByTestId('confirm-cancel').click()
+    expect(await browserDirs(page)).toEqual([dir])
+    // The command opens it again.
+    await run(page, { type: 'project.open_browser_project', dir: dir! })
     await expect(tracks(page)).toHaveCount(2)
-    await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
-    // The open project cannot be deleted by a command either.
-    await run(page, { type: 'project.delete_browser_project', dir: again })
-    await expect(notice(page)).toContainText('is open')
-    expect(await browserDirs(page)).toEqual([again])
+    await run(page, { type: 'project.new' })
+    await run(page, { type: 'project.delete_browser_project', dir: dir! })
+    await page.getByTestId('confirm-discard').click()
+    await expect.poll(() => browserDirs(page)).toEqual([])
+    expect((await stored(page)).browser).toEqual([])
     expect(errors).toEqual([])
   })
 
@@ -350,8 +346,9 @@ test.describe('the conflict and the permission, by command', () => {
     await expect(page.getByTestId('permission-banner')).toBeVisible({ timeout: 8000 })
 
     await runWithoutClick(page, { type: 'project.allow_access' })
-    await expect(notice(page)).toContainText('only after a click')
+    // One banner at a time (#474): the permission banner, whose button is the remedy, hides the notice about the click.
     await expect(page.getByTestId('permission-banner')).toBeVisible()
+    await expect(notice(page)).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as Faulk).__perm)).toBe('prompt')
 
     await page.getByTestId('allow').click()
