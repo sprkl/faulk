@@ -51,7 +51,7 @@
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
   import { barTicks } from '../transport/time'
-  import { rovingKey, step as stepItem, type Direction } from '../../lib/roving'
+  import { rovingKey, step as stepItem, zoomKey, type Direction } from '../../lib/roving'
   import {
     blocksOf,
     clampScrollY,
@@ -1037,6 +1037,15 @@
   function onItemKey(event: KeyboardEvent) {
     const id = (event.target as HTMLElement).dataset.block
     const current = id ? blocks.find((b) => b.id === id) : undefined
+    // Ctrl or Cmd with plus or minus zooms the timeline from a cell too (the page's zoom would take it otherwise).
+    const zoom = zoomKey(event)
+    if (zoom !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      zoomBy(zoom > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
+      if (current) void focusItem(current.id)
+      return
+    }
     const key = rovingKey(event)
     if (!current || !key) return
     event.preventDefault()
@@ -1068,14 +1077,20 @@
       const sign = key.direction === 'left' ? -1 : 1
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
-      run(
-        movePlacements(
-          chosen.map((b) => b.id),
-          delta,
-        ),
-      )
+      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      const ids = new Set(chosen.map((b) => b.id))
+      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
+      run(movePlacements([...ids], delta))
+      const after = blocks.filter((b) => !ids.has(b.id))
+      const carved = [...others].filter(([bid, span]) => {
+        const now = after.find((b) => b.id === bid)
+        return !now || `${now.start}:${now.end}` !== span
+      }).length
       const moved = blocks.find((b) => b.id === current.id)
-      if (moved) announce(t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from }))
+      if (moved) {
+        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
+        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
+      }
       void focusItem(current.id)
       return
     }

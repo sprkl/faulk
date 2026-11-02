@@ -56,6 +56,17 @@ export function step<T extends Item>(items: readonly T[], from: T, direction: Di
   return best
 }
 
+/**
+ * Ctrl or Cmd with plus or minus on a cell: the grid's zoom (in: 1, out: -1), as on the grid itself, and never the page's.
+ * Null for any other key.
+ */
+export function zoomKey(event: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey'>): 1 | -1 | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return null
+  if (event.key === '+' || event.key === '=') return 1
+  if (event.key === '-' || event.key === '_') return -1
+  return null
+}
+
 /** The keys of the roving focus: an arrow, with what it does. */
 export type RovingKey = { kind: 'focus' | 'extend' | 'move'; direction: Direction } | { kind: 'open' } | { kind: 'delete' } | null
 

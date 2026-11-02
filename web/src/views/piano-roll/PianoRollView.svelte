@@ -25,14 +25,24 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
-  import { DEFAULT_PX_PER_TICK, SNAP_SETTINGS, clampView, snapStep, snapTick, xToTick, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
+  import {
+    DEFAULT_PX_PER_TICK,
+    SNAP_SETTINGS,
+    clampView,
+    snapStep,
+    snapTick,
+    xToTick,
+    zoomAt,
+    type SnapSetting,
+    type View,
+  } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isTextTarget } from '../../lib/keyboard'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks, PPQ } from '../transport/time'
-  import { rovingKey, step as stepItem } from '../../lib/roving'
+  import { rovingKey, step as stepItem, zoomKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
   import { clipLabel, clipOrigin, editedClip, ghostNotes, midiClips, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
@@ -570,6 +580,15 @@
   function onNoteKey(event: KeyboardEvent) {
     const key = (event.target as HTMLElement).dataset.note
     const current = key ? noteItems.find((i) => i.id === key) : undefined
+    // Ctrl or Cmd with plus or minus zooms the roll from a cell too (the page's zoom would take it otherwise).
+    const zoom = zoomKey(event)
+    if (zoom !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      view = zoomAt(shown, zoom > 0 ? 1.25 : 1 / 1.25, stageW / 2, stageW, totalBars * bar)
+      if (current) void focusNote(current.id)
+      return
+    }
     const action = rovingKey(event)
     if (!current || !action || !edited) return
     event.preventDefault()

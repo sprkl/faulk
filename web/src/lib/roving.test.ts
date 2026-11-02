@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reading, rovingKey, step, type Item } from './roving'
+import { reading, rovingKey, step, zoomKey, type Item } from './roving'
 
 const item = (id: string, row: number, start: number, end: number): Item => ({ id, row, start, end })
 // Row 0: a 0..4, b 4..8; row 1: nothing; row 2: c 2..6, d 8..12; row 3: e 0..1.
@@ -39,6 +39,18 @@ describe('the roving focus over items in rows (#471)', () => {
 
   it('finds nothing from an item that is gone', () => {
     expect(step(items, item('zz', 0, 0, 1), 'right')).toBeNull()
+  })
+
+  it('reads Ctrl or Cmd with plus and minus as the zoom, and nothing else', () => {
+    const k = (key: string, over: Partial<KeyboardEvent> = {}) => zoomKey({ key, altKey: false, ctrlKey: true, metaKey: false, ...over } as KeyboardEvent)
+    expect(k('=')).toBe(1)
+    expect(k('+')).toBe(1)
+    expect(k('-')).toBe(-1)
+    expect(k('_')).toBe(-1)
+    expect(k('-', { ctrlKey: false, metaKey: true })).toBe(-1)
+    expect(k('-', { ctrlKey: false })).toBeNull()
+    expect(k('-', { altKey: true })).toBeNull()
+    expect(k('a')).toBeNull()
   })
 
   it('maps the keys: arrows focus, Shift extends, Alt moves, Enter opens, Delete removes', () => {

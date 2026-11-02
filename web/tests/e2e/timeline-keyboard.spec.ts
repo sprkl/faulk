@@ -14,6 +14,8 @@ const RULER = 28
 const LANE = 44
 const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
 const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
+/** How many entries the history holds (done, not undone): one key, one entry. */
+const done = (page: Page) => page.evaluate(() => (window as unknown as { __faulkHistory(): { undo: unknown[] } }).__faulkHistory().undo.length)
 const blocks = async (page: Page): Promise<{ id: string; row: number; start: number }[]> =>
   JSON.parse((await page.getByTestId('arrangement').getAttribute('data-blocks')) ?? '[]')
 
@@ -22,9 +24,11 @@ async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
   await expect(page.getByTestId('engine-mode')).toContainText('Web')
-  await page.getByTestId('add-track').click()
-  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
-  await expect(page.getByTestId('track-header')).toHaveCount(2)
+  for (let i = 0; i < 2; i++) {
+    await page.getByTestId('add-track').click()
+    await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  }
+  await expect(page.getByTestId('track-header')).toHaveCount(3)
   await expect.poll(async () => Number(await page.getByTestId('arr-stage').getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
 }
 
@@ -40,12 +44,14 @@ async function clipAt(page: Page, row: number, barIndex: number) {
 test('the clips are named cells, reached by the arrows, moved by Alt+arrows, opened by Enter, removed by Delete', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the history is counted through the hook of the dev server')
   // Zoomed out, so that the three bars used are in sight.
   await page.getByTestId('arr-zoom-out').click()
   await page.getByTestId('arr-zoom-out').click()
   await clipAt(page, 0, 0)
   await clipAt(page, 0, 2)
-  await clipAt(page, 1, 1)
+  // Track 2 stays empty: the arrows go past it.
+  await clipAt(page, 2, 1)
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '3')
   const cells = page.getByTestId('arr-item')
   await expect(cells).toHaveCount(3)
@@ -59,13 +65,13 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   await expect(focused).toHaveCount(1)
   await page.keyboard.press('Escape')
 
-  // Right goes to the next clip of the track, selected; Down to the nearest clip of the next track.
+  // Right goes to the next clip of the track, selected; Down to the nearest clip of the next track that holds one (Track 2 is empty).
   await cells.first().focus()
   await page.keyboard.press('ArrowRight')
   await expect(focused).toHaveAccessibleName(/Synth, bars 3 to 3, selected$/)
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-selected-count', '1')
   await page.keyboard.press('ArrowDown')
-  await expect(focused).toHaveAccessibleName(/Track 2, bars 2 to 2, selected$/)
+  await expect(focused).toHaveAccessibleName(/Track 3, bars 2 to 2, selected$/)
   // Shift+Up extends the selection.
   await page.keyboard.press('Shift+ArrowUp')
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-selected-count', '2')
@@ -81,26 +87,56 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   await expect.poll(() => said.evaluate((e) => e.textContent)).not.toBe(first)
   await expect(said).toHaveText(/stays on its track/)
 
-  // Alt+Right moves the selected clips by the snap step (a bar at this zoom), as one command, and says so.
+  // Ctrl+= and Ctrl+- on a cell zoom the timeline, not the page, and the focus stays on the clip.
+  const grid = page.getByTestId('arr-stage').getByTestId('timegrid')
+  const zoom = async () => Number(await grid.getAttribute('data-px-per-tick'))
+  const z0 = await zoom()
+  const name = (await focused.getAttribute('aria-label'))!
+  await page.keyboard.press('Control+Equal')
+  await expect.poll(zoom).toBeGreaterThan(z0)
+  await page.keyboard.press('Control+Minus')
+  await expect.poll(zoom).toBeCloseTo(z0, 6)
+  expect(await page.evaluate(() => Math.round(window.devicePixelRatio * 100))).toBe(100)
+  await expect(focused).toHaveAccessibleName(name)
+
+  // Alt+Right moves the selected clips by the snap step, as one command (one history entry), and says so.
   const before = await blocks(page)
+  const entries = await done(page)
   await page.keyboard.press('Alt+ArrowRight')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).not.toEqual(before.map((b) => b.start))
+  expect(await done(page)).toBe(entries + 1)
   await expect(page.getByTestId('arr-said')).toHaveText(/Moved to bar \d+/)
   await expect(page.getByTestId('arr-said')).toHaveAttribute('aria-live', 'polite')
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
-  // Delete removes the selection (two clips here) and says so; the focus goes to the clip that stays, not to a deleted one.
+  // A move onto another clip carves it, and the live region says so: with the snap on bars, the first Synth clip moved twice
+  // lands on the second.
+  await page.getByTestId('arr-snap').selectOption('bar')
+  await cells.first().focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('Alt+ArrowRight')
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect(page.getByTestId('arr-said')).toHaveText(/Clips cut under it: 1/)
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
+
+  // Delete removes the selection (two clips here) as one command and says so; the focus goes to the clip that stays, on another
+  // track (the Synth row is empty then), never to a deleted one.
   await cells.first().focus()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('Shift+ArrowRight')
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-selected-count', '2')
+  const beforeDelete = await done(page)
   await page.keyboard.press('Delete')
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
   await expect(page.getByTestId('arr-said')).toHaveText(/deleted: 2/i)
+  expect(await done(page)).toBe(beforeDelete + 1)
   await expect(focused).toHaveCount(1)
-  await expect(focused).toHaveAccessibleName(/Track 2/)
+  await expect(focused).toHaveAccessibleName(/Track 3/)
 
   // Enter opens the clip in the piano roll.
   await page.keyboard.press('Enter')
@@ -138,23 +174,34 @@ test('the notes are named cells: arrows move between them, Alt+arrows move and t
   await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2, 0.5 beats, velocity 80, selected$/)
   await page.keyboard.press('ArrowDown')
   await expect(focused).toHaveAccessibleName(/^E4, bar 1 beat 2/)
-  // Alt+Up transposes it by a semitone, as one command; Alt+Right moves it by the snap step.
+  // Alt+Up transposes it by a semitone, as one command (one history entry); Alt+Right moves it by the snap step.
+  const entries = await done(page)
   await page.keyboard.press('Alt+ArrowUp')
   await expect(focused).toHaveAccessibleName(/^F4, bar 1 beat 2/)
+  expect(await done(page)).toBe(entries + 1)
   await expect(page.getByTestId('roll-said')).toHaveText(/F4/)
   await page.keyboard.press('Alt+ArrowRight')
   await expect(focused).toHaveAccessibleName(/^F4, bar 1 beat 2\.25/)
+  expect(await done(page)).toBe(entries + 2)
+  // Ctrl+= on a note zooms the roll, not the page, and the focus stays.
+  const grid = page.getByTestId('roll-stage').getByTestId('timegrid')
+  const z0 = Number(await grid.getAttribute('data-px-per-tick'))
+  await page.keyboard.press('Control+Equal')
+  await expect.poll(async () => Number(await grid.getAttribute('data-px-per-tick'))).toBeGreaterThan(z0)
+  await expect(focused).toHaveAccessibleName(/^F4/)
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
-  // Delete removes it.
-  await page
-    .getByTestId('roll-item')
-    .filter({ has: page.locator(':scope') })
-    .first()
-    .focus()
+  await expect(roll).toHaveAttribute('data-note-count', '3')
+  // Delete removes the first note as one command; the focus goes to the next note in time.
+  await cells.first().focus()
+  await expect(focused).toHaveAccessibleName(/^C4/)
+  const beforeDelete = await done(page)
   await page.keyboard.press('Delete')
   await expect(roll).toHaveAttribute('data-note-count', '2')
   await expect(page.getByTestId('roll-said')).toHaveText(/deleted/i)
+  expect(await done(page)).toBe(beforeDelete + 1)
+  await expect(focused).toHaveCount(1)
+  await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2/)
   await page.screenshot({ path: `${SHOTS}/piano-roll-keyboard-focus.png` })
   expect(errors).toEqual([])
 })
