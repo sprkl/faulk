@@ -149,6 +149,15 @@
           </div>
         {/each}
       {/if}
+      <hr />
+      <p class="heading" id="menu-lang">{t('lang.title')}</p>
+      <div role="group" aria-labelledby="menu-lang" class="langs">
+        {#each ['en', 'fr'] as const as lang (lang)}
+          <button role="menuitemradio" aria-checked={ui.lang === lang} data-testid="menu-lang-{lang}" onclick={() => choose(() => ui.setLang(lang))}
+            >{t(`lang.${lang}`)}</button
+          >
+        {/each}
+      </div>
     </div>
   {/if}
 </div>
@@ -217,27 +226,6 @@
   .doc {
     display: none;
   }
-  /* The top bar is full at this width: the project shows as an icon with its state's dot, and its name
-     and state (Saved at 14:32, Unsaved changes...) are read from the tooltip, by screen readers, and from
-     the menu's heading. */
-  @media (max-width: 1399px) {
-    .doc {
-      display: block;
-    }
-    .name,
-    .state,
-    .chevron {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      white-space: nowrap;
-    }
-    .trigger {
-      padding: 0 var(--fk-space-2);
-    }
-  }
   .state[data-state='pending'],
   .state[data-state='saving'] {
     color: var(--fk-text);
@@ -288,6 +276,10 @@
     color: var(--fk-text-muted);
     font: inherit;
     font-size: 11px;
+  }
+  .menu .langs button[aria-checked='true'] {
+    font-weight: 600;
+    background: var(--fk-surface-2);
   }
   .entry {
     display: flex;

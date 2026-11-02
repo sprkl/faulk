@@ -7,13 +7,14 @@
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
-  import { historyShortcut, saveShortcut } from '../../lib/keyboard'
+  import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { redo, undo } from '../../lib/track-commands'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
-  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById } from '../registry'
+  import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
+  import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
@@ -30,7 +31,13 @@
   let bodyHeight = $state(0)
   const stored = $derived(ui.panelHeights[ui.panel])
   const panelRow = $derived(
-    ui.panelCollapsed ? 'auto' : stored === undefined ? undefined : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
+    ui.panelFolded
+      ? 'auto'
+      : ui.panelMaximized && bodyHeight > 0
+        ? `${panelMax(ui.panel, bodyHeight)}px`
+        : stored === undefined
+          ? undefined
+          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
   )
 
   onMount(() => {
@@ -64,6 +71,18 @@
       // The browser would offer to save the page as a file.
       event.preventDefault()
       dispatcher.run(save === 'save' ? saveCommand() : saveAsCommand())
+      return
+    }
+    const layout = layoutShortcut(event)
+    // No layout shortcut while a menu or a dialog has the keyboard (the pairing field is a text field and is left out already).
+    // Nor while a modal dialog is open, whatever holds the focus (a click on its text leaves it on the body).
+    if (layout && !(event.target as Element | null)?.closest?.('[role="dialog"], [role="menu"]') && !document.querySelector('[aria-modal="true"]')) {
+      event.preventDefault()
+      if (layout === 'panel') ui.toggleMaximized()
+      else {
+        const view = viewsIn('main')[layout.view]
+        if (view) ui.show(view.id)
+      }
       return
     }
     const action = historyShortcut(event)
@@ -124,17 +143,18 @@
   <TopBar />
   <StorageBanners />
   <ExportDialog />
+  <EngineDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
   {#if engine.streamError}
     <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
   {/if}
-  <!-- The instrument view shows pairing state in its own panels; elsewhere, here. -->
-  {#if engine.pendingPairCode && !engine.started && ui.view !== 'play'}
+
+  {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>
   {/if}
-  {#if engine.pairingMessage && ui.view !== 'play'}
+  {#if engine.pairingMessage && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pairing-notice">{ui.t(engine.pairingMessage.key, { n: engine.pairingMessage.n ?? 0 })}</p>
   {/if}
   {#if engine.refusal}
@@ -217,7 +237,7 @@
   /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
   .body[data-panel='piano-roll'] {
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
-    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(360px, 1.2fr));
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
   }
   .main {
     grid-area: main;

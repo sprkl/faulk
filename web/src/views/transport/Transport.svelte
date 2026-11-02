@@ -326,7 +326,8 @@
   .transport {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    flex: none;
     gap: var(--fk-space-1);
   }
   .tool {

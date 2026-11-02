@@ -18,7 +18,7 @@ function view(kind: 'midi' | 'audio', clips: Record<string, Clip> = {}): Project
 }
 
 function body(project: ProjectView | null, lang: 'en' | 'fr' = 'en') {
-  const stores = createStores('play', 'piano-roll')
+  const stores = createStores('arrangement', 'piano-roll')
   stores.ui.lang = lang
   if (project) stores.project.show(project)
   return render(PianoRollView, { context: storesContext(stores) }).body

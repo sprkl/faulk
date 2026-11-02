@@ -27,10 +27,11 @@ const wanted = (process.env.FAULK_E2E_PROJECTS || 'dev,preview').split(',').map(
 for (const name of wanted) if (name !== 'dev' && name !== 'preview') throw new Error(`FAULK_E2E_PROJECTS: unknown project "${name}"`)
 
 /**
- * The app opens on the arrangement (#475), or on the view used last. Most specs were written when it opened on the
- * Instrument view: they start there, as a visitor who used it last would (`ux-quick-wins.spec.ts` starts fresh).
+ * The app opens on the arrangement (#475), or on the view used last. Most specs start on the launch grid, as a visitor
+ * who used it last would (the Instrument view they once started on is gone, #472): it draws no time grid and holds no
+ * mixer strip, so the testids of the roll and of the devices are unique there. `ux-quick-wins.spec.ts` starts fresh.
  */
-const onInstrument = (origin: string) => ({ cookies: [], origins: [{ origin, localStorage: [{ name: 'faulk.view', value: 'play' }] }] })
+const onGrid = (origin: string) => ({ cookies: [], origins: [{ origin, localStorage: [{ name: 'faulk.view', value: 'grid' }] }] })
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -41,8 +42,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: { channel, locale: 'en-US', trace: 'retain-on-failure' },
   projects: [
-    { name: 'dev', use: { baseURL: `http://localhost:${devPort}`, storageState: onInstrument(`http://localhost:${devPort}`) } },
-    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}`, storageState: onInstrument(`http://localhost:${previewPort}`) } },
+    { name: 'dev', use: { baseURL: `http://localhost:${devPort}`, storageState: onGrid(`http://localhost:${devPort}`) } },
+    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}`, storageState: onGrid(`http://localhost:${previewPort}`) } },
   ].filter((p) => wanted.includes(p.name)),
   webServer: [
     ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),

@@ -1,13 +1,15 @@
 /**
  * Size of the bottom panel: the heights it may take, per view, and how a stored height is read back.
- * The piano roll's minimum keeps one octave readable: tabs (41) + toolbar (36) + ruler (28) + 12 rows of 16 + velocity lane (56).
+ * The piano roll's minimum keeps one octave readable (the toolbar wraps to two rows beside the devices column): tabs (43) + toolbar (36) + ruler (28) + 12 rows of 16 + velocity lane (56).
  */
 import type { PanelViewId } from '../registry'
 
 /** Smallest height of the panel, per view (px). */
-export const PANEL_MIN: Record<PanelViewId, number> = { devices: 120, history: 120, 'piano-roll': 360 }
+export const PANEL_MIN: Record<PanelViewId, number> = { devices: 120, history: 120, keyboard: 190, 'piano-roll': 392 }
 /** Height the main view keeps at least (px): the panel never grows past what leaves it. */
 export const MAIN_MIN = 120
+/** Panel width from which the piano roll shows the devices beside it (px): the roll keeps about 600 and the devices column 300. */
+export const SPLIT_MIN_WIDTH = 900
 /** Keyboard step of the handle (px), and with Shift. */
 export const STEP = 16
 export const BIG_STEP = 64

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { chooseMidiInput, fakeWebMidi, watch } from './support'
 
 // PR-5: the page owns one project core; every command goes through it, the engine gets the bytes
 // it encoded, the project store is fed by its events. Real worklet, real engine, real core.
@@ -40,7 +40,7 @@ test('a Web MIDI note plays through the same commands', async ({ page }) => {
   await fakeWebMidi(page)
   await page.goto('/app')
   await startAudio(page)
-  await page.getByRole('radio', { name: 'E2E Keys' }).check()
+  await chooseMidiInput(page, 'E2E Keys')
   await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x90, 60, 100]))
   await expect.poll(() => meterDb(page), { timeout: 10_000 }).toBeGreaterThan(SILENCE_DB)
   await page.evaluate(() => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send([0x80, 60, 0]))

@@ -1,35 +1,98 @@
 <script lang="ts">
+  /**
+   * The engine's dialog (#472), opened by the engine pill of the top bar: what the Instrument view used to
+   * show. The audio (mode, estimated or measured latency, load when the engine reports it, voices, output level),
+   * the helper (detection, pairing, Boost or Web) and the MIDI input. A native modal dialog: the page behind
+   * is inert, Escape closes it and the focus goes back to the pill. Nothing here writes the project: the
+   * actions are the dispatcher's (`midi.select_input`, pairing, mode switch) and `synth.all_notes_off`.
+   */
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
-  import PianoStrip from '../../lib/components/PianoStrip.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
 
-  const stores = useStores()
-  const { engine, ui, dispatcher, meters } = stores
+  const { engine, ui, dispatcher, meters } = useStores()
   const t = ui.t
 
+  let dialog = $state<HTMLDialogElement | null>(null)
   let code = $state('')
-  // The computer keyboard plays in every view: `keys` (the shell's) holds the octave and the target this view shows.
-  const keys = stores.keys
+
+  // The store says whether it is open; the element follows (and tells the store when the browser closed it: Escape).
+  $effect(() => {
+    if (!dialog) return
+    if (ui.engineOpen && !dialog.open) dialog.showModal()
+    else if (!ui.engineOpen && dialog.open) dialog.close()
+  })
+
+  const latency = $derived(
+    engine.status?.estimatedLatencyMs != null ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
+  )
+  const load = $derived(engine.feedback?.cpuLoad != null ? `${Math.round(engine.feedback.cpuLoad * 100)} %` : null)
+
+  /** A click on the backdrop (the dialog element itself, outside its box) closes it. */
+  function onBackdrop(event: MouseEvent) {
+    if (event.target === dialog) ui.engineOpen = false
+  }
 </script>
 
-{#if !engine.started}
-  <div class="start">
-    <section class="card">
-      <h2>{t('start.title')}</h2>
-      <p>{t('start.body')}</p>
-      {#if engine.pendingPairCode}
-        <p class="muted" role="status" data-testid="pair-pending">{t('start.pairPending')}</p>
-      {/if}
-      <button class="primary" disabled={engine.starting} onclick={() => dispatcher.start()}>{t('start.button')}</button>
+<!-- svelte-ignore a11y_no_redundant_roles -->
+<dialog
+  bind:this={dialog}
+  class="engine-dialog"
+  role="dialog"
+  aria-modal={ui.engineOpen ? 'true' : undefined}
+  aria-labelledby="engine-dialog-title"
+  data-testid="engine-dialog"
+  onclose={() => (ui.engineOpen = false)}
+  onclick={onBackdrop}
+>
+  <header>
+    <h2 id="engine-dialog-title">{t('engine.settings')}</h2>
+    <button
+      class="close"
+      type="button"
+      aria-label={t('engine.close')}
+      title={t('engine.close')}
+      data-testid="engine-dialog-close"
+      onclick={() => (ui.engineOpen = false)}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"
+        ><path d="M3 3 L 11 11 M11 3 L 3 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg
+      >
+    </button>
+  </header>
+
+  {#if engine.started}
+    <section aria-labelledby="engine-audio">
+      <h3 id="engine-audio">{t('engine.audio')}</h3>
+      <dl>
+        <dt>{t('engine.mode')}</dt>
+        <dd data-testid="engine-dialog-mode">{engine.mode === 'native' ? t('engine.modeBoost') : t('engine.modeWeb')}</dd>
+        <dt>{t('engine.latencyLabel')}</dt>
+        <dd data-testid="engine-dialog-latency">{latency}</dd>
+        <dt>{t('engine.loadLabel')}</dt>
+        <dd data-testid="engine-dialog-load">{load ?? t('engine.loadNone')}</dd>
+        <dt>{t('engine.voicesLabel')}</dt>
+        <dd data-testid="engine-dialog-voices">{engine.voices}</dd>
+        <dt>{t('meter.label')}</dt>
+        <dd class="meter-box">
+          <LevelMeter
+            snap={meters.snap(MASTER_METER)}
+            orientation="horizontal"
+            label={t('meter.label')}
+            clipLabel={t('meter.clip')}
+            resetLabel={t('meter.reset', { name: t('mixer.master') })}
+            onreset={() => meters.reset(MASTER_METER)}
+            readout
+            testid="play-meter"
+          />
+        </dd>
+      </dl>
     </section>
-  </div>
-{:else}
-  <div class="grid">
-    <section class="panel helper">
-      <h2 class="label">{t('helper.title')}</h2>
+
+    <section aria-labelledby="engine-helper" class="helper">
+      <h3 id="engine-helper">{t('helper.title')}</h3>
       {#if engine.helper === 'checking'}
         <p class="muted">{t('helper.checking')}</p>
       {:else if engine.helper === 'absent'}
@@ -65,8 +128,8 @@
       {/if}
     </section>
 
-    <section class="panel midi">
-      <h2 class="label">{t('midi.title')}</h2>
+    <section aria-labelledby="engine-midi">
+      <h3 id="engine-midi">{t('midi.title')}</h3>
       {#if engine.mode === 'web' && engine.midiState === 'unsupported'}
         <p class="muted">{t('midi.unsupported')}</p>
       {:else if engine.mode === 'web' && engine.midiState === 'denied'}
@@ -102,113 +165,77 @@
           {/each}
         </ul>
       {/if}
+      <button class="ghost panic" data-testid="panic-dialog" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
     </section>
-
-    <section class="panel level">
-      <h2 class="label">{t('meter.label')}</h2>
-      <div class="meter-box">
-        <LevelMeter
-          snap={meters.snap(MASTER_METER)}
-          label={t('meter.label')}
-          clipLabel={t('meter.clip')}
-          resetLabel={t('meter.reset', { name: t('mixer.master') })}
-          onreset={() => meters.reset(MASTER_METER)}
-          readout
-          testid="play-meter"
-        />
-      </div>
-    </section>
-
-    <section class="panel keys">
-      <div class="keys-head">
-        <h2 class="label">{t('keys.title')}</h2>
-        <span class="value">{t('keys.octave', { n: keys.octave })}</span>
-        <span class="muted target" data-testid="keys-target">{keys.targetHint}</span>
-        <button class="ghost" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
-      </div>
-      <PianoStrip low={(keys.octave + 1) * 12} active={engine.activeNotes} />
-      <p class="muted">{t('keys.help')}</p>
-    </section>
-  </div>
-{/if}
+  {/if}
+</dialog>
 
 <style>
-  .muted {
-    color: var(--fk-text-muted);
-  }
-  .start {
-    display: grid;
-    place-items: center;
-    padding: var(--fk-space-12) var(--fk-space-4);
-  }
-  .card {
-    max-width: 420px;
-    padding: var(--fk-space-8);
+  .engine-dialog {
+    width: min(560px, calc(100vw - 2 * var(--fk-space-4)));
+    max-height: calc(100dvh - 2 * var(--fk-space-6));
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-card);
     background: var(--fk-surface);
-    border: 1px solid var(--fk-line);
+    color: var(--fk-text);
+    box-shadow: var(--fk-shadow-float);
+    overflow: auto;
   }
-  .card h2 {
-    margin: 0 0 var(--fk-space-2);
-    font-size: 15px;
+  .engine-dialog::backdrop {
+    background: rgb(0 0 0 / 0.5);
   }
-  .grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    grid-template-areas:
-      'helper level'
-      'midi level'
-      'keys keys';
-    gap: var(--fk-space-4);
-    padding: var(--fk-space-6);
-  }
-  @media (max-width: 760px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: 'helper' 'midi' 'level' 'keys';
-      padding: var(--fk-space-4);
-    }
-  }
-  .panel {
-    padding: var(--fk-space-4);
-    border-radius: var(--fk-radius-panel);
-    background: var(--fk-surface);
-    border: 1px solid var(--fk-line);
-    display: flex;
-    flex-direction: column;
-    gap: var(--fk-space-3);
-  }
-  .panel h2 {
-    margin: 0;
-  }
-  .helper {
-    grid-area: helper;
-  }
-  .midi {
-    grid-area: midi;
-  }
-  .level {
-    grid-area: level;
-  }
-  .keys {
-    grid-area: keys;
-  }
-  .keys-head {
+  header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding: var(--fk-space-4) var(--fk-space-5) var(--fk-space-2);
+  }
+  h2 {
+    margin: 0;
+    font-size: 15px;
+  }
+  section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     gap: var(--fk-space-3);
+    padding: var(--fk-space-4) var(--fk-space-5);
+    border-top: 1px solid var(--fk-line);
   }
-  .target {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  section:first-of-type {
+    border-top: 0;
   }
-  .keys-head button {
-    margin-left: auto;
+  h3 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fk-text-muted);
   }
   p {
     margin: 0;
+  }
+  .muted {
+    color: var(--fk-text-muted);
+  }
+  dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--fk-space-2) var(--fk-space-5);
+    align-items: center;
+    margin: 0;
+    width: 100%;
+  }
+  dt {
+    color: var(--fk-text-muted);
+  }
+  dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .meter-box :global(.meter) {
+    --len: 220px;
   }
   button {
     min-height: var(--fk-control);
@@ -234,6 +261,14 @@
   button:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .close {
+    display: grid;
+    place-items: center;
+    width: var(--fk-control);
+    padding: 0;
+    border-color: transparent;
+    color: var(--fk-text-muted);
   }
   .pair {
     display: flex;
@@ -275,15 +310,5 @@
     height: 8px;
     border-radius: 50%;
     background: var(--fk-play);
-  }
-  .meter-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--fk-space-1);
-    margin-left: auto;
-  }
-  .meter-box :global(.meter) {
-    --len: 96px;
   }
 </style>

@@ -11,7 +11,7 @@
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
-  import { deviceText, labelKey } from '../../lib/devices'
+  import { deviceText, labelKey, shownParams } from '../../lib/devices'
   import { MASTER_METER, useStores } from '../../lib/stores'
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
@@ -109,7 +109,7 @@
   {/if}
   {#if descriptor}
     <div class="params">
-      {#each descriptor.params as param (param.key)}
+      {#each shownParams(descriptor, (key) => automated.device(entry.id, key) ?? entry.device.params[key]) as param (param.key)}
         <div class="param-wrap">
           <ParamControl
             device={descriptor}
@@ -142,7 +142,8 @@
 
 <style>
   .card {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     max-width: 100%;
     display: flex;
     flex-direction: column;
@@ -203,7 +204,6 @@
     flex-wrap: wrap;
     gap: var(--fk-space-4);
     align-items: flex-end;
-    max-width: 640px;
   }
   .param-wrap {
     display: flex;

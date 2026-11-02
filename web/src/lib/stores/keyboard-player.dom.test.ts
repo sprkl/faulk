@@ -12,7 +12,7 @@ function setup(over: { selected?: ReturnType<typeof entry> | null; armed?: strin
   const selected = over.selected === undefined ? entry('t1', midi('faulk.osc_synth')) : over.selected
   const project = { selected, armed: over.armed ?? [], tracks: selected ? [selected] : [] }
   const engine = { started: over.started ?? true }
-  const ui = new UiStore('play', 'devices')
+  const ui = new UiStore('arrangement', 'devices')
   const keys = new KeyboardPlayer(project as never, engine as never, ui, { run: (c: Command) => void sent.push(c) } as never)
   return { keys, sent, project, ui }
 }

@@ -14,7 +14,7 @@ const WS = [
   { name: 'helper', dir: 'crates/helper', deps: ['engine', 'project', 'commands', 'protocol'], devDeps: [] },
   { name: 'test-support', dir: 'crates/test-support', deps: [], devDeps: ['engine', 'project', 'commands'] },
 ]
-const SPECS = ['transport', 'mixer', 'isolation', 'project-store', 'open-project', 'export-audio', 'automation', 'continuous', 'master-chain', 'master-pan', 'mixer-sound', 'track-state']
+const SPECS = ['transport', 'mixer', 'isolation', 'project-store', 'open-project', 'export-audio', 'automation', 'continuous', 'master-chain', 'master-pan', 'mixer-sound', 'track-state', 'layout-4']
 const plan = (files, extra = {}) => planVerify({ files, packages: () => WS, specs: () => SPECS, ...extra })
 const tested = (p) => p.decision.rustTest.split(' ').filter((x) => x !== '-p')
 
