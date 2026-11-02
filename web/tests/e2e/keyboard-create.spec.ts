@@ -120,18 +120,22 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   const { errors } = watch(page)
   await start(page)
   test.skip((await hooks(page)) !== 'function', 'the history is counted through the hook of the dev server')
-  await page.getByTestId('arr-snap').selectOption('bar')
-
   // No clip: Tab from the timeline lands on the cursor, named after its track and bar.
   await page.getByTestId('arr-stage').getByTestId('timegrid').focus()
   await page.keyboard.press('Tab')
   const cursor = page.getByTestId('arr-cursor')
   await expect(cursor).toBeFocused()
   await expect(cursor).toHaveAccessibleName(/^Cursor, .+, bar 1$/)
-  // Up to the first track, Right by a bar.
+  // Up to the first track. With the snap on Auto (a 1/32 at the default zoom), Right still goes by a beat at least.
   await page.keyboard.press('ArrowUp')
   await page.keyboard.press('ArrowUp')
   await expect(cursor).toHaveAttribute('data-row', '0')
+  await page.keyboard.press('ArrowRight')
+  await expect(cursor).toHaveAccessibleName(/^Cursor, Synth, bar 1 beat 2$/)
+  await page.keyboard.press('ArrowLeft')
+  // With the snap on bars, Right goes by a bar.
+  await page.getByTestId('arr-snap').selectOption('bar')
+  await cursor.focus()
   await page.keyboard.press('ArrowRight')
   await expect(cursor).toHaveAccessibleName(/^Cursor, Synth, bar 2$/)
 

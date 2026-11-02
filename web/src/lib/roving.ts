@@ -126,6 +126,14 @@ export function moveCursor(cursor: Cursor, direction: Direction, steps: { tick: 
   return from + step > last ? cursor : { row: cursor.row, tick: from + step }
 }
 
+/**
+ * The step of the timeline's cursor along time (#494): the snap step, never finer than a beat (a fine snap would take dozens
+ * of presses per bar), and a bar with the snap off.
+ */
+export function timelineCursorStep(snap: number | null, beat: number, bar: number): number {
+  return Math.max(snap ?? bar, beat)
+}
+
 /** The item under the cursor: in its row, the one whose span holds its tick (the latest start first), or null. */
 export function itemAt<T extends Item>(items: readonly T[], cursor: Cursor): T | null {
   let found: T | null = null

@@ -50,8 +50,8 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
-  import { PPQ, barTicks } from '../transport/time'
-  import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
+  import { PPQ, barTicks, beatTicks } from '../transport/time'
+  import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import {
     blocksOf,
     clampScrollY,
@@ -1134,7 +1134,7 @@
 
   // --- the free cursor (#494) -----------------------------------------------------------------------------------------
   // A track and a tick where no clip needs to be: the only cell in the tab order of an empty timeline, and where Escape on a
-  // clip leaves the focus. The arrows move it by the snap step and a track (Shift+Left and Right: a bar); Enter creates a
+  // clip leaves the focus. The arrows move it by the snap step (a beat at least) and a track (Shift+Left and Right: a bar); Enter creates a
   // clip of one bar there (`clip.create`, placed), or goes to the clip already under it.
   /** Where the cursor was left; null until it is first used (it then stands on the selected track, where the view looks). */
   let cursorAt = $state<Cursor | null>(null)
@@ -1193,7 +1193,13 @@
     event.preventDefault()
     event.stopPropagation()
     if (key.kind === 'focus' || key.kind === 'extend') {
-      cursorAt = moveCursor(at, key.direction, { tick: key.kind === 'extend' ? bar : nudge, row: 1 }, entries.length, totalBars * bar)
+      cursorAt = moveCursor(
+        at,
+        key.direction,
+        { tick: key.kind === 'extend' ? bar : timelineCursorStep(step, beatTicks(signature), bar), row: 1 },
+        entries.length,
+        totalBars * bar,
+      )
       void focusCursor()
       return
     }

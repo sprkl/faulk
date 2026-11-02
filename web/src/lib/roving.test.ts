@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { itemAt, moveCursor, reading, rovingKey, step, zoomKey, type Item } from './roving'
+import { itemAt, moveCursor, reading, rovingKey, step, timelineCursorStep, zoomKey, type Item } from './roving'
 
 const item = (id: string, row: number, start: number, end: number): Item => ({ id, row, start, end })
 // Row 0: a 0..4, b 4..8; row 1: nothing; row 2: c 2..6, d 8..12; row 3: e 0..1.
@@ -106,6 +106,17 @@ describe('the free cursor (#494)', () => {
   it('stays put in a range shorter than a step, or with an empty one', () => {
     expect(moveCursor({ row: 0, tick: 0 }, 'right', { tick: 3840, row: 1 }, 1, 960)).toEqual({ row: 0, tick: 0 })
     expect(moveCursor({ row: 0, tick: 0 }, 'down', steps, 0, 960)).toEqual({ row: 0, tick: 0 })
+  })
+
+  it('steps the timeline cursor by the snap, never finer than a beat, and by a bar with the snap off', () => {
+    // 4/4: a beat of 960, a bar of 3840. Auto at the default zoom snaps to 120 (a 1/32): the cursor still goes by a beat.
+    expect(timelineCursorStep(120, 960, 3840)).toBe(960)
+    expect(timelineCursorStep(960, 960, 3840)).toBe(960)
+    expect(timelineCursorStep(1920, 960, 3840)).toBe(1920)
+    expect(timelineCursorStep(3840, 960, 3840)).toBe(3840)
+    expect(timelineCursorStep(null, 960, 3840)).toBe(3840)
+    // 6/8: an eighth-note beat of 480.
+    expect(timelineCursorStep(240, 480, 2880)).toBe(480)
   })
 
   it('finds the item under the cursor, the latest started first', () => {
