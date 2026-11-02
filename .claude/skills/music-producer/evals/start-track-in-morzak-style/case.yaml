@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: start-track-in-morzak-style
+expected_outcome: |
+  A complete, playable track plan that applies the morzak style profile: the profile is named in the brief section,
+  its catalog fills the catalog section, tempo and mode come from its ranges, two of its moves are taken as constraints,
+  the signature (a chord that flips its third) appears at least once on purpose, and every departure from the profile
+  is recorded. A valid MIDI file is rendered.
