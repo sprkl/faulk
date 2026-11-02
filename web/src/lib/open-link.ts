@@ -1,6 +1,6 @@
 /**
  * Opening links (#497): `/app?open=<link to a .faulkpack>` opens a hosted project. The link comes from
- * anywhere, so the page asks before it downloads anything (`OpenLinkDialog.svelte`), then runs
+ * anywhere, so the page asks before it downloads anything (the dialog of `StorageBanners.svelte`), then runs
  * `project.open_url`. The parameter leaves the address as soon as the page has read it, so a reload
  * never opens the project again.
  */

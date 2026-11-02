@@ -101,6 +101,17 @@ describe('downloadPack', () => {
     expect((await downloadPack(URL_, { ...base, fetch: serving([new Uint8Array(10), new Uint8Array(1)]).fetch })).status).toBe('tooBig')
   })
 
+  it('holds the limit when the answer has no stream to read', async () => {
+    const whole = (size: number) =>
+      vi.fn(async () => {
+        const response = new Response(new Uint8Array(size))
+        Object.defineProperty(response, 'body', { value: null })
+        return response
+      }) as unknown as typeof fetch
+    expect(await downloadPack(URL_, { ...base, fetch: whole(11) })).toEqual({ status: 'tooBig' })
+    expect(await downloadPack(URL_, { ...base, fetch: whole(10) })).toEqual({ status: 'ok', bytes: new Uint8Array(10) })
+  })
+
   it('refuses a redirect to a link the page would not fetch itself', async () => {
     const { fetch } = serving([new Uint8Array(1)], { url: 'http://example.org/elsewhere.faulkpack' })
     expect(await downloadPack(URL_, { ...base, fetch })).toMatchObject({ status: 'unreachable' })

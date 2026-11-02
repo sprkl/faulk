@@ -82,7 +82,11 @@ export async function downloadPack(url: URL, options: { fetch: typeof fetch; max
       void response.body?.cancel().catch(() => undefined)
       return { status: 'tooBig' }
     }
-    if (!response.body) return { status: 'ok', bytes: new Uint8Array(await response.arrayBuffer()) }
+    if (!response.body) {
+      // No stream to count (not seen in the supported browsers): read whole, then the same limit.
+      const whole = new Uint8Array(await response.arrayBuffer())
+      return whole.byteLength > options.max ? { status: 'tooBig' } : { status: 'ok', bytes: whole }
+    }
     const reader = response.body.getReader()
     const chunks: Uint8Array[] = []
     let total = 0
