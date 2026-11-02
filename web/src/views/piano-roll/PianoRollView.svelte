@@ -727,6 +727,8 @@
     const note = drawnNote(at.tick, null, at.pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
     if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
     run(addNotes(edited.id, [note]))
+    // Nothing to say or sound when the command did not apply (no engine, a refusal the dispatcher already shows).
+    if (!notes.some((n) => noteKey(n) === noteKey(note))) return
     picked = new Set([noteKey(note)])
     onCursor = false
     announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) }))
