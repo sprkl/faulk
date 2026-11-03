@@ -193,7 +193,7 @@
     align-items: center;
     gap: var(--fk-space-2);
     height: 22px;
-    /* It gives way when the bar is full (the engine pill's load, #486): the name ellipsizes instead of running over the views. */
+    /* It gives way when the bar is full: the name ellipsizes instead of running over the views. */
     min-width: 0;
     max-width: min(130px, 100%);
     padding: 0 var(--fk-space-3);
