@@ -71,6 +71,15 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.tlScroll', chords: [['←'], ['→']], covers: ['ArrowLeft', 'ArrowRight'] },
       { label: 'shortcut.tlStart', chords: [['Home']], covers: ['Home'] },
       { label: 'shortcut.tlZoom', chords: [['+'], ['-']], covers: ['+', '=', '-', '_'] },
+      { label: 'shortcut.fitSong', chords: [['Alt', 'Z']] },
+      { label: 'shortcut.markerAdd', chords: [['Alt', 'K']] },
+      {
+        label: 'shortcut.markerJump',
+        chords: [
+          ['Alt', 'Page Up'],
+          ['Alt', 'Page Down'],
+        ],
+      },
       { label: 'shortcut.clipMove', chords: [['←'], ['→'], ['↑'], ['↓']], covers: ['ArrowUp', 'ArrowDown'] },
       {
         label: 'shortcut.clipExtend',

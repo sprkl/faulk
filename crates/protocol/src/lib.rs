@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
+
+// Version 16 (#473, markers): the arrangement gains named section markers (`arrangement.marker.add`, `.rename`, `.move`, `.delete`, `.restore`), the project its `markers`, `arrangement.restore_time` an optional `markers`, the events `markers_changed`.
 
 // #515, without a new version: the helper reports its self-update to the session (`update.status`: installed version, end of the last check, the updater's state) after `midi.inputs` and on every change. Compatible both ways: a page that does not know the message ignores it (it switches on `type` and drops the others), and a page that knows it keeps `null` with a helper that never sends it.
 

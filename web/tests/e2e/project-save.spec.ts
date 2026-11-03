@@ -100,13 +100,27 @@ test('the automatic save of a medium project: its cost, and the page and the aud
   for (let i = 0; i < 5; i++) {
     // One note, as an edit while playing: the autosave writes the one file that changed.
     await page.evaluate(() => {
-      const w = window as unknown as Hooks
+      const w = window as unknown as Hooks & { __lastBefore: unknown }
+      // `__faulkWrite()` is a new object for each write: the save of this edit is the first one after this point.
+      w.__lastBefore = w.__faulkWrite()
       const view = w.__faulkView()
       const track = Object.keys(view.project.tracks).find((id) => Object.keys(view.project.tracks[id]!.clips).length > 0)!
       const clip = Object.keys(view.project.tracks[track]!.clips)[0]!
       w.__faulkRun({ type: 'clip.notes.add', clip, notes: [{ start: 3000 + Math.floor(Math.random() * 500), pitch: 40, length: 12, velocity: 90 }] })
     })
-    await expect(page.getByTestId('save-state')).toHaveText('Unsaved changes')
+    // Not "Unsaved changes" first: that state lasts only the autosave delay, and a loaded machine can take longer than
+    // that to get from the edit to the check (#493). A new write is what proves the edit was saved, whenever it ran.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as Hooks & { __lastBefore: unknown }).__faulkWrite() !== (window as unknown as { __lastBefore: unknown }).__lastBefore,
+          ),
+        {
+          timeout: 8000,
+        },
+      )
+      .toBe(true)
     await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/, { timeout: 8000 })
     costs.push((await page.evaluate(() => (window as unknown as Hooks).__faulkWrite()))!)
   }

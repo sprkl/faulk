@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { BOOT, watch } from './support'
 
 // AR-3 (#79): the shared time grid in a real browser, on its test surface (`/dev/timegrid`, served
 // by the dev server and by the e2e build, which sets VITE_FAULK_DEV_ROUTES). Zoom, scroll, snapping,
@@ -32,9 +32,10 @@ const hoverShown = async (page: Page) => {
 async function open(page: Page) {
   const seen = watch(page)
   await page.goto('/dev/timegrid')
-  await expect(grid(page)).toBeVisible()
+  // The page's boot (the dev server compiling and serving its module graph), not a reaction: see `BOOT`.
+  await expect(grid(page)).toBeVisible(BOOT)
   // The first frame is drawn on the next animation frame after the size is known.
-  await expect.poll(async () => Number(await grid(page).getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  await expect.poll(async () => Number(await grid(page).getAttribute('data-draw-count')), BOOT).toBeGreaterThan(0)
   return seen
 }
 
@@ -55,6 +56,9 @@ const pixel = (page: Page, x: number, y: number, selector = 'canvas:not(.overlay
     },
     [x, y, selector] as const,
   )
+
+// Above the default of 30 s: `open()` can use the boot ceiling twice (the grid, then its first frame).
+test.describe.configure({ timeout: 90_000 })
 
 test.describe('time grid', () => {
   test('draws the ruler and the bar lines on its canvas', async ({ page }) => {

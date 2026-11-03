@@ -33,7 +33,7 @@ pub use engine::time::{Frame, LoopRegion, PPQ, Quantize, SampleRate, Tempo, Tick
 
 pub use blob::Hash;
 pub use ids::{
-    ClipId, DeviceId, Id, IdGenerator, LaneId, PlacementId, ProjectId, SceneId, TrackId,
+    ClipId, DeviceId, Id, IdGenerator, LaneId, MarkerId, PlacementId, ProjectId, SceneId, TrackId,
 };
 pub use model::*;
 pub use order::OrderKey;

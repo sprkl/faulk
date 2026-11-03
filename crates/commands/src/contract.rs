@@ -414,6 +414,9 @@ pub enum ProjectEvent {
     SceneDeleted { scene: SceneId },
     /// Part of a scene changed.
     SceneChanged { scene: SceneId, part: ScenePart },
+    /// The section markers changed (#473): added, renamed, moved, deleted, brought back, or
+    /// shifted by a time edit. The page reads them from its own copy of the project.
+    MarkersChanged {},
     /// An automation lane was created or brought back, with its points (AM-1). The page
     /// reads the lane from its own copy of the project, to which the same command applies.
     /// `track` is `null` for a lane of the master (#378).
