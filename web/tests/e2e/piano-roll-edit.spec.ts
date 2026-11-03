@@ -357,7 +357,7 @@ test('piano roll: on an AZERTY layout the quantize key is labelled with the char
   // The key by position still quantizes.
   await focusGrid(page)
   await page.keyboard.press('KeyQ')
-  await expect.poll(async () => starts(page)).toEqual([240])
+  await expect.poll(async () => starts(page)).toEqual([0])
   // The shortcut list writes it the same way.
   await page.keyboard.press('?')
   const line = page.getByRole('dialog').locator('li', { hasText: /Quantize|Quantifier/ })
