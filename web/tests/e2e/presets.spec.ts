@@ -8,6 +8,10 @@ import { engineUp, watch } from './support'
 const TEXTS = {
   en: {
     none: 'No preset',
+    saveProject: 'Save as a preset of this project…',
+    rename: 'Rename this preset…',
+    remove: 'Delete this preset',
+    renameAction: 'Rename',
     next: 'Next preset of Oscillator',
     prev: 'Previous preset of Oscillator',
     menu: 'Presets of Oscillator',
@@ -17,6 +21,10 @@ const TEXTS = {
   },
   fr: {
     none: 'Aucun preset',
+    saveProject: 'Enregistrer comme preset de ce projet…',
+    rename: 'Renommer ce preset…',
+    remove: 'Supprimer ce preset',
+    renameAction: 'Renommer',
     next: 'Preset suivant de Oscillator',
     prev: 'Preset précédent de Oscillator',
     menu: 'Presets de Oscillator',
@@ -72,7 +80,34 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(bar.getByTestId('preset-name')).toHaveAttribute('data-location', 'library')
     await expect(bar.getByTestId('preset-modified')).toHaveCount(0)
 
-    // The file is in the browser's storage, in the preset format.
+    // The same settings saved in the project, renamed there, then deleted: the device keeps the name it knew.
+    await bar.getByRole('button', { name: x.menu }).click()
+    await page.getByRole('menuitem', { name: x.saveProject }).click()
+    await field.fill('In Song')
+    await page.getByTestId('preset-form').getByRole('button', { name: x.save, exact: true }).click()
+    await expect(bar.getByTestId('preset-name')).toHaveAttribute('data-location', 'project')
+    await bar.getByRole('button', { name: x.menu }).click()
+    await page.getByRole('menuitem', { name: x.rename }).click()
+    await field.fill('In Song 2')
+    await page.getByTestId('preset-form').getByRole('button', { name: x.renameAction, exact: true }).click()
+    await expect(bar.getByTestId('preset-name')).toHaveText('In Song 2')
+    expect(
+      await page.evaluate(() =>
+        Object.values(
+          (window as unknown as { __faulkView: () => { project: { presets?: Record<string, { name: string }> } } }).__faulkView().project.presets ?? {},
+        ).map((p) => p.name),
+      ),
+    ).toEqual(['In Song 2'])
+    await bar.getByRole('button', { name: x.menu }).click()
+    await page.getByRole('menuitem', { name: x.remove }).click()
+    expect(
+      await page.evaluate(
+        () => Object.keys((window as unknown as { __faulkView: () => { project: { presets?: object } } }).__faulkView().project.presets ?? {}).length,
+      ),
+    ).toBe(0)
+    await expect(bar.getByTestId('preset-name')).toHaveText('In Song')
+
+    // The library file is in the browser's storage, in the preset format.
     await expect
       .poll(() =>
         page.evaluate(async () => {

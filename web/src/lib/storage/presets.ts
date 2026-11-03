@@ -39,8 +39,11 @@ const ID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/
 export class PresetLibrary {
   constructor(
     private readonly dir: LibraryDir = opfsLibraryDir,
-    readonly available: boolean = opfsSupported(),
+    // A browser check sets `__faulkNoBrowserStorage` to look at the page as it is where the OPFS cannot be used.
+    readonly available: boolean = opfsSupported() && !(globalThis as { __faulkNoBrowserStorage?: boolean }).__faulkNoBrowserStorage,
   ) {}
+
+  private persistAsked = false
 
   /** Every preset file of the library (the files whose name is not a preset id are left alone). Empty when there is no library. */
   async read(): Promise<LibraryFile[]> {
@@ -70,6 +73,11 @@ export class PresetLibrary {
     if (!ID.test(id)) throw new Error(`not a preset id: ${id}`)
     const dir = await this.dir.open(true)
     if (!dir) throw new Error('the browser storage is not available')
+    // The library is kept by the browser, which may evict it under pressure unless it is asked to keep it: once.
+    if (!this.persistAsked) {
+      this.persistAsked = true
+      void navigator.storage?.persist?.().catch(() => false)
+    }
     const file = await dir.getFileHandle(`${id}.json`, { create: true })
     const stream = await file.createWritable()
     try {

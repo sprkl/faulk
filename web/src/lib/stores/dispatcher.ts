@@ -612,6 +612,8 @@ export class Dispatcher {
   /** Library files waiting to be written or removed, by preset id, in order: the core's state is the truth until they are. */
   private presetWrites = new Set<string>()
   private presetQueue: Promise<void> = Promise.resolve()
+  /** Counts the library writes queued: a read of the library that saw it move is stale. */
+  private presetQueued = 0
   /** Told to the other tabs of this browser when the library changed, so that they read it again; set by `createStores`. */
   presetChannel: BroadcastChannel | null = null
 
@@ -624,14 +626,19 @@ export class Dispatcher {
     const library = this.presetLibrary
     const core = this.core
     if (!library || !core) return
-    await this.presetQueue
-    if (this.presetWrites.size > 0) return
-    const files = await library.read()
-    // A command that changed the library while the files were read wins: read again later.
-    if (this.presetWrites.size > 0 || this.core !== core) return
-    const report = core.stageLibrary(files)
-    if (report.skipped.length > 0) console.warn('presets left out of the library', report.skipped)
-    this.project.presetsRev++
+    // A write that started or ended while the files were read makes the listing stale: read again once the
+    // writes are done (they are on disk then), a few times at most; a write that keeps failing waits for its retry.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await this.presetQueue
+      if (this.presetWrites.size > 0 || this.core !== core) return
+      const queued = this.presetQueued
+      const files = await library.read()
+      if (this.presetQueued !== queued || this.presetWrites.size > 0 || this.core !== core) continue
+      const report = core.stageLibrary(files)
+      if (report.skipped.length > 0) console.warn('presets left out of the library', report.skipped)
+      this.project.presetsRev++
+      return
+    }
   }
 
   /** Writes or removes the file of each library preset the events name. */
@@ -648,16 +655,19 @@ export class Dispatcher {
     const library = this.presetLibrary
     if (!library) return
     this.presetWrites.add(id)
+    this.presetQueued++
     this.presetQueue = this.presetQueue.then(async () => {
-      const bytes = this.core?.presetFile('library', id) ?? null
       try {
+        const bytes = this.core?.presetFile('library', id) ?? null
         if (bytes) await library.write(id, bytes)
         else await library.remove(id)
         this.presetWrites.delete(id)
         this.presetChannel?.postMessage({ changed: id })
+        if (this.presetWrites.size === 0 && this.state.notice === 'presets.writeFailed') this.state.notice = null
       } catch (error) {
         console.error(error)
-        this.state.notice = 'presets.writeFailed'
+        // Another notice (the helper lost, an audio error) is not hidden by this one.
+        if (this.state.notice === null) this.state.notice = 'presets.writeFailed'
         // Kept pending: the next try (the page coming back, another tab's change) writes it again.
       }
     })

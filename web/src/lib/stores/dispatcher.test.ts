@@ -1962,3 +1962,53 @@ describe('the preset library (#191)', () => {
     expect(read.mock.calls.length).toBe(reads + 1)
   })
 })
+
+describe('the preset library and its reads (#191)', () => {
+  it('a read that a save overtook is read again: the saved preset stays, and so do the files on disk', async () => {
+    const session = newSession()
+    const onDisk: { id: string; text: string }[] = [
+      { id: '01HZY00000000000000000AAAA', text: `{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {}}` },
+    ]
+    let release: (() => void) | null = null
+    const read = vi.fn(async () => {
+      // The first read is held until a save has run; the later ones answer at once.
+      if (read.mock.calls.length === 1) await new Promise<void>((resolve) => (release = resolve))
+      return [...onDisk]
+    })
+    const write = vi.fn(async (id: string, bytes: Uint8Array) => {
+      onDisk.push({ id, text: new TextDecoder().decode(bytes) })
+    })
+    session.dispatcher.presetLibrary = { available: true, read, write, remove: vi.fn() } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    await vi.waitFor(() => expect(release).not.toBeNull())
+    // A save while the first read is out: the listing it gets is stale.
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })
+    release!()
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => {
+      const names = session.dispatcher.listPresetsOfKind('faulk.osc_synth')?.presets.map((p) => p.name) ?? []
+      expect(names).toContain('Mine')
+      expect(names).toContain('Kept')
+    })
+  })
+
+  it('a failed write does not hide another notice, and a successful retry clears its own', async () => {
+    const session = newSession()
+    let fail = true
+    const write = vi.fn(() => (fail ? Promise.reject(new DOMException('full', 'QuotaExceededError')) : Promise.resolve()))
+    session.dispatcher.presetLibrary = { available: true, read: vi.fn(() => Promise.resolve([])), write, remove: vi.fn() } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    session.engine.notice = 'helper.lost'
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'A', location: 'library' })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+    expect(session.engine.notice).toBe('helper.lost')
+    session.engine.notice = null
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(session.engine.notice).toBe('presets.writeFailed'))
+    fail = false
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(session.engine.notice).toBeNull())
+  })
+})
