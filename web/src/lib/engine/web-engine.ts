@@ -23,7 +23,10 @@ const FEEDBACK_MS = 33
 export class WebEngine implements Engine {
   readonly kind = 'web' as const
   private readonly timer: ReturnType<typeof setInterval>
-  /** The output latency last reported (`status`), in seconds: what `record.start` takes as `latency_ms`. */
+  /**
+   * The output latency of the last `status()`, in seconds. Every status is what the page shows and what
+   * `record.start` takes as `latency_ms` (the dispatcher stores each one), so the stamps add the same estimate.
+   */
   private reportedLatency = 0
 
   private constructor(
@@ -100,30 +103,25 @@ export class WebEngine implements Engine {
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
     await context.resume()
-    engine.report(events)
+    events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
-    setTimeout(() => engine.report(events), 500)
+    setTimeout(() => events.onStatus(engine.status()), 500)
     return engine
-  }
-
-  /** Reports the status, and keeps the latency it says for `frameAt`. */
-  private report(events: EngineEvents) {
-    const status = this.status()
-    this.reportedLatency = (status.estimatedLatencyMs ?? 0) / 1000
-    events.onStatus(status)
   }
 
   /**
    * The audio context's frame at which a note was played at `timeStamp` (#499, `contextFrameAt`),
-   * with the latency last reported, the one a take starts with.
+   * with the latency of the last status, the one a take starts with.
    */
   frameAt(timeStamp: number | undefined): number | null {
     if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
     return contextFrameAt(this.context.getOutputTimestamp(), timeStamp, this.reportedLatency, this.context.sampleRate)
   }
 
+  /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */
   status(): EngineStatus {
     const seconds = this.context.baseLatency + (this.context.outputLatency || 0)
+    this.reportedLatency = seconds > 0 ? seconds : 0
     return {
       kind: this.kind,
       sampleRate: this.context.sampleRate,
