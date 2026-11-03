@@ -15,7 +15,8 @@
 //! page keeps playing itself until an output opens.
 
 use crate::audio::{EngineSlot, Meter, Refusal};
-use crate::midi::MidiManager;
+use crate::live::LiveInput;
+use crate::midi::{MidiManager, Received};
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use crate::updater::UpdateWatch;
 use futures_util::{SinkExt, StreamExt};
@@ -71,8 +72,10 @@ pub struct Shared {
     /// The engine of the open audio output; empty while there is none.
     pub engine: Arc<EngineSlot>,
     pub midi: Mutex<MidiManager>,
+    /// The notes of the MIDI input, played on the engine with the session's table (#598).
+    live: Arc<LiveInput>,
     /// The selected MIDI input's messages, forwarded to the session as they come (`serve`).
-    midi_in: Mutex<Option<mpsc::UnboundedReceiver<Vec<u8>>>>,
+    midi_in: Mutex<Option<mpsc::UnboundedReceiver<Received>>>,
     /// Whether this system has a MIDI backend (`hello`'s capabilities).
     midi_available: bool,
     pub meter: Arc<Meter>,
@@ -85,12 +88,13 @@ pub struct Shared {
 }
 
 impl Shared {
-    /// `midi_in` receives what `midi` forwards (the `MidiOut` it was made with).
+    /// `midi_in` receives what `midi` forwards (the `MidiSink` it was made with, whose live
+    /// input plays on `engine`).
     pub fn new(
         policy: Policy,
         engine: Arc<EngineSlot>,
         midi: MidiManager,
-        midi_in: mpsc::UnboundedReceiver<Vec<u8>>,
+        midi_in: mpsc::UnboundedReceiver<Received>,
         meter: Arc<Meter>,
         notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     ) -> Self {
@@ -100,6 +104,7 @@ impl Shared {
             policy,
             pairing: Mutex::new(pairing),
             engine,
+            live: midi.live(),
             midi: Mutex::new(midi),
             midi_in: Mutex::new(Some(midi_in)),
             midi_available: crate::midi::available(),
@@ -224,9 +229,27 @@ impl Shared {
         }
     }
 
-    /// Answers a JSON message of the session: the helper's MIDI inputs.
-    fn answer(&self, message: Result<ClientMessage, serde_json::Error>) -> Vec<ServerMessage> {
+    /// Answers a JSON message of session `id`: the helper's MIDI inputs, and the table its
+    /// notes play with.
+    fn answer(
+        &self,
+        id: u64,
+        message: Result<ClientMessage, serde_json::Error>,
+    ) -> Vec<ServerMessage> {
         match message {
+            Ok(ClientMessage::LiveRouting { epoch, tracks }) => {
+                // Only the current session's, for the engine its hello described: under the
+                // session lock, so a replaced page's table never follows the next page's.
+                let current = self.session.lock().expect("session lock");
+                if let Some(generation) = current
+                    .as_ref()
+                    .filter(|s| s.id == id)
+                    .and_then(|s| s.engine)
+                {
+                    self.live.set_routing(generation, epoch, tracks);
+                }
+                Vec::new()
+            }
             Ok(ClientMessage::MidiListInputs) => {
                 self.midi.lock().expect("MIDI lock poisoned").refresh();
                 vec![self.midi_inputs()]
@@ -271,8 +294,8 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
         let forward = shared.clone();
         // Each message goes to the session as it comes, not at the ticker's pace.
         tokio::spawn(async move {
-            while let Some(data) = midi_in.recv().await {
-                forward.to_session(ServerMessage::MidiMessage { data });
+            while let Some(Received { data, played }) = midi_in.recv().await {
+                forward.to_session(ServerMessage::MidiMessage { data, played });
             }
         });
     }
@@ -521,8 +544,10 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
                 message: "another page opened a session".into(),
             }));
             // The replaced page's project stops and its notes end now, not only once the new
-            // page's snapshot arrives (its streams are dropped from here on).
+            // page's snapshot arrives (its streams are dropped from here on). Its table goes
+            // too: the input plays nothing until the new page sends its own.
             shared.engine.release_all();
+            shared.live.clear();
         }
         *current = Some(Session {
             id,
@@ -587,7 +612,7 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         let replies = match message {
             // The page's engine stream; whatever it holds, the session goes on.
             Message::Binary(bytes) => shared.submit(id, &bytes).into_iter().collect(),
-            Message::Text(body) => shared.answer(serde_json::from_str::<ClientMessage>(&body)),
+            Message::Text(body) => shared.answer(id, serde_json::from_str::<ClientMessage>(&body)),
             _ => Vec::new(),
         };
         for reply in replies {
@@ -600,8 +625,10 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         *current = None;
         // The page is gone: stop its project and release every note so nothing hangs, and
         // let go of the MIDI input so the page (Web mode) can open it again: on Windows an
-        // input can be open in one application only.
+        // input can be open in one application only. Its table goes with it, and the notes
+        // the helper played are among those released.
         shared.engine.release_all();
+        shared.live.clear();
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }

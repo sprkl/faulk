@@ -2,20 +2,61 @@
 //!
 //! midir has no hot-plug event, so the host polls [`MidiManager::refresh`]. The MIDI
 //! callback runs on midir's thread (not the audio thread). The helper holds no project
-//! (BO-1): it does not decide which track a note plays. It forwards each channel message of
-//! the selected input, as received, to the page's session ([`MidiOut`]); the page decodes it
-//! with the same decoder as Web MIDI and runs it in its project core (routing to the selected
-//! and armed tracks, held notes, recording), and the engine bytes come back like any change.
+//! (BO-1): the page decides which tracks a note plays and tells the helper as a table
+//! (`live.routing`, #598). The callback plays each note of the selected input on the helper's
+//! engine at once with that table ([`crate::live::LiveInput`]), then forwards the message, as
+//! received, to the page's session with whether it was played ([`MidiSink`]); the page runs it
+//! in its project core (keys shown, held notes, recording) and sends engine bytes only for
+//! what the helper did not play (control changes, a note before any table).
 
+use crate::live::LiveInput;
 use midir::{MidiInput, MidiInputConnection};
 use protocol::MidiInput as InputInfo;
+use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 
-/// Where the selected input's messages go: the server forwards them to the current session.
-pub type MidiOut = UnboundedSender<Vec<u8>>;
+/// A message of the selected input, for the page, and whether the helper's engine played it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Received {
+    pub data: Vec<u8>,
+    pub played: bool,
+}
 
-/// "All notes off" (control change 123): what the page gets when the input it played goes
-/// away (unplugged, another one selected), as Web MIDI releases on unplug.
+/// Where the selected input's messages go: first the helper's engine (the notes,
+/// [`LiveInput`]), then the server, which forwards them to the current session.
+#[derive(Clone)]
+pub struct MidiSink {
+    live: Arc<LiveInput>,
+    out: UnboundedSender<Received>,
+}
+
+impl MidiSink {
+    pub fn new(live: Arc<LiveInput>, out: UnboundedSender<Received>) -> Self {
+        MidiSink { live, out }
+    }
+
+    /// The helper's live input, which the session gives its table.
+    pub fn live(&self) -> &Arc<LiveInput> {
+        &self.live
+    }
+
+    /// A message of the input: played if it is a note the helper can play, then forwarded
+    /// when it is a channel message.
+    pub fn receive(&self, message: &[u8]) {
+        if !forwarded(message) {
+            return;
+        }
+        let played = self.live.receive(message);
+        let _ = self.out.send(Received {
+            data: message.to_vec(),
+            played,
+        });
+    }
+}
+
+/// "All notes off" (control change 123): what the input "sends" when it goes away (unplugged,
+/// another one selected): the helper releases the notes it played, and the page the rest, as
+/// Web MIDI releases on unplug.
 pub const ALL_NOTES_OFF: [u8; 3] = [0xB0, 123, 0];
 
 /// Whether a message is forwarded to the page: the channel messages (note on and off,
@@ -45,20 +86,25 @@ pub fn available() -> bool {
 }
 
 pub struct MidiManager {
-    out: MidiOut,
+    sink: MidiSink,
     connection: Option<MidiInputConnection<()>>,
     selected: Option<String>,
     inputs: Vec<InputInfo>,
 }
 
 impl MidiManager {
-    pub fn new(out: MidiOut) -> Self {
+    pub fn new(sink: MidiSink) -> Self {
         Self {
-            out,
+            sink,
             connection: None,
             selected: None,
             inputs: Vec::new(),
         }
+    }
+
+    /// The helper's live input (`crate::live`).
+    pub fn live(&self) -> Arc<LiveInput> {
+        self.sink.live().clone()
     }
 
     pub fn inputs(&self) -> &[InputInfo] {
@@ -91,16 +137,12 @@ impl MidiManager {
         let port = input
             .find_port_by_id(id)
             .ok_or_else(|| format!("no MIDI input with id {id}"))?;
-        let out = self.out.clone();
+        let sink = self.sink.clone();
         let connection = input
             .connect(
                 &port,
                 "faulk-helper-in",
-                move |_timestamp, message, _| {
-                    if forwarded(message) {
-                        let _ = out.send(message.to_vec());
-                    }
-                },
+                move |_timestamp, message, _| sink.receive(message),
                 (),
             )
             .map_err(|e| e.to_string())?;
@@ -109,11 +151,12 @@ impl MidiManager {
         Ok(())
     }
 
-    /// Closes the connection; the page is told to release the notes it was playing.
+    /// Closes the connection; the notes the helper played are released, and the page is told
+    /// to release the notes it was playing.
     pub fn disconnect(&mut self) {
         if let Some(connection) = self.connection.take() {
             connection.close();
-            let _ = self.out.send(ALL_NOTES_OFF.to_vec());
+            self.sink.receive(&ALL_NOTES_OFF);
         }
         self.selected = None;
     }
@@ -183,7 +226,8 @@ mod tests {
     #[test]
     fn disconnecting_with_no_connection_tells_the_page_nothing() {
         let (out, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut midi = MidiManager::new(out);
+        let live = Arc::new(LiveInput::new(Arc::default()));
+        let mut midi = MidiManager::new(MidiSink::new(live, out));
         midi.disconnect();
         assert!(rx.try_recv().is_err());
         assert_eq!(midi.selected(), None);

@@ -15,7 +15,20 @@ fn messages_round_trip_through_json() {
         ClientMessage::MidiSelectInput {
             id: Some("a".into()),
         },
+        ClientMessage::LiveRouting {
+            epoch: 3,
+            tracks: vec![0, 2],
+        },
     ];
+    // The page's spelling (#598).
+    assert_eq!(
+        serde_json::from_str::<ClientMessage>(r#"{"type":"live.routing","epoch":3,"tracks":[]}"#)
+            .unwrap(),
+        ClientMessage::LiveRouting {
+            epoch: 3,
+            tracks: vec![]
+        }
+    );
     for m in client {
         let json = serde_json::to_string(&m).unwrap();
         assert_eq!(
@@ -57,6 +70,11 @@ fn messages_round_trip_through_json() {
         },
         ServerMessage::MidiMessage {
             data: vec![0x90, 60, 100],
+            played: true,
+        },
+        ServerMessage::MidiMessage {
+            data: vec![0xB0, 1, 64],
+            played: false,
         },
         ServerMessage::Error {
             code: "midi.connect".into(),
