@@ -17,6 +17,7 @@ interface CoreExports {
   pw_run(core: number, len: number): number
   pw_setup(core: number): number
   pw_snapshot(core: number): number
+  pw_snapshot_after(core: number, other: number): number
   pw_project(core: number): number
   pw_history(core: number): number
   pw_set_author(core: number, len: number): number
@@ -333,6 +334,15 @@ export class ProjectCore {
   /** The same in the next epoch: for an engine switched to, or one that refused the stream. */
   snapshot(): WithEngine<SnapshotReport> {
     const report = this.output<SnapshotReport>('snapshot', this.exports.pw_snapshot(this.live()))
+    return { report, engine: this.engine() }
+  }
+
+  /**
+   * The same for an engine the page did not start, whose epoch is `other` (the helper's, from its
+   * `hello`, BO-1): the `Reset` is in an epoch newer than both, so the helper's engine takes it.
+   */
+  snapshotAfter(other: number): WithEngine<SnapshotReport> {
+    const report = this.output<SnapshotReport>('snapshot', this.exports.pw_snapshot_after(this.live(), other & 0xffff))
     return { report, engine: this.engine() }
   }
 

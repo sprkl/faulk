@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#102, BO-1): `specs/02-decoupage-mvp.md` records BO-1 done (protocol 23: the helper holds no project and plays the page's engine streams, `stream_refused`, the hello's epoch and capabilities, the helper's MIDI through the page) and lifts the "until BO-1" limits of MO-2, PR-3, PR-4, DV-3, DV-4, DV-5, GR-2 and MO-5; `specs/03-enregistrement-midi.md` says recording in Boost waits for #501 only; `architecture/01-architecture.md` rule 3 names the helper's MIDI device messages; `architecture/04-distribution-helper.md` gains "Protocole 23".

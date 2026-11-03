@@ -1265,11 +1265,16 @@ fn redirect_by(url: &str, with_catch_all: bool) -> Option<String> {
     None
 }
 
+/// The public site: the one place a redirect may lead that is not the Blob store (#587).
+const SITE: &str = "https://www.faulk.app/";
+
 /// The Blob store get.faulk.app redirects to, read from `web/vercel.json` (the one place that
-/// names it), with the checks that it is one public Blob origin shared by every rule.
+/// names it), with the checks that it is one public Blob origin shared by every rule that leads
+/// to a store (the rules that send a visitor to the public site are set aside).
 fn blob() -> String {
     let origins: std::collections::BTreeSet<String> = rules()
         .iter()
+        .filter(|r| r.destination != SITE)
         .map(|r| {
             let url = url::Url::parse(&r.destination).unwrap();
             url.origin().ascii_serialization()
@@ -1330,15 +1335,27 @@ fn packages_go_to_the_packages_folder_in_the_store() {
 }
 
 #[test]
-fn the_download_link_and_everything_else_go_to_the_windows_installer() {
-    for other in [
+fn the_download_links_go_to_the_windows_installer() {
+    for link in [
         "https://get.faulk.app/helper/windows",
+        "https://get.faulk.app/helper/win/stable",
+    ] {
+        assert_eq!(redirect(link), installer(), "{link}");
+    }
+}
+
+/// The root and every other path lead to the public site: no installer is served by accident,
+/// and no macOS address works until a macOS build exists (#587).
+#[test]
+fn the_root_and_everything_else_go_to_the_public_site() {
+    for other in [
         "https://get.faulk.app/",
         "https://get.faulk.app/helper",
+        "https://get.faulk.app/helper/osx/stable",
         "https://get.faulk.app/helper/stable/RELEASES",
         "https://get.faulk.app/helper/packages/Other-1.0.0-full.nupkg",
     ] {
-        assert_eq!(redirect(other), installer(), "{other}");
+        assert_eq!(redirect(other), SITE, "{other}");
     }
 }
 
@@ -1370,9 +1387,9 @@ fn the_download_address_in_the_page_texts_is_a_real_route() {
             "{address} must have its own rule, not only the catch-all"
         );
     }
-    // The check has teeth: a mistyped address reaches the installer only through the catch-all.
+    // The check has teeth: a mistyped address reaches the site only through the catch-all.
     let typo = "https://get.faulk.app/helper/window";
-    assert_eq!(redirect(typo), installer());
+    assert_eq!(redirect(typo), SITE);
     assert_eq!(redirect_by(typo, false), None);
     assert!(
         rules().iter().any(|r| r.source_text == CATCH_ALL),

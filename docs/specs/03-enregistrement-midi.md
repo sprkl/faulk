@@ -15,7 +15,7 @@ status: draft
 >
 > - reports acceptés par le lead (2026-11-02), voir « Différé » au § 9 :
 > - le mode remplacement et la quantification à l'entrée ne sont pas livrés (§ 4.2, § 6 ; choix par défaut : ajout, quantification après coup) : #500 ;
-> - l'enregistrement en Boost attend BO-1 : le bouton est désactivé en Boost, avec la raison ; le décalage manuel est déjà dans la session : #501 ;
+> - l'enregistrement en Boost attend #501 (BO-1, #102, a donné au helper le projet de la page, mais pas l'horodatage de ses entrées) : le bouton est désactivé en Boost, avec la raison ; le décalage manuel est déjà dans la session ;
 > - `record.set_settings` ne porte que `offset_ms` ; c'est un état de session, comme l'armement, donc il n'entre pas dans l'historique (§ 9 à jour) ;
 > - `record.stop` n'écrit pas la prise : la page, qui lit le rapport du moteur, lance `record.commit_take` dès que le moteur a rendu ses dernières notes (§ 9) ; `record.start` refuse une nouvelle prise tant que la précédente n'est ni écrite ni abandonnée ;
 > - la cible de la grille est la scène de la dernière cellule touchée (sinon la première scène) ; avec le transport arrêté, `record.start` lance le clip de cette scène sur chaque piste armée, et la prise s'y ajoute en suivant sa boucle ;
@@ -123,7 +123,7 @@ Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, descripti
 
 Le moteur reçoit `SetRecording` et rend les notes capturées dans son rapport (version 5 : numéro de la prise, nombre de notes, notes perdues, drapeau de capture, dernières notes), ce qui permet au piano roll de les montrer en direct (critère de RE-5). Il n'y a pas d'allocation sur le chemin audio : les tables de capture sont préparées avec le moteur, et une table pleine est comptée et affichée, jamais cachée.
 
-**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées en Boost (#501 ; en Web, livré par #499), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501). Livrés par #500 : le mode remplacement et la quantification à l'entrée.
+**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées en Boost (#501 ; en Web, livré par #499), l'enregistrement en Boost, désactivé jusqu'à #501 (BO-1, #102, est fait). Livrés par #500 : le mode remplacement et la quantification à l'entrée.
 
 **Remplacement et quantification (#500), tels que le code les applique.** Les trois réglages sont lus à l'écriture de la prise, sauf si `record.commit_take` reçoit les siens (la commande reste rejouable par un agent). Remplacement : par piste, la plage va du début de la première note à la fin de la dernière note de la prise (la commande ne connaît pas la fin de la prise elle-même, qui peut être plus tardive) ; dans chaque clip qui reçoit des notes (cellule de la grille, ou placement de l'arrangement, borné au placement), les notes du clip dont le **début** tombe dans la plage sont retirées, en suivant la boucle du clip ; une prise plus longue que la boucle remplace tout le clip ; un clip neuf n'a rien à remplacer. Le remplacement tour par tour d'une boucle de transport n'est pas fait : tous les tours d'une prise s'ajoutent à la plage entière. Quantification : le début des notes de la prise est ramené vers la grille **du clip** (sa position 0 est une ligne de la grille) avec `quantize_strength` ; la durée ne change pas ; une note ne sort jamais de son clip ; les notes déjà dans le clip ne bougent pas.
 

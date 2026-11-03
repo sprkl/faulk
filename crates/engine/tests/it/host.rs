@@ -476,6 +476,28 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     assert!(!copy_feedback(fresh.feedback(), &mut bytes));
 }
 
+/// The prepare side names the tracks it holds (BO-1: the helper releases their notes without
+/// knowing the project): added, removed, and none after a `Reset`.
+#[test]
+fn the_prepare_side_names_the_tracks_it_holds() {
+    let mut session = two_tracks(1.0);
+    let slots = |s: &Session| s.prepare.preparer().track_slots().collect::<Vec<_>>();
+    assert_eq!(slots(&session), [TrackSlot(0), TrackSlot(1)]);
+    session.send(&[
+        M::TrackCreate {
+            track: TrackSlot(5),
+            kind: TrackKind::Midi,
+        },
+        M::TrackRemove {
+            track: TrackSlot(0),
+        },
+    ]);
+    assert_eq!(slots(&session), [TrackSlot(1), TrackSlot(5)]);
+    let bytes = encode_stream(2, 0, &[M::Reset { epoch: 2 }]).unwrap();
+    session.prepare.submit(&bytes).unwrap();
+    assert_eq!(slots(&session), []);
+}
+
 #[test]
 fn rendering_and_reporting_with_tracks_never_allocates() {
     let mut session = two_tracks(0.7);

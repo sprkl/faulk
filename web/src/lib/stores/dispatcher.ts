@@ -4,7 +4,7 @@ import { peakOf } from '../engine/feedback'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
-import { bringHelperCopyUpToDate } from '../engine/helper-copy'
+import { decodeMidi } from '../midi/decode'
 import type { Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { draftName } from '../project/draft-name'
@@ -13,7 +13,6 @@ import {
   isListStored,
   isNewProject,
   isSaveCommand,
-  isStorageCommand,
   isStoredProjectCommand,
   listStored as listStoredCommand,
   newProject as newProjectCommand,
@@ -25,7 +24,7 @@ import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
-import { refusalNotice, WEB_ONLY_NOTICE, type OpenOutcome, type OpenRefusal } from './open'
+import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
 import type { ProjectStore } from './project.svelte'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
@@ -40,6 +39,10 @@ export const OUTPUT_POLL_MS = 2000
 export const OUTPUT_FLAP_MS = 60_000
 /** The longest the output must stay before the page goes back to Boost after flaps. */
 export const OUTPUT_STEADY_MAX_MS = 60_000
+
+/** The helper's engine is resynced at most this many times within `NATIVE_RESYNC_WINDOW_MS`; past that the page plays itself (BO-1). */
+export const NATIVE_RESYNCS = 3
+export const NATIVE_RESYNC_WINDOW_MS = 10_000
 
 /** How long a refusal stays on screen, in milliseconds. */
 export const REFUSAL_TOAST_MS = 6000
@@ -100,14 +103,19 @@ export class Dispatcher {
         this.state.inputs = inputs
         this.state.selectedInput = selected
       },
-      onMidiActivity: (note, velocity) => {
-        if (kind === 'web' || current()) this.markNote(note, velocity)
+      onMidiMessage: (data) => {
+        // The helper's input plays through the page's project, as a Web MIDI message (BO-1).
+        if (kind !== 'native' || !current()) return
+        const command = decodeMidi(data)
+        if (command) this.runPlayed(command)
       },
       onHelperUpdate: (update) => {
         if (kind === 'native' && current()) this.state.helperUpdate = update
       },
-      onStreamRefused: (code, at) => {
-        if (current()) void this.stopWeb(code, at)
+      onStreamRefused: (code, at, epoch) => {
+        if (!current()) return
+        if (kind === 'native') this.resyncNative(code, epoch)
+        else void this.stopWeb(code, at)
       },
       onError: (code) => {
         // A helper session that was closed (or replaced by a newer one) says nothing any more.
@@ -260,9 +268,10 @@ export class Dispatcher {
     const input = view.session.midi_input ?? null
     this.lastWebInput = input
     if (this.native) {
-      // The snapshot of the switch below starts the Web engine from the opened project.
-      await this.enterWeb()
-      this.state.notice = WEB_ONLY_NOTICE
+      // The helper plays the opened project (BO-1): the snapshot of the new project, in the core's next
+      // epoch (newer than the helper's), starts its engine over. The Web engine catches up when it plays again.
+      if ('streamError' in step) this.resyncNative(step.streamError)
+      else this.native.push(step.push)
     } else if ('streamError' in step) {
       // Applied, but the snapshot did not encode: the Web engine, if any, is behind the project.
       if (this.web) {
@@ -382,6 +391,52 @@ export class Dispatcher {
   }
 
   /**
+   * Starts the helper's engine over from the project (BO-1): a `Reset` and the snapshot, in an epoch newer
+   * than `after` (the helper's engine outlives a page, so its epoch may be ahead of the core's). False when
+   * the snapshot did not encode.
+   */
+  private syncNative(native: NativeEngine, after: number): boolean {
+    const core = this.core
+    if (!core) return false
+    try {
+      const { report, engine } = core.snapshotAfter(after)
+      // A new slot table holds no take: a take in progress is lost (as for the Web engine).
+      this.recorder?.engineReplaced()
+      if (report.status !== 'encoded') return false
+      native.push(engine)
+      // The snapshot gave the engine its slots again (a new epoch): the view carries them for the launch grid.
+      this.refresh()
+      return true
+    } catch (error) {
+      console.error(error)
+      return false
+    }
+  }
+
+  /** When the helper last had to be resynced, for `resyncNative`'s bound. */
+  private nativeResyncs: number[] = []
+
+  /**
+   * The helper's engine is behind the project (it refused a stream, or a command's messages did not
+   * encode): it starts over from a snapshot newer than `epoch` (the one the helper reported). A helper
+   * that keeps refusing (`NATIVE_RESYNCS` within `NATIVE_RESYNC_WINDOW_MS`), or a snapshot that does not
+   * encode, sends the page back to Web, which plays the project itself, with the audio error notice.
+   */
+  private resyncNative(code: number, epoch?: number) {
+    const native = this.native
+    if (!native) return
+    console.error(`helper engine stream: error ${code}`)
+    const now = Date.now()
+    this.nativeResyncs = this.nativeResyncs.filter((at) => now - at < NATIVE_RESYNC_WINDOW_MS)
+    if (this.nativeResyncs.length < NATIVE_RESYNCS) {
+      this.nativeResyncs.push(now)
+      if (this.syncNative(native, epoch ?? native.epoch)) return
+    }
+    this.state.notice = 'audio.error'
+    void this.enterWeb()
+  }
+
+  /**
    * Pairs with a code from a link; a failure is a pairing failure, never thrown. A code
    * that reached no helper (the browser's local network prompt still open) is kept for
    * one more try once the user allows (`onLocalAccessGranted`).
@@ -481,15 +536,14 @@ export class Dispatcher {
     if ('streamError' in step) {
       // No report (it was lost): the command may have applied, read the project again.
       if (step.events.length === 0) this.refresh()
-      // Applied, but its engine messages did not encode: the Web engine is behind the project.
-      // The helper takes the command itself, whatever its mirror of the stream.
-      if (this.native) {
-        if (!isStorageCommand(command)) this.native.send(command)
-      } else {
+      // Applied, but its engine messages did not encode: the engine is behind the project. The
+      // helper's catches up by snapshot; the Web engine stops (the restart starts a new one).
+      if (this.native) this.resyncNative(step.streamError)
+      else {
         console.error(`engine stream: error ${step.streamError}`)
         void this.stopWeb(step.streamError, 0)
       }
-    } else if (!(this.native && isStorageCommand(command))) this.engine?.send(command, step.push)
+    } else this.engine?.send(command, step.push)
     applyEffects(command, {
       mode: this.state.mode,
       midi: this.midi,
@@ -762,8 +816,10 @@ export class Dispatcher {
       this.state.helperUpdate = session.update
       this.state.helper = 'connected'
       this.state.selectedInput = null
-      // The helper gets the page's settings before anything is awaited: no note reaches it at its defaults.
-      bringHelperCopyUpToDate(session, this.project.params)
+      // The helper's engine starts from the page's project before anything is awaited: no change reaches
+      // it before its snapshot (BO-1). A snapshot that does not encode leaves it nothing to play.
+      this.nativeResyncs = []
+      if (!this.syncNative(session, session.epoch)) throw new Error('the project snapshot for the helper did not encode')
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
       await this.midi?.releaseAll()

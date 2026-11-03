@@ -847,6 +847,18 @@ impl Preparer {
         self.rejected
     }
 
+    /// The track slots this side has prepared (added and not removed since the last
+    /// `Reset`), lowest first: what a host that holds no project addresses to release every
+    /// note (the helper at the end of a page's session, BO-1).
+    pub fn track_slots(&self) -> impl Iterator<Item = TrackSlot> + '_ {
+        self.shadow
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| track.is_some())
+            .map(|(slot, _)| TrackSlot(slot as u32))
+    }
+
     /// Rt messages parked because the ring was full.
     pub fn pending(&self) -> usize {
         self.pending.len()

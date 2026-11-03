@@ -1,76 +1,30 @@
 //! MIDI inputs: listing, hot-plug detection by polling, and the selected connection.
 //!
 //! midir has no hot-plug event, so the host polls [`MidiManager::refresh`]. The MIDI
-//! callback runs on midir's thread (not the audio thread): it turns each message into a
-//! live command and sends it through the shared [`EngineSlot`] (the prepare side of the open
-//! output's engine), which lives outside the connection so that closing or failing a
-//! connection never loses it; without an output the notes go nowhere.
+//! callback runs on midir's thread (not the audio thread). The helper holds no project
+//! (BO-1): it does not decide which track a note plays. It forwards each channel message of
+//! the selected input, as received, to the page's session ([`MidiOut`]); the page decodes it
+//! with the same decoder as Web MIDI and runs it in its project core (routing to the selected
+//! and armed tracks, held notes, recording), and the engine bytes come back like any change.
 
-use crate::audio::EngineSlot;
-use commands::{Command, live};
 use midir::{MidiInput, MidiInputConnection};
 use protocol::MidiInput as InputInfo;
-use std::sync::Arc;
-use std::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 
-/// The command that releases every note.
-pub fn all_notes_off() -> Command {
-    Command::Live(live::Command::AllNotesOff {})
-}
+/// Where the selected input's messages go: the server forwards them to the current session.
+pub type MidiOut = UnboundedSender<Vec<u8>>;
 
-/// The note and velocity a command plays, for the MIDI activity light (0: released).
-pub fn light(command: &Command) -> Option<(u8, u8)> {
-    match command {
-        Command::Live(live::Command::InputNoteOn { note, velocity, .. }) => {
-            Some((*note, *velocity))
-        }
-        Command::Live(live::Command::InputNoteOff { note, .. }) => Some((*note, 0)),
-        _ => None,
-    }
-}
+/// "All notes off" (control change 123): what the page gets when the input it played goes
+/// away (unplugged, another one selected), as Web MIDI releases on unplug.
+pub const ALL_NOTES_OFF: [u8; 3] = [0xB0, 123, 0];
 
-/// The live input's note on: the command layer routes it to the selected and the armed
-/// tracks (RE-1), so the helper knows no track. Not stamped (`frame: None`): the helper's
-/// MIDI time is not tied to its audio clock yet (#501), so the note counts from the block
-/// that takes it.
-fn note_on(note: u8, velocity: u8) -> Command {
-    Command::Live(live::Command::InputNoteOn {
-        note,
-        velocity,
-        frame: None,
-    })
-}
-
-fn note_off(note: u8) -> Command {
-    Command::Live(live::Command::InputNoteOff { note, frame: None })
-}
-
-fn control_change(controller: u8, value: u8) -> Command {
-    Command::Live(live::Command::ControlChange { controller, value })
-}
-
-/// Decodes a MIDI message into a live command. Channels are merged (omni). Control
-/// changes other than 120 and 123 become `live.control_change`, for the automation.
-pub fn decode(message: &[u8]) -> Option<Command> {
-    let (&status, data) = message.split_first()?;
-    let kind = status & 0xF0;
-    let byte = |i: usize| data.get(i).map(|b| b & 0x7F);
-    match kind {
-        0x90 => {
-            let note = byte(0)?;
-            match byte(1)? {
-                0 => Some(note_off(note)),
-                velocity => Some(note_on(note, velocity)),
-            }
-        }
-        0x80 => Some(note_off(byte(0)?)),
-        // Control change 120 (all sound off) and 123 (all notes off).
-        0xB0 => match byte(0)? {
-            120 | 123 => Some(all_notes_off()),
-            controller => Some(control_change(controller, byte(1)?)),
-        },
-        _ => None,
-    }
+/// Whether a message is forwarded to the page: the channel messages (note on and off,
+/// control change and the others the page may decode), not the system ones (clock, active
+/// sensing, sysex), which arrive many times a second and that nothing reads.
+pub fn forwarded(message: &[u8]) -> bool {
+    message
+        .first()
+        .is_some_and(|status| (0x80..0xF0).contains(status))
 }
 
 /// True when the two lists hold different inputs (order ignored).
@@ -85,19 +39,22 @@ pub fn still_selected(selected: Option<&str>, current: &[InputInfo]) -> Option<S
         .map(str::to_owned)
 }
 
+/// Whether this system has a MIDI backend the helper can open (`hello`'s capabilities).
+pub fn available() -> bool {
+    MidiInput::new("faulk-helper-probe").is_ok()
+}
+
 pub struct MidiManager {
-    sender: Arc<EngineSlot>,
-    activity: mpsc::Sender<(u8, u8)>,
+    out: MidiOut,
     connection: Option<MidiInputConnection<()>>,
     selected: Option<String>,
     inputs: Vec<InputInfo>,
 }
 
 impl MidiManager {
-    pub fn new(sender: Arc<EngineSlot>, activity: mpsc::Sender<(u8, u8)>) -> Self {
+    pub fn new(out: MidiOut) -> Self {
         Self {
-            sender,
-            activity,
+            out,
             connection: None,
             selected: None,
             inputs: Vec::new(),
@@ -134,18 +91,14 @@ impl MidiManager {
         let port = input
             .find_port_by_id(id)
             .ok_or_else(|| format!("no MIDI input with id {id}"))?;
-        let sender = self.sender.clone();
-        let activity = self.activity.clone();
+        let out = self.out.clone();
         let connection = input
             .connect(
                 &port,
                 "faulk-helper-in",
                 move |_timestamp, message, _| {
-                    if let Some(command) = decode(message) {
-                        sender.send(&command);
-                        if let Some(light) = light(&command) {
-                            let _ = activity.send(light);
-                        }
+                    if forwarded(message) {
+                        let _ = out.send(message.to_vec());
                     }
                 },
                 (),
@@ -156,11 +109,11 @@ impl MidiManager {
         Ok(())
     }
 
-    /// Closes the connection and releases the notes it was holding.
+    /// Closes the connection; the page is told to release the notes it was playing.
     pub fn disconnect(&mut self) {
         if let Some(connection) = self.connection.take() {
             connection.close();
-            self.sender.send(&all_notes_off());
+            let _ = self.out.send(ALL_NOTES_OFF.to_vec());
         }
         self.selected = None;
     }
@@ -185,30 +138,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decodes_notes_on_any_channel() {
-        assert_eq!(decode(&[0x90, 60, 100]), Some(note_on(60, 100)));
-        assert_eq!(decode(&[0x9F, 60, 100]), Some(note_on(60, 100)));
-        assert_eq!(decode(&[0x90, 60, 0]), Some(note_off(60)));
-        assert_eq!(decode(&[0x83, 61, 40]), Some(note_off(61)));
-        assert_eq!(decode(&[0xB0, 123, 0]), Some(all_notes_off()));
-        assert_eq!(decode(&[0xB0, 120, 0]), Some(all_notes_off()));
-    }
-
-    #[test]
-    fn decodes_control_changes_on_any_channel() {
-        assert_eq!(decode(&[0xB0, 7, 100]), Some(control_change(7, 100)));
-        assert_eq!(decode(&[0xB5, 1, 0xFF]), Some(control_change(1, 127)));
-        assert_eq!(decode(&[0xB0, 7]), None, "a value is missing");
-        assert_eq!(decode(&[0xB0]), None);
-    }
-
-    #[test]
-    fn ignores_other_and_malformed_messages() {
-        assert_eq!(decode(&[]), None);
-        assert_eq!(decode(&[0x90]), None);
-        assert_eq!(decode(&[0x90, 60]), None);
-        assert_eq!(decode(&[0xF8]), None); // clock
-        assert_eq!(decode(&[0x90, 0xFF, 0xFF]), Some(note_on(127, 127)));
+    fn forwards_the_channel_messages_only() {
+        for message in [
+            &[0x90, 60, 100][..],
+            &[0x8F, 60, 0],
+            &[0xB0, 123, 0],
+            &[0xB5, 1, 0x7F],
+            &[0xE0, 0, 64],
+        ] {
+            assert!(forwarded(message), "{message:?}");
+        }
+        for message in [&[][..], &[0xF8], &[0xFE], &[0xF0, 1, 0xF7], &[0x40, 1]] {
+            assert!(!forwarded(message), "{message:?}");
+        }
     }
 
     fn input(id: &str) -> InputInfo {
@@ -236,5 +178,14 @@ mod tests {
         assert_eq!(still_selected(Some("a"), &ab), Some("a".into()));
         assert_eq!(still_selected(Some("z"), &ab), None);
         assert_eq!(still_selected(None, &ab), None);
+    }
+
+    #[test]
+    fn disconnecting_with_no_connection_tells_the_page_nothing() {
+        let (out, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut midi = MidiManager::new(out);
+        midi.disconnect();
+        assert!(rx.try_recv().is_err());
+        assert_eq!(midi.selected(), None);
     }
 }
