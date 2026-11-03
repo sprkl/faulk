@@ -44,7 +44,8 @@ test('section markers: added, named, jumped to by keys, renamed and deleted, all
   // An agent places two markers; the button adds a third at the playhead's bar (bar 1).
   await run(page, { type: 'arrangement.marker.add', tick: BAR * 8, name: 'Verse' })
   await run(page, { type: 'arrangement.marker.add', tick: BAR * 16, name: 'Chorus' })
-  await page.getByTestId('arr-add-marker').click()
+  await page.getByTestId('arr-more').click()
+  await page.getByTestId('ctx-more-marker').click()
   await expect.poll(() => markerNames(page)).toEqual(['Section 1@1', 'Verse@9', 'Chorus@17'])
   await expect(page.getByTestId('arr-marker').filter({ hasText: 'Verse' })).toHaveAccessibleName('Marker Verse, bar 9')
 

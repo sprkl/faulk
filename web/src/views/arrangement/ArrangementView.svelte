@@ -54,7 +54,7 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
-  import { PPQ, barTicks, beatTicks } from '../transport/time'
+  import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
   import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
@@ -101,7 +101,7 @@
   } from './automation/gestures'
   import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
-  import RepeatDialog from './RepeatDialog.svelte'
+  import BarDialog from './BarDialog.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
   const { project, engine, ui, dispatcher, meters } = useStores()
@@ -378,11 +378,15 @@
     if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
     return timeSel
   })
-  const barsToInsert = $derived(Math.max(1, Math.min(9999, Math.floor(Number(barCount)) || 1)))
-  function insertBars() {
+  const MAX_INSERT_BARS = 9999
+  /** The "Insert bars" field is open (#575): the count is asked there, since the toolbar no longer holds a number field. */
+  let inserting = $state(false)
+  function insertBarsFromDialog(count: number) {
+    inserting = false
+    barCount = count
     const at = timeSel ? timeSel.start : barStart(position ?? 0, bar)
     timeSel = null
-    run(insertTime(at, barsToInsert * bar))
+    run(insertTime(at, count * bar))
   }
   function deleteSelectedTime() {
     const sel = timeSel
@@ -1155,6 +1159,28 @@
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
   }
+  /**
+   * The "More" menu of the toolbar (#575): the actions that are not needed at every step of making a track, with their
+   * shortcuts. It opens under its button (also from the keyboard, where the click has no position) in the shared menu.
+   */
+  function openMore(event: MouseEvent) {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const mod = (key: string[]) => chordText(['Mod', ...key])
+    ui.openMenuAt(
+      box.left,
+      box.bottom + 2,
+      [
+        { id: 'more-duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), disabled: selection.length === 0, run: () => duplicate(true) },
+        { id: 'more-repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: selection.length !== 1, run: openRepeat },
+        { id: 'more-insert-bars', label: t('arrangement.insertBars'), separator: true, run: () => (inserting = true) },
+        { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
+        { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
+        { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
+        { id: 'more-curve-step', label: t('automation.curveStep'), disabled: !autoSel, run: () => setCurve('step') },
+      ],
+      t('arrangement.more'),
+    )
+  }
   function repeatUpTo(barNumber: number) {
     const target = repeating
     repeating = null
@@ -1797,25 +1823,9 @@
       >{t('arrangement.duplicate')}{#if selection.length > 1}
         ({selection.length}){/if}</button
     >
-    <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
-      >{t('arrangement.duplicateLinked')}</button
-    >
     <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
       >{t('arrangement.delete')}</button
     >
-    <span class="time" role="group" aria-label={t('arrangement.timeTools')}>
-      <input type="number" min="1" max="9999" aria-label={t('arrangement.bars')} data-testid="arr-bars" bind:value={barCount} />
-      <button title={t('arrangement.insertBarsHint')} data-testid="arr-insert-bars" onclick={insertBars}>{t('arrangement.insertBars')}</button>
-      <button title={t('arrangement.deleteBarsHint')} disabled={!timeSel} data-testid="arr-delete-bars" onclick={deleteSelectedTime}
-        >{t('arrangement.deleteBars')}</button
-      >
-    </span>
-    <span class="curves" role="group" aria-label={t('automation.curves')}>
-      <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
-        >{t('automation.linear')}</button
-      >
-      <button title={t('automation.stepHint')} disabled={!autoSel} data-testid="arr-curve-step" onclick={() => setCurve('step')}>{t('automation.step')}</button>
-    </span>
     <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
       <button
         title={t('arrangement.zoomOut')}
@@ -1835,11 +1845,17 @@
         >{t('arrangement.fitSongShort')}</button
       >
     </span>
-    <button title={t('arrangement.addMarkerHint')} aria-label={t('arrangement.addMarker')} data-testid="arr-add-marker" onclick={addMarkerHere}
-      >{t('arrangement.addMarkerShort')}</button
-    >
     <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
       >{t('arrangement.follow')}</button
+    >
+    <button
+      class="more"
+      title={t('arrangement.moreHint')}
+      aria-label={t('arrangement.more')}
+      aria-haspopup="menu"
+      aria-expanded={ui.contextMenu?.label === t('arrangement.more')}
+      data-testid="arr-more"
+      onclick={openMore}>⋯</button
     >
     <span class="count" data-testid="arr-count"
       >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
@@ -2235,7 +2251,34 @@
   {/if}
 </div>
 
-<RepeatDialog open={repeating !== null} min={repeating?.min ?? 1} onsubmit={repeatUpTo} onclose={() => (repeating = null)} />
+<BarDialog
+  open={repeating !== null}
+  name="repeat"
+  title={t('arrangement.repeatTitle')}
+  label={t('arrangement.repeatLabel', { min: repeating?.min ?? 1 })}
+  invalid={t('arrangement.repeatInvalid', { min: repeating?.min ?? 1, max: MAX_GOTO_BAR })}
+  go={t('arrangement.repeatGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={repeating?.min ?? 1}
+  min={repeating?.min ?? 1}
+  max={MAX_GOTO_BAR}
+  onsubmit={repeatUpTo}
+  onclose={() => (repeating = null)}
+/>
+<BarDialog
+  open={inserting}
+  name="insert"
+  title={t('arrangement.insertTitle')}
+  label={t('arrangement.insertLabel')}
+  invalid={t('arrangement.insertInvalid', { max: MAX_INSERT_BARS })}
+  go={t('arrangement.insertGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={barCount}
+  min={1}
+  max={MAX_INSERT_BARS}
+  onsubmit={insertBarsFromDialog}
+  onclose={() => (inserting = false)}
+/>
 
 <style>
   .empty {
@@ -2274,7 +2317,7 @@
   }
   .toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: var(--fk-space-2) var(--fk-space-3);
     padding: var(--fk-space-1) var(--fk-space-3);
@@ -2305,6 +2348,10 @@
     cursor: default;
   }
   .count {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     margin-left: auto;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
