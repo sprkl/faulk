@@ -1,8 +1,7 @@
-use commands::{Command, live};
 use project::{DeviceId, TrackId};
 use protocol::{
-    ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION, ServerMessage, schema_bundle,
-    single_synth,
+    Capabilities, ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION, ServerMessage,
+    schema_bundle, single_synth,
 };
 
 #[test]
@@ -11,12 +10,10 @@ fn messages_round_trip_through_json() {
         ClientMessage::Pair {
             code: "12345678".into(),
         },
-        ClientMessage::Command {
-            command: Command::Live(live::Command::NoteOn {
-                track: TrackId::parse(single_synth::TRACK).unwrap(),
-                note: 60,
-                velocity: 1,
-            }),
+        ClientMessage::MidiListInputs,
+        ClientMessage::MidiSelectInput { id: None },
+        ClientMessage::MidiSelectInput {
+            id: Some("a".into()),
         },
     ];
     for m in client {
@@ -40,6 +37,16 @@ fn messages_round_trip_through_json() {
             sample_rate: 48_000.0,
             buffer_frames: None,
             estimated_latency_ms: None,
+            epoch: 7,
+            capabilities: Capabilities {
+                midi: true,
+                disk: false,
+            },
+        },
+        ServerMessage::StreamRefused {
+            code: -4,
+            at: 16,
+            epoch: 7,
         },
         ServerMessage::MidiInputs {
             inputs: vec![MidiInput {
@@ -48,9 +55,8 @@ fn messages_round_trip_through_json() {
             }],
             selected: None,
         },
-        ServerMessage::MidiActivity {
-            note: 60,
-            velocity: 0,
+        ServerMessage::MidiMessage {
+            data: vec![0x90, 60, 100],
         },
         ServerMessage::Error {
             code: "midi.connect".into(),
@@ -99,13 +105,13 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        8,
+        9,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        2,
+        3,
         "add the new message to messages_round_trip_through_json"
     );
 }

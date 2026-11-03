@@ -6,7 +6,7 @@ use helper::instance::{Startup, claim};
 use helper::midi::MidiManager;
 use helper::security::Policy;
 use helper::server::{Shared, serve};
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const ORIGIN: &str = "http://localhost:5173";
@@ -30,8 +30,8 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
             let (_core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
             let engine = Arc::new(EngineSlot::default());
             engine.install(sender, 48_000.0);
-            let (activity_tx, activity_rx) = mpsc::channel();
-            let midi = MidiManager::new(engine.clone(), activity_tx);
+            let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
+            let midi = MidiManager::new(midi_out);
             let shared = Arc::new(Shared::new(
                 Policy {
                     port,
@@ -40,7 +40,7 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
                 },
                 engine,
                 midi,
-                activity_rx,
+                midi_in,
                 meter,
                 Box::new(|_| {}),
             ));
