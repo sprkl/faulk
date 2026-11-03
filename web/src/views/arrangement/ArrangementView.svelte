@@ -661,8 +661,6 @@
 
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || gesture || !stage) return
-    // A pointer gesture takes the keyboard focus off a clip cell: the selection it makes is then what Ctrl+D copies (#528).
-    if ((document.activeElement as HTMLElement | null)?.dataset?.block !== undefined) focusGrid()
     const { x, y } = local(event)
     stage.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
@@ -670,6 +668,9 @@
       gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x, select: event.shiftKey }
       return
     }
+    // A press on the clips or the lanes takes the keyboard focus off a clip cell (the ruler keeps it): the selection it makes
+    // is then what Ctrl+D copies (#528).
+    if ((document.activeElement as HTMLElement | null)?.dataset?.block !== undefined) focusGrid()
     const where = rowAt(layout, y, y0)
     if (where && where.kind === 'lane') return laneDown(event, where, x, y)
     if (where?.kind === 'add') {
@@ -804,12 +805,13 @@
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
-  function copyAndSelect(ids: string[], linked: boolean, by?: number) {
+  function copyAndSelect(ids: string[], linked: boolean, by?: number): boolean {
     const before = new Set(blocks.map((b) => b.id))
     run(duplicatePlacements(ids, linked, by))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
     if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
+    return fresh.length > 0
   }
 
   // --- the lanes' gestures ---------------------------------------------------------------------------
@@ -1029,7 +1031,7 @@
     const by = copyShift(from)
     if (by === null) return
     const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
-    copyAndSelect(
+    const copied = copyAndSelect(
       from.map((b) => b.id),
       linked,
       by,
@@ -1040,7 +1042,7 @@
       .map((id) => blocks.find((b) => b.id === id))
       .filter((b): b is Block => !!b)
       .sort((x, y) => x.start - y.start)[0]
-    if (keyboard && first) void focusItem(first.id)
+    if (copied && keyboard && first) void focusItem(first.id)
   }
 
   function removeSelected() {
