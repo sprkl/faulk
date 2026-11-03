@@ -45,7 +45,7 @@ jobs:
         run: node scripts/ci/select.mjs
 
       # Free the preinstalled toolchains this job never uses, then print the space left
-      # (#595). The runner's 14 GB of free disk was not enough for the workspace's tests.
+      # (#595): the runner's free disk was not enough for the workspace's tests.
       - name: Free disk space
         if: steps.changes.outputs.rust == 'true'
         run: |
