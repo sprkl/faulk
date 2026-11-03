@@ -36,7 +36,9 @@ for (const [locale, insertLabel, deleteLabel] of [
   ['en-US', 'Insert bars', 'Delete selected bars'],
   ['fr-FR', 'Insérer des mesures', 'Supprimer les mesures sélectionnées'],
 ] as const) {
-  test(`arrangement view (${locale}): insert bars, select time with Shift+drag, delete the selected bars, each one undo`, async ({ browser }, info) => {
+  test(`arrangement view (${locale}): insert bars, select time with Shift+drag, delete the selected bars, each one undo${locale === 'fr-FR' ? ' @full' : ''}`, async ({
+    browser,
+  }, info) => {
     test.setTimeout(120_000)
     const context = await browser.newContext({ locale, baseURL: info.project.use.baseURL })
     const page = await context.newPage()

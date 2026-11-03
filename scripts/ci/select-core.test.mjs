@@ -252,7 +252,12 @@ test('tier area: a view change runs its specs whole and the core tests of the ot
   assert.equal(out.e2e_specs, 'tests/e2e/discoverability.spec.ts tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
   assert.equal(out.e2e_core.split(' ').length, CORE_SPECS.length)
   assert.equal(out.e2e_shards, '[1]')
-  assert.match(e2eSummary(r), /^e2e tier: area, 4 area specs whole, plus the core tests of \d+ other specs \(area of: /)
+  assert.match(e2eSummary(r), /^e2e tier: area, 4 area specs, plus the core tests of \d+ other specs; @full tests left to the whole suite \(area of: /)
+  assert.deepEqual([r.e2eChanged, out.e2e_specs_changed, out.e2e_full_tag], [[], '', '@full'])
+  // A spec whose own file changed runs whole, @full tests included, in its own list.
+  const own = pr(['web/tests/e2e/mixer.spec.ts'])
+  assert.deepEqual([own.e2eSpecs, own.e2eChanged, toOutputs(own).e2e_specs_changed], [[], ['mixer'], 'tests/e2e/mixer.spec.ts'])
+  assert.match(e2eSummary(own), /1 area specs \(1 changed, run with their @full tests\)/)
 })
 
 test('a spec that is also a core spec runs whole, not twice', () => {
@@ -364,4 +369,48 @@ test('every output the workflow reads is one select writes, and none of the old 
   for (const k of ['e2e_tier', 'e2e_why', 'e2e_core', 'e2e_core_grep', 'e2e_specs', 'e2e_all']) assert.ok(yml.includes(`needs.select.outputs.${k}`), `the e2e job does not use ${k}`)
   assert.ok(!/smoke/i.test(yml), 'ci.yml still names the smoke set')
   assert.match(yml, /\$E2E_CORE --grep "\$E2E_CORE_GREP"/)
+})
+
+test('an edit of the e2e table alone: its tests, the core and the specs it newly names; anything else in scripts/ci/ runs everything', () => {
+  const head = readFileSync(fileURLToPath(new URL('./e2e-plan.mjs', import.meta.url)), 'utf8')
+  const table = (base) => () => ({ base, head })
+  const withTable = (files, base) => select({ event: 'pull_request', base: 'develop', files, packages: ws, specs, table: table(base) })
+  const added = withTable(['scripts/ci/e2e-plan.mjs'], head.replace("clips: ['clip-pool'],", 'clips: [],'))
+  assert.deepEqual([added.mode, added.agentScripts, added.web, added.e2e, added.e2eTier, added.e2eAll, added.e2eSpecs], ['targeted', true, true, 'dev', 'area', false, ['clip-pool']])
+  assert.match(added.e2eWhy, /newly named: clip-pool/)
+  const same = withTable(['scripts/ci/e2e-plan.mjs'], head)
+  assert.deepEqual([same.e2eTier, same.e2eSpecs, same.rustTest], ['core', [], ''])
+  // With a spec file of the same pull request: that spec runs whole.
+  const withSpec = withTable(['scripts/ci/e2e-plan.mjs', 'web/tests/e2e/clip-pool.spec.ts'], head.replace("clips: ['clip-pool'],", 'clips: [],'))
+  assert.deepEqual([withSpec.e2eSpecs, withSpec.e2eChanged], [[], ['clip-pool']])
+  // Anything the strict check cannot prove: everything, and why.
+  const logic = withTable(['scripts/ci/e2e-plan.mjs'], head.replace('export const SPECS_PER_SHARD = 6', 'export const SPECS_PER_SHARD = 5'))
+  assert.deepEqual([logic.mode, logic.e2eTier], ['full', 'all'])
+  assert.match(logic.e2eWhy, /the file changed outside the table/)
+  assert.equal(withTable(['scripts/ci/e2e-plan.mjs', 'scripts/ci/e2e-plan.test.mjs'], head).mode, 'full')
+  assert.equal(withTable(['scripts/ci/select-core.mjs'], head).mode, 'full')
+  const unreadable = select({
+    event: 'pull_request',
+    base: 'develop',
+    files: ['scripts/ci/e2e-plan.mjs'],
+    packages: ws,
+    specs,
+    table: () => {
+      throw new Error('no base')
+    },
+  })
+  assert.deepEqual([unreadable.mode, unreadable.e2eTier], ['full', 'all'])
+  assert.match(unreadable.e2eWhy, /cannot be compared \(no base\)/)
+  // No way to read the table at all (a caller that passes none): everything.
+  assert.equal(pr(['scripts/ci/e2e-plan.mjs']).mode, 'full')
+})
+
+test('the workflow leaves the @full tests to the whole suite, and runs a changed spec whole', () => {
+  const yml = readFileSync(fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)), 'utf8')
+  assert.match(yml, /playwright test \$E2E_SPECS --grep-invert "\$E2E_FULL_TAG" --pass-with-no-tests/)
+  assert.match(yml, /playwright test \$E2E_CORE --grep "\$E2E_CORE_GREP" --grep-invert "\$E2E_FULL_TAG"/)
+  assert.match(yml, /playwright test \$E2E_SPECS_CHANGED --pass-with-no-tests/)
+  assert.ok(!/playwright test \$E2E_SPECS_CHANGED[^\n]*grep-invert/.test(yml), 'a changed spec runs its @full tests')
+  assert.match(yml, /pnpm exec playwright test --shard="\$SHARD"\r?\n/, 'the whole suite runs every test')
+  assert.match(yml, /tests of the area specs left to the whole suite/)
 })

@@ -17,7 +17,7 @@ for (const [locale, text] of [
   ['en-US', 'Not done: what this targets no longer exists.'],
   ['fr-FR', 'Pas fait : la cible n’existe plus.'],
 ] as const) {
-  test(`a refused command is shown (${locale}), grouped when repeated, and goes away`, async ({ browser }, info) => {
+  test(`a refused command is shown (${locale}), grouped when repeated, and goes away${locale === 'fr-FR' ? ' @full' : ''}`, async ({ browser }, info) => {
     const context = await browser.newContext({ locale, baseURL: info.project.use.baseURL })
     const page = await context.newPage()
     const seen = watch(page)

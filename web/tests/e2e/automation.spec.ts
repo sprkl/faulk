@@ -411,7 +411,7 @@ test('automation: changing the instrument takes its lanes with it, says so, and 
   expect(seen.errors).toEqual([])
 })
 
-test('automation: stays fluid with 10 000 points in sight', async ({ page }) => {
+test('automation: stays fluid with 10 000 points in sight @full', async ({ page }) => {
   test.setTimeout(240_000)
   const seen = watch(page)
   await open(page, 1800)

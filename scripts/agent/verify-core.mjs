@@ -92,14 +92,15 @@ export function duration(ms) {
  * The short summary the script ends with.
  * @param {{name: string, ok: boolean, skipped?: boolean, ms: number, note?: string}[]} steps
  */
-export function summary(steps, { base, files, specs, core = [], all, tier = '' }) {
+export function summary(steps, { base, files, specs, changed = [], core = [], all, tier = '' }) {
   const lines = [`verify against ${base}: ${files.length} changed file(s)`]
   for (const s of steps) {
     const state = s.skipped ? 'skip' : s.ok ? 'ok  ' : 'FAIL'
     lines.push(`  ${state} ${s.name.padEnd(10)} ${s.skipped ? '' : duration(s.ms)}${s.note ? `  ${s.note}` : ''}`.trimEnd())
   }
   if (tier) lines.push(`  ${tier}`)
-  lines.push(specs.length ? `  e2e specs${all ? ' (whole suite)' : ''}: ${specs.length > 12 ? `${specs.length} specs` : specs.join(', ')}` : core.length ? '  e2e specs: core tests only' : '  e2e specs: none needed')
+  lines.push(specs.length ? `  e2e specs${all ? ' (whole suite)' : ''}: ${specs.length > 12 ? `${specs.length} specs` : specs.join(', ')}` : changed.length ? '  e2e specs: changed specs only' : core.length ? '  e2e specs: core tests only' : '  e2e specs: none needed')
+  if (changed.length) lines.push(`  changed specs, run whole: ${changed.join(', ')}`)
   if (core.length) lines.push(`  core tests of: ${core.join(', ')}`)
   const failed = steps.filter((s) => !s.ok && !s.skipped)
   lines.push(failed.length ? `RESULT: FAIL (${failed.map((s) => s.name).join(', ')})` : `RESULT: OK in ${duration(steps.reduce((t, s) => t + (s.ms || 0), 0))}`)

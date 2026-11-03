@@ -232,7 +232,7 @@ function frames(page: Page, ms: number) {
 /** Main-thread time per frame of the mixer view, in reference units (`mainThreadMeter`); about 0.4 here, up to 0.75 with a 4x slower CPU, so ten times the work of the view crosses it and a noisy runner does not. */
 const MIXER_CEILING = 1.5
 
-test('32 strips with every meter moving: render cost', async ({ page }) => {
+test('32 strips with every meter moving: render cost @full', async ({ page }) => {
   test.setTimeout(240_000)
   const { errors } = watch(page)
   await start(page)

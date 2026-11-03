@@ -90,7 +90,9 @@ async function horizontalOverflow(page: Page): Promise<string[]> {
 
 for (const lang of ['en', 'fr'] as const) {
   for (const width of [1280, 1920]) {
-    test(`transport, ${lang}, ${width} px: play, stop, tempo, signature, loop, metronome`, async ({ page }, info) => {
+    test(`transport, ${lang}, ${width} px: play, stop, tempo, signature, loop, metronome${(lang === 'en' && width === 1920) || (lang === 'fr' && width === 1280) ? ' @full' : ''}`, async ({
+      page,
+    }, info) => {
       const x = TEXTS[lang]
       const { errors } = watch(page)
       await page.setViewportSize({ width, height: 900 })

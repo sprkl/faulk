@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { ALL, AREA, CORE, CORE_TESTS, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames } from './e2e-plan.mjs'
+import { ALL, AREA, CORE, CORE_TESTS, FULL_TAG, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames, tableOnlyChange } from './e2e-plan.mjs'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const E2E = join(ROOT, 'web/tests/e2e/')
@@ -33,8 +33,15 @@ test('every spec name the table and the areas list exists on disk', () => {
   assert.throws(() => areas('no-such-area'), /no area/)
 })
 
-test('every spec on disk runs whole when its own file changes', () => {
-  for (const name of EXISTING) assert.deepEqual(plan([`web/tests/e2e/${name}.spec.ts`]).specs, [name])
+test('every spec on disk runs whole, its @full tests included, when its own file changes', () => {
+  for (const name of EXISTING) {
+    const p = plan([`web/tests/e2e/${name}.spec.ts`])
+    assert.deepEqual([p.specs, p.changed], [[], [name]], name)
+  }
+  // Changed and named by an area at once: it runs whole, once.
+  const both = plan(['web/tests/e2e/mixer.spec.ts', 'web/src/views/mixer/M.svelte'])
+  assert.deepEqual(both.changed, ['mixer'])
+  assert.ok(!both.specs.includes('mixer'))
 })
 
 test('every rule is a verdict or a list of specs', () => {
@@ -102,6 +109,113 @@ test('the core grep matches the titles Playwright matches, and not their neighbo
   assert.ok(new RegExp(coreGrep(['export-audio'])).test('dev export-audio.spec.ts exports the song as a 24-bit WAV file while the song plays: header'))
   // Only the specs asked for.
   assert.ok(!new RegExp(coreGrep(['transport'])).test('dev helper.spec.ts probes'))
+})
+
+// The titles of a spec as Playwright prints them: literal titles as they are, template titles
+// rendered with the values the core fragments assume (English, 1280 px); a template that needs any
+// other variable cannot be rendered and is left out (a core fragment that only it could match fails).
+const VARS = { lang: 'en', width: 1280, locale: 'en-US', size: { width: 1280, height: 800 } }
+function renderedTitles(spec) {
+  const out = []
+  for (const m of source(spec).matchAll(/\btest(?:\.\w+)?\(\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*')/g)) {
+    const lit = m[1]
+    if (lit.startsWith("'")) out.push(lit.slice(1, -1).replaceAll("\\'", "'"))
+    else {
+      try {
+        out.push(new Function(...Object.keys(VARS), `return ${lit}`)(...Object.values(VARS)))
+      } catch {
+        /* another loop variable */
+      }
+    }
+  }
+  return out
+}
+
+test('no core test is tagged @full: the core run never loses one to --grep-invert', () => {
+  for (const { spec, title } of CORE_TESTS) {
+    const titles = renderedTitles(spec)
+    if (title === undefined) {
+      assert.ok(!source(spec).includes(FULL_TAG), `${spec} is a whole core spec: none of its tests may be ${FULL_TAG}`)
+      continue
+    }
+    const hits = titles.filter((t) => t.includes(title))
+    if (!hits.length) {
+      // A describe fragment: every test of the spec is a candidate.
+      assert.ok(source(spec).includes(`describe('${title}'`), `${spec}: "${title}" matches no rendered test title and no describe`)
+      assert.ok(!source(spec).includes(FULL_TAG), `${spec}: the core describe "${title}" sits in a spec with ${FULL_TAG} tests`)
+      continue
+    }
+    for (const t of hits) assert.ok(!t.includes(FULL_TAG), `core test "${t}" is tagged ${FULL_TAG}`)
+  }
+  // The renderer sees the tags: the transport variants of the core (en, 1280) and the one left to the release (en, 1920).
+  assert.ok(renderedTitles('transport').some((t) => t.startsWith('transport, en, 1280 px') && !t.includes(FULL_TAG)))
+  const wide = new Function('lang', 'width', `return ${/test\((`transport, [^`]*`)/.exec(source('transport'))[1]}`)('en', 1920)
+  assert.ok(wide.endsWith(` ${FULL_TAG}`), wide)
+})
+
+test('the @full tests are the ones the lead chose: performance ceilings, second languages, extra widths', () => {
+  const tagged = EXISTING.filter((s) => source(s).includes(FULL_TAG)).sort()
+  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'project-save', 'project-store', 'refused-commands', 'tracks', 'transport'])
+  // A spec whose only test is tagged still has a run that passes: the area run passes --pass-with-no-tests.
+  assert.ok(!['isolation', 'space-bar'].some((s) => source(s).includes(FULL_TAG)), 'isolation and space-bar stay as they are')
+})
+
+// ---- an edit of the table alone (#533) ----
+
+const HEAD = readFileSync(join(ROOT, 'scripts/ci/e2e-plan.mjs'), 'utf8')
+const lineOf = (text, start) => text.split('\n').find((l) => l.trimStart().startsWith(start))
+
+test('table only: an added spec name in an area is a table edit, and names that spec', () => {
+  const before = HEAD.replace("clips: ['clip-pool'],", "clips: [],")
+  const r = tableOnlyChange(before, HEAD)
+  assert.deepEqual(r, { ok: true, specs: ['clip-pool'] })
+  // The same file: a table edit with nothing newly named.
+  assert.deepEqual(tableOnlyChange(HEAD, HEAD), { ok: true, specs: [] })
+  // Windows line ends on one side change nothing.
+  assert.deepEqual(tableOnlyChange(HEAD.replaceAll('\n', '\r\n'), HEAD), { ok: true, specs: [] })
+})
+
+test('table only: a new rule names the specs of its areas; a rule narrowed names nothing new', () => {
+  const rule = lineOf(HEAD, "[/^web\\/src\\/lib\\/components\\/PianoStrip")
+  const added = HEAD.replace(rule, `${rule}\n  [/^web\\/src\\/lib\\/new-thing\\.ts$/, areas('export', 'midi')],`)
+  assert.deepEqual(tableOnlyChange(HEAD, added), { ok: true, specs: [...new Set([...AREA.export, ...AREA.midi])].sort() })
+  const narrowed = HEAD.replace(rule, "  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, CORE],")
+  assert.deepEqual(tableOnlyChange(HEAD, narrowed), { ok: true, specs: [] })
+  const listed = HEAD.replace(rule, "  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, ['keyboard', 'grid']],")
+  // The removed line named the keyboard area (which holds the spec "keyboard"): only "grid" is new.
+  assert.deepEqual(tableOnlyChange(HEAD, listed), { ok: true, specs: ['grid'] })
+})
+
+test('table only, strict: any other change of the file is not a table edit', () => {
+  const cases = {
+    'outside the table': HEAD.replace('export const SPECS_PER_SHARD = 6', 'export const SPECS_PER_SHARD = 7'),
+    'the core': HEAD.replace("{ spec: 'helper' },", "{ spec: 'helper' },\n  { spec: 'grid' },"),
+    'a function rule': HEAD.replace("[/^web\\/tests\\/e2e\\/([^/]+)\\.spec\\.ts$/, (m) => [m[1]]],", "[/^web\\/tests\\/e2e\\/([^/]+)\\.spec\\.ts$/, (m) => []],"),
+    'code in a rule': HEAD.replace("clips: ['clip-pool'],", "clips: ['clip-pool'].concat(globalThis.x ?? []),"),
+    'code hidden next to a regular expression': HEAD.replace("[/^web\\/src\\/views\\/clips\\//, AREA.clips],", "[/^web\\/src\\/views\\/clips\\// ? evil() : /x/, AREA.clips],"),
+    'a rule split over lines': HEAD.replace("[/^web\\/src\\/views\\/clips\\//, AREA.clips],", "[/^web\\/src\\/views\\/clips\\//,\n    AREA.clips],"),
+    'markers removed': HEAD.replace('// e2e-table:end', ''),
+    'markers repeated': HEAD.replace('// e2e-table:end', '// e2e-table:end\n// e2e-table:begin'),
+  }
+  for (const [what, head] of Object.entries(cases)) {
+    assert.notEqual(head, HEAD, `${what}: the case changes the file`)
+    const r = tableOnlyChange(HEAD, head)
+    assert.equal(r.ok, false, what)
+    assert.ok(r.why.length > 0, what)
+  }
+  // A base without the markers (before this change existed): not provable, everything runs.
+  assert.equal(tableOnlyChange(HEAD.replace('// e2e-table:begin\n', ''), HEAD).ok, false)
+})
+
+test('table only: the plan runs the core tests and the newly named specs, and says why', () => {
+  const p = plan([], { table: { specs: ['clip-pool'] } })
+  assert.deepEqual([p.tier, p.specs, p.all, p.shards], ['area', ['clip-pool'], false, 1])
+  assert.deepEqual(p.core, CORE_SPECS)
+  assert.match(p.why, /scripts\/ci\/e2e-plan\.mjs \(newly named: clip-pool\)/)
+  const none = plan([], { table: { specs: [] } })
+  assert.deepEqual([none.tier, none.specs, none.core], ['core', [], CORE_SPECS])
+  // A name that is no spec: stale, the whole suite.
+  assert.equal(plan([], { table: { specs: ['no-such-spec'] } }).tier, 'all')
 })
 
 test('a whole-spec core entry wins over a title of the same spec', () => {

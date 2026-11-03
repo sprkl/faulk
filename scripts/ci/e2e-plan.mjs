@@ -16,6 +16,17 @@ export const ALL = 'all'
 export const NONE = 'none'
 export const CORE = 'core'
 
+/** The union of named areas, sorted, without duplicates. */
+export const areas = (...names) => {
+  for (const n of names) if (!AREA[n]) throw new Error(`no area "${n}"`)
+  return [...new Set(names.flatMap((n) => AREA[n]))].sort()
+}
+
+// Between the two marker lines below sits the table and nothing else: AREA and RULES, one entry or
+// rule per line, comments. A pull request whose only change under scripts/ci/ is an edit of these
+// lines runs the core tests and the specs it newly names instead of the whole suite (`tableOnlyChange`);
+// any other change of this file, a line outside the table, or a table line of another shape runs everything.
+// e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
   arrangement: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'context-menu'],
@@ -51,12 +62,6 @@ export const AREA = {
   engine: ['all-sound-off', 'automation', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
   project: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands'],
-}
-
-/** The union of named areas, sorted, without duplicates. */
-export const areas = (...names) => {
-  for (const n of names) if (!AREA[n]) throw new Error(`no area "${n}"`)
-  return [...new Set(names.flatMap((n) => AREA[n]))].sort()
 }
 
 /**
@@ -194,6 +199,7 @@ export const RULES = [
   [/^(web|crates|modules|\.cargo)\//, ALL],
   [/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/, ALL],
 ]
+// e2e-table:end
 
 /**
  * The core: the app's backbone, run with every change the page can see (alone for a shared file, with
@@ -245,12 +251,14 @@ export const ruleFor = (raw) => RULES.find(([re]) => re.test(raw.replaceAll('\\'
 /**
  * @param {string[]} files changed files, repo-relative
  * @param {string[]} existing the spec names present on disk (without `.spec.ts`)
- * @returns {{specs: string[], all: boolean, shared: boolean, reasons: Record<string, string[]>}}
- *   `reasons`: per kind (`area`, `shared`, `all`, `unknown`, `missing`), the files and why.
+ * @returns {{specs: string[], changed: string[], all: boolean, shared: boolean, reasons: Record<string, string[]>}}
+ *   `changed`: the specs among `specs` whose own file changed. `reasons`: per kind (`area`, `shared`,
+ *   `all`, `unknown`, `missing`), the files and why.
  */
 export function selectSpecs(files, existing) {
   const known = new Set(existing)
   const picked = new Set()
+  const changed = new Set()
   const reasons = {}
   let all = false
   let shared = false
@@ -276,10 +284,14 @@ export function selectSpecs(files, existing) {
       why('shared', f)
       continue
     }
-    const names = typeof what === 'function' ? what(re.exec(f)) : what
+    const own = typeof what === 'function' // a spec file: its own selection
+    const names = own ? what(re.exec(f)) : what
     let ok = true
     for (const n of names) {
-      if (known.has(n)) picked.add(n)
+      if (known.has(n)) {
+        picked.add(n)
+        if (own) changed.add(n)
+      }
       else {
         // A stale table, or a deleted spec: never skip a test on a guess.
         all = true
@@ -290,7 +302,7 @@ export function selectSpecs(files, existing) {
     if (ok) why('area', f)
   }
   const specs = all ? [...known].sort() : [...picked].sort()
-  return { specs, all, shared, reasons }
+  return { specs, changed: all ? [] : [...changed].sort(), all, shared, reasons }
 }
 
 export const specFile = (name) => `tests/e2e/${name}.spec.ts`
@@ -339,7 +351,7 @@ export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(
 
 /** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */
 export function explain(reasons, max = 4) {
-  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', shared: 'shared page file', area: 'area of' }
+  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', table: 'table only', shared: 'shared page file', area: 'area of' }
   // What decided the tier comes first: the reasons for the whole suite, then the shared files, then the areas.
   const rank = (k) => (k in label ? Object.keys(label).indexOf(k) : -1)
   return Object.entries(reasons)
@@ -349,29 +361,117 @@ export function explain(reasons, max = 4) {
 }
 
 /**
+ * The tag of the tests that run only with the whole suite (the release pull request, a contract, the
+ * configuration): repeated variants (a second language, another width of the same flow) and the
+ * performance ceilings, whose strict budgets are checked off CI anyway (#533). A tagged test has
+ * `@full` in its title; the area and core runs pass `--grep-invert @full`, the whole suite does not,
+ * and a spec whose own file changed runs whole, tags included.
+ */
+export const FULL_TAG = '@full'
+
+/**
  * What the end-to-end tests have to run for a change.
  * @param {string[]} files changed files, repo-relative (web files, and the crate and build files the caller hands over)
  * @param {string[]} existing the spec names present on disk; empty means unreadable: the whole suite
- * @param {{all?: string}} [options] `all`: the reason the caller forces the whole suite (release, --full)
- * @returns {{run: boolean, tier: 'none'|'area'|'core'|'all', all: boolean, specs: string[], core: string[], grep: string, shards: number, reasons: Record<string, string[]>, why: string}}
- *   `specs` run whole; `core` are other specs of which only the core tests run (`grep`), on the first
+ * @param {{all?: string, table?: {specs: string[]}}} [options] `all`: the reason the caller forces the
+ *   whole suite (release, --full); `table`: the end-to-end table alone changed (`tableOnlyChange`), with
+ *   the specs it newly names
+ * @returns {{run: boolean, tier: 'none'|'area'|'core'|'all', all: boolean, specs: string[], changed: string[], core: string[], grep: string, shards: number, reasons: Record<string, string[]>, why: string}}
+ *   `specs` run whole but for the `@full` tests; `changed` (specs whose own file changed) run whole,
+ *   tags included; `core` are other specs of which only the core tests run (`grep`), on the first
  *   machine, unsharded; `run: false`: no browser test.
  */
 export function planE2e(files, existing, options = {}) {
   const done = (p) => ({ ...p, why: explain(p.reasons) })
-  const whole = (reasons) => done({ run: true, tier: 'all', all: true, specs: existing, core: [], grep: '', shards: MAX_SHARDS, reasons })
-  if (!existing.length) return done({ run: true, tier: 'all', all: true, specs: [], core: [], grep: '', shards: MAX_SHARDS, reasons: { unreadable: ['web/tests/e2e'] } })
+  const whole = (reasons) => done({ run: true, tier: 'all', all: true, specs: existing, changed: [], core: [], grep: '', shards: MAX_SHARDS, reasons })
+  if (!existing.length) return done({ run: true, tier: 'all', all: true, specs: [], changed: [], core: [], grep: '', shards: MAX_SHARDS, reasons: { unreadable: ['web/tests/e2e'] } })
   if (options.all) return whole({ forced: [options.all] })
   const sel = selectSpecs(files, existing)
+  if (options.table) {
+    // The table alone changed: its tests run with the agent scripts; here the core tests and the specs it newly names.
+    const missing = options.table.specs.filter((s) => !existing.includes(s))
+    if (missing.length) return whole({ ...sel.reasons, missing: missing.map((s) => `table -> ${s}`) })
+    sel.specs = [...new Set([...sel.specs, ...options.table.specs])].sort()
+    sel.shared = true
+    ;(sel.reasons.table ??= []).push(`scripts/ci/e2e-plan.mjs${options.table.specs.length ? ` (newly named: ${options.table.specs.join(', ')})` : ''}`)
+  }
   if (sel.all) return whole(sel.reasons)
-  if (!sel.specs.length && !sel.shared) return done({ run: false, tier: 'none', all: false, specs: [], core: [], grep: '', shards: 0, reasons: sel.reasons })
+  if (!sel.specs.length && !sel.shared) return done({ run: false, tier: 'none', all: false, specs: [], changed: [], core: [], grep: '', shards: 0, reasons: sel.reasons })
   // A core entry whose spec is gone is a stale table too: the whole suite, never a silent hole in the core.
   const gone = Object.keys(coreBySpec()).filter((s) => !existing.includes(s))
   if (gone.length) return whole({ ...sel.reasons, missing: gone.map((s) => `CORE_TESTS -> ${s}`) })
   const core = Object.keys(coreBySpec())
     .filter((s) => !sel.specs.includes(s))
     .sort()
+  const changed = sel.changed.filter((s) => sel.specs.includes(s))
+  const specs = sel.specs.filter((s) => !changed.includes(s))
   // The core run goes on the first machine, whole; the area specs are dealt out between the machines.
   const shards = sel.specs.length ? shardCount(sel.specs.length) : 1
-  return done({ run: true, tier: sel.specs.length ? 'area' : 'core', all: false, specs: sel.specs, core, grep: coreGrep(core), shards, reasons: sel.reasons })
+  return done({ run: true, tier: sel.specs.length ? 'area' : 'core', all: false, specs, changed, core, grep: coreGrep(core), shards, reasons: sel.reasons })
+}
+
+export const TABLE_FILE = 'scripts/ci/e2e-plan.mjs'
+const BEGIN = '// e2e-table:begin'
+const END = '// e2e-table:end'
+
+// The shapes a changed line of the table may take: a comment, an area entry (a list of spec names), or
+// a rule whose verdict is a constant, an area, a union of areas or a list of spec names. Anything else
+// (a function, an import, a line that spans several) is not a table edit.
+const TABLE_LINE = [
+  /^$/,
+  /^(\/\/|\/\*\*|\*\/|\*( |$))/,
+  /^[a-zA-Z]+: \[('[a-z0-9-]+'(, )?)*\],?$/,
+  // A regular-expression literal (its body: escapes, character classes, which may hold a slash, and any
+  // other character but a slash), then the verdict.
+  /^\[\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\[])+\/[a-z]*, (ALL|NONE|CORE|AREA\.[a-zA-Z]+|areas\(('[a-zA-Z]+'(, )?)+\)|\[('[a-z0-9-]+'(, )?)*\])\],?( \/\/.*)?$/,
+]
+
+/**
+ * Whether a change of the e2e table file is an edit of the table alone, and which specs it newly names.
+ * Strict: the text outside the two marker lines must be identical, each marker must appear once in
+ * both versions, and every line added or removed between them must have one of the table's shapes.
+ * @param {string} base the file before the change
+ * @param {string} head the file after the change
+ * @param {Record<string, string[]>} area the areas of the head (to expand `AREA.x` and `areas('x')`)
+ * @returns {{ok: true, specs: string[]} | {ok: false, why: string}} `specs`: the spec names that the
+ *   added lines name and the removed lines did not (a superset of the newly named specs)
+ */
+export function tableOnlyChange(base, head, area = AREA) {
+  const split = (text) => {
+    const lines = String(text).replaceAll('\r\n', '\n').split('\n')
+    const b = lines.indexOf(BEGIN)
+    const e = lines.indexOf(END)
+    if (b === -1 || e === -1 || e < b || lines.lastIndexOf(BEGIN) !== b || lines.lastIndexOf(END) !== e) return null
+    return { outside: [...lines.slice(0, b), ...lines.slice(e + 1)].join('\n'), inside: lines.slice(b + 1, e) }
+  }
+  const before = split(base)
+  const after = split(head)
+  if (!before || !after) return { ok: false, why: 'the table markers are missing or repeated' }
+  if (before.outside !== after.outside) return { ok: false, why: 'the file changed outside the table' }
+  // Lines added and removed, as multisets (a reordering is no change).
+  const count = (lines) => lines.reduce((m, l) => m.set(l, (m.get(l) ?? 0) + 1), new Map())
+  const a = count(after.inside)
+  const b = count(before.inside)
+  const diff = (x, y) => [...x].flatMap(([l, n]) => Array(Math.max(0, n - (y.get(l) ?? 0))).fill(l))
+  const added = diff(a, b)
+  const removed = diff(b, a)
+  for (const line of [...added, ...removed]) {
+    if (!TABLE_LINE.some((re) => re.test(line.trim()))) return { ok: false, why: `not a table line: ${line.trim().slice(0, 80)}` }
+  }
+  // The specs a line names: its quoted names, and the areas it refers to.
+  const named = (lines) => {
+    const out = new Set()
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (line.startsWith('//') || line.startsWith('*') || line.startsWith('/**')) continue
+      for (const m of line.matchAll(/AREA\.([a-zA-Z]+)/g)) for (const s of area[m[1]] ?? []) out.add(s)
+      for (const m of line.matchAll(/areas\(([^)]*)\)/g)) for (const n of m[1].matchAll(/'([a-zA-Z]+)'/g)) for (const s of area[n[1]] ?? []) out.add(s)
+      const listed = line.replace(/^\[\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\[])+\/[a-z]*, /, '').replace(/areas\([^)]*\)/g, '')
+      for (const m of listed.matchAll(/'([a-z0-9-]+)'/g)) out.add(m[1])
+      // An area entry names its own list; its key is no spec.
+    }
+    return out
+  }
+  const gone = named(removed)
+  return { ok: true, specs: [...named(added)].filter((s) => !gone.has(s)).sort() }
 }

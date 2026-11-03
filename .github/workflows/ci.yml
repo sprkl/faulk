@@ -35,6 +35,8 @@ jobs:
       e2e_why: ${{ steps.changes.outputs.e2e_why }}
       e2e_all: ${{ steps.changes.outputs.e2e_all }}
       e2e_specs: ${{ steps.changes.outputs.e2e_specs }}
+      e2e_specs_changed: ${{ steps.changes.outputs.e2e_specs_changed }}
+      e2e_full_tag: ${{ steps.changes.outputs.e2e_full_tag }}
       e2e_core: ${{ steps.changes.outputs.e2e_core }}
       e2e_core_grep: ${{ steps.changes.outputs.e2e_core_grep }}
       e2e_shards: ${{ steps.changes.outputs.e2e_shards }}
@@ -152,6 +154,8 @@ jobs:
           E2E_WHY: ${{ needs.select.outputs.e2e_why }}
           E2E_ALL: ${{ needs.select.outputs.e2e_all }}
           E2E_SPECS: ${{ needs.select.outputs.e2e_specs }}
+          E2E_SPECS_CHANGED: ${{ needs.select.outputs.e2e_specs_changed }}
+          E2E_FULL_TAG: ${{ needs.select.outputs.e2e_full_tag }}
           E2E_CORE: ${{ needs.select.outputs.e2e_core }}
           E2E_CORE_GREP: ${{ needs.select.outputs.e2e_core_grep }}
           SHARD_INDEX: ${{ matrix.shard }}
@@ -164,14 +168,26 @@ jobs:
           else
             status=0
             if [ -n "$E2E_SPECS" ]; then
+              # The tests tagged @full (repeated variants, performance ceilings) run with the whole suite only.
+              if [ "$SHARD_INDEX" = "1" ]; then
+                # shellcheck disable=SC2086
+                # No tagged test: Playwright says "No tests found" and exits non-zero, which counts as 0 here (the step runs under -e and pipefail).
+                excluded=$( (pnpm exec playwright test $E2E_SPECS --list --grep "$E2E_FULL_TAG" 2>/dev/null || true) | sed -n 's/^Total: \([0-9]*\) tests\{0,1\}.*/\1/p')
+                echo "$E2E_FULL_TAG tests of the area specs left to the whole suite: ${excluded:-0}" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
               # Separate output folders: a run empties its own, and the traces of a failing specs run must survive the core run.
               # shellcheck disable=SC2086
-              pnpm exec playwright test $E2E_SPECS --output=test-results/specs --shard="$SHARD" || status=1
+              pnpm exec playwright test $E2E_SPECS --grep-invert "$E2E_FULL_TAG" --pass-with-no-tests --output=test-results/specs --shard="$SHARD" || status=1
+            fi
+            if [ -n "$E2E_SPECS_CHANGED" ]; then
+              # A spec whose own file changed runs whole, its @full tests included.
+              # shellcheck disable=SC2086
+              pnpm exec playwright test $E2E_SPECS_CHANGED --pass-with-no-tests --output=test-results/changed --shard="$SHARD" || status=1
             fi
             # The core tests run whole on the first machine: dealt out by file, a shard could get none of them.
             if [ -n "$E2E_CORE" ] && [ "$SHARD_INDEX" = "1" ]; then
               # shellcheck disable=SC2086
-              pnpm exec playwright test $E2E_CORE --grep "$E2E_CORE_GREP" --output=test-results/core || status=1
+              pnpm exec playwright test $E2E_CORE --grep "$E2E_CORE_GREP" --grep-invert "$E2E_FULL_TAG" --output=test-results/core || status=1
             fi
             exit $status
           fi

@@ -10,7 +10,7 @@
 //  - fail safe: a file this module cannot classify, an unknown event or a failure to list the
 //    changed files runs everything.
 
-import { MAX_SHARDS, explain, planE2e } from './e2e-plan.mjs'
+import { FULL_TAG, MAX_SHARDS, TABLE_FILE, explain, planE2e, tableOnlyChange } from './e2e-plan.mjs'
 
 const NONE = Object.freeze({
   mode: 'none',
@@ -25,7 +25,8 @@ const NONE = Object.freeze({
   e2eTier: 'none', // 'none', 'core' (the core tests alone), 'area' (area specs plus the core tests) or 'all'
   e2eWhy: '', // one line: which files chose the tier
   e2eAll: false, // the whole suite (every spec of the projects), not a list
-  e2eSpecs: [], // spec names run whole (targeted only)
+  e2eSpecs: [], // spec names run whole but for the @full tests (targeted only)
+  e2eChanged: [], // specs whose own file changed: run whole, @full tests included (targeted only)
   e2eCore: [], // specs of which only the core tests run (targeted only), on the first machine
   e2eGrep: '', // the --grep that selects those core tests
   e2eShards: 0, // machines to run them on; 0: no end-to-end job
@@ -68,6 +69,7 @@ function full(workspace, why) {
     e2eWhy: explain({ forced: [why] }),
     e2eAll: true,
     e2eSpecs: [],
+    e2eChanged: [],
     e2eCore: [],
     e2eGrep: '',
     e2eShards: MAX_SHARDS,
@@ -109,8 +111,10 @@ export function affectedPackages(packages, changed) {
  *   read lazily: a change without Rust never asks for them
  * @param {() => string[]} [input.specs] the end-to-end spec names on disk, read lazily; absent, empty
  *   or throwing: the whole suite
+ * @param {() => {base: string, head: string}} [input.table] the e2e table file before and after the
+ *   change, read lazily when it is the only file of scripts/ci/ that changed; absent or throwing: everything
  */
-export function select({ event, base, files, packages, specs }) {
+export function select({ event, base, files, packages, specs, table }) {
   if (event === 'push') return { ...NONE }
   if (event !== 'pull_request') return full(packages(), `event ${event || 'unknown'}`)
   if (base === 'main') return full(packages(), 'pull request against main (release or hotfix)')
@@ -121,6 +125,8 @@ export function select({ event, base, files, packages, specs }) {
   let web = false
   const e2eFiles = [] // what the e2e table judges: web files, ci.yml, build inputs, the files of crates the page is built from
   const crateFiles = new Map() // crate dir -> its changed files
+  let tableChanged = false
+  let tableSpecs = null // the table alone changed: the specs it newly names
   let rustAll = false
   let helperInputs = false
   let workspace = null
@@ -135,6 +141,8 @@ export function select({ event, base, files, packages, specs }) {
     if (IGNORED.some((re) => re.test(f))) continue
 
     // The selection rules themselves: a mistake there would skip tests anywhere.
+    // An edit of the end-to-end table alone is judged after the loop (tableOnlyChange); the rest of scripts/ci/ runs everything.
+    if (f === TABLE_FILE) { tableChanged = true; continue }
     if (f.startsWith('scripts/ci/')) return full(members(), `the selection changed: ${f}`)
     if (f === '.github/workflows/ci.yml') { web = true; e2eFiles.push(f); continue }
     if (f === '.github/workflows/rust.yml') { rustAll = out.rustProto = true; continue }
@@ -174,6 +182,22 @@ export function select({ event, base, files, packages, specs }) {
     return full(members(), `unknown path: ${f}`) // never skip on a guess
   }
 
+  // The e2e table alone changed under scripts/ci/: its own tests (agent scripts), the core tests and the
+  // specs it newly names; anything the strict check cannot prove a table edit runs everything.
+  if (tableChanged) {
+    let check
+    try {
+      const { base: before, head: after } = table()
+      check = tableOnlyChange(before, after)
+    } catch (e) {
+      check = { ok: false, why: `the table file cannot be compared (${e.message})` }
+    }
+    if (!check.ok) return full(members(), `the selection changed: ${TABLE_FILE} (${check.why})`)
+    tableSpecs = check.specs
+    out.agentScripts = true
+    web = true
+  }
+
   if (changedDirs.size || rustAll || helperInputs) {
     const all = members()
     const names = all.filter((p) => changedDirs.has(p.dir)).map((p) => p.name)
@@ -197,7 +221,7 @@ export function select({ event, base, files, packages, specs }) {
     }
   }
   out.web = web
-  if (e2eFiles.length) {
+  if (e2eFiles.length || tableSpecs) {
     // The table decides per file; anything it cannot place, or specs it cannot read, is the whole suite.
     let existing = []
     try {
@@ -205,13 +229,14 @@ export function select({ event, base, files, packages, specs }) {
     } catch {
       /* unreadable: the whole suite */
     }
-    const plan = planE2e(e2eFiles, existing)
+    const plan = planE2e(e2eFiles, existing, tableSpecs ? { table: { specs: tableSpecs } } : {})
     out.e2eTier = plan.tier
     out.e2eWhy = plan.why
     if (plan.run) {
       out.e2e = 'dev'
       out.e2eAll = plan.all
       out.e2eSpecs = plan.all ? [] : plan.specs
+      out.e2eChanged = plan.all ? [] : plan.changed
       out.e2eCore = plan.core
       out.e2eGrep = plan.grep
       out.e2eShards = plan.shards
@@ -240,10 +265,11 @@ export function e2eSummary(r) {
   const what = {
     none: 'no browser test',
     core: `the core tests alone (${r.e2eCore.length} specs)`,
-    area: `${r.e2eSpecs.length} area specs whole, plus the core tests of ${r.e2eCore.length} other specs`,
-    all: 'the whole suite',
+    area: `${r.e2eSpecs.length + r.e2eChanged.length} area specs${r.e2eChanged.length ? ` (${r.e2eChanged.length} changed, run with their ${FULL_TAG} tests)` : ''}, plus the core tests of ${r.e2eCore.length} other specs`,
+    all: `the whole suite, ${FULL_TAG} tests included`,
   }[r.e2eTier]
-  return `e2e tier: ${r.e2eTier}, ${what}${r.e2eWhy ? ` (${r.e2eWhy})` : ''}`
+  const tag = r.e2eTier === 'area' || r.e2eTier === 'core' ? `; ${FULL_TAG} tests left to the whole suite` : ''
+  return `e2e tier: ${r.e2eTier}, ${what}${tag}${r.e2eWhy ? ` (${r.e2eWhy})` : ''}`
 }
 
 /** Key / value pairs for $GITHUB_OUTPUT. */
@@ -262,6 +288,8 @@ export function toOutputs(r) {
     e2e_why: r.e2eWhy.replace(/[\r\n]+/g, ' '), // one line for $GITHUB_OUTPUT
     e2e_all: String(r.e2eAll),
     e2e_specs: r.e2eSpecs.map((n) => `tests/e2e/${n}.spec.ts`).join(' '), // names are [a-z0-9-]: safe to split
+    e2e_specs_changed: r.e2eChanged.map((n) => `tests/e2e/${n}.spec.ts`).join(' '),
+    e2e_full_tag: FULL_TAG,
     e2e_core: r.e2eCore.map((n) => `tests/e2e/${n}.spec.ts`).join(' '),
     e2e_core_grep: r.e2eGrep,
     e2e_shards: JSON.stringify(Array.from({ length: Math.max(r.e2eShards, 1) }, (_, i) => i + 1)), // the matrix; the job's `if` guards the empty case

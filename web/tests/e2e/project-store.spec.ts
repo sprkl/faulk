@@ -490,7 +490,7 @@ test.describe('the project in a folder', () => {
     expect(errors).toEqual([])
   })
 
-  test('French: the state and the menu are in French', async ({ page }) => {
+  test('French: the state and the menu are in French @full', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
     await simulatePicker(page, 'song-fr')
     await page.goto('/app')

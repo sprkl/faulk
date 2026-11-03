@@ -15,10 +15,11 @@
 // %LOCALAPPDATA%\faulk-build\target, or $XDG_CACHE_HOME/faulk-build/target), emptied by --prune-cache
 // once it passes FAULK_BUILD_CACHE_MAX_GB (default 8; the script only warns on its own). FAULK_SHARED_TARGET=0 keeps the checkout's own target/.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { FULL_TAG, TABLE_FILE } from '../ci/e2e-plan.mjs'
 import { e2eSummary, packagesFromMetadata } from '../ci/select-core.mjs'
 import { dirSizeUpTo, freePorts, parsePorts, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
 import { evidenceLine, planVerify, rootSteps } from './verify-plan.mjs'
@@ -63,6 +64,25 @@ function changedFiles(base) {
   const tracked = git('diff', '--name-only', '--no-renames', mergeBase)
   const untracked = git('ls-files', '--others', '--exclude-standard')
   return [...new Set([...tracked, ...untracked])]
+}
+
+/** The e2e table file at the merge base and in the working tree (#533: an edit of the table alone; throws when unreadable: everything runs). */
+function tableTexts(base) {
+  const mergeBase = git('merge-base', base, 'HEAD')[0]
+  const before = execFileSync('git', ['show', `${mergeBase}:${TABLE_FILE}`], { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  return { base: before, head: readFileSync(join(root, TABLE_FILE), 'utf8') }
+}
+
+/** How many tests of `specs` carry the @full tag (a `--list` of Playwright); null when it cannot be counted. */
+function countFull(specs, env) {
+  try {
+    const out = execFileSync([`pnpm exec playwright test`, ...specs.map(specFile), '--list', '--grep', FULL_TAG].join(' '), { cwd: web, env, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const m = /Total: (\d+) tests?/.exec(out)
+    return m ? Number(m[1]) : 0
+  } catch (e) {
+    // No test matches: Playwright says so and exits non-zero.
+    return /No tests found/i.test(`${e.stdout ?? ''}${e.stderr ?? ''}`) ? 0 : null
+  }
 }
 
 /** The workspace crates, from `cargo metadata` (throws when cargo cannot read it: the plan then runs everything). */
@@ -155,7 +175,7 @@ async function main() {
   const existing = specNames(readdirSync(join(web, 'tests', 'e2e')))
   // The CI selection itself (#447, scripts/ci/select-core.mjs): crates touched and their dependents, WASM builds and
   // parity only when the page or the engine embeds the change, and the e2e plan below. --full (or --all): everything.
-  const plan = planVerify({ files: listed, full: flag('--full') || flag('--all'), packages: workspacePackages, specs: () => existing })
+  const plan = planVerify({ files: listed, full: flag('--full') || flag('--all'), packages: workspacePackages, specs: () => existing, table: () => tableTexts(base) })
   const decision = plan.decision
   // The end-to-end plan is the decision's own (#533): the one CI computes for the same files, tier and reasons included.
   const wantWeb = plan.mode === 'full' || decision.web
@@ -163,12 +183,13 @@ async function main() {
   if (e2eAll && !existing.length) throw new Error('no end-to-end spec found in web/tests/e2e')
   const noE2e = flag('--no-e2e') || !wantWeb || decision.e2e === ''
   const specs = noE2e ? [] : e2eAll ? existing : decision.e2eSpecs
+  const changed = noE2e || e2eAll ? [] : decision.e2eChanged
   const core = noE2e ? [] : decision.e2eCore
   const tierLine = noE2e && decision.e2e !== '' ? `${e2eSummary(decision)} [skipped: --no-e2e]` : e2eSummary(decision)
 
   if (flag('--dry-run')) {
     console.log(`mode ${plan.mode} (${plan.why})\nrust: ${rootSteps(decision).map((s) => s.name).join(', ') || 'none'}\n${evidenceLine({ mode: plan.mode, base, decision })}`)
-    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\n${tierLine}\nspecs (${specs.length}${e2eAll ? ', whole suite' : ''}): ${specs.join(', ')}\ncore tests only (${core.length}): ${core.join(', ')}`)
+    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\n${tierLine}\nspecs (${specs.length}${e2eAll ? ', whole suite' : `, without the ${FULL_TAG} tests`}): ${specs.join(', ')}\nchanged specs, run whole (${changed.length}): ${changed.join(', ')}\ncore tests only (${core.length}): ${core.join(', ')}`)
     if (decision.e2eGrep) console.log(`core grep: ${decision.e2eGrep}`)
     return 0
   }
@@ -176,6 +197,7 @@ async function main() {
   const env = { ...process.env }
   const cacheWarning = setupBuildCache(env)
   const steps = []
+  let excluded // how many @full tests the area run leaves out (counted with `--list`)
   const go = async (name, command, commandArgs, extraEnv = {}) => {
     const step = await run(name, command, commandArgs, { ...env, ...extraEnv })
     steps.push(step)
@@ -207,7 +229,7 @@ async function main() {
     if (proceed && !flag('--fix')) proceed = await go('lint', 'pnpm', ['lint'])
     // `pnpm test` also builds the two WASM modules the dev server serves.
     if (proceed) proceed = await go('vitest', 'pnpm', ['test'])
-    if (proceed && (specs.length || core.length)) {
+    if (proceed && (specs.length || changed.length || core.length)) {
       const ports = forcedPorts ?? (await freePorts(3))
       const e2eEnv = {
         ...env,
@@ -217,13 +239,17 @@ async function main() {
         FAULK_E2E_HELPER_PORT: String(ports[2]),
       }
       const playwright = ['exec', 'playwright', 'test']
-      // CI runs these two commands too (.github/workflows/ci.yml): the whole specs, then the core tests of the others.
+      // CI runs these commands too (.github/workflows/ci.yml): the area specs without the @full tests, the
+      // specs whose own file changed whole, then the core tests of the others (never a @full one).
       const runs = []
-      if (specs.length) runs.push(await run(`e2e (${specs.length})`, 'pnpm', [...playwright, ...(e2eAll ? [] : specs.map(specFile))], e2eEnv))
+      const invert = ['--grep-invert', FULL_TAG, '--pass-with-no-tests']
+      if (!e2eAll && specs.length) excluded = countFull(specs, e2eEnv)
+      if (specs.length) runs.push(await run(`e2e (${specs.length})`, 'pnpm', [...playwright, ...(e2eAll ? [] : [...specs.map(specFile), ...invert])], e2eEnv))
+      if (changed.length && (runs.every((r) => r.ok) || flag('--keep-going'))) runs.push(await run(`changed (${changed.length})`, 'pnpm', [...playwright, ...changed.map(specFile)], e2eEnv))
       if (core.length && (runs.every((r) => r.ok) || flag('--keep-going'))) {
         // The pattern holds `|`, `^` and `.*`: quoted for the shell the Windows branch of run() goes through.
         const grep = process.platform === 'win32' ? `"${decision.e2eGrep}"` : decision.e2eGrep
-        runs.push(await run(`core (${core.length})`, 'pnpm', [...playwright, ...core.map(specFile), '--grep', grep], e2eEnv))
+        runs.push(await run(`core (${core.length})`, 'pnpm', [...playwright, ...core.map(specFile), '--grep', grep, '--grep-invert', FULL_TAG], e2eEnv))
       }
       const busy = []
       for (const p of ports) if (!(await portIsFree(p))) busy.push(p)
@@ -232,7 +258,8 @@ async function main() {
     }
   }
 
-  console.log(`\n${summary(steps, { base, files, specs, core, all: e2eAll, tier: tierLine })}`)
+  const fullNote = excluded === undefined ? '' : excluded === null ? `; ${FULL_TAG} tests excluded: not counted` : `; ${excluded} ${FULL_TAG} test(s) of the area specs left to the whole suite`
+  console.log(`\n${summary(steps, { base, files, specs, changed, core, all: e2eAll, tier: `${tierLine}${fullNote}` })}`)
   console.log(`mode: ${plan.mode} (${plan.why})\nfor record.mjs --rust: ${evidenceLine({ mode: plan.mode, base, decision })}`)
   if (cacheWarning) console.log(cacheWarning)
   console.log(`total ${((Date.now() - started) / 1000).toFixed(0)} s wall`)
