@@ -195,6 +195,10 @@ typed_id!(
     /// Identifier of a placement in a track's arrangement.
     PlacementId
 );
+typed_id!(
+    /// Identifier of a section marker of the arrangement (#473).
+    MarkerId
+);
 
 #[cfg(test)]
 mod tests {

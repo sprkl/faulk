@@ -511,6 +511,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
             edits: vec![],
             lanes: l,
             transport: None,
+            markers: vec![],
         })
     };
     let named = |points: Vec<commands::automation::Point>| LanePoints {
@@ -536,6 +537,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
                 loop_region: None,
                 loop_enabled: true,
             }),
+            markers: vec![],
         }),
         a(arrangement::Command::RestoreTime {
             edits: vec![],
@@ -547,6 +549,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
                 }),
                 loop_enabled: false,
             }),
+            markers: vec![],
         }),
     ] {
         let error = check_refusal(&command, &s, &context()).unwrap();

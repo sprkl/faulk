@@ -5,7 +5,7 @@
    * goes while the pointer moves. The selection, the snap, the zoom and the scroll are the page's view state,
    * not project data.
    */
-  import { onDestroy, tick, untrack } from 'svelte'
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
   import {
     barStart,
     createClipAt,
@@ -19,7 +19,9 @@
   } from '../../lib/arrangement-commands'
   import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
+  import { keepsBrowserMenu, type MenuItem } from '../../lib/context-menu'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
+  import { chordText } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
   import { deviceText, labelKey } from '../../lib/devices'
@@ -39,7 +41,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isTextTarget } from '../../lib/keyboard'
+  import { arrangementShortcut, isTextTarget } from '../../lib/keyboard'
   import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -53,6 +55,7 @@
   import { PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
+  import { addMarker, deleteMarker, renameMarker } from '../../lib/arrangement-commands'
   import {
     blocksOf,
     clampScrollY,
@@ -64,6 +67,10 @@
     moveDelta,
     moved,
     passCount,
+    markerJump,
+    openingView,
+    wholeSongView,
+    type MarkerView,
     resizeTo,
     resized,
     laneHeight,
@@ -174,6 +181,14 @@
   })
   const totalBars = $derived(Math.max(DEFAULT_TOTAL_BARS, Math.ceil(Math.max(lastEnd(blocks), lastPoint) / bar) + SPARE_BARS))
   const transport = $derived(project.view?.project.transport ?? null)
+  /** The section markers (#473), in timeline order. */
+  const markers = $derived<MarkerView[]>(
+    Object.entries(project.view?.project.markers ?? {})
+      .flatMap(([id, m]) => (m ? [{ id, tick: m.tick, name: m.name }] : []))
+      .sort((a, b) => a.tick - b.tick || (a.id < b.id ? -1 : 1)),
+  )
+  /** Where the song ends: its last clip, automation point or marker. */
+  const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
 
   // View state.
   let snap = $state<SnapSetting>('auto')
@@ -182,6 +197,8 @@
   const layoutRev = ui.layoutRev
   const left = ui.recall<{ view?: View; scrollY?: number; open?: string[] }>('arrangement')
   let view = $state<View>(validView(left?.view) ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  /** No remembered view: the arrangement opens on 16 to 32 bars as soon as it knows its width (#473). */
+  let openToFit = !validView(left?.view)
   let scrollY = $state(typeof left?.scrollY === 'number' && Number.isFinite(left.scrollY) ? left.scrollY : 0)
   const keep = () => ui.remember('arrangement', { view, scrollY, open: [...open] }, layoutRev)
   onDestroy(keep)
@@ -435,6 +452,91 @@
   const zoomBy = (factor: number) => {
     view = zoomAt(shown, factor, stageW / 2, stageW, totalTicks)
   }
+  /** The whole song in the window (#473): bar 1 to its end and a bar more. */
+  function fitSong() {
+    const fit = wholeSongView(songEnd, bar, stageW)
+    if (!fit) return
+    follow = false
+    view = clampView(fit, stageW, totalTicks)
+  }
+  // The first opening in a project: 16 to 32 bars, once the stage has its width.
+  $effect(() => {
+    if (!openToFit || stageW <= 0) return
+    const opening = untrack(() => openingView(songEnd, bar, stageW))
+    if (!opening) return
+    openToFit = false
+    view = clampView(
+      opening,
+      stageW,
+      untrack(() => totalTicks),
+    )
+  })
+
+  // --- the section markers (#473) --------------------------------------------------------------------
+  /**
+   * The marker a jump just went to, until the engine's report shows the playhead there: two quick presses go on to the
+   * next marker instead of finding the old position again.
+   */
+  let jumpedTo = $state<number | null>(null)
+  /** The marker jumped to last: two markers on one tick are reached one after the other. */
+  let lastMarker: string | null = null
+  let jumpTimer: ReturnType<typeof setTimeout> | undefined
+  $effect(() => {
+    const tick = shownTick
+    if (tick !== null && jumpedTo !== null && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
+  })
+  onDestroy(() => clearTimeout(jumpTimer))
+  /** The tick the playhead stands on: a jump not reported yet, else the report's, else the start. */
+  const headTick = () => Math.max(0, jumpedTo ?? shownTick ?? 0)
+  function addMarkerHere() {
+    run(addMarker(Math.floor(headTick() / bar) * bar))
+  }
+  function jumpMarker(direction: 1 | -1) {
+    const from = headTick()
+    const to = markerJump(markers, from, direction, lastMarker)
+    if (!to) return
+    run(seek(to.tick))
+    lastMarker = to.id
+    jumpedTo = to.tick
+    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
+    clearTimeout(jumpTimer)
+    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
+    if (stageW > 0) view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    announce(t('arrangement.markerSaid', { name: to.name, bar: Math.floor(to.tick / bar) + 1 }))
+  }
+  /** The marker being renamed, and the text typed. */
+  let renaming = $state<{ id: string; text: string } | null>(null)
+  function commitRename() {
+    const r = renaming
+    renaming = null
+    if (!r) return
+    const marker = markers.find((m) => m.id === r.id)
+    if (marker && r.text.trim() && r.text.trim() !== marker.name) run(renameMarker(r.id, r.text))
+  }
+  function onMarkerKey(event: KeyboardEvent, marker: MarkerView) {
+    if (event.key === 'F2') {
+      event.preventDefault()
+      renaming = { id: marker.id, text: marker.name }
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      run(deleteMarker(marker.id))
+    }
+  }
+  // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
+  onMount(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (document.querySelector('[aria-modal="true"]')) return
+      const action = arrangementShortcut(event)
+      if (!action) return
+      event.preventDefault()
+      if (action === 'addMarker') addMarkerHere()
+      else if (action === 'prevMarker') jumpMarker(-1)
+      else if (action === 'nextMarker') jumpMarker(1)
+      else fitSong()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
   const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
   const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
 
@@ -489,6 +591,7 @@
       timeSel: timeNow,
       fallbackName: t('arrangement.clipDefault'),
       silent,
+      markers,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -818,9 +921,12 @@
   }
 
   function onContextMenu(event: MouseEvent) {
+    // The field that types a point's value keeps the browser's menu.
+    if (keepsBrowserMenu(event.target) || event.defaultPrevented) return
     const { x, y } = local(event)
     const row = y >= RULER_HEIGHT ? rowAt(layout, y, y0) : null
     const ref = row?.kind === 'lane' && row.lane ? laneRefs.get(row.lane) : undefined
+    if (row && !(ref && row.lane)) return clipContext(event, row, x, y)
     if (!row || !ref || !row.lane) return
     event.preventDefault()
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
@@ -830,6 +936,52 @@
     }
     if (!(autoPick?.lane === row.lane && autoPick.ticks.has(hit.tick))) autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     menu = { x: event.clientX, y: event.clientY }
+  }
+
+  /**
+   * The right click on a clip (#524): the clip joins the selection when it is not part of it, and its actions open. On the
+   * free part of a MIDI track's row: creating a clip there. Anywhere else (ruler, master, audio track) nothing opens.
+   */
+  function clipContext(event: MouseEvent, where: Row, x: number, y: number) {
+    autoPick = null
+    const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-block]')
+    const block = cell?.dataset.block ? current(cell.dataset.block) : hitBlock(blocks, layout, x, y, shown, y0)?.block
+    const items: MenuItem[] = []
+    if (block) {
+      if (!picked.has(block.id)) picked = new Set([block.id])
+      select(block.track)
+      ui.editClip(block.clip, block.id)
+      const mod = (key: string[]) => chordText(['Mod', ...key])
+      items.push(
+        {
+          id: 'open',
+          label: t('arrangement.openInRoll'),
+          shortcut: chordText(['Enter']),
+          run: () => {
+            ui.editClip(block.clip, block.id)
+            ui.showPanel('piano-roll')
+          },
+        },
+        { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
+        { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
+        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
+      )
+    } else {
+      const entry = where.kind === 'track' ? entries[where.track] : undefined
+      const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
+      if (entry && isMidi(entry.track) && isFree(blocks, where.track, start, start + bar)) {
+        items.push({
+          id: 'create',
+          label: t('pianoRoll.createClip'),
+          run: () => {
+            select(entry.id)
+            run(createClipAt(entry.id, start, bar))
+          },
+        })
+      }
+    }
+    ui.openMenu(event, items, t('arrangement.menu'))
   }
 
   /** Opens the field to type the value of the point under a double click. */
@@ -1476,7 +1628,13 @@
         data-testid="arr-zoom-in"
         onclick={() => zoomBy(ZOOM_STEP)}>+</button
       >
+      <button title={t('arrangement.fitSongHint')} aria-label={t('arrangement.fitSong')} data-testid="arr-fit-song" onclick={fitSong}
+        >{t('arrangement.fitSongShort')}</button
+      >
     </span>
+    <button title={t('arrangement.addMarkerHint')} aria-label={t('arrangement.addMarker')} data-testid="arr-add-marker" onclick={addMarkerHere}
+      >{t('arrangement.addMarkerShort')}</button
+    >
     <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
       >{t('arrangement.follow')}</button
     >
@@ -1650,6 +1808,51 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      <!-- The section markers on the ruler (#473): named buttons; a click puts the playhead there. -->
+      <div class="markers" role="group" aria-label={t('arrangement.markers')} data-testid="arr-markers">
+        {#each markers as marker (marker.id)}
+          {@const x = tickToX(marker.tick, shown)}
+          {#if x >= -200 && x <= stageW}
+            {#if renaming?.id === marker.id}
+              <input
+                class="marker-field"
+                style:left="{Math.max(0, x)}px"
+                aria-label={t('arrangement.markerRename')}
+                data-testid="arr-marker-field"
+                bind:value={renaming.text}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') commitRename()
+                  else if (e.key === 'Escape') renaming = null
+                  e.stopPropagation()
+                }}
+                onblur={commitRename}
+                {@attach (el) => el.focus()}
+              />
+            {:else}
+              <button
+                class="marker"
+                type="button"
+                style:left="{x}px"
+                title={t('arrangement.markerHint')}
+                aria-label={t('arrangement.markerSaid', { name: marker.name, bar: Math.floor(marker.tick / bar) + 1 })}
+                data-testid="arr-marker"
+                data-marker={marker.id}
+                onpointerdown={(e) => e.stopPropagation()}
+                onclick={() => {
+                  lastMarker = marker.id
+                  jumpedTo = null
+                  run(seek(marker.tick))
+                }}
+                ondblclick={(e) => {
+                  e.stopPropagation()
+                  renaming = { id: marker.id, text: marker.name }
+                }}
+                onkeydown={(e) => onMarkerKey(e, marker)}>{marker.name}</button
+              >
+            {/if}
+          {/if}
+        {/each}
+      </div>
       <!-- The clips as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through to the canvas. -->
       <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
       <!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -2037,6 +2240,42 @@
     touch-action: none;
   }
   /* The clips' cells: invisible over the canvas, except the keyboard's focus, which draws its ring around the clip. */
+  .markers {
+    position: absolute;
+    top: 14px;
+    left: 0;
+    right: 0;
+    height: 14px;
+    pointer-events: none;
+  }
+  .marker,
+  .marker-field {
+    position: absolute;
+    top: 0;
+    max-width: 160px;
+    height: 14px;
+    padding: 0 4px 0 5px;
+    border: 0;
+    border-left: 1px solid var(--fk-text);
+    border-radius: 0;
+    background: var(--fk-surface-2, var(--fk-bg));
+    color: var(--fk-text);
+    font-size: 10px;
+    line-height: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .marker-field {
+    width: 140px;
+    cursor: text;
+  }
+  .marker:focus-visible {
+    outline: 2px solid var(--fk-accent);
+    outline-offset: 1px;
+  }
   .items {
     position: absolute;
     left: 0;

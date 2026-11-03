@@ -63,7 +63,7 @@ test('a clip outlives its last placement, comes back from the pool, and repeats 
   // At the snapped tick under the pointer, in bar 2.
   const at = Object.values((await view(page)).project.tracks[track]!.placements)[0]!.start
   expect(at).toBeGreaterThanOrEqual(3840)
-  expect(at).toBeLessThan(4800)
+  expect(at).toBeLessThan(3840 * 2)
   await expect(row).toContainText('1 in the arrangement')
 
   // Stretched to four bars by its end: the content repeats, said and drawn.

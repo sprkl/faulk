@@ -610,6 +610,7 @@ fn compile_event(
         // `project.open` has no per-command messages: the host sends a snapshot of the
         // new project (`Synced::run`).
         ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::MarkersChanged {}
         | ProjectEvent::ProjectOpened { .. }
         | ProjectEvent::ControlChange { .. }
         | ProjectEvent::TrackChanged { .. }

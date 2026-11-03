@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
-import type { Engine, EngineEvents, EngineStatus } from './engine'
+import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 import { allNotesOff } from '../synth-commands'
@@ -11,6 +11,8 @@ export class NativeEngine implements Engine {
   /** Last status the helper announced; read it after `connect` resolves, since the
    * first one arrives before the page has made this engine the current one. */
   status: EngineStatus | null = null
+  /** Last update state the helper announced (#515); like `status`, the first one arrives before the engine is current. */
+  update: HelperUpdateState | null = null
 
   private constructor(private readonly ws: WebSocket) {}
 
@@ -60,6 +62,10 @@ export class NativeEngine implements Engine {
             break
           case 'midi.activity':
             events.onMidiActivity?.(message.note, message.velocity)
+            break
+          case 'update.status':
+            engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
+            events.onHelperUpdate?.(engine.update)
             break
           case 'error':
             events.onError(message.code)

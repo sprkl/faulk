@@ -30,6 +30,14 @@ pub struct ProjectDoc {
         deserialize_with = "unique_map"
     )]
     pub master_devices: BTreeMap<crate::ids::DeviceId, Device>,
+    /// The section markers (#473): left out when there are none, so that a project without
+    /// one writes the same file as before.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "unique_map"
+    )]
+    pub markers: BTreeMap<crate::ids::MarkerId, Marker>,
 }
 
 impl ProjectDoc {
@@ -44,6 +52,7 @@ impl ProjectDoc {
             scenes: p.scenes.clone(),
             master: p.master,
             master_devices: p.master_devices.clone(),
+            markers: p.markers.clone(),
         }
     }
 
@@ -60,6 +69,7 @@ impl ProjectDoc {
             master_devices: self.master_devices,
             master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
+            markers: self.markers,
         }
     }
 }

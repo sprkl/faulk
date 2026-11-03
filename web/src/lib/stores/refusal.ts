@@ -14,6 +14,7 @@ export interface Refusal {
 export const ENTITY_KEYS: Record<string, MessageKey> = {
   tracks: 'refusal.entity.tracks',
   scenes: 'refusal.entity.scenes',
+  markers: 'refusal.entity.markers',
   clips: 'refusal.entity.clips',
   notes: 'refusal.entity.notes',
   'notes per clip': 'refusal.entity.notesPerClip',
