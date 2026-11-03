@@ -726,18 +726,32 @@ export class ProjectStorage {
     const before = { notice: this.shownNotice, vars: this.noticeVars, open: this.noticeOpen, failed: this.failedReopen }
     // A notice from before is not this attempt's: only one that this attempt raises may carry the actions.
     this.notice = null
-    const opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
+    let opened: boolean
+    try {
+      opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
+    } catch (error) {
+      // The attempt itself broke (a stale handle): the notice and its actions stay, and the error goes on.
+      this.restoreNotice(before)
+      throw error
+    }
     if (!opened) {
       this.markReopenFailed(last, retrying)
       // The attempt ended with no notice of its own (the question about unsaved changes was declined): the notice and its actions stay.
-      if (this.shownNotice === null && before.failed) {
-        this.notice = before.notice
-        this.noticeVars = before.vars
-        this.noticeOpen = before.open
-        this.failedReopen = before.failed
-      }
+      if (this.shownNotice === null && before.failed) this.restoreNotice(before)
     }
     return opened
+  }
+
+  private restoreNotice(before: {
+    notice: MessageKey | null
+    vars: { name: string } | null
+    open: string | null
+    failed: { id: string; name: string; kind: 'folder' | 'browser' } | null
+  }) {
+    this.notice = before.notice
+    this.noticeVars = before.vars
+    this.noticeOpen = before.open
+    this.failedReopen = before.failed
   }
 
   /**

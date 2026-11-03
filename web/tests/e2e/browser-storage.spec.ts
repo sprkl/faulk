@@ -467,4 +467,39 @@ test.describe('the project of last time would not reopen (#504)', () => {
       expect(reloadedErrors.filter((e) => !/ERR_FAILED|Failed to load resource/i.test(e))).toEqual([])
     })
   }
+
+  test('a folder open in another tab: the notice offers Retry and Open another project, and Retry opens it once that tab is closed', async ({
+    page,
+    context,
+  }) => {
+    const { errors } = watch(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simulatePicker(page, 'song-folder-locked')
+    await page.goto('/app')
+    await start(page)
+    await addTrack(page, 'Drums')
+    await saveAs(page)
+    await expect(state(page)).toHaveText(/^Saved at/)
+
+    // A second tab, while the first still has the folder open: it cannot take the project back.
+    const reloaded = await context.newPage()
+    const reloadedErrors = watch(reloaded).errors
+    await simulatePicker(reloaded, 'song-folder-locked')
+    await reloaded.goto('/app')
+    const notice = reloaded.getByTestId('storage-notice')
+    await expect(notice).toContainText('open in another tab')
+    await expect(tracks(reloaded)).toHaveCount(0)
+    await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
+    await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
+    await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
+
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(notice).toContainText('open in another tab')
+
+    await page.close()
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(tracks(reloaded)).toHaveCount(2)
+    await expect(notice).toHaveCount(0)
+    expect([...errors, ...reloadedErrors]).toEqual([])
+  })
 })
