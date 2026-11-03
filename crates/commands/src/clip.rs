@@ -106,8 +106,9 @@ domain! {
     /// is refused when it would overlap another placement of the track). `length` is in
     /// ticks (960 per quarter note), one bar of the project's time signature by default.
     /// `name` is optional (trimmed, at most 200 characters): without one the clip gets the
-    /// next default name, "Clip n" with n the first number no clip of the project has; it
-    /// is stored and never changes when other clips move, are copied or deleted. Undo:
+    /// next default name of its track, the track's name and the first number no clip of
+    /// the track has with it ("Bass 3"); it is stored and never changes when other clips
+    /// move, are copied or deleted, nor when the track is renamed. Undo:
     /// `clip.delete`.
     "clip.create" (kind = "edit", undo = "inverse", destructive = false)
     Create {
@@ -144,9 +145,8 @@ domain! {
         placements: Vec<PlacementSnapshot>,
     } => {};
 
-    /// Copy a MIDI clip into a new, independent clip: the next name ("Clip 2" gives
-    /// "Clip 3", the first number not taken in the project; "Bass" gives "Bass 2"), same
-    /// colour, length, loop and notes; editing one never changes the other. The copy always sits in a
+    /// Copy a MIDI clip into a new, independent clip with the same name ("Bass 2" stays
+    /// "Bass 2": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a
     /// launch-grid slot: of the source's track, or of `track` when given (another MIDI
     /// track). `slot` when given must be free in that track, otherwise the copy takes
     /// the first free slot (below the source's scene in the same track, from the top in
@@ -185,8 +185,8 @@ domain! {
     };
 
     /// Rename a clip (MIDI or audio). The name is trimmed, at most 200 characters; an
-    /// empty name gives a MIDI clip the next default name ("Clip n"; one that already has a
-    /// default name keeps it) and clears an audio clip's. Undo: rename it back.
+    /// empty name gives a MIDI clip the next default name of its track ("Bass 3"; one that
+    /// already has a default name of its track keeps it) and clears an audio clip's. Undo: rename it back.
     "clip.rename" (kind = "edit", undo = "inverse", destructive = false)
     Rename { clip: ClipId, name: String } => {
         /// The name before the command.
@@ -997,7 +997,7 @@ fn create(
     let name = name.map(str::trim).unwrap_or_default();
     check_name(name, "name")?;
     let name = if name.is_empty() {
-        project.next_clip_name()
+        project.next_clip_name(track_id)
     } else {
         name.to_owned()
     };
@@ -1240,7 +1240,6 @@ fn duplicate(
         }
     };
     let mut copy = source.clone();
-    copy.name = project.copy_clip_name(&source.name, &[]);
     copy.slot = Some(target);
     let new_id = ClipId::generate(&mut ctx.ids);
     state
@@ -1358,15 +1357,16 @@ fn rename(state: &mut State, clip_id: &ClipId, name: &str) -> Result<Out, Comman
         .and_then(|t| state.project.tracks.get(&t))
         .and_then(|t| t.clips.get(clip_id))
         .is_some_and(|c| c.content.is_midi());
+    let track_id = locate(&state.project, clip_id)?;
     let own_default = clip_mut(&mut state.project, clip_id)
-        .map(|c| ::project::names::is_default_clip_name(&c.name))
-        .unwrap_or(false);
+        .map(|c| c.name.clone())
+        .is_ok_and(|n| state.project.is_default_clip_name(&track_id, &n));
     let name = if name.is_empty() && midi {
-        // A clip that already carries a default name keeps it: it is the stable one.
+        // A clip that already carries a default name of its track keeps it.
         if own_default {
             clip_mut(&mut state.project, clip_id)?.name.clone()
         } else {
-            state.project.next_clip_name()
+            state.project.next_clip_name(&track_id)
         }
     } else {
         name.to_owned()

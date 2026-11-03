@@ -1,0 +1,2 @@
+2026-11-02
+* **Update** (#473): l'historique nomme les objets (« Couper Lead », « Supprimer 17 clips (Bass, Drums, Lead) »), la bascule de boucle et le métronome deviennent des commandes `setting` listées dans un journal d'activité hors annulation, le solo s'annule, un clip par défaut porte le nom de sa piste et une copie celui de sa source, un nouveau projet porte un nom daté, la disposition de chaque projet revient à la réouverture (`02-decoupage-mvp.md`, `02-modele-projet.md`).

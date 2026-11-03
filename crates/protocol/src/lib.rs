@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 /// Version of this protocol. Bump it on any incompatible change.
 pub const PROTOCOL_VERSION: u32 = 15;
 
-// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip. 14 is #473's first pull request (history and names).
+// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip.
+
+// Version 14 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
 
 // Version 13 (#470): MIDI recording. The commands gain `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` and `record.restore`; the events gain `recording_changed` and `record_settings_changed`; the session gains `record` (the manual latency offset). The feedback layout is version 5: a 72-byte header with the take's number, its count of notes, the notes lost and whether the engine captures, then the take's last notes (at most 256) after the active clips. A page and a helper of different versions refuse each other.
 

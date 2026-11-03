@@ -38,7 +38,7 @@ export const RULES = [
   [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool']],
   [/^web\/src\/views\/clips\//, ['clip-pool']],
   [/^web\/src\/views\/grid\//, ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording']],
-  [/^web\/src\/views\/history\//, ['history', 'history-cost', 'keyboard-create']],
+  [/^web\/src\/views\/history\//, ['history', 'history-cost', 'history-names', 'keyboard-create']],
   [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow']],
   [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state']],
   [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'layout-4', 'master-chain', 'master-pan', 'track-state']],

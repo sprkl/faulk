@@ -8,9 +8,10 @@ pub const fn parse_kind(s: &str) -> crate::contract::Kind {
     use crate::contract::Kind;
     match s.as_bytes() {
         b"edit" => Kind::Edit,
+        b"setting" => Kind::Setting,
         b"live" => Kind::Live,
         b"query" => Kind::Query,
-        _ => panic!("kind is `edit`, `live` or `query`"),
+        _ => panic!("kind is `edit`, `setting`, `live` or `query`"),
     }
 }
 

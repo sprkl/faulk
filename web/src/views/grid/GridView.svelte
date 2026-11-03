@@ -66,7 +66,9 @@
       scroller.scrollLeft = left.left
     }
   })
-  onDestroy(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }))
+  const layoutRev = ui.layoutRev
+  onDestroy(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }, layoutRev))
+  $effect(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }, layoutRev))
   const onScroll = () => {
     scrollTop = scroller!.scrollTop
     scrollLeft = scroller!.scrollLeft
@@ -400,7 +402,7 @@
     if (!home) return
     const name = clipDraft.trim()
     const stored = home.cell.clip.name.trim()
-    // An empty name asks for the default one: the command gives a MIDI clip the next "Clip n".
+    // An empty name asks for the default one: the command gives a MIDI clip its track's next default name ("Bass 3").
     if (commit && name !== stored) run(renameClip(id, name))
   }
 

@@ -567,7 +567,7 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
     let copy = &track.clips[&created[0]];
     assert_eq!(copy.slot, None, "a copy is not in the launch grid");
     let source = &track.clips[&track.placements[&f.a].clip].name;
-    assert_ne!(&copy.name, source, "a copy has a name of its own");
+    assert_eq!(&copy.name, source, "a copy keeps its source's name (#473)");
     assert_eq!(track.placements[&placements[0]].clip, created[0]);
     assert_eq!(track.placements[&placements[1]].clip, created[0]);
     assert_eq!(

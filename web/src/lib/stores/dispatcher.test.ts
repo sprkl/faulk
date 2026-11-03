@@ -1165,7 +1165,8 @@ describe('the project in a folder (SV-2)', () => {
   it('starts a new project before audio starts, and the first engine then plays it', async () => {
     const session = newSession()
     expect(await session.dispatcher.newProject()).toBe(true)
-    expect(session.project.view?.project.name).toBe('Untitled')
+    // Named after the moment it started (#473), never "Untitled".
+    expect(session.project.view?.project.name).toMatch(/^Sketch /)
     await session.dispatcher.start()
     expect(webs[0].push).toHaveBeenCalledTimes(1)
   })
@@ -1197,10 +1198,16 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.storage.confirm).toBeNull()
   })
 
+  it('a project.new takes the name an agent gives it', async () => {
+    const session = newSession()
+    session.dispatcher.run({ type: 'project.new', name: 'Night drive' })
+    await vi.waitFor(() => expect(session.project.view?.project.name).toBe('Night drive'))
+  })
+
   it('a project.new on a project with nothing to lose asks nothing, and works before audio starts', async () => {
     const session = newSession()
     session.dispatcher.run({ type: 'project.new' })
-    await vi.waitFor(() => expect(session.project.view?.project.name).toBe('Untitled'))
+    await vi.waitFor(() => expect(session.project.view?.project.name).toMatch(/^Sketch /))
     expect(session.storage.confirm).toBeNull()
   })
 
