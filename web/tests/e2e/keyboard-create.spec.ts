@@ -76,12 +76,12 @@ test('the piano roll: a note from the cursor of an empty clip, its velocity by P
 
   // Undo and redo say what they did.
   await page.keyboard.press('Control+z')
-  await expect(page.getByTestId('roll-said')).toHaveText(/^Undone: Edit notes/)
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Undone: Edit a note \(Synth 1\)/)
   expect((await rollNotes(page))[0]!.velocity).toBe(119)
   // The note focused changed under the undo: the focus stays in the grid.
   await expect(focused).toHaveCount(1)
   await page.keyboard.press('Control+Shift+z')
-  await expect(page.getByTestId('roll-said')).toHaveText(/^Redone: Edit notes/)
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Redone: Edit a note \(Synth 1\)/)
   expect((await rollNotes(page))[0]!.velocity).toBe(127)
 
   // Escape on a note frees the cursor where it is; Enter there goes to the note rather than writing over it.
@@ -150,12 +150,12 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
 
   // Undo is said here too, and redo brings the clip back.
   await page.keyboard.press('Control+z')
-  await expect(page.getByTestId('arr-said')).toHaveText(/^Undone: Create a clip/)
+  await expect(page.getByTestId('arr-said')).toHaveText(/^Undone: Create Synth 1 \(Synth\)/)
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '0')
   // The clip focused is gone: the focus goes back to the grid's tab stop, the cursor.
   await expect(cursor).toBeFocused()
   await page.keyboard.press('Control+y')
-  await expect(page.getByTestId('arr-said')).toHaveText(/^Redone: Create a clip/)
+  await expect(page.getByTestId('arr-said')).toHaveText(/^Redone: Create Synth 1 \(Synth\)/)
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
 
   // A linked copy right after it (Ctrl+Shift+D): two placements of one clip. Right goes to the copy, Enter opens it.
