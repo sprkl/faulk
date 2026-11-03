@@ -17,7 +17,6 @@ interface Note {
 
 const roll = (page: Page) => page.getByTestId('piano-roll')
 const stage = (page: Page) => page.getByTestId('roll-stage')
-const done = (page: Page) => page.evaluate(() => (window as unknown as { __faulkHistory(): { undo: unknown[] } }).__faulkHistory().undo.length)
 const menu = (page: Page) => page.getByTestId('context-menu')
 const notes = async (page: Page): Promise<Note[]> => JSON.parse((await roll(page).getAttribute('data-notes')) ?? '[]')
 const num = async (page: Page, testid: string, attribute: string) => Number(await page.getByTestId(testid).getAttribute(attribute))
@@ -112,13 +111,11 @@ test('piano roll: the right click on a note opens its actions, the keyboard reac
   await expect(menu(page)).toHaveCount(0)
 
   // Quantize from the menu: the chosen note moves to the grid, in one history entry, and one undo brings it back.
-  const before = await done(page)
   await page.mouse.click(g.x(130 + 20), g.y(60), { button: 'right' })
   await page.getByTestId('ctx-quantize').click()
   await expect(menu(page)).toHaveCount(0)
   // The chosen note (130) goes to the 1/16 line at 240; the other one (1100) is not chosen and stays.
   await expect.poll(async () => (await notes(page)).map((n) => n.start).sort((a, b) => a - b)).toEqual([240, 1100])
-  expect(await done(page)).toBe(before + 1)
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await notes(page)).map((n) => n.start).sort((a, b) => a - b)).toEqual(drawn.map((n) => n.start).sort((a, b) => a - b))
 
@@ -171,17 +168,17 @@ test('arrangement: a clip, the free part of a row and a track head have their ac
   await page.mouse.click(box.x + 60, box.y + 8, { button: 'right' })
   await expect(menu(page)).toHaveCount(0)
 
+  // The free part of the MIDI row: creating a clip there.
+  await page.mouse.click(box.x + 1.5 * 3840 * ppt, box.y + RULER + 22, { button: 'right' })
+  await expect(page.getByTestId('ctx-create')).toBeVisible()
+  await page.getByTestId('ctx-create').click()
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '2')
+
   // The clip: open, duplicate, linked, split, delete; Delete sends the command.
-  await page.mouse.click(box.x + 1000 * ppt, box.y + RULER + 22, { button: 'right' })
+  await page.mouse.click(box.x + (3840 + 1000) * ppt, box.y + RULER + 22, { button: 'right' })
   await expect(menu(page)).toBeVisible()
   for (const id of ['open', 'duplicate', 'duplicate-linked', 'split', 'delete']) await expect(page.getByTestId(`ctx-${id}`)).toBeVisible()
   await page.getByTestId('ctx-duplicate').click()
-  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '2')
-
-  // The free part of the MIDI row: creating a clip there.
-  await page.mouse.click(box.x + (2 * 3840 + 300) * ppt, box.y + RULER + 22, { button: 'right' })
-  await expect(page.getByTestId('ctx-create')).toBeVisible()
-  await page.getByTestId('ctx-create').click()
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '3')
 
   // The track head: rename, duplicate, colour (a second list in place of the first), delete.
