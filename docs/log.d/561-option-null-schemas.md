@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#561): the schemas of `view.select_track` and `track.set_color` accept `null` for their required `Option` field, as the commands do (`allow_null` schema transform); a test now checks every field of every command example that the command takes as `null` (`agents/verification.md`). `PROTOCOL_VERSION` does not change: no message and no accepted JSON changes, only the schema bundle.

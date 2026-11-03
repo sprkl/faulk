@@ -1145,12 +1145,9 @@ fn trimmed_tool_schemas_validate_the_examples_as_the_whole_definitions_did() {
             }
         }
     }
-    // Known defects of the schemas, the same before and after #559: a required `Option` field
-    // whose schema lost `null` (#561). Remove an entry when its schema is fixed.
-    assert_eq!(
-        refused_examples,
-        [("view.select_track", "input"), ("track.set_color", "input")],
-        "examples their own tool schema refuses"
+    assert!(
+        refused_examples.is_empty(),
+        "examples their own tool schema refuses: {refused_examples:?}"
     );
     assert_eq!(cache.len(), 2 * tools.len(), "a tool without an example");
     println!("{compared} instances compared, {refused} refused by both schemas");
@@ -1158,4 +1155,83 @@ fn trimmed_tool_schemas_validate_the_examples_as_the_whole_definitions_did() {
         refused > 1000 && compared - refused > 1000,
         "{compared} compared, {refused} refused"
     );
+}
+
+/// A required `Option` field takes `null` in the command, so its schema must too (#561):
+/// the two tools that clear a value say `null` is valid, and a missing field is not.
+#[test]
+fn a_required_option_field_accepts_null_and_is_still_required() {
+    use serde_json::json;
+    let tools: std::collections::HashMap<String, commands::ToolSpec> =
+        catalog().into_iter().map(|t| (t.name.clone(), t)).collect();
+    for (name, field, value) in [
+        ("view.select_track", "track", json!(track())),
+        ("track.set_color", "color", json!("#ff8800")),
+    ] {
+        let schema = &tools[name].input_schema;
+        let valid = jsonschema::draft202012::new(schema).unwrap();
+        let mut instance = serde_json::Map::new();
+        instance.insert("track".into(), json!(track()));
+        instance.insert(field.into(), value);
+        let mut instance: serde_json::Value = instance.into();
+        assert!(valid.is_valid(&instance), "{name}: {instance}");
+        instance[field] = json!(null);
+        assert!(valid.is_valid(&instance), "{name} refuses null: {instance}");
+        instance[field] = json!(5);
+        assert!(!valid.is_valid(&instance), "{name} accepts 5: {instance}");
+        instance.as_object_mut().unwrap().remove(field);
+        assert!(
+            !valid.is_valid(&instance),
+            "{name}: a missing {field} passes"
+        );
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field)),
+            "{name}: {field} is no longer required"
+        );
+    }
+}
+
+/// Whatever a command accepts as `null`, its tool schema accepts too (#561): every field of
+/// every example is set to `null` in turn, and when the command still deserialises the schema
+/// must validate it. This sees every required `Option` field of the catalog (the two that
+/// `allow_null` fixes and the gains of the mixer and the transport), not the ones a list names.
+#[test]
+fn every_field_a_command_takes_as_null_is_nullable_in_its_schema() {
+    let tools: std::collections::HashMap<String, commands::ToolSpec> =
+        catalog().into_iter().map(|t| (t.name.clone(), t)).collect();
+    let mut nullable = std::collections::BTreeSet::new();
+    for (command, _) in examples() {
+        let name = command.name();
+        let valid = jsonschema::draft202012::new(&tools[name].input_schema).unwrap();
+        let mut full = serde_json::to_value(&command).unwrap();
+        let typed = full.clone();
+        full.as_object_mut().unwrap().remove("type");
+        for field in full.as_object().unwrap().keys() {
+            let mut with_null = typed.clone();
+            with_null[field] = serde_json::Value::Null;
+            if serde_json::from_value::<Command>(with_null.clone()).is_err() {
+                continue;
+            }
+            let mut input = with_null;
+            input.as_object_mut().unwrap().remove("type");
+            assert!(
+                valid.is_valid(&input),
+                "{name}: the command takes `{field}: null` but its schema refuses it"
+            );
+            nullable.insert((name, field.clone()));
+        }
+    }
+    for expected in [
+        ("view.select_track", "track"),
+        ("track.set_color", "color"),
+        ("mixer.set_volume", "gain_db"),
+    ] {
+        assert!(
+            nullable.contains(&(expected.0, expected.1.to_owned())),
+            "{expected:?} was not found among {nullable:?}"
+        );
+    }
 }
