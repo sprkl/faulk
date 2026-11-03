@@ -110,6 +110,9 @@ for (const [locale, repeat] of [
     // With no time or point selected, those entries are off and the arrows skip them.
     await expect(page.getByTestId('ctx-more-delete-bars')).toBeDisabled()
     await expect(page.getByTestId('ctx-more-curve-step')).toBeDisabled()
+    // The clip is selected: its entries are on.
+    await expect(page.getByTestId('ctx-more-duplicate-linked')).toBeEnabled()
+    await expect(page.getByTestId('ctx-more-repeat')).toBeEnabled()
 
     // Escape closes it and the focus is back on the button.
     await page.keyboard.press('Escape')
@@ -117,15 +120,38 @@ for (const [locale, repeat] of [
     await expect(more).toBeFocused()
     await expect(more).toHaveAttribute('aria-expanded', 'false')
 
+    // With nothing selected, the entries that act on clips are off.
+    const box = (await page.getByTestId('arr-stage').boundingBox())!
+    await page.mouse.click(box.x + 600, box.y + 28 + 20)
+    await expect(arr(page)).toHaveAttribute('data-selected-count', '0')
+    await more.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('ctx-more-duplicate-linked')).toBeDisabled()
+    await expect(page.getByTestId('ctx-more-repeat')).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await page.locator('[data-testid=arr-item]').first().focus()
+    await page.keyboard.press('Control+a')
+    await expect(arr(page)).toHaveAttribute('data-selected-count', '1')
+    await more.focus()
+
     // The arrows reach "Repeat until…" and Enter opens its field; Escape closes the field, the focus is back on the button.
     await page.keyboard.press('Space')
     await page.keyboard.press('ArrowDown')
     await expect(page.getByTestId('ctx-more-repeat')).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('repeat-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('repeat-dialog')).toBeHidden()
+    await expect(more).toBeFocused()
+    await expect(arr(page)).toHaveAttribute('data-block-count', '1')
+    // Again, this time with a bar: the clips are repeated and the focus is back on the button.
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
     await page.getByTestId('repeat-field').fill('5')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('repeat-dialog')).toBeHidden()
+    await expect(more).toBeFocused()
     await expect.poll(async () => Number(await arr(page).getAttribute('data-block-count'))).toBeGreaterThan(1)
 
     // End reaches the last enabled entry (the marker: the curves and the bar deletion are off); Enter adds a marker at the playhead.
@@ -150,6 +176,20 @@ for (const [locale, repeat] of [
     await page.getByTestId('insert-field').fill('0')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('insert-error')).toBeVisible()
+    await page.getByTestId('insert-field').fill('10000')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('insert-error')).toBeVisible()
+    // Escape closes the field and the focus is back on the button; the clips did not move.
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('insert-dialog')).toBeHidden()
+    await expect(more).toBeFocused()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Home')
+    for (let i = 0; i < 8 && !(await page.getByTestId('ctx-more-insert-bars').evaluate((el) => el === document.activeElement)); i++) {
+      await page.keyboard.press('ArrowDown')
+    }
+    await expect(page.getByTestId('ctx-more-insert-bars')).toBeFocused()
+    await page.keyboard.press('Enter')
     await page.getByTestId('insert-field').fill('2')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('insert-dialog')).toBeHidden()

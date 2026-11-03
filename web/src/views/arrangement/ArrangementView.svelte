@@ -378,6 +378,14 @@
     if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
     return timeSel
   })
+  /** What the bar says about the arrangement and the selection; also its tooltip, since the bar cuts it rather than wrap. */
+  const countText = $derived(
+    [
+      t('arrangement.count', { n: blocks.length }),
+      ...(selection.length > 0 ? [t('arrangement.selected', { n: selection.length })] : []),
+      ...(autoSel ? [t('automation.selectedPoints', { n: autoSel.points.length })] : []),
+    ].join(' · '),
+  )
   const MAX_INSERT_BARS = 9999
   /** The "Insert bars" field is open (#575): the count is asked there, since the toolbar no longer holds a number field. */
   let inserting = $state(false)
@@ -1164,7 +1172,8 @@
    * shortcuts. It opens under its button (also from the keyboard, where the click has no position) in the shared menu.
    */
   function openMore(event: MouseEvent) {
-    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const button = event.currentTarget as HTMLElement
+    const box = button.getBoundingClientRect()
     const mod = (key: string[]) => chordText(['Mod', ...key])
     ui.openMenuAt(
       box.left,
@@ -1177,8 +1186,25 @@
           disabled: selection.length === 0,
           run: () => duplicate(true),
         },
-        { id: 'more-repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: selection.length !== 1, run: openRepeat },
-        { id: 'more-insert-bars', label: t('arrangement.insertBars'), separator: true, run: () => (inserting = true) },
+        {
+          id: 'more-repeat',
+          label: t('arrangement.repeatUntil'),
+          shortcut: mod(['Shift', 'R']),
+          disabled: selection.length !== 1,
+          run: () => {
+            returnFocus = button
+            openRepeat()
+          },
+        },
+        {
+          id: 'more-insert-bars',
+          label: t('arrangement.insertBars'),
+          separator: true,
+          run: () => {
+            returnFocus = button
+            inserting = true
+          },
+        },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
         { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
         { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
@@ -1186,6 +1212,16 @@
       ],
       t('arrangement.more'),
     )
+  }
+  /**
+   * Where the focus goes when a field opened from the menu closes: the menu entry that had it is gone and the browser
+   * cannot give it back to an element that left the page, so the toolbar button that opened the menu takes it.
+   */
+  let returnFocus: HTMLElement | null = null
+  function giveFocusBack() {
+    const target = returnFocus
+    returnFocus = null
+    if (target) void tick().then(() => target.isConnected && target.focus())
   }
   function repeatUpTo(barNumber: number) {
     const target = repeating
@@ -1863,11 +1899,7 @@
       data-testid="arr-more"
       onclick={openMore}>⋯</button
     >
-    <span class="count" data-testid="arr-count"
-      >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
-        · {t('arrangement.selected', { n: selection.length })}{/if}{#if autoSel}
-        · {t('automation.selectedPoints', { n: autoSel.points.length })}{/if}</span
-    >
+    <span class="count" data-testid="arr-count" title={countText}>{countText}</span>
   </div>
 
   <div class="board" class:scrolls={overflowing} style:--head="276px" style:--ruler="{RULER_HEIGHT}px">
@@ -2269,7 +2301,10 @@
   min={repeating?.min ?? 1}
   max={MAX_GOTO_BAR}
   onsubmit={repeatUpTo}
-  onclose={() => (repeating = null)}
+  onclose={() => {
+    repeating = null
+    giveFocusBack()
+  }}
 />
 <BarDialog
   open={inserting}
@@ -2283,7 +2318,10 @@
   min={1}
   max={MAX_INSERT_BARS}
   onsubmit={insertBarsFromDialog}
-  onclose={() => (inserting = false)}
+  onclose={() => {
+    inserting = false
+    giveFocusBack()
+  }}
 />
 
 <style>
