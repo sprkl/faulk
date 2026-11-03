@@ -1643,6 +1643,28 @@ describe('the start of a page with drafts', () => {
     expect(w.browser.created.length).toBe(1)
   })
 
+  it('keeps a draft that is unreadable, then locked, for the notice’s actions, and a retry opens it (#504)', async () => {
+    const { w, dir } = await leftBehind(true)
+    const open = w.host.openProject.bind(w.host)
+    w.host.openProject = async () => {
+      throw new StoreError('io', 'unreadable')
+    }
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('project.open.unreadable')
+    expect(w.storage.failedReopen).toMatchObject({ id: dir, kind: 'browser' })
+
+    w.host.openProject = open
+    w.locks.add(`dir.${dir}`)
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toMatchObject({ id: dir, kind: 'browser' })
+
+    w.locks.delete(`dir.${dir}`)
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.failedReopen).toBeNull()
+    expect(w.storage.place).toBe('browser')
+  })
+
   it('reopens the project by itself where the browser’s storage is the only home', async () => {
     const { w } = await leftBehind(false)
     await w.storage.restore()

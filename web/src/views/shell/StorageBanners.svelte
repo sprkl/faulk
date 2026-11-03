@@ -123,7 +123,7 @@
       {#if storage.failedReopen.kind === 'folder'}
         <button data-testid="notice-open-other" onclick={() => dispatcher.run(openFolder())}>{t('save.banner.openOther')}</button>
       {:else}
-        <button data-testid="notice-import" onclick={() => dispatcher.run(importPack())}>{t('save.banner.importOther')}</button>
+        <button data-testid="notice-import" onclick={() => dispatcher.run(importPack())}>{t('openUrl.importFile')}</button>
       {/if}
     {/if}
     <button onclick={() => storage.dismissNotice()}>{t('save.banner.dismiss')}</button>

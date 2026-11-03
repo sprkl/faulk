@@ -712,6 +712,8 @@ export class ProjectStorage {
       this.notice = 'storage.nothingToReopen'
       return false
     }
+    // A notice from before is not this attempt's: only one that this attempt raises may carry the actions.
+    this.notice = null
     const opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
     if (!opened) this.markReopenFailed(last)
     return opened

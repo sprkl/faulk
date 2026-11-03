@@ -424,42 +424,47 @@ test.describe('the project of last time would not reopen (#504)', () => {
   /** The project store's Worker, in the dev server and in the build (the other Workers of the page are left alone). */
   const STORE_WORKER = /\/(src\/lib\/storage\/worker\.ts|_app\/immutable\/workers\/worker-[^/]*\.js)(\?|$)/
 
-  test('unreadable folder: the notice offers Retry and Open another project, and Retry opens the project once it can be read', async ({ page, context }) => {
-    const { errors } = watch(page)
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await simulatePicker(page, 'song-unreadable')
-    await page.goto('/app')
-    await start(page)
-    await addTrack(page, 'Drums')
-    await saveAs(page)
-    await expect(state(page)).toHaveText(/^Saved at/)
-    await page.close()
+  for (const action of ['notice-retry', 'notice-open-other'] as const) {
+    test(`unreadable folder: the notice offers Retry and Open another project, and ${action === 'notice-retry' ? 'Retry' : 'Open another project'} opens a project once the folder can be read`, async ({
+      page,
+      context,
+    }) => {
+      const { errors } = watch(page)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await simulatePicker(page, 'song-unreadable')
+      await page.goto('/app')
+      await start(page)
+      await addTrack(page, 'Drums')
+      await saveAs(page)
+      await expect(state(page)).toHaveText(/^Saved at/)
+      await page.close()
 
-    // The project store's Worker does not load: the folder is there but cannot be read.
-    const reloaded = await context.newPage()
-    const reloadedErrors = watch(reloaded).errors
-    await reloaded.route(STORE_WORKER, (route) => route.abort())
-    await simulatePicker(reloaded, 'song-unreadable')
-    await reloaded.goto('/app')
-    const notice = reloaded.getByTestId('storage-notice')
-    await expect(notice).toContainText('could not be read')
-    await expect(tracks(reloaded)).toHaveCount(0)
-    await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
-    await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
-    await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
+      // The project store's Worker does not load: the folder is there but cannot be read.
+      const reloaded = await context.newPage()
+      const reloadedErrors = watch(reloaded).errors
+      await reloaded.route(STORE_WORKER, (route) => route.abort())
+      await simulatePicker(reloaded, 'song-unreadable')
+      await reloaded.goto('/app')
+      const notice = reloaded.getByTestId('storage-notice')
+      await expect(notice).toContainText('could not be read')
+      await expect(tracks(reloaded)).toHaveCount(0)
+      await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
+      await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
+      await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
 
-    // Retry with the Worker still refused: the same notice, the same actions.
-    await reloaded.getByTestId('notice-retry').click()
-    await expect(notice).toContainText('could not be read')
-    await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
+      // Retry with the Worker still refused: the same notice, the same actions.
+      await reloaded.getByTestId('notice-retry').click()
+      await expect(notice).toContainText('could not be read')
+      await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
 
-    // Open another project… is the project menu's command: the (simulated) picker hands back a folder, which opens.
-    await reloaded.unroute(STORE_WORKER)
-    await reloaded.getByTestId('notice-open-other').click()
-    await expect(tracks(reloaded)).toHaveCount(2)
-    await expect(notice).toHaveCount(0)
-    // The refused Worker is the only error the page logs.
-    expect(errors).toEqual([])
-    expect(reloadedErrors.filter((e) => !/ERR_FAILED|storage\/worker|worker-|project store|Worker/i.test(e))).toEqual([])
-  })
+      // Both go through the project menu's commands: Retry is project.reopen_last, Open another project… is project.open_folder (the simulated picker hands back the folder).
+      await reloaded.unroute(STORE_WORKER)
+      await reloaded.getByTestId(action).click()
+      await expect(tracks(reloaded)).toHaveCount(2)
+      await expect(notice).toHaveCount(0)
+      // The refused Worker is the only error the page logs.
+      expect(errors).toEqual([])
+      expect(reloadedErrors.filter((e) => !/ERR_FAILED|storage\/worker|worker-|project store|Worker/i.test(e))).toEqual([])
+    })
+  }
 })
