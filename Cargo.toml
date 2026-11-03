@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/engine", "crates/commands", "crates/engine-wasm", "crates/protocol", "crates/helper", "crates/project", "crates/project-wasm", "crates/test-support"]
+members = ["crates/engine", "crates/commands", "crates/engine-wasm", "crates/protocol", "crates/helper", "crates/project", "crates/project-wasm", "crates/test-support", "crates/audio-import", "crates/audio-import-wasm"]
 
 [workspace.package]
 edition = "2024"

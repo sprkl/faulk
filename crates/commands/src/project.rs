@@ -575,6 +575,8 @@ fn new_project(
     // What a save knew of the old project's folder is no use to a project that has none.
     ctx.folder = None;
     ctx.opened = None;
+    // The files imported into the old project are in its folder, not in the new one's.
+    ctx.media.clear();
     Outcome {
         output: Output::New { name: name.clone() },
         undo: Undo::None,
@@ -623,9 +625,11 @@ fn open_folder(
     next.session = session;
     let history_changed = next.history.changed_event();
     *state = next;
-    // The old project's group and engine slots mean nothing to the new one.
+    // The old project's group and engine slots mean nothing to the new one, and the files
+    // imported into it are in its folder, not in this one.
     ctx.group = None;
     ctx.engine = EngineSlots::default();
+    ctx.media.clear();
     ctx.opened = Some(OpenedFolder {
         state: opened.state,
         blobs,

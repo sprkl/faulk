@@ -1,0 +1,17 @@
+[package]
+name = "audio-import"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Faulk's audio import pipeline (AU-1): streaming SHA-256, decoding with symphonia, metadata, the decoded PCM cache and the layout of PCM files read directly. Pure Rust; reads through a source the host gives. The same code in the page (WASM) and in the helper (native)."
+
+[dependencies]
+project = { path = "../project" }
+sha2 = "0.11.1"
+# No SIMD features (`opt-simd-*`): the native and the WASM builds run the same scalar code, so the
+# page and the helper decode a file to the same PCM. symphonia 0.6 has no Opus decoder.
+symphonia = { version = "0.6.1", default-features = false, features = ["pcm", "adpcm", "wav", "aiff", "caf", "flac", "mp1", "mp2", "mp3", "aac", "isomp4", "alac", "ogg", "vorbis"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"
