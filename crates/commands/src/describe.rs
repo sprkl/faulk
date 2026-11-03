@@ -305,6 +305,10 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             | ar::Command::Duplicate {
                 placements: ids, ..
             } => placements(p, ids),
+            ar::Command::MoveToTrack { moves, .. } => {
+                let ids: Vec<_> = moves.iter().map(|m| m.placement.clone()).collect();
+                placements(p, &ids)
+            }
             ar::Command::Resize { placement: id, .. }
             | ar::Command::Split { placement: id, .. } => placement(p, id)
                 .map(|(c, t)| Subject::one(Some(c).filter(|c| !c.is_empty()), Some(t))),

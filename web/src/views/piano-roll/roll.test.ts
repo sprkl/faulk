@@ -5,6 +5,7 @@ import {
   clampScrollY,
   defaultLength,
   drawnNote,
+  parseDrawVelocity,
   fits,
   floorTick,
   hitNote,
@@ -470,5 +471,22 @@ describe('what the quantize says (#523)', () => {
     expect(quantizeSaid(3, 5)).toEqual({ key: 'pianoRoll.quantizeMoved', n: 3 })
     expect(quantizeSaid(0, 5)).toEqual({ key: 'pianoRoll.quantizeOnGrid', n: 0 })
     expect(quantizeSaid(0, 0)).toEqual({ key: 'pianoRoll.quantizeNone', n: 0 })
+  })
+})
+
+describe('the draw velocity (#527)', () => {
+  it('reads what is typed, rounded and kept between 1 and 127, or keeps the previous value', () => {
+    expect(parseDrawVelocity('64', 100)).toBe(64)
+    expect(parseDrawVelocity(' 64.6 ', 100)).toBe(65)
+    expect(parseDrawVelocity('0', 100)).toBe(1)
+    expect(parseDrawVelocity('-5', 100)).toBe(1)
+    expect(parseDrawVelocity('500', 100)).toBe(127)
+    expect(parseDrawVelocity('', 100)).toBe(100)
+    expect(parseDrawVelocity('abc', 80)).toBe(80)
+    expect(parseDrawVelocity('Infinity', 80)).toBe(80)
+  })
+  it('gives a drawn note the draw velocity it is handed, whatever other notes have', () => {
+    expect(drawnNote(0, null, 60, 100, 480, 480, 3840)?.velocity).toBe(100)
+    expect(drawnNote(0, null, 60, 64, 480, 480, 3840)?.velocity).toBe(64)
   })
 })

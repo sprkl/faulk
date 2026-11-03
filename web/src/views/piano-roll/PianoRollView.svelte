@@ -72,6 +72,7 @@
     stepVelocity,
     MAX_VELOCITY,
     MIN_VELOCITY,
+    parseDrawVelocity,
     stillApplies,
     fits,
     toggled,
@@ -210,7 +211,8 @@
   let laneH = $state(LANE_HEIGHT)
   /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
   let lastLength = $state<number | null>(null)
-  let lastVelocity = $state(DEFAULT_VELOCITY)
+  /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
+  let drawVelocity = $state(DEFAULT_VELOCITY)
   let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -381,7 +383,7 @@
   let soundSince = 0
 
   /** Sounds `pitch` on the edited track (or silences with `null`), one note at a time. */
-  function sound(pitch: number | null, velocity = lastVelocity) {
+  function sound(pitch: number | null, velocity = drawVelocity) {
     soundSeq++
     if (sounding && pitch !== null && sounding.pitch === pitch) return
     if (sounding) run(auditionOff(sounding.track, sounding.pitch))
@@ -447,7 +449,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -472,7 +474,7 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
+      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -518,7 +520,6 @@
       picked = afterChanges(picked, changes)
       const grabbed = changes.find((c) => noteKey(c.from) === g.key)
       if (grabbed && g.kind === 'resize') lastLength = grabbed.to.length
-      if (grabbed && g.kind === 'velocity') lastVelocity = grabbed.to.velocity
     } else if (g.kind === 'loop') {
       if (g.from === g.to || Math.max(g.from, g.to) > clipLength) return
       run(setClipLoop(g.clip, { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }))
@@ -576,7 +577,8 @@
       else picked = new Set()
     } else if (editShortcut(event)) {
       // Handled by editShortcut; the key is consumed below.
-    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      // Alt+Up and Alt+Down (#529): the selection by a semitone, Alt+Shift by an octave; as from a note's cell or the free cursor.
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
       // The selection's velocity (#494), as on a note's cell.
@@ -683,7 +685,7 @@
         start: cursorPos.tick,
         pitch: cursorPos.pitch,
         length: Math.max(1, Math.min(defaultLength(lastLength, drawing), clipLength - cursorPos.tick)),
-        velocity: lastVelocity,
+        velocity: drawVelocity,
       },
       shown,
       layout,
@@ -733,7 +735,6 @@
     run(updateNotes(edited.id, changes))
     picked = afterChanges(new Set(chosen.map(noteKey)), changes)
     const now = changes.find((c) => noteKey(c.from) === noteKey(reference))?.to ?? reference
-    lastVelocity = now.velocity
     announce(t('pianoRoll.saidVelocity', { n: now.velocity }))
     // The note's key holds its velocity: the focus follows it to its new key.
     if (focused) void focusNote(noteKey(now))
@@ -747,6 +748,14 @@
     event.stopPropagation()
     const at = cursorPos
     if (action.kind === 'velocity') return changeVelocity(chosenNotes, action.delta, null)
+    if (action.kind === 'move') {
+      // Alt+Up and Alt+Down transpose the selection from the free cursor too (#529); Alt+Left and Alt+Right need a note.
+      if (action.direction === 'up' || action.direction === 'down') {
+        if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+        transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
+      }
+      return
+    }
     if (action.kind === 'focus' || action.kind === 'extend') {
       const big = action.kind === 'extend'
       const next = moveCursor(
@@ -768,7 +777,7 @@
       void focusNote(under.id)
       return
     }
-    const note = drawnNote(at.tick, null, at.pitch, lastVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+    const note = drawnNote(at.tick, null, at.pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
     if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
     run(addNotes(edited.id, [note]))
     // Nothing to say or sound when the command did not apply (no engine, a refusal the dispatcher already shows).
@@ -919,7 +928,6 @@
     if (!changes || changes.length === 0 || !stillApplies(notes, changes, clipLength)) return
     run(updateNotes(edited.id, changes))
     picked = afterChanges(picked, changes)
-    lastVelocity = DEFAULT_VELOCITY
   }
 
   /** The bar under a pointer of the lane becomes the chosen note when it is not one already; false when there is none. */
@@ -1077,6 +1085,11 @@
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
+  function onDrawVelocityChange(event: Event & { currentTarget: HTMLInputElement }) {
+    const input = event.currentTarget
+    drawVelocity = parseDrawVelocity(input.value, drawVelocity)
+    input.value = String(drawVelocity)
+  }
   function onStrengthChange(event: Event & { currentTarget: HTMLInputElement }) {
     const input = event.currentTarget
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
@@ -1088,7 +1101,11 @@
   function transposeChosen(semitones: number) {
     if (!edited) return
     const changes = transposeChanges(chosenNotes, semitones)
-    if (!changes || changes.length === 0) return
+    if (!changes || changes.length === 0) {
+      // Past the top or the bottom of the keyboard: said, as on a note's cell (nothing to say with no selection).
+      if (chosenNotes.length > 0) announce(t('pianoRoll.saidCannotMove'))
+      return
+    }
     run(transposeNotes(edited.id, [...chosenNotes], semitones))
     picked = afterChanges(picked, changes)
     sound(changes[0]!.to.pitch, changes[0]!.to.velocity)
@@ -1270,6 +1287,19 @@
           onclick={() => transposeChosen(1)}>+1</button
         >
       </div>
+      <label class="field" title={t('pianoRoll.drawVelocityHint')}>
+        <span>{t('pianoRoll.drawVelocity')}</span>
+        <input
+          type="number"
+          min={MIN_VELOCITY}
+          max={MAX_VELOCITY}
+          step="1"
+          value={drawVelocity}
+          aria-label={t('pianoRoll.drawVelocity')}
+          data-testid="roll-draw-velocity"
+          onchange={onDrawVelocityChange}
+        />
+      </label>
       <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
         <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
           {#each QUANTIZE_GRIDS as grid (grid.id)}

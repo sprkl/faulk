@@ -78,6 +78,8 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       __faulkHistory: () => dispatcher.history(),
       // The answer of `project.list_stored` (`storage-commands.spec.ts`).
       __faulkStored: () => dispatcher.listStored(),
+      // The storage's notice, whether or not a banner shows it: a banner of higher priority (the permission's) hides it (`storage-commands.spec.ts`).
+      __faulkNotice: () => storage.notice,
       // What the last write of the project cost (`project-save.spec.ts`).
       __faulkWrite: () => storage.lastWrite,
       // The folder store of SV-2 does not exist yet: a check hands the folder's files over (bytes as numbers).

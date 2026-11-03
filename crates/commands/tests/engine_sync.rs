@@ -967,6 +967,47 @@ fn a_command_that_removes_or_brings_back_many_clips_sends_one_table() {
 }
 
 #[test]
+fn a_placement_moved_to_another_track_reaches_the_engine_and_its_undo_restores_it() {
+    let (mut s, synth, _) = synced();
+    let (out, _) = run(&mut s, json!({"type": "track.create", "kind": "midi"}));
+    let second = track_of(&out);
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": 0}}),
+    );
+    let Output::Clip(commands::clip::Output::Create {
+        placement: Some(first),
+        ..
+    }) = out
+    else {
+        panic!()
+    };
+    let tables = |msgs: &[ControlMsg]| {
+        msgs.iter()
+            .filter(|m| matches!(m, ControlMsg::TrackPlacementsUpload { .. }))
+            .count()
+    };
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.move_to_track", "moves": [{"placement": first, "track": second}]}),
+    );
+    // The clip is created in the target, both tables are sent, the emptied source clip goes.
+    assert_eq!(tables(&msgs), 2, "{msgs:?}");
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ControlMsg::ClipNotesUpload { .. })),
+        "{msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ControlMsg::ClipRemove { .. })),
+        "{msgs:?}"
+    );
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(tables(&msgs), 2, "{msgs:?}");
+}
+
+#[test]
 fn stop_brings_the_head_to_the_cue_and_a_second_stop_to_the_start() {
     let (mut s, _, _) = synced();
     let stop = || json!({"type": "transport.stop"});
