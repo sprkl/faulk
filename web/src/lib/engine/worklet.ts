@@ -3,8 +3,19 @@
 // the shared memory, the page reads the engine's report from it. Once initialized (the
 // engine's message path warmed up on a private channel, #355), nothing
 // here posts a message or allocates, except re-taking the two output views after the memory
-// grew (one comparison per block, CT-3).
-import { MAX_FRAMES, becomeRenderInstance, instantiate, warmUp, type EngineExports, type RenderSetup } from './engine-abi'
+// grew (one comparison per block, CT-3). Each block's render is timed with the scope's clock
+// for the engine's CPU load (#486): two clock reads and plain numbers per block.
+import {
+  MAX_FRAMES,
+  becomeRenderInstance,
+  blockSeconds,
+  instantiate,
+  renderClock,
+  warmUp,
+  type EngineExports,
+  type RenderClock,
+  type RenderSetup,
+} from './engine-abi'
 
 declare function registerProcessor(name: string, processor: unknown): void
 /** The sample rate of the audio context, a global of the AudioWorkletGlobalScope. */
@@ -30,6 +41,7 @@ class FaulkProcessor extends AudioWorkletProcessor {
   private buffer: ArrayBufferLike | null = null
   private left = new Float32Array(0)
   private right = new Float32Array(0)
+  private clock: RenderClock | null = null
 
   constructor() {
     super()
@@ -44,6 +56,10 @@ class FaulkProcessor extends AudioWorkletProcessor {
         // the audio thread (#355). It touches nothing of the real channel and sounds nowhere.
         // A failure (even a trap) costs only that first block's time, so it does not stop the engine.
         const warm = warmUp(exports, sampleRate)
+        // The clock that times each block (#486), its step measured now, before any audio.
+        const clock = renderClock()
+        exports.fk_set_clock_resolution(message.setup.channel, clock.step)
+        this.clock = clock
         this.memory = message.memory
         this.channel = message.setup.channel
         this.exports = exports
@@ -67,11 +83,14 @@ class FaulkProcessor extends AudioWorkletProcessor {
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const output = outputs[0]
-    if (!this.exports || !output || output.length === 0) return true
+    const clock = this.clock
+    if (!this.exports || !clock || !output || output.length === 0) return true
     const outLeft = output[0]
     const outRight = output[1]
     // The engine learns the context frame of this block, the clock the page stamps live notes in (#499).
+    const start = clock.now()
     const frames = this.exports.fk_render_at(this.channel, outLeft.length, currentFrame)
+    this.exports.fk_add_render_time(this.channel, blockSeconds(start, clock.now()), frames)
     this.takeViews()
     const left = this.left
     const right = this.right

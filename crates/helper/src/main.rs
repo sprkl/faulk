@@ -4,7 +4,9 @@
 //! no output (the page keeps playing itself) and opens the default output as soon as one appears
 //! (`helper::output`), without a restart.
 //!
-//! Usage: `faulk-helper [--port 47800] [--allow-origin <origin>]... [--app-url <url>]`
+//! Usage: `faulk-helper [--port 47800] [--allow-origin <origin>]... [--app-url <url>]`, or
+//! `faulk-helper mcp-token` (creates the MCP token and shows how to connect an agent), or
+//! `faulk-helper mcp [--port 47800]` (the MCP server over stdio, `helper::mcp_stdio`).
 //!
 //! By default the helper accepts the production site and the local dev servers, and
 //! "Open Faulk" opens `https://www.faulk.app/app` in a release build and the dev server in
@@ -32,7 +34,7 @@ use helper::live::LiveInput;
 use helper::log;
 use helper::midi::{MidiManager, MidiSink};
 use helper::output::{self, Supervisor};
-use helper::security::{Policy, load_or_create_token};
+use helper::security::{McpToken, Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
 use helper::updater::{self, Config, UpdateStatus, UpdateWatch, Updater};
@@ -124,6 +126,9 @@ static UPDATES: OnceLock<UpdateWatch> = OnceLock::new();
 const FATAL_UPDATE_LIMIT: Duration = Duration::from_secs(120);
 /// A debug build finds no audio output while this variable is set (startup tests).
 const NO_AUDIO_ENV: &str = "FAULK_HELPER_TEST_NO_AUDIO";
+/// A debug build plays to a silent output instead of the system's while this variable is set: a
+/// machine without an audio device runs a Boost session end to end (`output::Silent`).
+const SILENT_OUTPUT_ENV: &str = "FAULK_HELPER_TEST_SILENT_OUTPUT";
 /// A debug build on Windows runs without its tray icon when this variable is set (startup tests).
 #[cfg(windows)]
 const NO_TRAY_ENV: &str = "FAULK_HELPER_TEST_NO_TRAY";
@@ -244,11 +249,78 @@ fn release_all_voices(engine: &EngineSlot, meter: &Meter, limit: Duration) -> bo
     }
 }
 
+/// `faulk-helper mcp [--port 47800]`: the MCP server over stdio, a bridge to the running helper
+/// (`helper::mcp_stdio`). It holds the instance lock shared, so that no helper applies an update
+/// over it, and nothing else: no port, no tray, no audio.
+fn mcp_stdio(args: &[String]) {
+    let port = match args {
+        [] => DEFAULT_PORT,
+        [flag, port] if flag == "--port" => port.parse().unwrap_or_else(|_| {
+            eprintln!("usage: faulk-helper mcp [--port 47800]");
+            std::process::exit(2)
+        }),
+        _ => {
+            eprintln!("usage: faulk-helper mcp [--port 47800]");
+            std::process::exit(2)
+        }
+    };
+    let _lock = updater::hold_instance_lock();
+    let token =
+        helper::security::read_secret(&helper::config_dir(), helper::security::MCP_TOKEN_FILE);
+    helper::mcp_stdio::run(port, token, std::io::stdin().lock(), std::io::stdout());
+}
+
+/// `faulk-helper mcp-token`: the user creates the MCP token (or reads it again) and is shown how
+/// to connect an agent. The helper itself never creates it: running this is the user's consent.
+fn mcp_token() {
+    // A Windows release build has no console of its own: it writes to the terminal it was
+    // started from.
+    #[cfg(all(windows, not(debug_assertions)))]
+    // SAFETY: AttachConsole takes no pointer; failing (no parent console) only leaves the
+    // output unseen.
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(
+            windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        );
+    }
+    let dir = helper::config_dir();
+    match helper::security::load_or_create_mcp_token(&dir) {
+        Ok(token) => {
+            let exe = std::env::current_exe()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "faulk-helper".into());
+            println!("MCP token: {token}");
+            println!(
+                "(kept in {})",
+                dir.join(helper::security::MCP_TOKEN_FILE).display()
+            );
+            println!();
+            println!("Connect Claude Code over stdio (the helper must be running):");
+            println!("  claude mcp add faulk -- \"{exe}\" mcp");
+            println!("or over HTTP:");
+            println!(
+                "  claude mcp add --transport http faulk http://127.0.0.1:{DEFAULT_PORT}{} --header \"Authorization: Bearer {token}\"",
+                helper::mcp::PATH
+            );
+        }
+        Err(e) => {
+            eprintln!("cannot store the MCP token in {}: {e}", dir.display());
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    // The agents' entries (AG-1) run nothing of the helper's start: no update applied, no port.
+    match raw_args.first().map(String::as_str) {
+        Some("mcp") => return mcp_stdio(&raw_args[1..]),
+        Some("mcp-token") => return mcp_token(),
+        _ => {}
+    }
     // First: the installer and the updater run the executable with `--veloapp-*` arguments
     // and expect it to exit at once, before any argument parsing, port claim or window.
     updater::startup();
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let lang = ui_lang();
     let config_dir = helper::config_dir();
     // Only the helper that serves rotates the log: another instance must not move the
@@ -383,6 +455,8 @@ fn main() {
                 port: args.port,
                 allowed_origins: args.origins.clone(),
                 token,
+                // Created by the user only (`faulk-helper mcp-token`): MCP stays closed until then.
+                mcp_token: McpToken::file(config_dir.clone()),
             },
             engine.clone(),
             midi,
@@ -401,23 +475,29 @@ fn main() {
     // appears. Started after the updater (#515, #531) and the server: a helper without an output
     // still updates itself and serves the page.
     let no_audio = cfg!(debug_assertions) && std::env::var_os(NO_AUDIO_ENV).is_some();
-    let supervisor = Supervisor::start(
-        move || output::Cpal::new(no_audio),
-        output::Links {
-            engine: engine.clone(),
-            meter: meter.clone(),
-            lost: {
-                let shared = shared.clone();
-                Box::new(move || shared.output_lost())
-            },
-            reopened: {
-                let shared = shared.clone();
-                Box::new(move || shared.output_reopened())
-            },
-            report: Box::new(move |open| notify(HelperEvent::Output(open))),
+    let silent = cfg!(debug_assertions) && std::env::var_os(SILENT_OUTPUT_ENV).is_some();
+    let links = output::Links {
+        engine: engine.clone(),
+        meter: meter.clone(),
+        lost: {
+            let shared = shared.clone();
+            Box::new(move || shared.output_lost())
         },
-        output::Timing::default(),
-    )
+        reopened: {
+            let shared = shared.clone();
+            Box::new(move || shared.output_reopened())
+        },
+        report: Box::new(move |open| notify(HelperEvent::Output(open))),
+    };
+    let supervisor = if silent {
+        Supervisor::start(|| output::Silent, links, output::Timing::default())
+    } else {
+        Supervisor::start(
+            move || output::Cpal::new(no_audio),
+            links,
+            output::Timing::default(),
+        )
+    }
     .unwrap_or_else(|e| fatal(lang, &format!("cannot start the audio output thread: {e}")));
 
     // A debug build's startup tests run without the tray, whose icon a test machine may not be

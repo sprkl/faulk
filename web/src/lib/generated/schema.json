@@ -1,5 +1,80 @@
 {
   "client_message": {
+    "$defs": {
+      "AgentResult": {
+        "description": "What running an agent's command in the page did (`agent.result`).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The command applied. `output` is its typed output (the helper drops its `type` tag: the\ntool's name carries it). For the commands the page answers once its own work is done, the\noutput it builds then: `project.list_stored` its lists, `project.new` the new project's\n`name`; `null` when the report of an applied command was lost.",
+            "properties": {
+              "output": true,
+              "status": {
+                "const": "applied",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The project refused it (a `CommandError`, `code` first), or the page did (a recording in\nprogress: `{ \"code\": <the page's notice> }`): nothing changed.",
+            "properties": {
+              "error": true,
+              "status": {
+                "const": "refused",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "error"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The JSON is not a command this page knows: nothing changed.",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "const": "invalid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The page cannot run it now (no project yet, no engine, a session it no longer plays, or a\ncommand that opens a picker or a permission prompt, which needs a click in the page):\nnothing changed.",
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "const": "unavailable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "A JSON message from the page to the helper (the engine streams are binary frames).",
     "oneOf": [
@@ -82,6 +157,30 @@
           "type",
           "epoch",
           "tracks"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the session the call went to.\nOnly on a session.",
+        "properties": {
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "result": {
+            "$ref": "#/$defs/AgentResult"
+          },
+          "type": {
+            "const": "agent.result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "result"
         ],
         "type": "object"
       }
@@ -33378,7 +33477,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 24,
+  "protocol_version": 27,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -33789,6 +33888,32 @@
         "required": [
           "type",
           "status"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the session ends or after its timeout.",
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "command": true,
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "agent.call",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "agent",
+          "command"
         ],
         "type": "object"
       },

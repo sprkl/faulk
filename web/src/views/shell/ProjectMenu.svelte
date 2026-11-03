@@ -193,7 +193,9 @@
     align-items: center;
     gap: var(--fk-space-2);
     height: 22px;
-    max-width: 130px;
+    /* It gives way when the bar is full, down to a readable start of the name with an ellipsis, never to nothing. */
+    min-width: 4.5rem;
+    max-width: min(130px, 100%);
     padding: 0 var(--fk-space-3);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-pill);
@@ -212,7 +214,7 @@
     white-space: nowrap;
   }
   .state {
-    max-width: 10rem;
+    max-width: min(10rem, 100%);
     overflow: hidden;
     text-overflow: ellipsis;
     padding-left: var(--fk-space-3);

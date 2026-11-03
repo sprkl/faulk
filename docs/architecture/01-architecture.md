@@ -67,6 +67,23 @@ Le schéma montre les points d'entrée, pas le lieu d'exécution : la couche de 
 | Helper installé | Le helper expose un serveur MCP local (HTTP sur `127.0.0.1`, ou stdio quand l'agent le lance). Les outils sont générés depuis `crates/commands` et agissent sur la session ouverte dans la page. | Mature |
 | Navigateur seul | WebMCP : la page déclare ses outils au navigateur (`document.modelContext`) et l'agent du navigateur les appelle. | Expérimental (phase de test dans Chrome, API encore renommée) : à brancher quand elle sera stable, sur la même couche de commandes |
 
+#### Le serveur MCP du helper (AG-1, #97, protocole 26)
+
+- **Outils** : un par commande, générés depuis le catalogue (`commands::catalog`) : description, schéma d'entrée et de sortie, indications `readOnlyHint` (requêtes) et `destructiveHint` (`x-destructive`). Le nom de l'outil est celui de la commande, `_` à la place de `.` (`track_create` pour `track.create`), car les API des modèles refusent le point dans un nom d'outil (`crates/helper/src/mcp.rs`).
+- **Transports** : HTTP « Streamable HTTP » sur le port du helper, chemin `/mcp` (`http://127.0.0.1:47800/mcp`), et stdio par `faulk-helper mcp`, un pont vers ce même serveur HTTP (`crates/helper/src/mcp_stdio.rs`) : une seule logique MCP.
+- **Sécurité** : chaque requête est vérifiée avant le serveur MCP : `Host` qui nomme le helper (contre le DNS rebinding), aucun en-tête `Origin` (aucune page web, celle de Faulk comprise, ne pilote le serveur MCP) et le jeton MCP (`Authorization: Bearer`), distinct du jeton de session de la page. Le helper ne crée jamais ce jeton : l'utilisateur le crée en lançant `faulk-helper mcp-token` (sa confirmation) ; jusque-là, toute requête MCP est refusée. Le helper relit le fichier à chaque requête : le supprimer ferme le serveur MCP aussitôt. Le fichier `mcp-token` du dossier de configuration du helper n'est lisible que par son propriétaire (Unix ; sous Windows, le dossier de l'utilisateur l'est déjà).
+- **Relais** : le helper n'exécute aucune commande. Un appel d'outil devient `agent.call` (un `id`, le nom du client MCP, la commande en JSON) sur la session de la page ; la page l'exécute par son répartiteur comme une action de l'utilisateur (auteur `agent:<nom>` dans l'historique, annulation, refus) et répond `agent.result` avec le même `id`. Sans page en Boost, l'outil répond aussitôt l'erreur `page.absent` ; une page fermée ou remplacée avant sa réponse donne `page.gone`, une page muette `page.timeout` (60 s) : dans ces deux derniers cas la commande a pu s'appliquer, l'agent relit l'état avant de recommencer. Les autres erreurs : `command.refused` (avec la `CommandError`), `command.invalid`, `page.unavailable` (pas de projet, page en bascule, ou commande qui ouvre un sélecteur ou une invite et exige donc un clic dans la page : `project.save_as`, `open_folder`, `allow_access`, `import_pack`, `export_pack`, `export_audio` ; `project.save` d'un projet sans dossier part vers « Enregistrer sous » et n'aboutit pas sans clic).
+- **Limites d'AG-1** : les agents n'atteignent la page qu'en Boost (une session existe seulement avec une sortie audio ouverte) ; #608 lèvera cette limite : un agent doit agir dès que la page est appairée, en Web comme en Boost ; les commandes destructrices s'exécutent sans confirmation, annulables, jusqu'à AG-4 (accepté par le fondateur le 2026-11-03) ; un tour d'agent n'est pas encore un groupe d'annulation (AG-3).
+
+Brancher Claude Code (le helper doit tourner ; `faulk-helper mcp-token` affiche le jeton et ces deux commandes) :
+
+```bash
+# stdio : Claude Code lance le pont, qui lit lui-même le jeton
+claude mcp add faulk -- "<chemin de faulk-helper>" mcp
+# ou HTTP, avec le jeton
+claude mcp add --transport http faulk http://127.0.0.1:47800/mcp --header "Authorization: Bearer <jeton>"
+```
+
 ### ACP : connecter son propre agent
 
 Faulk joue le rôle du client ACP (l'« éditeur ») ; l'agent choisi par l'utilisateur est un processus local qui dialogue en JSON-RPC sur stdio. La page ne peut pas lancer de processus : le helper lance l'agent et relaie la conversation vers la page par WebSocket, sur le modèle des outils qui servent une interface web depuis un serveur local.

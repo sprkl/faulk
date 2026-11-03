@@ -1910,6 +1910,99 @@ describe('the recorder in the dispatcher (#513)', () => {
   })
 })
 
+describe("an agent's calls in Boost (AG-1)", () => {
+  beforeEach(() => {
+    webs = []
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+  })
+
+  async function boosted() {
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    return session
+  }
+
+  /** Hands the helper's `agent.call` to the page and waits for its answer. */
+  async function call(agent: string, command: unknown) {
+    const answer = vi.fn()
+    nativeEvents!.onAgentCall!(agent, command, answer)
+    await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
+    return answer.mock.calls[0][0]
+  }
+
+  it("runs the agent's command like the user's: the engine gets it, the history names the agent, the user can undo it", async () => {
+    const session = await boosted()
+    const sends = nativeEngine!.send.mock.calls.length
+    const result = await call('claude-code', setParamCommand(firstParam, 0.3))
+    expect(result).toMatchObject({ status: 'applied', output: { type: 'device.set_param' } })
+    expect(session.project.params[firstParam]).toBe(0.3)
+    expect(nativeEngine!.send.mock.calls.length).toBe(sends + 1)
+    expect(session.dispatcher.history().undo.at(-1)).toMatchObject({ name: 'device.set_param', author: 'agent:claude-code' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+    // The user's own edit after it is the user's.
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    expect(session.dispatcher.history().undo.at(-1)?.author).toBe('user')
+  })
+
+  it('answers a refusal with the command error, without a toast for the user', async () => {
+    const session = await boosted()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await call('a', { type: 'device.set_param', device: '00000000000000000000000009', param: firstParam, value: 1 })
+    expect(result).toMatchObject({ status: 'refused', error: { code: 'not_found' } })
+    expect(session.engine.refusal).toBeNull()
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it('answers invalid for what is not a command of this page, and unavailable for a command that needs a click', async () => {
+    await boosted()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await call('a', { type: 'nope.nothing' })).toMatchObject({ status: 'invalid' })
+    const sends = nativeEngine!.send.mock.calls.length
+    expect(await call('a', { type: 'project.save_as' })).toMatchObject({ status: 'unavailable' })
+    expect(nativeEngine!.send.mock.calls.length).toBe(sends)
+  })
+
+  it('answers unavailable before audio starts, and runs nothing later', async () => {
+    const session = newSession()
+    const result = await session.dispatcher.runForAgent({ type: 'project.reopen_last' } as Command, 'agent:a')
+    expect(result).toMatchObject({ status: 'unavailable' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(session.dispatcher.history().undo).toEqual([])
+  })
+
+  it('answers the stored projects for project.list_stored', async () => {
+    await boosted()
+    expect(await call('a', { type: 'project.list_stored' })).toEqual({
+      status: 'applied',
+      output: { recent: [], browser: [] },
+    })
+  })
+
+  it('answers unavailable, at once, a call that reaches a session the page no longer plays', async () => {
+    const session = await boosted()
+    const events = nativeEvents!
+    await session.dispatcher.enterWeb()
+    const answer = vi.fn()
+    events.onAgentCall!('a', setParamCommand(firstParam, 0.3), answer)
+    expect(answer).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }))
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+})
+
 describe('audio files imported by the page (AU-1)', () => {
   beforeEach(() => {
     webs = []

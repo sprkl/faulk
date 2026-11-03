@@ -8,19 +8,29 @@
 //! stream the page's project core encoded (`engine::msg`), the same bytes the page's own
 //! engine takes, which the helper submits unchanged (at most [`MAX_STREAM_BYTES`]); from the
 //! helper, each one is a report (`engine::msg::Feedback`, version 3 of this protocol). The page
-//! owns the project in both modes: no command crosses the link.
+//! owns the project in both modes: no command crosses the link on the page's initiative.
+//!
+//! Agents (AG-1, version 26): the helper serves MCP and relays each tool call to the page as
+//! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
+//! user's action, and answers `agent.result` with the same `id`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 27;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
 /// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+// Version 27 (#110, AU-1): the commands gain `clip.import_audio`, `clip.restore_audio`, `clip.choose_audio` and `clip.cancel_audio_import`, and `clip.delete` takes an audio clip; the helper generates its MCP tools from the commands, so a helper of version 26 would not offer them to an agent. No message changes: the import runs in the page in both modes, and nothing of an audio file crosses the link.
+
+// Version 26 (#97, AG-1; 25 is #594's): agents. The helper serves MCP (`/mcp` on the same port) and relays each tool call to the session as `agent.call` (`id`, the agent's name, the command as JSON); the page runs it through its dispatcher like a user's action (history author `agent:<name>`, undo, refusals) and answers `agent.result` with the same `id` and an `AgentResult`. A page and a helper of different versions refuse each other.
+
+// Version 25 (#486): the feedback layout is version 6: a 76-byte header whose new word at offset 72 is the CPU load's peak (`cpu_peak`, f32, the largest load of one peak window of the period, -1 until the host timed a block), and the helper now times its render, so `cpu_load` is measured in Boost. A page and a helper of different versions refuse each other.
 
 // Version 24 (#598): the notes of the helper's MIDI input play on the helper's engine at once, without the page's main thread. The page sends `live.routing` (`epoch`, the slots of the tracks the live input reaches) after each snapshot and whenever it changes; the helper encodes each note on in that epoch for those tracks and each note off for the tracks its note went to, and ignores a table of another epoch than its engine's. `midi.message` still carries every message to the page and gains `played`: the page runs the message in its project and sends its engine bytes only when the helper did not play it (control changes, a note before any table). A page of version 23 would double the notes, and one of version 24 would leave them unplayed with a helper of version 23.
 
@@ -130,6 +140,31 @@ pub enum ClientMessage {
     /// track limit. Only on a session.
     #[serde(rename = "live.routing")]
     LiveRouting { epoch: u16, tracks: Vec<u32> },
+    /// The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running
+    /// the agent's command did. The helper takes it only from the session the call went to.
+    /// Only on a session.
+    #[serde(rename = "agent.result")]
+    AgentResult { id: u64, result: AgentResult },
+}
+
+/// What running an agent's command in the page did (`agent.result`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentResult {
+    /// The command applied. `output` is its typed output (the helper drops its `type` tag: the
+    /// tool's name carries it). For the commands the page answers once its own work is done, the
+    /// output it builds then: `project.list_stored` its lists, `project.new` the new project's
+    /// `name`; `null` when the report of an applied command was lost.
+    Applied { output: serde_json::Value },
+    /// The project refused it (a `CommandError`, `code` first), or the page did (a recording in
+    /// progress: `{ "code": <the page's notice> }`): nothing changed.
+    Refused { error: serde_json::Value },
+    /// The JSON is not a command this page knows: nothing changed.
+    Invalid { message: String },
+    /// The page cannot run it now (no project yet, no engine, a session it no longer plays, or a
+    /// command that opens a picker or a permission prompt, which needs a click in the page):
+    /// nothing changed.
+    Unavailable { reason: String },
 }
 
 /// What the helper can do, announced in `hello` (BO-1).
@@ -223,6 +258,16 @@ pub enum ServerMessage {
         /// End of the last check, in seconds since the Unix epoch; `None` before the first.
         checked_at: Option<u64>,
         status: HelperUpdate,
+    },
+    /// An agent's tool call (AG-1): the command to run, as JSON (`{"type": "<domain.verb>",
+    /// ...}`), and the agent's name, the history's author `agent:<name>`. The page runs it
+    /// through its dispatcher like a user's action and answers `agent.result` with this `id`;
+    /// the helper gives up on it when the session ends or after its timeout.
+    #[serde(rename = "agent.call")]
+    AgentCall {
+        id: u64,
+        agent: String,
+        command: serde_json::Value,
     },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
