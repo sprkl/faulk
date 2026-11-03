@@ -25,6 +25,10 @@ export interface EngineExports {
   fk_render(channel: number, frames: number): number
   /** `fk_render` after telling the engine the host frame of the block's first sample (#499): the worklet's `currentFrame`. */
   fk_render_at(channel: number, frames: number, hostFrame: number): number
+  /** One timed block (#486): the render of `frames` took `seconds` by the worklet's clock; the report's CPU load and peak follow. */
+  fk_add_render_time(channel: number, seconds: number, frames: number): void
+  /** The step of the worklet's clock in seconds (#486): it sets the length of the peak windows. */
+  fk_set_clock_resolution(channel: number, seconds: number): void
   /** Runs every message once on a throwaway channel (#355): 0, or an error code. */
   fk_warm(sampleRate: number): number
   fk_left(channel: number): number
@@ -179,4 +183,43 @@ export function warmUp(render: EngineExports, sampleRate: number): number {
     render.fk_set_role(ROLE_RENDER)
     return -1
   }
+}
+
+/** A clock in milliseconds and its step in seconds, to time the render (#486). */
+export interface RenderClock {
+  now: () => number
+  step: number
+}
+
+/** A block read longer than this (a wall-clock jump of `Date.now()`) counts as 0 s. */
+export const MAX_TIMED_BLOCK_MS = 1000
+
+/**
+ * The finest clock of the scope (#486): `performance.now()` where it exists, else `Date.now()`
+ * (an AudioWorkletGlobalScope in Chromium has no `performance`; its `Date.now()` steps by 1 ms).
+ * Its step is measured once, from one tick to the next, in at most `spins` reads (a clock that
+ * does not move in them is taken to step by 1 ms). Call it before any audio.
+ */
+export function renderClock(scope: { performance?: { now(): number } } = globalThis, spins = 1e7): RenderClock {
+  const perf = scope.performance
+  const now = typeof perf?.now === 'function' ? () => perf.now() : () => Date.now()
+  let left = spins
+  const next = (from: number) => {
+    let t = now()
+    while (t === from && --left > 0) t = now()
+    return t
+  }
+  const first = next(now())
+  const second = next(first)
+  const step = left > 0 && second > first ? (second - first) / 1000 : 0.001
+  return { now, step }
+}
+
+/**
+ * The seconds to report for a block timed from `start` to `end` by a [`RenderClock`]: a
+ * negative reading or one over [`MAX_TIMED_BLOCK_MS`] (the wall clock stepped) counts as 0.
+ */
+export function blockSeconds(start: number, end: number): number {
+  const ms = end - start
+  return ms >= 0 && ms < MAX_TIMED_BLOCK_MS ? ms / 1000 : 0
 }

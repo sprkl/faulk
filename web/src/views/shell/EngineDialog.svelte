@@ -29,7 +29,8 @@
   const latency = $derived(
     engine.status?.estimatedLatencyMs != null ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
-  const load = $derived(engine.feedback?.cpuLoad != null ? `${Math.round(engine.feedback.cpuLoad * 100)} %` : null)
+  // The engine's load (#486): smoothed, and the peak of the last seconds.
+  const load = $derived(engine.load ? t('engine.loadValue', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null)
 
   /** The manual latency offset of recording (#470): session state, `record.set_settings`. */
   const offset = $derived(project.view?.session.record?.offset_ms ?? 0)

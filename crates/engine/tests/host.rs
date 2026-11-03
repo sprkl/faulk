@@ -5,8 +5,8 @@
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use engine::host::{Host, Prepare, channel, copy_feedback, feedback_voices, read_feedback};
 use engine::msg::{
-    ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, TransportState, encode_stream,
-    limits,
+    ControlMsg as M, DeviceSlot, FEEDBACK_HEADER_BYTES as HEADER, ParamId, TrackKind, TrackSlot,
+    TransportState, encode_stream, limits,
 };
 use engine::time::Tick;
 use engine::{OSC_SYNTH, Param, Synth};
@@ -429,27 +429,219 @@ fn the_report_carries_the_transport_and_the_playhead() {
     assert_eq!(stopped.transport, TransportState::Stopped);
 }
 
+/// One 128-frame block timed as `seconds`, the way the helper and the worklet do it: the
+/// render (which may write a report), then its time.
+fn timed_block(session: &mut Session, seconds: f32) {
+    let frames = session.host.render(128);
+    session.host.add_render_time(seconds, frames as u32);
+}
+
+/// The load and peak of the report written now.
+fn loads(session: &mut Session) -> (f32, f32) {
+    session.host.write_feedback();
+    let report = read_feedback(session.host.feedback()).unwrap();
+    (report.cpu_load, report.cpu_peak)
+}
+
+/// 128 frames at 48 kHz last 1/375 s.
+const BLOCK: f32 = 128.0 / RATE;
+
 #[test]
-fn the_cpu_load_is_the_timed_render_time_over_the_period() {
+fn the_cpu_load_is_the_timed_render_time_over_the_timed_frames() {
     let mut session = Session::new();
-    // Untimed: not measured.
-    assert_eq!(report_of(&mut session).cpu_load, engine::host::NOT_MEASURED);
-    // 1600 frames at 48 kHz are 1/30 s: 5 ms of render time is 15 %.
-    for _ in 0..12 {
-        session.host.render(128);
+    // Never timed: not measured, load and peak.
+    let report = report_of(&mut session);
+    assert_eq!(report.cpu_load, engine::host::NOT_MEASURED);
+    assert_eq!(report.cpu_peak, engine::host::NOT_MEASURED);
+    // Ten blocks at 25 % of their duration: 25 %, the peak too.
+    session.host.write_feedback();
+    for _ in 0..10 {
+        timed_block(&mut session, BLOCK / 4.0);
     }
-    session.host.add_render_time(0.005);
-    session.host.add_render_time(f32::NAN);
-    session.host.add_render_time(-1.0);
-    session.host.render(128);
-    let load = read_feedback(session.host.feedback()).unwrap().cpu_load;
-    assert!((0.1..0.2).contains(&load), "{load}");
-    // Over budget saturates at 1.
-    session.host.add_render_time(10.0);
-    session.host.render(1600);
+    let (load, peak) = loads(&mut session);
+    assert!((load - 0.25).abs() < 1e-4, "{load}");
+    assert!((peak - 0.25).abs() < 1e-4, "{peak}");
+    // A period with no timed block after that: load 0, not "not measured"; the peak is the
+    // last window closed.
+    assert_eq!(loads(&mut session), (0.0, 0.25));
+    // Not finite or negative times count as 0 with their frames; over budget saturates.
+    session.host.add_render_time(f32::NAN, 128);
+    session.host.add_render_time(-1.0, 128);
+    session.host.add_render_time(f32::INFINITY, 128);
+    session.host.add_render_time(BLOCK * 3.0 / 4.0, 128);
+    let (load, peak) = loads(&mut session);
+    assert!((load - 0.75 / 4.0).abs() < 1e-4, "{load}");
+    assert!((peak - 0.75).abs() < 1e-4, "{peak}");
+    session.host.add_render_time(10.0, 128);
+    assert_eq!(loads(&mut session), (1.0, 1.0));
+}
+
+#[test]
+fn a_block_timed_after_the_render_that_reported_counts_in_the_next_report() {
+    let mut session = Session::new();
+    session.host.write_feedback();
+    // 1 600 frames make a report: 12 blocks of 128 do not, the 13th writes it inside its
+    // render, before its own time is added.
+    for _ in 0..12 {
+        timed_block(&mut session, BLOCK / 10.0);
+    }
+    let seq = read_feedback(session.host.feedback()).unwrap().seq;
+    timed_block(&mut session, BLOCK);
+    let report = read_feedback(session.host.feedback()).unwrap();
+    assert_ne!(report.seq, seq, "the 13th block wrote a report");
+    assert!((report.cpu_load - 0.1).abs() < 1e-4, "{}", report.cpu_load);
+    assert!((report.cpu_peak - 0.1).abs() < 1e-4, "{}", report.cpu_peak);
+    // The 13th block's time is in the next report, with its own frames.
+    let (load, peak) = loads(&mut session);
+    assert!((load - 1.0).abs() < 1e-4, "{load}");
+    assert!((peak - 1.0).abs() < 1e-4, "{peak}");
+}
+
+#[test]
+fn with_a_fine_clock_the_peak_is_the_worst_block() {
+    let mut session = Session::new();
+    session.host.write_feedback();
+    // Eleven light blocks and one at 90 %: the mean hides it, the peak shows it.
+    for i in 0..12 {
+        timed_block(&mut session, if i == 5 { BLOCK * 0.9 } else { BLOCK * 0.1 });
+    }
+    let (load, peak) = loads(&mut session);
+    assert!((load - (11.0 * 0.1 + 0.9) / 12.0).abs() < 1e-4, "{load}");
+    assert!((peak - 0.9).abs() < 1e-4, "{peak}");
+    // The peak starts again with the period.
+    for _ in 0..3 {
+        timed_block(&mut session, BLOCK * 0.2);
+    }
+    let (_, peak) = loads(&mut session);
+    assert!((peak - 0.2).abs() < 1e-4, "{peak}");
+}
+
+#[test]
+fn with_a_coarse_clock_the_peak_is_taken_over_windows_of_its_steps() {
+    let mut session = Session::new();
+    // 1 ms steps: a window lasts at least 100 ms, 38 blocks of 2.67 ms.
+    session.host.set_clock_resolution(0.001);
+    session.host.write_feedback();
+    // Before any window closed, the peak is the period's load.
+    for _ in 0..20 {
+        session.host.add_render_time(0.001, 128);
+    }
+    let (load, peak) = loads(&mut session);
+    assert!((load - 0.001 / BLOCK).abs() < 1e-4, "{load}");
+    assert_eq!(peak, load);
+    // The open window carries over the report and closes at its 38th block: 20 ms of
+    // render over 38 blocks, not one block's 37 %.
+    for _ in 0..17 {
+        session.host.add_render_time(0.0, 128);
+    }
+    let (load, peak) = loads(&mut session);
+    assert_eq!(load, 0.0);
     assert_eq!(
-        read_feedback(session.host.feedback()).unwrap().cpu_load,
-        1.0
+        peak, 0.0,
+        "37 blocks: no window closed yet, the peak is the load"
+    );
+    session.host.add_render_time(0.0, 128);
+    let window = 0.020 / (38.0 * BLOCK);
+    let (load, peak) = loads(&mut session);
+    assert_eq!(load, 0.0);
+    assert!((peak - window).abs() < 1e-4, "{peak}");
+    // A period in which no window closes reports the last window, not its own noisy load.
+    session.host.add_render_time(0.002, 128);
+    let (load, peak) = loads(&mut session);
+    assert!((load - 0.002 / BLOCK).abs() < 1e-4, "{load}");
+    assert!((peak - window).abs() < 1e-4, "{peak}");
+}
+
+#[test]
+fn a_resolution_that_is_not_finite_or_negative_is_a_fine_clock() {
+    for resolution in [f32::NAN, f32::INFINITY, -1.0, 0.0] {
+        let mut session = Session::new();
+        session.host.set_clock_resolution(resolution);
+        session.host.write_feedback();
+        session.host.add_render_time(BLOCK * 0.1, 128);
+        session.host.add_render_time(BLOCK * 0.5, 128);
+        let (load, peak) = loads(&mut session);
+        assert!((load - 0.3).abs() < 1e-4, "{resolution}: {load}");
+        assert!((peak - 0.5).abs() < 1e-4, "{resolution}: {peak}");
+    }
+}
+
+#[test]
+fn timing_rendering_and_reporting_never_allocates() {
+    let mut session = two_tracks(0.7);
+    session.host.set_clock_resolution(0.001);
+    session.send(&[M::Play { from: Tick(0) }]);
+    session.host.render(128);
+    assert_no_alloc(|| {
+        for block in 0..2_000u32 {
+            let frames = session.host.render(1 + (block as usize * 37) % 512);
+            session
+                .host
+                .add_render_time(block as f32 * 1e-6, frames as u32);
+        }
+        session.host.write_feedback();
+    });
+    let report = read_feedback(session.host.feedback()).unwrap();
+    assert!((0.0..=1.0).contains(&report.cpu_load));
+    assert!((0.0..=1.0).contains(&report.cpu_peak));
+}
+
+/// The cost of the measurement itself (#486), the helper's way: two `Instant` reads and
+/// `add_render_time` per block, against the render of the blocks it times (two tracks of
+/// eight voices). Prints the numbers; run optimised (debug assertions and the allocation
+/// detector stay on, as in the compressor's `cpu_cost`):
+/// `cargo test -p engine --test host --config "profile.dev.opt-level=3" measurement_overhead -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn measurement_overhead() {
+    use std::time::Instant;
+    let mut session = two_tracks(0.7);
+    session.send(
+        &(0..14u8)
+            .map(|i| M::NoteOn {
+                track: TrackSlot(u32::from(i % 2)),
+                pitch: 40 + i * 3,
+                velocity: 100,
+                at: None,
+            })
+            .collect::<Vec<_>>(),
+    );
+    session.host.render(128);
+    const BLOCKS: u32 = 200_000;
+    let mut best = (f64::MAX, f64::MAX);
+    for _ in 0..5 {
+        let start = Instant::now();
+        for _ in 0..BLOCKS {
+            session.host.render(128);
+        }
+        let plain = start.elapsed().as_secs_f64() / f64::from(BLOCKS);
+        let start = Instant::now();
+        for _ in 0..BLOCKS {
+            let t = Instant::now();
+            let n = session.host.render(128);
+            session
+                .host
+                .add_render_time(t.elapsed().as_secs_f32(), n as u32);
+        }
+        let timed = start.elapsed().as_secs_f64() / f64::from(BLOCKS);
+        best = (best.0.min(plain), best.1.min(timed));
+    }
+    let start = Instant::now();
+    for _ in 0..BLOCKS {
+        let t = Instant::now();
+        session.host.add_render_time(t.elapsed().as_secs_f32(), 128);
+    }
+    let alone = start.elapsed().as_secs_f64() / f64::from(BLOCKS);
+    let budget = 128.0 / f64::from(RATE);
+    println!(
+        "voices {}; render {:.0} ns/block, timed {:.0} ns/block (difference {:.0} ns); \
+         two clock reads + add_render_time alone {:.1} ns/block = {:.4} % of the 2.67 ms budget",
+        session.host.voices(),
+        best.0 * 1e9,
+        best.1 * 1e9,
+        (best.1 - best.0) * 1e9,
+        alone * 1e9,
+        alone / budget * 100.0
     );
 }
 
@@ -459,7 +651,11 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     session.host.write_feedback();
     let mut bytes = vec![0xAA; 3];
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
-    assert_eq!(bytes.len(), 72 + 3 * 20, "header, two tracks, the output");
+    assert_eq!(
+        bytes.len(),
+        HEADER + 3 * 20,
+        "header, two tracks, the output"
+    );
     assert_eq!(bytes[0], engine::msg::FEEDBACK_VERSION);
     let decoded = engine::host::decode_feedback(&bytes).unwrap();
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
@@ -617,7 +813,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
     assert_eq!(
         bytes.len(),
-        72 + 2 * 20 + 16,
+        HEADER + 2 * 20 + 16,
         "header, a track and the output, a cell"
     );
     assert_eq!(&bytes[44..48], &1u32.to_le_bytes());
@@ -655,7 +851,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     // The anchor travels as a little-endian i64 after the cell's first eight bytes.
     let mut anchored = bytes.clone();
     for anchor in [3840i64, -960, i64::MAX, i64::MIN] {
-        let at = 72 + 2 * 20 + 8;
+        let at = HEADER + 2 * 20 + 8;
         anchored[at..at + 8].copy_from_slice(&anchor.to_le_bytes());
         let cells = engine::host::decode_feedback(&anchored)
             .unwrap()
@@ -667,7 +863,7 @@ fn the_launch_grid_states_travel_in_the_report() {
     many[44..48].copy_from_slice(&3u32.to_le_bytes());
     assert!(engine::host::decode_feedback(&many).is_none());
     let mut unknown = bytes.clone();
-    let state_at = 72 + 2 * 20 + 6;
+    let state_at = HEADER + 2 * 20 + 6;
     for state in [0u8, 6, 255] {
         unknown[state_at] = state;
         assert!(engine::host::decode_feedback(&unknown).is_none(), "{state}");
@@ -689,9 +885,9 @@ fn the_launch_grid_states_travel_in_the_report() {
             anchor: Tick(0),
         }]
     );
-    assert_eq!(held[72 + 2 * 20 + 6], ClipState::Held as u8);
+    assert_eq!(held[HEADER + 2 * 20 + 6], ClipState::Held as u8);
     // A report with no cell (what an older engine writes) decodes with none.
-    let mut none = bytes[..72 + 2 * 20].to_vec();
+    let mut none = bytes[..HEADER + 2 * 20].to_vec();
     none[44..48].copy_from_slice(&0u32.to_le_bytes());
     assert!(
         engine::host::decode_feedback(&none)
@@ -784,7 +980,7 @@ fn the_reduction_travels_in_the_report_bytes() {
     assert!(decoded.meters[1].gain_reduction_db > 6.0);
     assert!(decoded.master.gain_reduction_db > 6.0);
     // The track's reduction is the fifth float of its meter (the slot 0 meter comes first).
-    let at = 72 + 20 + 16;
+    let at = HEADER + 20 + 16;
     let wire = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
     assert_eq!(wire, decoded.meters[1].gain_reduction_db);
     // A report of the previous version is refused by its first byte.

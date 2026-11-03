@@ -23,7 +23,7 @@ use engine::host::{Host, StreamQueue};
 use engine::msg::MsgError;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Frames rendered per chunk; a longer callback is rendered in several chunks.
 pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
@@ -276,7 +276,13 @@ impl AudioCore {
         let mut peak = 0.0f32;
         let mut done = 0;
         while done < frames {
+            // The CPU load (#486): each chunk's render timed with the monotonic clock (a
+            // user-mode counter read on the supported systems; no allocation, no lock), its
+            // time added with its frames. The copy below is not counted.
+            let start = Instant::now();
             let n = self.host.render((frames - done).min(CHUNK_FRAMES));
+            self.host
+                .add_render_time(start.elapsed().as_secs_f32(), n as u32);
             let (left, right) = (self.host.left(), self.host.right());
             for i in 0..n {
                 let frame = &mut out[(done + i) * channels..(done + i + 1) * channels];
@@ -401,6 +407,34 @@ mod tests {
         assert_eq!(meter.estimated_latency_ms(48_000.0), Some(10.0));
         meter.set_output_delay(Duration::from_micros(12_500));
         assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
+    }
+
+    /// The load and peak of the last report, after `callbacks` callbacks of 480 frames.
+    fn load_after(core: &mut AudioCore, callbacks: usize) -> (f32, f32) {
+        let mut out = vec![0.0; 480 * 2];
+        for _ in 0..callbacks {
+            core.process(&mut out, 2);
+        }
+        let report = engine::host::read_feedback(core.host.feedback()).unwrap();
+        (report.cpu_load, report.cpu_peak)
+    }
+
+    #[test]
+    fn the_callback_times_its_render_and_more_voices_weigh_more() {
+        let (mut core, mut sender, _) = core();
+        let (idle, idle_peak) = load_after(&mut core, 20);
+        assert!((0.0..=1.0).contains(&idle), "{idle}");
+        assert!(idle_peak >= idle && idle_peak <= 1.0, "{idle_peak}");
+        for note in 0..16 {
+            sender.send(&note_on(40 + note * 3, 100));
+        }
+        let (busy, busy_peak) = load_after(&mut core, 20);
+        assert!(busy > 0.0, "a measured load: {busy}");
+        assert!(busy_peak >= busy && busy_peak <= 1.0, "{busy_peak}");
+        assert!(
+            busy > idle,
+            "16 voices weigh more than none: {busy} against {idle}"
+        );
     }
 
     #[test]

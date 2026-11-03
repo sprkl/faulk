@@ -38019,7 +38019,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 21,
+  "protocol_version": 22,
   "server_message": {
     "$defs": {
       "HelperUpdate": {

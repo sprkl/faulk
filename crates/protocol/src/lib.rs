@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
+
+// Version 22 (#486): the feedback layout is version 6: a 76-byte header whose new word at offset 72 is the CPU load's peak (`cpu_peak`, f32, the largest load of one peak window of the period, -1 until the host timed a block), and the helper now times its render, so `cpu_load` is measured in Boost. A page and a helper of different versions refuse each other.
 
 // Version 21 (#555): the new command `arrangement.repeat` (linked copies of a placement, end to end, up to a tick); a helper of version 20 would refuse it.
 

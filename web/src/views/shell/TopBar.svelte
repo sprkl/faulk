@@ -21,8 +21,12 @@
   const latencyShort = $derived(
     engine.status?.estimatedLatencyMs != null ? t('engine.latencyShort', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
-  // The engine's load, when the host measures it (neither the worklet nor the helper does yet: it stays hidden until it is).
-  const load = $derived(engine.feedback?.cpuLoad != null ? t('engine.loadShort', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null)
+  // The engine's load (#486), smoothed, and its peak of the last seconds; hidden while the engine does not measure it.
+  const load = $derived(engine.load ? t('engine.loadShort', { pct: Math.round(engine.load.smoothed * 100) }) : null)
+  const peak = $derived(engine.load ? t('engine.peakShort', { pct: Math.round(engine.load.peak * 100) }) : null)
+  const loadPeak = $derived(
+    engine.load ? t('engine.loadPeak', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null,
+  )
 </script>
 
 <header class="top">
@@ -56,8 +60,8 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${load ? `, ${load}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${latency}`}
+        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${latency}${loadPeak ? `, ${loadPeak}` : ''}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
@@ -71,7 +75,7 @@
           {t('engine.web')}
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
-        {#if load}<span class="value" data-testid="engine-load">{load}</span>{/if}
+        {#if load}<span class="value" data-testid="engine-load">{load}</span><span class="value peak" data-testid="engine-peak">{peak}</span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
       <div class="master-meter">
@@ -208,6 +212,14 @@
   .mode.boost {
     background: var(--fk-accent);
     color: #fff;
+  }
+  /* The load figures change about 30 times a second: fixed-width digits keep the pill still. */
+  .mode .value {
+    font-variant-numeric: tabular-nums;
+  }
+  .mode .peak {
+    font-weight: 400;
+    opacity: 0.8;
   }
   .help {
     flex: none;

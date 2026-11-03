@@ -32,6 +32,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     playheadTick: 0,
     playheadFrame: 0,
     cpuLoad: null,
+    cpuPeak: null,
     liveOverflows: 0,
     rejected: 0,
     diskUnderruns: 0,

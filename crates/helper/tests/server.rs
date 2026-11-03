@@ -384,7 +384,13 @@ async fn the_session_receives_the_engine_report_as_binary_frames() {
     );
     assert!(report.meters[0].peak_l > 0.05);
     assert_eq!(report.voices, 1);
-    assert_eq!(report.cpu_load, engine::host::NOT_MEASURED);
+    // The helper times its render (#486): a load in 0..1, its peak at least as high.
+    assert!(
+        (0.0..=1.0).contains(&report.cpu_load),
+        "{}",
+        report.cpu_load
+    );
+    assert!(report.cpu_peak >= report.cpu_load && report.cpu_peak <= 1.0);
     // Reports keep coming only when the engine wrote a new one: another second of audio,
     // another frame, with a newer sequence number.
     play(&mut h.core, 1_000);
