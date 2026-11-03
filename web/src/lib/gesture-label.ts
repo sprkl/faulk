@@ -9,12 +9,10 @@ import type { MessageKey } from './i18n/app'
 
 export type GestureT = (key: MessageKey, vars?: Record<string, string | number>) => string
 
-/** The labels of the snap settings that a step can resolve to. */
+/** The labels of the snap settings a step is named by. */
 export interface SnapNames {
   bar: string
   beat: string
-  half: string
-  quarter: string
 }
 
 /** A number of beats, written without a trailing zero (1, 1.5, 1.25). */
@@ -32,7 +30,8 @@ export function lengthText(t: GestureT, sig: Signature, ticks: number): string {
   const bar = barTicks(sig)
   const span = Math.max(0, ticks)
   const whole = Math.floor(span / bar)
-  const beats = plain((span % bar) / beatTicks(sig))
+  // Three decimals: a clip of one tick is not "0 beat".
+  const beats = Number(((span % bar) / beatTicks(sig)).toFixed(3))
   const parts: string[] = []
   if (whole > 0) parts.push(t(whole === 1 ? 'gesture.bar' : 'gesture.bars', { n: whole }))
   if (beats > 0 || whole === 0) parts.push(t(beats === 1 ? 'gesture.beat' : 'gesture.beats', { n: beats }))
@@ -40,8 +39,8 @@ export function lengthText(t: GestureT, sig: Signature, ticks: number): string {
 }
 
 /**
- * The snap line: the name of the step in force ("Snap: Beat"), or "Snap: Free" with no step. `names` are the
- * settings' own labels, so Auto reads as the step it resolves to at this zoom.
+ * The snap line: the name of the step in force ("Snap: Beat", "Snap: 1/16"), or "Snap: Free" with no step. Auto reads
+ * as the step it resolves to at this zoom.
  */
 export function snapText(t: GestureT, sig: Signature, step: number | null, names: SnapNames): string {
   let name: string
@@ -51,10 +50,9 @@ export function snapText(t: GestureT, sig: Signature, step: number | null, names
     const bar = barTicks(sig)
     if (step === bar) name = names.bar
     else if (step === beat) name = names.beat
-    else if (step === beat / 2) name = names.half
-    else if (step === beat / 4) name = names.quarter
+    // Finer than a beat: as a fraction of a whole note (1/16 for a quarter of a quarter-note beat).
+    else if (step < beat) name = t('gesture.fraction', { n: plain((sig.denominator * beat) / step) })
     else if (step > bar) name = t(plain(step / bar) === 1 ? 'gesture.bar' : 'gesture.bars', { n: plain(step / bar) })
-    else if (step < beat) name = t('gesture.fraction', { n: plain(beat / step) })
     else name = t('gesture.beats', { n: plain(step / beat) })
   }
   return t('gesture.snap', { name })

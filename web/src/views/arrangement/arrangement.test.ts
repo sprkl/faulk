@@ -128,9 +128,18 @@ describe('hit test', () => {
     // Outside the clip is not the clip: a double-click there makes a new one.
     expect(zoneAt(397)).toBeUndefined()
     expect(zoneAt(443)).toBeUndefined()
-    // A clip too narrow for three zones keeps a third for its middle.
-    const tiny = [{ ...blocks[0]!, id: 't1', start: 4000, end: 4150, length: 150 }]
-    expect(hitBlock(tiny, plain(3), 407, y, view, 0)?.zone).toBe('body')
+    // A narrow clip keeps at least 6 px at each end, and a middle while it has room for one.
+    const narrow = [{ ...blocks[0]!, id: 't1', start: 4000, end: 4150, length: 150 }]
+    const narrowAt = (x: number) => hitBlock(narrow, plain(3), x, y, view, 0)?.zone
+    expect(narrowAt(405)).toBe('start')
+    expect(narrowAt(406)).toBe('start')
+    expect(narrowAt(407)).toBe('body')
+    expect(narrowAt(408)).toBe('body')
+    expect(narrowAt(409)).toBe('end')
+    // Under 12 px a clip is all edges.
+    const tiny = [{ ...blocks[0]!, id: 't2', start: 4000, end: 4100, length: 100 }]
+    expect(hitBlock(tiny, plain(3), 404, y, view, 0)?.zone).toBe('start')
+    expect(hitBlock(tiny, plain(3), 407, y, view, 0)?.zone).toBe('end')
   })
 
   it('finds a block in the second lane and nothing between blocks, on the ruler or in the inset', () => {

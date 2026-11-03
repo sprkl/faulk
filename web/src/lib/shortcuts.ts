@@ -162,6 +162,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       {
+        label: 'shortcut.noteResize',
+        chords: [
+          ['Alt', 'Shift', '←'],
+          ['Alt', 'Shift', '→'],
+        ],
+      },
+      {
         label: 'shortcut.noteTranspose',
         chords: [
           ['Alt', '↑'],

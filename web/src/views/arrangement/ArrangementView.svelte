@@ -373,8 +373,6 @@
     const names = {
       bar: t('pianoRoll.snap.bar'),
       beat: t('pianoRoll.snap.beat'),
-      half: t('pianoRoll.snap.half-beat'),
-      quarter: t('pianoRoll.snap.quarter-beat'),
     }
     const lines = [
       g.kind === 'resize' ? lengthText(t, signature, first.end - first.start) : positionText(t, signature, first.start),
@@ -1621,8 +1619,9 @@
         })
         if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
         inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
-        const after = blocks.find((b) => b.id === current.id)
-        if (after) announce(lengthText(t, signature, after.length))
+        // The length of the focused clip when it moved, else of the first that did.
+        const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
+        if (said) announce(lengthText(t, signature, said.length))
         void focusItem(current.id)
         return
       }

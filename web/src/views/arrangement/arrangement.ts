@@ -17,8 +17,14 @@ export const LANE_HEIGHT = CLIP_ROW
 export const BLOCK_INSET = 4
 /** The width of the grab zone at each end of a block, in CSS pixels (#612: wide enough to catch without aiming). */
 export const EDGE_PX = 10
-/** The grab zone at each end of a block `width` pixels wide: `EDGE_PX`, at most a third of the block so that its middle still moves. */
-export const edgeZone = (width: number): number => Math.min(EDGE_PX, Math.max(0, width) / 3)
+/** The least grab zone at each end of a block, in CSS pixels, however short the block is (#612). */
+export const EDGE_MIN_PX = 6
+
+/**
+ * The grab zone at each end of a block `width` pixels wide: a third of it, between `EDGE_MIN_PX` and `EDGE_PX`, and never more than
+ * what leaves a pixel for the middle (a block under about 12 px is all edges, as no zone could keep both).
+ */
+export const edgeZone = (width: number): number => Math.max(0, Math.min(Math.min(EDGE_PX, Math.max(EDGE_MIN_PX, width / 3)), (width - 1) / 2))
 /** The last tick of the timeline (`project::limits::MAX_TICK`, 2^40). */
 export const MAX_TICK = 2 ** 40
 

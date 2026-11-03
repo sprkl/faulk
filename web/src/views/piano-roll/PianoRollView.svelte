@@ -358,8 +358,6 @@
     const names = {
       bar: t('pianoRoll.snap.bar'),
       beat: t('pianoRoll.snap.beat'),
-      half: t('pianoRoll.snap.half-beat'),
-      quarter: t('pianoRoll.snap.quarter-beat'),
     }
     const lines = [
       g.kind === 'resize' ? gestureLength(t, signature, note.length) : positionText(t, signature, note.start),
@@ -627,9 +625,11 @@
     } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       // Alt+Up and Alt+Down (#529): the selection by a semitone, Alt+Shift by an octave; as from a note's cell or the free cursor.
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-    } else if (!event.ctrlKey && !event.metaKey && event.altKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      // Alt+Left and Alt+Right (#550): the selection by the drawing step, from the grid as from a note's cell.
-      nudgeChosen(event.key === 'ArrowLeft' ? -1 : 1)
+    } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      // Alt+Left and Alt+Right (#550): the selection by the drawing step, from the grid as from a note's cell; with Shift (#612), its end.
+      const direction = event.key === 'ArrowLeft' ? -1 : 1
+      if (event.shiftKey) resizeChosen(direction)
+      else nudgeChosen(direction)
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
       // The selection's velocity (#494), as on a note's cell.
       const key = rovingKey(event)
@@ -803,7 +803,8 @@
       if (action.direction === 'up' || action.direction === 'down') {
         if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
         transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-      } else if (!event.shiftKey) nudgeChosen(action.direction === 'left' ? -1 : 1)
+      } else if (event.shiftKey) resizeChosen(action.direction === 'left' ? -1 : 1)
+      else nudgeChosen(action.direction === 'left' ? -1 : 1)
       return
     }
     if (action.kind === 'focus' || action.kind === 'extend') {
@@ -1162,6 +1163,19 @@
     picked = afterChanges(new Set(chosen.map(noteKey)), ok)
     sound(ok[0]!.to.pitch, ok[0]!.to.velocity)
     release()
+  }
+
+  /** Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612). Said, with the new length. */
+  function resizeChosen(direction: -1 | 1) {
+    if (!edited) return
+    if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    const changes = resizeNotes(chosenNotes, direction * (drawing ?? SIXTEENTH), clipLength)
+    const ok = changes ? acceptable(notes, changes) : null
+    if (!ok || ok.length === 0 || ok.every((c) => c.from.length === c.to.length)) return announce(t('pianoRoll.saidCannotResize'))
+    const chosen = chosenNotes
+    run(updateNotes(edited.id, ok))
+    picked = afterChanges(new Set(chosen.map(noteKey)), ok)
+    announce(gestureLength(t, signature, ok[0]!.to.length))
   }
 
   /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */

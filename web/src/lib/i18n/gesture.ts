@@ -12,7 +12,7 @@ export const gesture = defineFeature(
     'gesture.beats': '{n} beats',
     'gesture.snap': 'Snap: {name}',
     'gesture.free': 'Free',
-    'gesture.fraction': '1/{n} beat',
+    'gesture.fraction': '1/{n}',
     'gesture.ctrlFree': '{key}: free',
   },
   {
@@ -24,7 +24,7 @@ export const gesture = defineFeature(
     'gesture.beats': '{n} temps',
     'gesture.snap': 'Magnétisme : {name}',
     'gesture.free': 'Libre',
-    'gesture.fraction': '1/{n} de temps',
+    'gesture.fraction': '1/{n}',
     'gesture.ctrlFree': '{key} : libre',
   },
 )

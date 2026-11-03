@@ -99,6 +99,8 @@ for (const scheme of ['light', 'dark'] as const) {
     // One undo takes the whole resize back.
     await page.keyboard.press('Control+z')
     await expect.poll(async () => (await blocks(page))[0]!.length).toBe(BAR)
+    // The resize was one entry: the clip is back as it was, not half undone, and still there.
+    await expect(arr(page)).toHaveAttribute('data-block-count', '1')
 
     // A move shows the position.
     await page.mouse.move(g.x(BAR / 2), g.y)
@@ -113,6 +115,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByTestId('arr-item').first().focus()
     await page.keyboard.press('Alt+Shift+ArrowRight')
     await expect.poll(async () => (await blocks(page))[0]!.length).toBe(BAR + 960)
+    await expect(page.getByTestId('arr-said')).toContainText(/Length 1 bar, 1 beat|Longueur 1 mesure, 1 temps/)
     await page.keyboard.press('Alt+Shift+ArrowLeft')
     await expect.poll(async () => (await blocks(page))[0]!.length).toBe(BAR)
 
@@ -162,5 +165,21 @@ test('piano roll: a note end shows its handle, and a resize shows the length and
   // One undo takes the resize back, and the note stays.
   await page.keyboard.press('Control+z')
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '1')
+
+  // The snap is named as a fraction of a whole note when it is finer than a beat.
+  await page.getByTestId('roll-snap').selectOption('quarter-beat')
+  await page.mouse.move(x(960) - 3, y)
+  await page.mouse.down()
+  await page.mouse.move(x(1200), y, { steps: 4 })
+  await expect(label).toContainText(/Snap: 1\/16|Magnétisme : 1\/16/)
+  await page.mouse.up()
+  await expect(label).toHaveCount(0)
+  await page.keyboard.press('Control+z')
+
+  // Keyboard: Alt+Shift+Right lengthens the selected note by the drawing step and says the new length.
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await page.mouse.click(x(10), y)
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect(page.getByTestId('roll-said')).toContainText(/Length 2 beats|Longueur 2 temps/)
   expect(seen.errors).toEqual([])
 })
