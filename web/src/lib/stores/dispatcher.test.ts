@@ -1115,8 +1115,11 @@ describe('running commands through the project core', () => {
     expect(session.engine.activeNotes).toEqual([])
     // A note the helper played (#598): it runs in the project (the key shown) but no bytes leave.
     const before = nativeEngine.send.mock.calls.length
+    const ran = vi.spyOn(session.dispatcher.recorder!, 'ran')
     events.onMidiMessage?.([0x90, 64, 100], true)
     expect(session.engine.activeNotes).toEqual([64])
+    // The recorder is told of it, as of any note played (#501 records them in Boost).
+    expect(ran.mock.lastCall?.[0]).toEqual({ type: 'live.input_note_on', note: 64, velocity: 100 })
     events.onMidiMessage?.([0x80, 64, 0], true)
     expect(session.engine.activeNotes).toEqual([])
     expect(nativeEngine.send.mock.calls.length).toBe(before)

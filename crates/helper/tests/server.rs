@@ -956,8 +956,13 @@ async fn the_inputs_notes_play_on_the_engine_with_the_pages_table_and_still_reac
     assert_eq!(table.epoch, page.0.epoch());
     assert_eq!(table.tracks.len(), 1);
     route(&mut ws, table.epoch, table.tracks).await;
+    // The page reads nothing meanwhile (a long task): the note sounds all the same.
     h.midi.receive(&[0x90, 60, 100]);
-    assert_eq!(play(&mut h.core, 50), 1, "the note plays");
+    assert_eq!(
+        play(&mut h.core, 50),
+        1,
+        "the note plays before the page read anything"
+    );
     assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], true));
     assert_eq!(h.engine.with(|s| s.received()), Some(1), "no page stream");
 

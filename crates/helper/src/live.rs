@@ -198,7 +198,9 @@ impl LiveInput {
     }
 
     /// Forgets the table and the held notes without a message: the session ended or was
-    /// replaced, and the server released every track already (`EngineSlot::release_all`).
+    /// replaced, and the server releases every track right after (`EngineSlot::release_all`).
+    /// Called before that release: a note played meanwhile (the lock is held while a note
+    /// is sent) is ended by it, and none is played after it.
     pub fn clear(&self) {
         let mut state = self.state();
         state.routing = None;

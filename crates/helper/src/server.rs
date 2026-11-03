@@ -545,9 +545,10 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
             }));
             // The replaced page's project stops and its notes end now, not only once the new
             // page's snapshot arrives (its streams are dropped from here on). Its table goes
-            // too: the input plays nothing until the new page sends its own.
-            shared.engine.release_all();
+            // too, first: a key struck meanwhile is either played before the release, which
+            // ends it, or not played by the helper at all (#598).
             shared.live.clear();
+            shared.engine.release_all();
         }
         *current = Some(Session {
             id,
@@ -626,9 +627,10 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         // The page is gone: stop its project and release every note so nothing hangs, and
         // let go of the MIDI input so the page (Web mode) can open it again: on Windows an
         // input can be open in one application only. Its table goes with it, and the notes
-        // the helper played are among those released.
-        shared.engine.release_all();
+        // the helper played are among those released: the table goes first, so that no key
+        // struck meanwhile is played after the release (#598).
         shared.live.clear();
+        shared.engine.release_all();
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
