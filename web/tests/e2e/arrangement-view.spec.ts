@@ -298,6 +298,11 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   const play = () => transport.getByRole('button', { name: 'Play', exact: true }).click()
   const stop = () => transport.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect.poll(() => num('data-draw-count')).toBeGreaterThan(0)
+  // The arrangement opens on 16 bars (#473), half a minute of playing: zoom in to about 4 bars, back to bar 1.
+  for (let i = 0; i < 6; i++) await page.getByTestId('arr-zoom-in').click()
+  await grid.focus()
+  await page.keyboard.press('Home')
+  await expect.poll(scroll).toBe(0)
 
   // Play until the view turns the page, then Stop: the position goes back to the start and the view with it.
   await play()

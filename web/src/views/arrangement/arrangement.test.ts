@@ -19,6 +19,9 @@ import {
   rowAt,
   passesOf,
   passCount,
+  markerJump,
+  openingView,
+  wholeSongView,
   clipPosition,
   splittable,
   type Block,
@@ -289,5 +292,46 @@ describe('copy shift', () => {
   it('is none for nothing, or when the copy would leave the timeline', () => {
     expect(copyShift([])).toBeNull()
     expect(copyShift([{ ...get('p1'), start: MAX_TICK - 10, end: MAX_TICK }])).toBeNull()
+  })
+})
+
+describe('sections and zoom (#473)', () => {
+  const marks = [
+    { id: 'a', tick: 0, name: 'Intro' },
+    { id: 'b', tick: 3840 * 8, name: 'Verse' },
+    { id: 'c', tick: 3840 * 8, name: 'Fill' },
+    { id: 'd', tick: 3840 * 16, name: 'Chorus' },
+  ]
+
+  it('jumps to the next marker after the playhead and the previous one before it', () => {
+    expect(markerJump(marks, 0, 1)?.id).toBe('b')
+    expect(markerJump(marks, 3840 * 8, 1)?.id).toBe('d')
+    expect(markerJump(marks, 3840 * 16, 1)).toBeNull()
+    expect(markerJump(marks, 3840 * 16, -1)?.id).toBe('c')
+    expect(markerJump(marks, 0, -1)).toBeNull()
+    expect(markerJump([], 100, 1)).toBeNull()
+    // From the first of two markers on one tick, the next is the second, then the one after.
+    expect(markerJump(marks, 3840 * 8, 1, 'b')?.id).toBe('c')
+    expect(markerJump(marks, 3840 * 8, 1, 'c')?.id).toBe('d')
+    expect(markerJump(marks, 3840 * 8, -1, 'c')?.id).toBe('b')
+  })
+
+  it('opens on 16 to 32 bars from bar 1', () => {
+    const bar = 3840
+    const bars = (v: { pxPerTick: number } | null) => (v ? Math.round(1000 / (v.pxPerTick * bar)) : null)
+    expect(bars(openingView(0, bar, 1000))).toBe(16)
+    expect(bars(openingView(bar * 20, bar, 1000))).toBe(20)
+    expect(bars(openingView(bar * 200, bar, 1000))).toBe(32)
+    expect(openingView(bar * 20, bar, 1000)?.scrollTick).toBe(0)
+    // No width yet: no view (it waits).
+    expect(openingView(bar * 20, bar, 0)).toBeNull()
+  })
+
+  it('shows the whole song and a bar more', () => {
+    const bar = 3840
+    const bars = (v: { pxPerTick: number } | null) => (v ? Math.round(1000 / (v.pxPerTick * bar)) : null)
+    expect(bars(wholeSongView(bar * 40, bar, 1000))).toBe(41)
+    expect(bars(wholeSongView(bar * 3, bar, 1000))).toBe(17)
+    expect(wholeSongView(bar * 40, bar, Number.NaN)).toBeNull()
   })
 })

@@ -255,6 +255,14 @@ impl Project {
             c.name(&scene.name, &path, false);
         }
 
+        c.count(self.markers.len(), MAX_MARKERS, "markers");
+        for (id, marker) in &self.markers {
+            let path = format!("markers/{id}");
+            c.id(&id.0, &path);
+            c.name(&marker.name, &path, true);
+            c.tick(marker.tick, &path);
+        }
+
         c.count(self.tracks.len(), c.limits.tracks, "tracks");
         for (id, track) in &self.tracks {
             let path = format!("tracks/{id}");
