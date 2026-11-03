@@ -53,7 +53,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteDuplicate': 'Duplicate the selected notes',
     'shortcut.noteQuantize': 'Quantize the selected notes (all notes if none is selected)',
     'shortcut.noteStep': 'On a note: go to the previous or next note in time, or the nearest note above or below (Shift: add it to the selection)',
-    'shortcut.noteShift': 'On a note: move the selected notes by the drawing step',
+    'shortcut.noteShift': 'Move the selected notes by the drawing step (from a note, the grid or the free cursor)',
     'shortcut.noteTranspose': 'Transpose the selected notes by a semitone (Shift: an octave)',
     'shortcut.noteCursor': 'Move the free cursor by the drawing step or a semitone (Shift: a bar or an octave)',
     'shortcut.noteCreate': 'Write a note at the free cursor, of the drawing length',
@@ -125,7 +125,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteQuantize': 'Quantifier les notes sélectionnées (toutes les notes si aucune n’est sélectionnée)',
     'shortcut.noteStep':
       'Sur une note : aller à la note précédente ou suivante dans le temps, ou à la note la plus proche au-dessus ou en dessous (Maj : l’ajouter à la sélection)',
-    'shortcut.noteShift': 'Sur une note : déplacer les notes sélectionnées du pas de dessin',
+    'shortcut.noteShift': 'Déplacer les notes sélectionnées du pas de dessin (depuis une note, la grille ou le curseur libre)',
     'shortcut.noteTranspose': 'Transposer les notes sélectionnées d’un demi-ton (Maj : d’une octave)',
     'shortcut.noteCursor': 'Déplacer le curseur libre du pas de dessin ou d’un demi-ton (Maj : d’une mesure ou d’une octave)',
     'shortcut.noteCreate': 'Écrire une note au curseur libre, de la longueur de dessin',
