@@ -848,7 +848,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
 ### Épopée 10 — Mixeur (MX)
 
 **MX-1 — Mixage dans le moteur**
-- But : volume et panoramique par piste et master (lissés), mute, solo (exclusif ou cumulatif selon le contrat), loi de panoramique documentée ; volume, panoramique et mute du master et des pistes sont des paramètres adressables par l'automation (AM-2) avec le même mécanisme que ceux des devices.
+- But : volume et panoramique par piste et master (lissés), mute, solo (exclusif ou cumulatif selon le contrat), loi de panoramique documentée ; volume et panoramique du master et des pistes sont des paramètres adressables par l'automation (AM-2) avec le même mécanisme que ceux des devices. Le mute ne l'est pas (décision du fondateur du 2026-11-03, #406) : un couloir de volume descendu à −∞ couvre cet usage.
 - Critères : −6 dB demandé = −6 dB mesuré ; mute et solo sans clic ; vu-mètres après fader ; une rampe de volume reçue par événements datés est suivie à l'échantillon près.
 - Touche : `crates/engine/src/mixer.rs`.
 - Dépend de : MO-3, MO-5.
