@@ -415,6 +415,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
+      'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',

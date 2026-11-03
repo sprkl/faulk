@@ -15,8 +15,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The on-disk format version this crate reads and writes (§ 2.6).
-pub const FORMAT_VERSION: u32 = 1;
+/// The on-disk format version this crate reads and writes (§ 2.6). Format 2 (#473): a
+/// placement longer than a MIDI clip without a loop repeats the clip (format 1: silence).
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";

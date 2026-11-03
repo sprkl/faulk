@@ -14,8 +14,9 @@
 //! The placement `{ clip, start, span: Ticks { offset, length } }` plays the clip from its
 //! tick `offset` for `length` ticks, from the transport tick `start`: the clip's position
 //! at the transport tick `t` is `offset + (t − start)`, followed through the clip's own
-//! loop region when it has one (a placement longer than a looped clip repeats the loop; a
-//! clip without a loop is silent after its end). A note is delivered when its start is in
+//! loop region when it has one, and through the whole clip `[0, length)` when it has none
+//! (#473): a placement longer than its clip repeats it, the loop or the whole clip. The
+//! launch grid keeps its own rule (a clip without a loop plays once there). A note is delivered when its start is in
 //! `[offset, offset + length)`, and the notes still held at the end of the placement are
 //! released **at the sample of the end tick**, each by its own note-off. Placements do not
 //! overlap (the arrangement commands, AR-1, carve the placements a new one covers); the
@@ -63,7 +64,7 @@ use crate::clip_player::{Cut, Env, Swap, read_pieces};
 use crate::engine::ClipContent;
 use crate::events::{Cursor, Sink};
 use crate::msg::{ClipSlot, Placement, PlacementSlot, Span};
-use crate::time::Tick;
+use crate::time::{LoopRegion, Tick};
 use crate::transport::Segment;
 
 /// The placement being read.
@@ -331,6 +332,10 @@ impl ArrangementPlayer {
             }
             if let Some(clip) = env.clips.get_mut(placement.clip.0) {
                 let (length, looping) = (clip.length, clip.looping);
+                // A clip without a loop repeats whole in the arrangement (#473): its loop is
+                // `[0, length)`. A clip of no length (never in a project) keeps no loop and
+                // plays nothing past its end, as before.
+                let looping = looping.or_else(|| LoopRegion::new(Tick(0), length));
                 if let ClipContent::Notes(notes) = &mut clip.content {
                     let anchor = Tick(placement.start.0.saturating_sub(offset.0));
                     read_pieces(
@@ -342,19 +347,6 @@ impl ArrangementPlayer {
                         start,
                         sink,
                     )?;
-                    // A clip without a loop, shorter than its placement, ends with its last
-                    // tick: a note that runs past it is released there, not at the end of
-                    // the placement (the grid's rule for a clip played once).
-                    let clip_end = anchor.saturating_add(length);
-                    if looping.is_none() && clip_end < stop && self.cursor.held() > 0 {
-                        let at = rel(clip_end.max(t));
-                        if !self.cursor.stop_at(notes, at, sink) {
-                            return Err(Cut {
-                                frames: at as usize + 1,
-                                from: clip_end.max(t),
-                            });
-                        }
-                    }
                 }
             }
             // A placement that ends here is ended by the next step: the gap or the next

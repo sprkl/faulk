@@ -134,7 +134,7 @@ test('the language is switched from the project menu, in both directions, and ke
 test('the on-screen keyboard is a tab of the bottom panel next to the piano roll, with the octave and all notes off', async ({ page }) => {
   await start(page)
   const tabs = page.getByTestId('bottom-panel').locator('.tabs button')
-  await expect(tabs).toHaveText(['Devices', 'History', 'Keyboard', 'Piano roll', '', ''])
+  await expect(tabs).toHaveText(['Clips', 'Devices', 'History', 'Keyboard', 'Piano roll', '', ''])
   await page.getByTestId('panel-keyboard').click()
   await expect(page.getByTestId('keyboard-panel')).toBeVisible()
   await expect(page.getByTestId('keys-octave')).toHaveText('Octave 4')

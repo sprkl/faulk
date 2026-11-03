@@ -11,6 +11,7 @@ import { storage } from '../lib/stores/storage'
 import { VIEW_KEY } from '../lib/stores/ui.svelte'
 import type { MessageKey } from '../lib/i18n/index'
 import ArrangementView from './arrangement/ArrangementView.svelte'
+import ClipsView from './clips/ClipsView.svelte'
 import DevicesView from './devices/DevicesView.svelte'
 import GridView from './grid/GridView.svelte'
 import HistoryView from './history/HistoryView.svelte'
@@ -32,6 +33,7 @@ export interface ViewDef {
 
 export const views = [
   { id: 'arrangement', label: 'views.arrangement', place: 'main', component: ArrangementView },
+  { id: 'clips', label: 'views.clips', place: 'panel', component: ClipsView },
   { id: 'devices', label: 'views.devices', place: 'panel', component: DevicesView },
   { id: 'grid', label: 'views.grid', place: 'main', component: GridView },
   { id: 'history', label: 'views.history', place: 'panel', component: HistoryView },

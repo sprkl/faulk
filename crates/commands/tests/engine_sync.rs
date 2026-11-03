@@ -929,11 +929,18 @@ fn a_command_that_removes_or_brings_back_many_clips_sends_one_table() {
     let table = |m: &ControlMsg| matches!(m, ControlMsg::TrackPlacementsUpload { .. });
     let removal = |m: &ControlMsg| matches!(m, ControlMsg::ClipRemove { .. });
     let upload = |m: &ControlMsg| matches!(m, ControlMsg::ClipNotesUpload { .. });
-    // Three clips go with their placements: one empty table, then the three slots freed.
+    // Three independent copies: three clips created, then one table.
     let (_, msgs) = run(
         &mut s,
-        json!({"type": "arrangement.delete", "placements": placements}),
+        json!({"type": "arrangement.duplicate", "placements": placements}),
     );
+    assert_eq!(
+        (count(&msgs, upload), count(&msgs, table)),
+        (3, 1),
+        "{msgs:?}"
+    );
+    // The undo removes the three copies: one table first, then the three slots freed.
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
     assert_eq!(
         (count(&msgs, table), count(&msgs, removal)),
         (1, 3),
@@ -945,17 +952,16 @@ fn a_command_that_removes_or_brings_back_many_clips_sends_one_table() {
         the_table < first_removal,
         "the table stops using the clips first"
     );
-    // The undo brings the three back: their uploads, then one table of three.
-    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    // A delete keeps the clips in the pool (#473): one table, no clip removed.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.delete", "placements": placements}),
+    );
     assert_eq!(
-        (count(&msgs, upload), count(&msgs, table)),
-        (3, 1),
+        (count(&msgs, table), count(&msgs, removal)),
+        (1, 0),
         "{msgs:?}"
     );
-    assert!(matches!(
-        msgs.last(),
-        Some(ControlMsg::TrackPlacementsUpload { total: 3, .. })
-    ));
 }
 
 #[test]

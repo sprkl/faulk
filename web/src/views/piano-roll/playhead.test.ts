@@ -104,10 +104,10 @@ describe('playheadIn, the arrangement', () => {
     expect(playheadIn(input({ track, tick: -960 }))).toBeNull()
   })
 
-  it('repeats the loop of the clip inside a longer placement, and ends silent for a clip without loop', () => {
+  it('repeats the loop of the clip inside a longer placement, and the whole clip without a loop (#473)', () => {
     const track = { placements: { P1: place('C1', 0, 9600) } }
     expect(playheadIn(input({ track, looping: { start: 0, end: 1920 }, tick: 1920 * 3 + 50 }))).toBe(50)
-    expect(playheadIn(input({ track, tick: 5000 }))).toBeNull()
+    expect(playheadIn(input({ track, length: 3840, tick: 5000 }))).toBe(5000 - 3840)
   })
 
   it('follows the placement that plays, among linked placements of the same clip', () => {

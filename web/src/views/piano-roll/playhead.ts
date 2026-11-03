@@ -121,7 +121,8 @@ export function playheadIn(input: PlayheadInput): number | null {
   const at = placementAt(track, tick)
   if (!at || at.placement.clip !== clipId) return null
   if (input.placement != null && at.id !== input.placement) return null
-  return clipLocal(tick - (at.placement.start - at.offset), length, looping)
+  // The arrangement repeats a clip without a loop whole (#473): its loop is the clip.
+  return clipLocal(tick - (at.placement.start - at.offset), length, looping ?? (length > 0 ? { start: 0, end: length } : null))
 }
 
 /**

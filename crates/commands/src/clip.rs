@@ -166,7 +166,7 @@ domain! {
     /// Move a MIDI clip to another launch-grid slot, of the same track or of `track`
     /// (another MIDI track), keeping its identifier, its name and its content. `slot`
     /// is the scene of the target slot, which must be free; `null` takes the clip out of
-    /// the grid, which is refused when no placement of the arrangement plays it. A clip
+    /// the grid (with no placement, it stays in its track's pool, #473). A clip
     /// that has placements stays in its track: moving it to another track is refused.
     /// A move that changes nothing does nothing and leaves no history entry. Leaving
     /// `slot` out is the same as `null`. The engine frees the clip and takes it again, so
@@ -1295,15 +1295,9 @@ fn move_clip(
             "a clip placed in the arrangement stays in its track",
         ));
     }
-    match slot {
-        Some(scene) => check_slot(project, target, scene, "slot")?,
-        None if !placed => {
-            return Err(invalid(
-                "slot",
-                "a clip outside the grid needs a placement in the arrangement",
-            ));
-        }
-        None => {}
+    // Out of the grid, a clip with no placement stays in its track's pool (#473).
+    if let Some(scene) = slot {
+        check_slot(project, target, scene, "slot")?;
     }
     if to_id != from_id {
         check_total(
