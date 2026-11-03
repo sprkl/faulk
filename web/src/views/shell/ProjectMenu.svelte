@@ -180,22 +180,25 @@
 </div>
 
 <style>
+  /* The project name is the one thing of the bar that shrinks (#604): from its natural width, capped by the bar's `--fk-project-max`,
+     down to a minimum that still reads (about ten characters); the bar folds other things before it goes below. */
   .project {
     position: relative;
     display: inline-flex;
+    flex: 0 1 auto;
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    min-width: 0;
+    min-width: 112px;
+    max-width: var(--fk-project-max, 160px);
   }
   .trigger {
     display: inline-flex;
     align-items: center;
     gap: var(--fk-space-2);
     height: 22px;
-    /* It gives way when the bar is full, down to a readable start of the name with an ellipsis, never to nothing. */
-    min-width: 4.5rem;
-    max-width: min(130px, 100%);
+    min-width: 0;
+    max-width: 100%;
     padding: 0 var(--fk-space-3);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-pill);
@@ -214,7 +217,7 @@
     white-space: nowrap;
   }
   .state {
-    max-width: min(10rem, 100%);
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     padding-left: var(--fk-space-3);
