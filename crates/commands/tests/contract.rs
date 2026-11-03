@@ -1206,10 +1206,16 @@ fn every_field_a_command_takes_as_null_is_nullable_in_its_schema() {
     for (command, _) in examples() {
         let name = command.name();
         let valid = jsonschema::draft202012::new(&tools[name].input_schema).unwrap();
-        let mut full = serde_json::to_value(&command).unwrap();
-        let typed = full.clone();
-        full.as_object_mut().unwrap().remove("type");
-        for field in full.as_object().unwrap().keys() {
+        let typed = serde_json::to_value(&command).unwrap();
+        // The fields come from the schema, not from the example: one a `None` example omits counts.
+        let fields: Vec<String> = tools[name].input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| *k != "type")
+            .cloned()
+            .collect();
+        for field in &fields {
             let mut with_null = typed.clone();
             with_null[field] = serde_json::Value::Null;
             if serde_json::from_value::<Command>(with_null.clone()).is_err() {
@@ -1228,6 +1234,7 @@ fn every_field_a_command_takes_as_null_is_nullable_in_its_schema() {
         ("view.select_track", "track"),
         ("track.set_color", "color"),
         ("mixer.set_volume", "gain_db"),
+        ("mixer.set_master_volume", "gain_db"),
     ] {
         assert!(
             nullable.contains(&(expected.0, expected.1.to_owned())),
