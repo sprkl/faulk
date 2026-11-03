@@ -5,6 +5,7 @@
    * no project state: it reads the stores and every control is a command through the dispatcher.
    * The name is read-only here; renaming stays in the track list.
    */
+  import type { MenuItem } from '../../lib/context-menu'
   import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { formatGain, formatPan, instrumentName, trackColor, trackLabel, type TrackEntry } from '../../lib/project/tracks'
   import { MASTER_METER, useStores } from '../../lib/stores'
@@ -69,9 +70,34 @@
     if (!hasLane(param)) dispatcher.run(entry ? createLane(entry.id, { mixer: { param } }) : createMasterLane({ mixer: { param } }))
     ui.showLanes(entry ? entry.id : MASTER)
   }
+
+  /** The right click on a strip (#530): its toggles, its devices and the automation of its volume and pan, each one a command. */
+  function onContextMenu(event: MouseEvent) {
+    const volume = entry ? t('tracks.volume', { name }) : t('mixer.masterVolume')
+    const pan = entry ? t('tracks.pan', { name }) : t('mixer.masterPan')
+    const items: MenuItem[] = []
+    if (entry) {
+      const mute = mixer?.mute ?? false
+      items.push(
+        { id: 'mute', label: t('tracks.mute', { name }), detail: mute ? '✓' : undefined, run: () => dispatcher.run(setMute(entry.id, !mute)) },
+        { id: 'solo', label: t('tracks.solo', { name }), detail: soloed ? '✓' : undefined, run: () => dispatcher.run(setSolo(entry.id, !soloed)) },
+      )
+      if (entry.track.kind === 'midi') {
+        items.push({ id: 'arm', label: t('tracks.arm', { name }), detail: armed ? '✓' : undefined, run: () => dispatcher.run(armTrack(entry.id, !armed)) })
+      }
+    }
+    items.push(
+      { id: 'devices', label: t('mixer.devicesHint', { name }), separator: !!entry, run: showDevices },
+      { id: 'automate-volume', label: t('automation.automateParam', { param: volume }), separator: true, run: () => automate('gain') },
+      { id: 'automate-pan', label: t('automation.automateParam', { param: pan }), run: () => automate('pan') },
+    )
+    ui.openMenu(event, items, t('mixer.menu', { name }))
+  }
 </script>
 
+<!-- The strip answers a right click with the actions of its controls, which stay the keyboard's way in (Shift+F10 on one reaches it). -->
 <li
+  oncontextmenu={onContextMenu}
   class="strip"
   class:master={!entry}
   class:selected

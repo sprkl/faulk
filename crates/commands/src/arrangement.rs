@@ -445,9 +445,10 @@ domain! {
 
     /// Add a named section marker (a named point of the arrangement, not the transport's
     /// cue) at the timeline tick `tick` (960 per quarter note, 0 to
-    /// 2^40). `name` is optional (trimmed, at most 200 characters): without one the marker
-    /// is called "Section n", n the first number no marker has. Refused with `limit` past
-    /// 1 024 markers. Undo: `arrangement.marker.delete`.
+    /// 2^40). `name` is optional (trimmed, at most 200 characters): left out, empty or only
+    /// spaces, the marker is called "Section n", n the first number no marker has (a blank
+    /// name means "no name", unlike `arrangement.marker.rename`, which refuses it because it
+    /// has no default to fall back on). Refused with `limit` past 1 024 markers. Undo: `arrangement.marker.delete`.
     "arrangement.marker.add" (kind = "edit", undo = "inverse", destructive = false)
     AddMarker {
         tick: Tick,

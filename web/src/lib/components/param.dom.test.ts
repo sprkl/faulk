@@ -37,11 +37,13 @@ const log = {
 let host: HTMLDivElement
 let app: ReturnType<typeof mount> | null
 let changes: number[]
+let ui: UiStore
 let began: number
 let ended: number
 
 function setup(value: number) {
-  const stores = { ui: new UiStore('arrangement', 'devices'), dispatcher: {} } as unknown as Stores
+  ui = new UiStore('arrangement', 'devices')
+  const stores = { ui, dispatcher: {} } as unknown as Stores
   app = mount(ParamControl as never, {
     target: host,
     props: { device, param: log, value, onchange: (v: number) => changes.push(v), onbegin: () => began++, onend: () => ended++ },
@@ -101,11 +103,9 @@ describe('a device knob', () => {
     expect(slider.getAttribute('aria-valuetext')).toBe('900 ms')
     slider.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
     flushSync()
-    const item = document.querySelector('[data-testid="value-menu-default"]') as HTMLButtonElement
-    expect(item.textContent).toContain('300 ms')
-    // The menu is not inside a label: its name is its own.
-    expect(item.closest('label')).toBeNull()
-    item.click()
+    const item = ui.contextMenu!.items[0]!
+    expect(item.detail).toBe('300 ms')
+    item.run()
     expect(changes).toEqual([0.3])
   })
 })
