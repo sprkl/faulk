@@ -46,9 +46,9 @@ export const pianoRoll = defineFeature(
     'pianoRoll.duplicateHint':
       'Copy the selected notes a whole number of bars later, at least one bar (Ctrl or Cmd + D). The clip grows by whole bars if they do not fit.',
     'pianoRoll.transposeDown': 'Transpose down one semitone',
-    'pianoRoll.transposeDownHint': 'Down one semitone (Arrow Down), one octave with Shift',
+    'pianoRoll.transposeDownHint': 'Down one semitone (Alt+Arrow Down), one octave with Alt+Shift',
     'pianoRoll.transposeUp': 'Transpose up one semitone',
-    'pianoRoll.transposeUpHint': 'Up one semitone (Arrow Up), one octave with Shift',
+    'pianoRoll.transposeUpHint': 'Up one semitone (Alt+Arrow Up), one octave with Alt+Shift',
     'pianoRoll.quantize': 'Quantize',
     'pianoRoll.quantizeMoved': 'Notes moved to the grid: {n}',
     'pianoRoll.quantizeOnGrid': 'Already on the grid',
@@ -130,9 +130,9 @@ export const pianoRoll = defineFeature(
     'pianoRoll.duplicateHint':
       'Copie les notes sélectionnées un nombre entier de mesures plus loin, au moins une mesure (Ctrl ou Cmd + D). Le clip s’allonge d’autant de mesures entières si elles ne tiennent pas.',
     'pianoRoll.transposeDown': 'Transposer d’un demi-ton vers le bas',
-    'pianoRoll.transposeDownHint': 'Un demi-ton plus bas (Flèche bas), une octave avec Maj',
+    'pianoRoll.transposeDownHint': 'Un demi-ton plus bas (Alt+Flèche bas), une octave avec Alt+Maj',
     'pianoRoll.transposeUp': 'Transposer d’un demi-ton vers le haut',
-    'pianoRoll.transposeUpHint': 'Un demi-ton plus haut (Flèche haut), une octave avec Maj',
+    'pianoRoll.transposeUpHint': 'Un demi-ton plus haut (Alt+Flèche haut), une octave avec Alt+Maj',
     'pianoRoll.quantize': 'Quantifier',
     'pianoRoll.quantizeMoved': 'Notes déplacées sur la grille : {n}',
     'pianoRoll.quantizeOnGrid': 'Déjà sur la grille',

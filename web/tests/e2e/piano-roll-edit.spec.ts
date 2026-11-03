@@ -98,13 +98,13 @@ test('piano roll: quantizes with a strength, transposes, duplicates, copies, cut
   await expect.poll(() => starts(page)).toEqual(full)
   expect(full.every((s) => s % 960 === 0)).toBe(true)
 
-  // Transpose by the keyboard: the grid is focused, all notes selected. Up is a semitone, Shift an octave.
+  // Transpose by the keyboard: the grid is focused, all notes selected. Alt+Up is a semitone, Alt+Shift an octave.
   await focusGrid(page)
   await page.keyboard.press('Control+a')
   await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
-  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Alt+ArrowUp')
   await expect.poll(() => pitches(page)).toEqual([61, 63, 65])
-  await page.keyboard.press('Shift+ArrowDown')
+  await page.keyboard.press('Alt+Shift+ArrowDown')
   await expect.poll(() => pitches(page)).toEqual([49, 51, 53])
   await page.keyboard.press('Control+z')
   await expect.poll(() => pitches(page)).toEqual([61, 63, 65])
@@ -119,11 +119,11 @@ test('piano roll: quantizes with a strength, transposes, duplicates, copies, cut
   await expect.poll(() => pitches(page)).toEqual([60, 62, 64])
   // Past the top of the keyboard nothing is sent: the notes stay.
   await focusGrid(page)
-  for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowUp')
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Alt+Shift+ArrowUp')
   await expect.poll(() => pitches(page)).toEqual([108, 110, 112])
-  await page.keyboard.press('Shift+ArrowUp')
+  await page.keyboard.press('Alt+Shift+ArrowUp')
   await expect.poll(() => pitches(page)).toEqual([120, 122, 124])
-  await page.keyboard.press('Shift+ArrowUp')
+  await page.keyboard.press('Alt+Shift+ArrowUp')
   expect(await pitches(page)).toEqual([120, 122, 124])
   for (let i = 0; i < 5; i++) await page.keyboard.press('Control+z')
   await expect.poll(() => pitches(page)).toEqual([60, 62, 64])
@@ -158,7 +158,7 @@ test('piano roll: quantizes with a strength, transposes, duplicates, copies, cut
   await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
   await focusGrid(page)
   await page.keyboard.press('Control+c')
-  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Alt+ArrowUp')
   await expect.poll(() => pitches(page)).toEqual([60, 62, 65])
   await page.keyboard.press('Control+v')
   await expect(roll(page)).toHaveAttribute('data-note-count', '4')
@@ -362,5 +362,54 @@ test('piano roll: on an AZERTY layout the quantize key is labelled with the char
   await page.keyboard.press('?')
   const line = page.getByRole('dialog').locator('li', { hasText: /Quantize|Quantifier/ })
   await expect(line.locator('kbd')).toHaveText('A')
+  expect(seen.errors).toEqual([])
+})
+
+// #529: the shortcut list says what the arrows do, and the transposition it lists works on the selection, one entry per gesture.
+test('piano roll: Alt+Up and Alt+Down transpose the selection (Alt+Shift: an octave), plain arrows only move between notes, and the list says so', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  const g = await spot(page)
+  await page.mouse.click(g.x(100), g.y(60))
+  await page.mouse.click(g.x(1000), g.y(64))
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '2')
+
+  // Plain Up and Shift+Up do not transpose.
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Shift+ArrowUp')
+  expect(await pitches(page)).toEqual([60, 64])
+
+  await page.keyboard.press('Alt+ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([61, 65])
+  await page.keyboard.press('Alt+Shift+ArrowDown')
+  await expect.poll(() => pitches(page)).toEqual([49, 53])
+  // One history entry per gesture: one undo takes one gesture back.
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([61, 65])
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([60, 64])
+
+  // From a note's cell and from the free cursor too.
+  await page.keyboard.press('Control+a')
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect.poll(() => pitches(page)).toEqual([59, 63])
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('roll-cursor')).toBeFocused()
+  await page.keyboard.press('Alt+ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([60, 64])
+
+  // The list and the gesture agree.
+  await page.keyboard.press('?')
+  const dialog = page.getByRole('dialog')
+  const transpose = dialog.locator('li', { hasText: /Transpose the selected notes/ })
+  await expect(transpose).toContainText('Alt')
+  await expect(transpose).not.toContainText(/^\s*↑/)
+  const step = dialog.locator('li', { hasText: /previous or next note in time/ })
+  await expect(step).toContainText('↑')
   expect(seen.errors).toEqual([])
 })
