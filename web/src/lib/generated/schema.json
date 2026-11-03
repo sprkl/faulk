@@ -4726,9 +4726,16 @@
             "description": "Set the colour of a track, `#rrggbb`, or `null` for none (the page then shows the hue of the\ntrack's position, which moves with the order: prefer a colour). Undo: set the previous\ncolour back.",
             "properties": {
               "color": {
-                "description": "Required: `null` clears the colour, a missing field is an error.",
-                "pattern": "^#[0-9a-fA-F]{6}$",
-                "type": "string"
+                "anyOf": [
+                  {
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Required: `null` clears the colour, a missing field is an error."
               },
               "track": {
                 "$ref": "#/$defs/TrackId"
@@ -5411,7 +5418,14 @@
             "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
             "properties": {
               "track": {
-                "$ref": "#/$defs/Id",
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
                 "description": "Required: `null` deselects, a missing field is an error."
               },
               "type": {
@@ -7471,9 +7485,16 @@
           "additionalProperties": false,
           "properties": {
             "color": {
-              "description": "Required: `null` clears the colour, a missing field is an error.",
-              "pattern": "^#[0-9a-fA-F]{6}$",
-              "type": "string"
+              "anyOf": [
+                {
+                  "pattern": "^#[0-9a-fA-F]{6}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required: `null` clears the colour, a missing field is an error."
             },
             "track": {
               "$ref": "#/$defs/TrackId"
@@ -19040,7 +19061,14 @@
           "additionalProperties": false,
           "properties": {
             "track": {
-              "$ref": "#/$defs/Id",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "description": "Required: `null` deselects, a missing field is an error."
             }
           },
@@ -23757,9 +23785,16 @@
               "description": "Set the colour of a track, `#rrggbb`, or `null` for none (the page then shows the hue of the\ntrack's position, which moves with the order: prefer a colour). Undo: set the previous\ncolour back.",
               "properties": {
                 "color": {
-                  "description": "Required: `null` clears the colour, a missing field is an error.",
-                  "pattern": "^#[0-9a-fA-F]{6}$",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Required: `null` clears the colour, a missing field is an error."
                 },
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -24442,7 +24477,14 @@
               "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
               "properties": {
                 "track": {
-                  "$ref": "#/$defs/Id",
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
                   "description": "Required: `null` deselects, a missing field is an error."
                 },
                 "type": {
