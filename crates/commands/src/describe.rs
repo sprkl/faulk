@@ -310,6 +310,7 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
                 placements(p, &ids)
             }
             ar::Command::Resize { placement: id, .. }
+            | ar::Command::Repeat { placement: id, .. }
             | ar::Command::Split { placement: id, .. } => placement(p, id)
                 .map(|(c, t)| Subject::one(Some(c).filter(|c| !c.is_empty()), Some(t))),
             ar::Command::PlaceScene { scene: id, .. } => Some(Subject::one(scene(p, id), None)),
