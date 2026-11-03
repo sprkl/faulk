@@ -717,9 +717,14 @@ export class ProjectStorage {
     return opened
   }
 
-  /** Keeps the project that did not open for the notice's actions, when the notice is one a second try can answer. */
+  /**
+   * Keeps the project that did not open for the notice's actions, when the notice is one a second try can answer:
+   * the project is locked or unreadable, or a retry ran into the permission (denied, or a click missing).
+   */
   private markReopenFailed(target: { id: string; name: string; kind: 'folder' | 'browser' }) {
-    if (this.shownNotice === 'storage.locked' || this.shownNotice === 'project.open.unreadable') this.failedReopen = target
+    const notice = this.shownNotice
+    if (notice === 'storage.locked' || notice === 'project.open.unreadable' || notice === 'storage.permissionDenied' || notice === 'storage.needsClick')
+      this.failedReopen = target
   }
 
   /**

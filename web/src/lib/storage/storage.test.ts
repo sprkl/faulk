@@ -1036,6 +1036,22 @@ describe('the start of a page', () => {
     expect(w.storage.failedReopen).toBeNull()
   })
 
+  it('keeps the actions when a retry runs into the permission instead (#504)', async () => {
+    const { w, handle } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.failedReopen).not.toBeNull()
+    w.locks.clear()
+    w.permission.set(handle, 'prompt')
+    w.asked = 'denied'
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.permissionDenied')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    w.asked = 'granted'
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
   it('offers no retry for a notice a second try cannot answer, and drops it with the notice', async () => {
     const { w, handle } = await remembered('granted')
     w.stores.get(handle)!.project = false

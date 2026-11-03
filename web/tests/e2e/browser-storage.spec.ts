@@ -408,6 +408,11 @@ test.describe('the project of last time would not reopen (#504)', () => {
     await expect(notice).toContainText('open in another tab')
     await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
 
+    // Import a file… is the project menu's command: it opens the file chooser.
+    const chooser = reloaded.waitForEvent('filechooser')
+    await reloaded.getByTestId('notice-import').click()
+    await chooser
+
     await release()
     await other.close()
     await reloaded.getByTestId('notice-retry').click()
@@ -448,8 +453,9 @@ test.describe('the project of last time would not reopen (#504)', () => {
     await expect(notice).toContainText('could not be read')
     await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
 
+    // Open another project… is the project menu's command: the (simulated) picker hands back a folder, which opens.
     await reloaded.unroute(STORE_WORKER)
-    await reloaded.getByTestId('notice-retry').click()
+    await reloaded.getByTestId('notice-open-other').click()
     await expect(tracks(reloaded)).toHaveCount(2)
     await expect(notice).toHaveCount(0)
     // The refused Worker is the only error the page logs.
