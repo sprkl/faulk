@@ -66,7 +66,7 @@ const parts = [
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
-  '/** The ids of the default project\'s synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */',
+  "/** The ids of the default project's synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */",
   `export const SINGLE_SYNTH = ${JSON.stringify(bundle.single_synth)} as const`,
   '/** The descriptor of every built-in device (CT-5, DV-1): the UI builds the device panels from them. */',
   `export const DEVICES = ${JSON.stringify(bundle.devices)} as const`,
