@@ -35,6 +35,24 @@ describe('a series of tempo changes', () => {
     expect(types(run).filter((t) => t === 'history.end_group')).toHaveLength(1)
   })
 
+  it('a touch (a tap that changes nothing) keeps the series open as long as an apply does', () => {
+    const run = vi.fn(() => true)
+    const series = createSeries(run, 2000)
+    series.touch()
+    expect(run).not.toHaveBeenCalled()
+    series.apply(setTempo(100))
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(1500)
+      series.touch()
+    }
+    expect(series.open).toBe(true)
+    series.apply(setTempo(101))
+    vi.advanceTimersByTime(2000)
+    expect(series.open).toBe(false)
+    expect(types(run).filter((t) => t === 'history.begin_group')).toHaveLength(1)
+    expect(types(run).filter((t) => t === 'history.end_group')).toHaveLength(1)
+  })
+
   it('end closes it at once, once, and cancels the timer', () => {
     const run = vi.fn(() => true)
     const series = createSeries(run, 2000)

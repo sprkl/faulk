@@ -32,7 +32,7 @@
     type Signature,
   } from './time'
   import { createSeries } from './series'
-  import { NO_TAPS, tap, type TapState } from './tap-tempo'
+  import { NO_TAPS, TAP_RESET_MS, tap, type TapState } from './tap-tempo'
 
   const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
@@ -158,8 +158,11 @@
 
   // --- tap tempo and the wheel (#195): a series of tempo changes is one history entry ---------------------
 
-  /** How long after its last tap (the window of `tap-tempo.ts`) or wheel notch a series stays one history entry. */
-  const tapSeries = createSeries(run, 2000)
+  /**
+   * How long after its last tap or wheel notch a series stays one history entry: a little longer than the tap window of
+   * `tap-tempo.ts` (a tap at exactly its limit still belongs to the series), shorter for the wheel.
+   */
+  const tapSeries = createSeries(run, TAP_RESET_MS + 100)
   const wheelSeries = createSeries(run, 600)
   let tapState: TapState = NO_TAPS
   /** What the tap button says to a screen reader: the tempo the last tap measured (the field shows it too). */
@@ -167,10 +170,15 @@
 
   function onTap() {
     if (!ready) return
+    wheelSeries.end()
     tapState = tap(tapState, performance.now())
+    // A tap that starts a new series (the first, or after a pause) closes the history entry of the one before.
+    if (tapState.taps.length === 1) tapSeries.end()
     if (tapState.bpm === null) return
     tapped = t('transport.tapped', { bpm: formatTempo(tapState.bpm) })
+    // A tap that gives the same tempo changes nothing but still belongs to the series: it keeps the entry open.
     if (tapState.bpm !== bpm) tapSeries.apply(setTempo(tapState.bpm))
+    else tapSeries.touch()
   }
 
   /** Anything but a tap closes the series, so an undo right after the last tap is not refused by an open group. */
@@ -191,11 +199,14 @@
   /** The wheel over the tempo field: up raises, Shift or Ctrl (Cmd) steps by 0.1. Listens non-passively to keep the page from scrolling. */
   function wheelTempo(node: HTMLElement) {
     const onWheel = (event: WheelEvent) => {
-      if (!ready || event.deltaY === 0) return
+      // Some browsers turn Shift+wheel into a horizontal wheel: the notch is then in deltaX.
+      const delta = event.deltaY || event.deltaX
+      if (!ready || delta === 0) return
       event.preventDefault()
-      const next = stepBy(event.deltaY < 0 ? 1 : -1, event.shiftKey || event.ctrlKey || event.metaKey)
+      const next = stepBy(delta < 0 ? 1 : -1, event.shiftKey || event.ctrlKey || event.metaKey)
       if (next === null) return
       tempoError = false
+      tapSeries.end()
       if (next !== bpm) wheelSeries.apply(setTempo(next))
       tempoDraft = formatTempo(next)
     }
