@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 /// Version of this protocol. Bump it on any incompatible change.
 pub const PROTOCOL_VERSION: u32 = 15;
 
+// #515, without a new version: the helper reports its self-update to the session (`update.status`: installed version, end of the last check, the updater's state) after `midi.inputs` and on every change. Compatible both ways: a page that does not know the message ignores it (it switches on `type` and drops the others), and a page that knows it keeps `null` with a helper that never sends it.
+
 // Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip.
 
 // Version 14 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
@@ -120,9 +122,48 @@ pub enum ServerMessage {
     /// A note received from the selected MIDI input (for the activity light).
     #[serde(rename = "midi.activity")]
     MidiActivity { note: u8, velocity: u8 },
+    /// The helper's self-update: sent after `midi.inputs` at the start of a session, then on
+    /// every change.
+    #[serde(rename = "update.status")]
+    UpdateStatus {
+        /// The installed version; `None` when the helper is not installed (run from `cargo`).
+        current: Option<String>,
+        /// End of the last check, in seconds since the Unix epoch; `None` before the first.
+        checked_at: Option<u64>,
+        status: HelperUpdate,
+    },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
+}
+
+/// What the helper's updater is doing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HelperUpdate {
+    /// Updates are off (not installed, or no feed); `reason` is for developers.
+    Disabled {
+        reason: String,
+    },
+    /// Started, first check not done yet.
+    Idle,
+    Checking,
+    /// The installed version is the newest of its channel.
+    UpToDate {
+        version: String,
+    },
+    Downloading {
+        version: String,
+        percent: u8,
+    },
+    /// Downloaded; applied at the helper's next start or by "Restart to update".
+    Ready {
+        version: String,
+    },
+    /// The last check or download failed; the next check retries. `error` is for developers.
+    Failed {
+        error: String,
+    },
 }
 
 /// Every schema the web app needs, in one document.
