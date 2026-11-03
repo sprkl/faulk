@@ -546,3 +546,87 @@ async fn the_session_is_told_the_update_status_at_start_and_on_change() {
     assert!(checked_at.is_some());
     updater.shutdown();
 }
+
+/// Counts its checks; finds nothing.
+struct CountingUpdate(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Backend for CountingUpdate {
+    fn current_version(&self) -> String {
+        "0.1.11".into()
+    }
+
+    fn check(&self) -> Result<Option<velopack::UpdateInfo>, velopack::Error> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(None)
+    }
+
+    fn download(
+        &self,
+        _update: &velopack::UpdateInfo,
+        _progress: mpsc::Sender<i16>,
+    ) -> Result<(), velopack::Error> {
+        Ok(())
+    }
+
+    fn pending(&self) -> Option<velopack::VelopackAsset> {
+        None
+    }
+
+    fn apply_and_restart(
+        &self,
+        _asset: &velopack::VelopackAsset,
+        _args: &[String],
+    ) -> Result<(), velopack::Error> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_page_connecting_asks_for_a_check_within_the_rate_limit() {
+    let checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // Gap of zero: every connection after the first check is due.
+    let updater = Updater::start_with(CountingUpdate(checks.clone()), Duration::from_secs(3600))
+        .with_page_gap(Duration::ZERO);
+    let watch = updater.watch();
+    for _ in 0..500 {
+        if watch.checked_at().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(checks.load(Ordering::SeqCst), 1);
+    let h = start_with_updates(Some(watch)).await;
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    for _ in 0..500 {
+        if checks.load(Ordering::SeqCst) >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(checks.load(Ordering::SeqCst), 2);
+    updater.shutdown();
+}
+
+#[tokio::test]
+async fn a_page_connecting_inside_the_gap_does_not_check_again() {
+    let checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let updater = Updater::start_with(CountingUpdate(checks.clone()), Duration::from_secs(3600));
+    let watch = updater.watch();
+    for _ in 0..500 {
+        if watch.checked_at().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let h = start_with_updates(Some(watch)).await;
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(checks.load(Ordering::SeqCst), 1);
+    updater.shutdown();
+}
