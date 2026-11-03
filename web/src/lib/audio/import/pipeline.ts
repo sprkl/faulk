@@ -41,7 +41,7 @@ export interface CacheReport {
 }
 
 export interface PipelineDeps {
-  /** A working instance of the import module (a new one after a trap). */
+  /** A new instance of the import module, for one job: an instance holds one job's state, and jobs interleave. */
   module(): Promise<ImportModule>
   /** A synchronous reader of a file (`FileReaderSync` in a Worker). */
   readerOf(blob: Blob): Promise<ReadSync>
@@ -320,7 +320,7 @@ async function runImport(root: FileSystemDirectoryHandle, file: File, deps: Pipe
     const maybeDirect = module.maybeDirect(start, size)
     if (!maybeDirect) cache = await TempFile.create(root, `${IMPORT_TMP_PREFIX}${id}.pcm`)
     const info = await decode(module, read, size, extensionOf(file.name), cache, deps, progress, [0.5, 1])
-    const direct = maybeDirect && (await deps.module()).direct(start, size, info)
+    const direct = maybeDirect && module.direct(start, size, info)
     if (!maybeDirect) {
       await cache!.close()
     } else if (!direct) {

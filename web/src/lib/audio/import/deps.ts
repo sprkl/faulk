@@ -6,20 +6,19 @@ import type { PipelineDeps } from './pipeline'
 import importUrl from './wasm/import.wasm?url'
 
 let compiled: Promise<WebAssembly.Module> | null = null
-let instance: ImportModule | null = null
 
-/** A working instance of the import module, compiled from `bytes` (tests) or fetched once. */
-export async function importModule(bytes?: BufferSource): Promise<ImportModule> {
-  if (instance && !instance.broken) return instance
-  compiled ??= bytes
-    ? WebAssembly.compile(bytes)
-    : fetch(importUrl)
-        .then((r) => r.arrayBuffer())
-        .then((b) => WebAssembly.compile(b))
+/**
+ * A new instance of the import module for one job (an import, one cache to make): an instance holds
+ * one job's state, and the Worker runs an import and the caches of an opening at the same time, their
+ * steps interleaved. Compiled once, from the page's own file.
+ */
+export async function importModule(): Promise<ImportModule> {
+  compiled ??= fetch(importUrl)
+    .then((r) => r.arrayBuffer())
+    .then((b) => WebAssembly.compile(b))
   // A failed fetch is tried again on the next import.
   compiled.catch(() => (compiled = null))
-  instance = new ImportModule(await compiled)
-  return instance
+  return new ImportModule(await compiled)
 }
 
 type ReaderSyncCtor = new () => { readAsArrayBuffer(blob: Blob): ArrayBuffer }

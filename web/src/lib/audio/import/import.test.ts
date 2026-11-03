@@ -29,9 +29,9 @@ const readerOf =
 
 /** The pipeline's dependencies over a fresh instance, reading files whole into memory (Node has no FileReaderSync). */
 function deps(extra: Partial<PipelineDeps> = {}): PipelineDeps {
-  let instance = new ImportModule(compiled)
   return {
-    module: async () => (instance.broken ? (instance = new ImportModule(compiled)) : instance),
+    // A new instance per job, as the Worker's `importModule` gives.
+    module: async () => new ImportModule(compiled),
     readerOf: async (blob) => readerOf(new Uint8Array(await blob.arrayBuffer())),
     ...extra,
   }
@@ -182,6 +182,25 @@ describe('the import pipeline over a project folder', () => {
     expect(a.media.hash).toBe(b.media.hash)
     expect([a.blob.created, b.blob.created].sort()).toEqual([false, true])
     expect(dir.paths().filter((p) => p.startsWith('blobs/')).length).toBe(1)
+  })
+
+  it('an import and the caches of an opening run at once in one Worker, their steps interleaved, each with its own instance', async () => {
+    const one = deps()
+    const dir = new MemoryDir('song')
+    const other = new MemoryDir('other')
+    const m4a = expected['sine.m4a']!
+    other.put(`blobs/${m4a.sha256}`, fixture('sine.m4a'))
+    const [imported, report] = await Promise.all([
+      importAudio(dir.handle(), file('sine.mp3'), one),
+      ensureAudioCache(other.handle(), [{ hash: m4a.sha256!, sample_rate: 44_100, channels: 2, frames: 22_050 }], one),
+    ])
+    expect(imported.media.frames).toBe(22_050)
+    expect(report).toEqual({ made: [m4a.sha256], missing: [], failed: [] })
+    const cache = (other.entries.get('.faulk') as MemoryDir).entries.get('cache') as MemoryDir
+    const made = (cache.entries.get('pcm') as MemoryDir).entries.get(`${m4a.sha256}.pcm`) as unknown as { bytes: Uint8Array }
+    const native = new Float32Array(new Uint8Array(readFileSync(new URL('sine.m4a.pcm', FIXTURES))).buffer)
+    const page = new Float32Array(made.bytes.slice(CACHE_HEADER_BYTES).buffer)
+    expect(page.reduce((w, s, i) => Math.max(w, Math.abs(s - native[i]!)), 0)).toBeLessThanOrEqual(1e-6)
   })
 
   it('names a media as the project takes it: trimmed, 200 characters at most', () => {
