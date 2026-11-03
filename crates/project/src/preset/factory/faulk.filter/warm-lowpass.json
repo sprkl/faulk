@@ -1,0 +1,13 @@
+{
+  "category": "Tone",
+  "device": "faulk.filter",
+  "format": 1,
+  "name": "Warm Lowpass",
+  "params": {
+    "cutoff": 1200.0,
+    "mix": 1.0,
+    "mode": 0.0,
+    "resonance": 0.25
+  },
+  "version": 1
+}

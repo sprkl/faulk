@@ -110,6 +110,7 @@ fn every_query_command_is_covered_by_an_example() {
             "clip.get",
             "clip.notes.list",
             "device.describe",
+            "preset.list",
             "project.get",
             "scene.list",
             "track.get",
@@ -479,7 +480,7 @@ fn every_field_of_every_query_answer_is_documented() {
                 && !["midi.list_inputs", "project.list_stored"].contains(&t.name.as_str())
         })
         .collect();
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
     for tool in tools {
         assert!(!tool.description.is_empty(), "{}", tool.name);
         assert!(
@@ -523,6 +524,9 @@ fn every_field_of_the_types_of_the_answers_is_documented() {
         "ParamSpec",
         "KeyName",
         "DeviceKindInfo",
+        "PresetEntry",
+        "PresetRef",
+        "DevicePreset",
     ] {
         let def = defs
             .get(name)

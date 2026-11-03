@@ -1465,6 +1465,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -1495,6 +1506,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -1716,6 +1751,26 @@
                 "span"
               ],
               "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Quantize": {
               "description": "The launch quantization: the grid a launch snaps to. Global to the project at the MVP,\none bar by default (founder's decision 8).\n\nThe grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever\nthe signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].",
@@ -2446,6 +2501,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -2476,6 +2542,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -2565,6 +2655,26 @@
             "OrderKey": {
               "description": "A fractional order key: elements sort by it.",
               "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Shape": {
               "description": "The shape of the transition from a point to the next one.",
@@ -3697,6 +3807,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -3727,6 +3848,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -3816,6 +3961,26 @@
             "OrderKey": {
               "description": "A fractional order key: elements sort by it.",
               "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Shape": {
               "description": "The shape of the transition from a point to the next one.",
@@ -4474,6 +4639,1010 @@
           "type": "object"
         },
         "undo": "none"
+      },
+      {
+        "description": "Save a device's current settings as a new preset named `name` (trimmed, 1 to 200\ncharacters), with an optional `category` (1 to 64 characters), in the `project` (saved\nin the project's folder, it travels with the project) or in the user's `library`\n(available in every project). The device then shows this preset, not modified. Only a\nbuilt-in device with parameters has presets (not the clip player, not a module).\nRefused with `invalid` for the `factory` location (read-only), a name already used by\na preset of that device kind in that location, an empty or too long name or category,\nand with `limit` when the location is full (1 024 presets in a project, 4 096 in the\nlibrary). Undo: `preset.restore` takes the preset out and gives the device its\nprevious preset back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "category": {
+              "description": "A category to group it by, such as `Bass`; leave out for none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "`project` or `library`."
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "name",
+            "location"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.save",
+        "output_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "The new preset."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Load a preset into a device: every parameter of the device takes the preset's value\nat once (a parameter the preset has no value for takes its default, a value the device\nhas no parameter for is ignored, a value out of range is clamped), and the device\nshows the preset. One undo takes the whole load back. Refused with `not_found` for an\nunknown device or preset, with `invalid` for a preset of another device kind, one made\nwith a newer version of the device than this Faulk has (the message names both\nversions), and a device without presets (the clip player, a module). An older preset\nis migrated (`migrated_from`). Undo: `preset.restore_device` puts every previous value\nand the previous preset back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "device",
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.load",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "clamped": {
+              "description": "The values that were out of range or between steps: clamped or rounded.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "defaulted": {
+              "description": "The parameters the preset had no value for: set to their default.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ignored": {
+              "description": "The values the device has no parameter for: ignored.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "migrated_from": {
+              "description": "The device version the preset was made with, when older than this Faulk's.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "ignored",
+            "clamped",
+            "defaulted"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Delete a preset of the project or of the library. A factory preset cannot be deleted\n(`invalid`); an unknown one is `not_found`. The devices that show it keep its name.\nUndo: `preset.restore` brings it back under the same id.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.delete",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Rename a preset of the project or of the library (trimmed, 1 to 200 characters). The\ndevices that show it keep the name they had until it is loaded again. Refused with\n`invalid` for a factory preset or a name used by another preset of that device kind in\nthat location, `not_found` for an unknown one. Undo: `preset.restore` puts the preset\nback as it was.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset",
+            "name"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.rename",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "description": "The name before the command.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "previous"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Copy a preset (from any location, factory included) into the `project` or the\n`library`, as a new preset with the same values, under its own name or `name` when\ngiven. The devices are left as they are: this is how a preset of a project goes into\nthe library for every project. Refused like `preset.save` (factory location, a name in\nuse there, a full location), and with `not_found` for an unknown preset. Undo:\n`preset.restore` takes the copy out.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "`project` or `library`."
+            },
+            "name": {
+              "description": "The copy's name; leave out to keep the preset's.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset",
+            "location"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.copy",
+        "output_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "The copy."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "List presets: those of the device kind of `device` (a device's id) or of `kind` (a\nbuilt-in kind such as `faulk.filter`), or every preset when both are left out (giving\nboth is `invalid`). Factory presets come first, then the project's, then the\nlibrary's, each by name. Each entry has the preset's reference, name, category, device\nkind and version, whether it is read-only (factory) or made with a newer version of\nthe device (`newer`: it cannot be loaded), and the values a load would give the device.\nWith `device`, the answer also names the preset the device shows (`current`) and\nwhether its values differ from that preset's (`modified`; `null` when the device shows\nno preset or its preset is not here, such as a library preset of another computer). A\nquery: changes nothing.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A device whose presets to list; leave out to give `kind` or to list all."
+            },
+            "kind": {
+              "description": "A device kind whose presets to list; leave out to give `device` or to list all.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "kind": "query",
+        "name": "preset.list",
+        "output_schema": {
+          "$defs": {
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "PresetEntry": {
+              "additionalProperties": false,
+              "description": "One preset as `preset.list` gives it.",
+              "properties": {
+                "category": {
+                  "description": "Its category, `null` when it has none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "The device kind it is for.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Its name.",
+                  "type": "string"
+                },
+                "newer": {
+                  "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+                  "type": "boolean"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+                  "type": "object"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+                },
+                "read_only": {
+                  "description": "A factory preset: it cannot be renamed nor deleted.",
+                  "type": "boolean"
+                },
+                "version": {
+                  "description": "The version of the device kind it was made with.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "preset",
+                "name",
+                "kind",
+                "version",
+                "read_only",
+                "newer",
+                "params"
+              ],
+              "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset `device` shows; `null` without `device` or when it shows none."
+            },
+            "modified": {
+              "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "presets": {
+              "description": "The presets, factory then project then library, each by name.",
+              "items": {
+                "$ref": "#/$defs/PresetEntry"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "presets"
+          ],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Put a preset of the project or of the library back as it was: `snapshot` is the whole\npreset (absent or `null` to take it out), under `preset`'s id. With `device`, that\ndevice shows `device.preset` again. The inverse of `preset.save`, `preset.delete`,\n`preset.rename` and `preset.copy`; it does not check names against the other presets\n(it puts back exactly what was there). Refused with `invalid` for the factory\nlocation, an id that is not a preset id or that another part of the project uses, a\nsnapshot that breaks the preset format, and with `limit` when the location is full;\n`not_found` for an unknown device. Undo: `preset.restore` with what was there before.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "DeviceRestore": {
+              "additionalProperties": false,
+              "description": "The preset a device shows, as `preset.restore` puts it back.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device shows; absent or `null` for none."
+                }
+              },
+              "required": [
+                "device"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "Preset": {
+              "additionalProperties": false,
+              "description": "A preset: the values of a device's parameters under a name.",
+              "properties": {
+                "category": {
+                  "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "device": {
+                  "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Its name: trimmed, not empty, at most 200 characters.",
+                  "type": "string"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Parameter id -> value, in the unit the device declares.",
+                  "type": "object"
+                },
+                "version": {
+                  "description": "The version of that device kind the values were made with.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "device",
+                "version",
+                "name",
+                "params"
+              ],
+              "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeviceRestore"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A device whose shown preset to put back as well."
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Preset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset to put back; absent or `null` to take it out."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.restore",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set several parameters of a built-in device at once, by key (each clamped and rounded\nas `device.set_param` does), and the preset the device shows (`preset`, absent or\n`null` for none). The inverse of `preset.load`. Refused with `not_found` for an\nunknown device or parameter, `invalid` for a value that is not finite, a malformed\n`preset` and a device without presets. Undo: `preset.restore_device` with the previous\nvalues and preset.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "object"
+            },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device shows; absent or `null` for none."
+            }
+          },
+          "required": [
+            "device",
+            "params"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.restore_device",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
       },
       {
         "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters): without one the clip gets the\nnext default name of its track, the track's name and the first number no clip of\nthe track has with it (\"Bass 3\"); it is stored and never changes when other clips\nmove, are copied or deleted, nor when the track is renamed. Undo:\n`clip.delete`.",
@@ -15708,6 +16877,17 @@
               "description": "Parameter id → value in the unit the device declares.",
               "type": "object"
             },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+            },
             "role": {
               "$ref": "#/$defs/DeviceRole"
             },
@@ -15998,6 +17178,54 @@
         "DeviceId": {
           "$ref": "#/$defs/Id",
           "description": "Identifier of a device in a track's chain or in the master's."
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "DeviceRestore": {
+          "additionalProperties": false,
+          "description": "The preset a device shows, as `preset.restore` puts it back.",
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device shows; absent or `null` for none."
+            }
+          },
+          "required": [
+            "device"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -17090,6 +18318,353 @@
           "required": [
             "tick",
             "value"
+          ],
+          "type": "object"
+        },
+        "Preset": {
+          "additionalProperties": false,
+          "description": "A preset: the values of a device's parameters under a name.",
+          "properties": {
+            "category": {
+              "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name: trimmed, not empty, at most 200 characters.",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "Parameter id -> value, in the unit the device declares.",
+              "type": "object"
+            },
+            "version": {
+              "description": "The version of that device kind the values were made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device",
+            "version",
+            "name",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetCommand": {
+          "description": "The commands of this domain, tagged by `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "Save a device's current settings as a new preset named `name` (trimmed, 1 to 200\ncharacters), with an optional `category` (1 to 64 characters), in the `project` (saved\nin the project's folder, it travels with the project) or in the user's `library`\n(available in every project). The device then shows this preset, not modified. Only a\nbuilt-in device with parameters has presets (not the clip player, not a module).\nRefused with `invalid` for the `factory` location (read-only), a name already used by\na preset of that device kind in that location, an empty or too long name or category,\nand with `limit` when the location is full (1 024 presets in a project, 4 096 in the\nlibrary). Undo: `preset.restore` takes the preset out and gives the device its\nprevious preset back.",
+              "properties": {
+                "category": {
+                  "description": "A category to group it by, such as `Bass`; leave out for none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "`project` or `library`."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "name",
+                "location"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Load a preset into a device: every parameter of the device takes the preset's value\nat once (a parameter the preset has no value for takes its default, a value the device\nhas no parameter for is ignored, a value out of range is clamped), and the device\nshows the preset. One undo takes the whole load back. Refused with `not_found` for an\nunknown device or preset, with `invalid` for a preset of another device kind, one made\nwith a newer version of the device than this Faulk has (the message names both\nversions), and a device without presets (the clip player, a module). An older preset\nis migrated (`migrated_from`). Undo: `preset.restore_device` puts every previous value\nand the previous preset back.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Delete a preset of the project or of the library. A factory preset cannot be deleted\n(`invalid`); an unknown one is `not_found`. The devices that show it keep its name.\nUndo: `preset.restore` brings it back under the same id.",
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Rename a preset of the project or of the library (trimmed, 1 to 200 characters). The\ndevices that show it keep the name they had until it is loaded again. Refused with\n`invalid` for a factory preset or a name used by another preset of that device kind in\nthat location, `not_found` for an unknown one. Undo: `preset.restore` puts the preset\nback as it was.",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset",
+                "name"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Copy a preset (from any location, factory included) into the `project` or the\n`library`, as a new preset with the same values, under its own name or `name` when\ngiven. The devices are left as they are: this is how a preset of a project goes into\nthe library for every project. Refused like `preset.save` (factory location, a name in\nuse there, a full location), and with `not_found` for an unknown preset. Undo:\n`preset.restore` takes the copy out.",
+              "properties": {
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "`project` or `library`."
+                },
+                "name": {
+                  "description": "The copy's name; leave out to keep the preset's.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset",
+                "location"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "List presets: those of the device kind of `device` (a device's id) or of `kind` (a\nbuilt-in kind such as `faulk.filter`), or every preset when both are left out (giving\nboth is `invalid`). Factory presets come first, then the project's, then the\nlibrary's, each by name. Each entry has the preset's reference, name, category, device\nkind and version, whether it is read-only (factory) or made with a newer version of\nthe device (`newer`: it cannot be loaded), and the values a load would give the device.\nWith `device`, the answer also names the preset the device shows (`current`) and\nwhether its values differ from that preset's (`modified`; `null` when the device shows\nno preset or its preset is not here, such as a library preset of another computer). A\nquery: changes nothing.",
+              "properties": {
+                "device": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DeviceId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A device whose presets to list; leave out to give `kind` or to list all."
+                },
+                "kind": {
+                  "description": "A device kind whose presets to list; leave out to give `device` or to list all.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "query",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Put a preset of the project or of the library back as it was: `snapshot` is the whole\npreset (absent or `null` to take it out), under `preset`'s id. With `device`, that\ndevice shows `device.preset` again. The inverse of `preset.save`, `preset.delete`,\n`preset.rename` and `preset.copy`; it does not check names against the other presets\n(it puts back exactly what was there). Refused with `invalid` for the factory\nlocation, an id that is not a preset id or that another part of the project uses, a\nsnapshot that breaks the preset format, and with `limit` when the location is full;\n`not_found` for an unknown device. Undo: `preset.restore` with what was there before.",
+              "properties": {
+                "device": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DeviceRestore"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A device whose shown preset to put back as well."
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "snapshot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Preset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset to put back; absent or `null` to take it out."
+                },
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set several parameters of a built-in device at once, by key (each clamped and rounded\nas `device.set_param` does), and the preset the device shows (`preset`, absent or\n`null` for none). The inverse of `preset.load`. Refused with `not_found` for an\nunknown device or parameter, `invalid` for a value that is not finite, a malformed\n`preset` and a device without presets. Undo: `preset.restore_device` with the previous\nvalues and preset.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device shows; absent or `null` for none."
+                },
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "params"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            }
+          ]
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
           ],
           "type": "object"
         },
@@ -19185,6 +20760,9 @@
           "$ref": "#/$defs/DeviceCommand"
         },
         {
+          "$ref": "#/$defs/PresetCommand"
+        },
+        {
           "$ref": "#/$defs/ClipCommand"
         },
         {
@@ -20838,6 +22416,30 @@
             }
           ]
         },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
+        },
         "DeviceRole": {
           "description": "What a device does in the chain.",
           "enum": [
@@ -21883,6 +23485,287 @@
           "required": [
             "tick",
             "value"
+          ],
+          "type": "object"
+        },
+        "PresetEntry": {
+          "additionalProperties": false,
+          "description": "One preset as `preset.list` gives it.",
+          "properties": {
+            "category": {
+              "description": "Its category, `null` when it has none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "The device kind it is for.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            },
+            "newer": {
+              "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+              "type": "boolean"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+              "type": "object"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+            },
+            "read_only": {
+              "description": "A factory preset: it cannot be renamed nor deleted.",
+              "type": "boolean"
+            },
+            "version": {
+              "description": "The version of the device kind it was made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "preset",
+            "name",
+            "kind",
+            "version",
+            "read_only",
+            "newer",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The new preset."
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clamped": {
+                  "description": "The values that were out of range or between steps: clamped or rounded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "defaulted": {
+                  "description": "The parameters the preset had no value for: set to their default.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ignored": {
+                  "description": "The values the device has no parameter for: ignored.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "migrated_from": {
+                  "description": "The device version the preset was made with, when older than this Faulk's.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "ignored",
+                "clamped",
+                "defaulted"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The copy."
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset `device` shows; `null` without `device` or when it shows none."
+                },
+                "modified": {
+                  "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "presets": {
+                  "description": "The presets, factory then project then library, each by name.",
+                  "items": {
+                    "$ref": "#/$defs/PresetEntry"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "presets"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
           ],
           "type": "object"
         },
@@ -23685,6 +25568,9 @@
         },
         {
           "$ref": "#/$defs/DeviceOutput"
+        },
+        {
+          "$ref": "#/$defs/PresetOutput"
         },
         {
           "$ref": "#/$defs/ClipOutput"
@@ -25726,6 +27612,17 @@
               "description": "Parameter id → value in the unit the device declares.",
               "type": "object"
             },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+            },
             "role": {
               "$ref": "#/$defs/DeviceRole"
             },
@@ -25756,6 +27653,30 @@
         "DeviceId": {
           "$ref": "#/$defs/Id",
           "description": "Identifier of a device in a track's chain or in the master's."
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -26082,6 +28003,68 @@
           ],
           "type": "object"
         },
+        "Preset": {
+          "additionalProperties": false,
+          "description": "A preset: the values of a device's parameters under a name.",
+          "properties": {
+            "category": {
+              "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name: trimmed, not empty, at most 200 characters.",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "Parameter id -> value, in the unit the device declares.",
+              "type": "object"
+            },
+            "version": {
+              "description": "The version of that device kind the values were made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device",
+            "version",
+            "name",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
         "Project": {
           "additionalProperties": false,
           "description": "The project document: what makes the music, saved and versioned.",
@@ -26138,6 +28121,15 @@
             "name": {
               "description": "Display name: trimmed, not empty.",
               "type": "string"
+            },
+            "presets": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Preset"
+                }
+              },
+              "type": "object"
             },
             "scenes": {
               "additionalProperties": false,
@@ -28197,6 +30189,9 @@
               "$ref": "#/$defs/DeviceOutput"
             },
             {
+              "$ref": "#/$defs/PresetOutput"
+            },
+            {
               "$ref": "#/$defs/ClipOutput"
             },
             {
@@ -28484,6 +30479,30 @@
               "type": "object"
             }
           ]
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -29759,6 +31778,287 @@
           ],
           "type": "object"
         },
+        "PresetEntry": {
+          "additionalProperties": false,
+          "description": "One preset as `preset.list` gives it.",
+          "properties": {
+            "category": {
+              "description": "Its category, `null` when it has none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "The device kind it is for.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            },
+            "newer": {
+              "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+              "type": "boolean"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+              "type": "object"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+            },
+            "read_only": {
+              "description": "A factory preset: it cannot be renamed nor deleted.",
+              "type": "boolean"
+            },
+            "version": {
+              "description": "The version of the device kind it was made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "preset",
+            "name",
+            "kind",
+            "version",
+            "read_only",
+            "newer",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The new preset."
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clamped": {
+                  "description": "The values that were out of range or between steps: clamped or rounded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "defaulted": {
+                  "description": "The parameters the preset had no value for: set to their default.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ignored": {
+                  "description": "The values the device has no parameter for: ignored.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "migrated_from": {
+                  "description": "The device version the preset was made with, when older than this Faulk's.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "ignored",
+                "clamped",
+                "defaulted"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The copy."
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset `device` shows; `null` without `device` or when it shows none."
+                },
+                "modified": {
+                  "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "presets": {
+                  "description": "The presets, factory then project then library, each by name.",
+                  "items": {
+                    "$ref": "#/$defs/PresetEntry"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "presets"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
+          ],
+          "type": "object"
+        },
         "ProjectEvent": {
           "description": "What the interface learns from an applied command: its mirror of the project is fed\nby these events only (spec § 2.6). Each task adds the events its commands emit, next\nto them in this enum.",
           "oneOf": [
@@ -30533,6 +32833,46 @@
                 "type",
                 "can_undo",
                 "can_redo"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A preset of the project or of the user's library was saved, copied, renamed, deleted\nor brought back (#191); `preset` is its id. The page reads the project's from its own\ncopy of the project; for the library it writes the preset's file, or removes it when\nthe preset is gone. A change of the library is not a change of the project.",
+              "properties": {
+                "location": {
+                  "$ref": "#/$defs/PresetLocation"
+                },
+                "preset": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "location",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The preset a device shows changed (a load, a save, their undo).",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "type": {
+                  "const": "device_preset_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device"
               ],
               "type": "object"
             },

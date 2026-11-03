@@ -29,6 +29,7 @@ pub mod marker;
 pub mod midi;
 pub mod mixer;
 pub mod note;
+pub mod preset;
 pub mod project;
 pub mod query;
 pub mod record;
@@ -50,6 +51,7 @@ macros::root! {
     Project => project,
     Track => track,
     Device => device,
+    Preset => preset,
     Clip => clip,
     Note => note,
     Scene => scene,

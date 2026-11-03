@@ -271,6 +271,7 @@ fn synth_device(order: OrderKey) -> Device {
         .map(|(k, v)| (k.to_owned(), v))
         .collect(),
         state: None,
+        preset: None,
     }
 }
 
@@ -288,6 +289,7 @@ fn effect_device(order: OrderKey) -> Device {
             .map(|(k, v)| (k.to_owned(), v))
             .collect(),
         state: None,
+        preset: None,
     }
 }
 
@@ -380,6 +382,7 @@ pub fn build(profile: &Profile, audio: &[(AudioFile, Hash)]) -> Project {
                     },
                     params: BTreeMap::new(),
                     state: None,
+                    preset: None,
                 },
             );
         }

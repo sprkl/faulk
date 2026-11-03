@@ -1482,3 +1482,103 @@ fn a_new_core_takes_the_name_the_page_gives_it() {
     let long = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 6, 201));
     assert_eq!(long.view()["project"]["name"], "Sketch");
 }
+
+/// The file of a preset as `pw_preset_file` gives it: `None` for `ERR_NO_PRESET`.
+fn preset_file(h: &Handle, location: u32, id: &str) -> Option<String> {
+    write_inbox(id);
+    // SAFETY: a live core.
+    let len = unsafe { pw_preset_file(h.0, location, id.len() as u32) };
+    if len == ERR_NO_PRESET {
+        return None;
+    }
+    assert!(len > 0, "error code {len}");
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    let bytes = unsafe { core::slice::from_raw_parts(pw_out(), len as usize) };
+    Some(String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+#[test]
+fn the_library_is_staged_written_by_file_and_never_marks_the_project_changed() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    let device = commands::engine_msgs::single_synth::DEVICE;
+    let kept = "01HZY00000000000000000AAAA";
+    let text = r#"{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {"attack": 0.5}}"#;
+    let files = json!([
+        {"id": kept, "text": text},
+        {"id": "not-an-id", "text": text},
+        {"id": "01HZY00000000000000000BBBB", "text": "{"},
+    ]);
+    let (report, _) = h.call(&files.to_string(), pw_stage_library);
+    assert_eq!(report["loaded"], 1);
+    let skipped: Vec<&str> = report["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(skipped, ["not-an-id", "01HZY00000000000000000BBBB"]);
+    // A bad JSON changes nothing.
+    write_inbox("[1]");
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_library(h.0, 3) }, ERR_BAD_INPUT);
+    let listed = h.apply(json!({"type": "preset.list", "kind": "faulk.osc_synth"}));
+    assert!(
+        listed["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "Kept"),
+        "{listed}"
+    );
+    // The staged file comes back canonical.
+    let file = preset_file(&h, LOCATION_LIBRARY, kept).unwrap();
+    assert!(
+        file.starts_with("{\n  \"device\": \"faulk.osc_synth\",\n  \"format\": 1,"),
+        "{file}"
+    );
+
+    // Renaming and deleting in the library are not project changes: nothing to save.
+    h.save(1);
+    h.saved(true);
+    assert!(!h.dirty());
+    h.apply(json!({"type": "preset.rename", "preset": {"location": "library", "id": kept}, "name": "Renamed"}));
+    assert!(!h.dirty());
+    assert!(
+        preset_file(&h, LOCATION_LIBRARY, kept)
+            .unwrap()
+            .contains("\"Renamed\"")
+    );
+    h.apply(json!({"type": "preset.delete", "preset": {"location": "library", "id": kept}}));
+    assert!(!h.dirty());
+    assert_eq!(preset_file(&h, LOCATION_LIBRARY, kept), None);
+    assert_eq!(preset_file(&h, 0, kept), None);
+    assert_eq!(preset_file(&h, LOCATION_LIBRARY, "../x"), None);
+    // Its undo brings the file back.
+    h.apply(json!({"type": "history.undo"}));
+    assert!(preset_file(&h, LOCATION_LIBRARY, kept).is_some());
+
+    // A save of the device into the project is a project change, written in `presets/`.
+    let saved = h.apply(
+        json!({"type": "preset.save", "device": device, "name": "Mine", "location": "project"}),
+    );
+    assert!(h.dirty());
+    let id = saved["preset"]["id"].as_str().unwrap().to_owned();
+    let paths = h.paths(0);
+    assert!(paths.contains(&format!("presets/{id}.json")), "{paths:?}");
+    assert!(preset_file(&h, LOCATION_PROJECT, &id).is_some());
+    // The library outlives a new project.
+    h.saved(true);
+    h.apply(json!({"type": "project.new"}));
+    let listed = h.apply(json!({"type": "preset.list", "kind": "faulk.osc_synth"}));
+    let names: Vec<&str> = listed["presets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"Renamed") && !names.contains(&"Mine"),
+        "{names:?}"
+    );
+}

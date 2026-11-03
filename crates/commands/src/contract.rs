@@ -13,13 +13,14 @@
 //! - **Typed input and output**: each command has an `Output` variant of the same name.
 
 use project::file::{FileError, FileSystem, SaveState};
+use project::preset::{Preset, PresetId, PresetLocation};
 use project::{
     AutomationTarget, ClipId, DeviceId, EngineSlots, IdGenerator, LaneId, PlacementId, Project,
     Quantize, SceneId, SessionState, TickLoop, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -27,20 +28,27 @@ use std::sync::Arc;
 /// decision 10: solo, selected MIDI input, selection live in the session, never in the
 /// versioned project) and the undo history, which only [`crate::run`] and the
 /// `history.*` commands change. No `Default`: a project is created with its id.
+///
+/// The user's preset library (#191) is here too, though it is not the project's: the host
+/// stages what its storage holds (`library`), the `preset.*` commands change it as an edit
+/// that can be undone, and the host writes the files they change. A command that replaces the
+/// project (`project.open`, `project.new`) keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
     pub project: Project,
     pub session: SessionState,
     pub history: crate::History,
+    pub library: BTreeMap<PresetId, Preset>,
 }
 
 impl State {
-    /// A state on a project, with an empty session and an empty history.
+    /// A state on a project, with an empty session, an empty history and an empty library.
     pub fn new(project: Project) -> Self {
         Self {
             project,
             session: SessionState::default(),
             history: crate::History::default(),
+            library: BTreeMap::new(),
         }
     }
 }
@@ -439,6 +447,16 @@ pub enum ProjectEvent {
     /// The undo history changed: an entry was recorded, undone or redone, or the
     /// history was cleared.
     HistoryChanged { can_undo: bool, can_redo: bool },
+    /// A preset of the project or of the user's library was saved, copied, renamed, deleted
+    /// or brought back (#191); `preset` is its id. The page reads the project's from its own
+    /// copy of the project; for the library it writes the preset's file, or removes it when
+    /// the preset is gone. A change of the library is not a change of the project.
+    PresetChanged {
+        location: PresetLocation,
+        preset: String,
+    },
+    /// The preset a device shows changed (a load, a save, their undo).
+    DevicePresetChanged { device: DeviceId },
     /// A take of MIDI recording changed state (`record.*`, and `transport.stop` or
     /// `transport.pause` during a take). Session state: the project does not change.
     RecordingChanged { take: u64, state: TakeState },
@@ -484,6 +502,10 @@ impl ProjectEvent {
                 | ProjectEvent::TrackSelected { .. }
                 | ProjectEvent::MidiInputSelected { .. }
                 | ProjectEvent::ControlChange { .. }
+                | ProjectEvent::PresetChanged {
+                    location: PresetLocation::Library,
+                    ..
+                }
         )
     }
 }

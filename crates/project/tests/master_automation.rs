@@ -23,6 +23,7 @@ fn effect(order: OrderKey) -> Device {
         },
         params: BTreeMap::from([("threshold".into(), -30.0)]),
         state: None,
+        preset: None,
     }
 }
 

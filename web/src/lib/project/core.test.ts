@@ -307,7 +307,7 @@ describe('ProjectCore', () => {
       expect(open(core, 'empty').report).toMatchObject({ status: 'refused', error: { error: { reason: 'not_a_project' } } })
       const newer = entries.map((e) =>
         e.path === 'project.json' && 'bytes' in e
-          ? { path: e.path, bytes: new TextEncoder().encode(new TextDecoder().decode(e.bytes).replace('"format": 3', '"format": 99')) }
+          ? { path: e.path, bytes: new TextEncoder().encode(new TextDecoder().decode(e.bytes).replace(/"format": \d+/, '"format": 99')) }
           : e,
       )
       core.stage('newer', newer)

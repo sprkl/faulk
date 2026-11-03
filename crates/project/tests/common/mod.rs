@@ -132,6 +132,7 @@ pub fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) ->
                 },
                 params: BTreeMap::new(),
                 state: None,
+                preset: None,
             },
         );
         let mut last = OrderKey::first();
@@ -152,6 +153,7 @@ pub fn build(seed: u128, name: String, tracks: Vec<TrackSpec>, scenes: usize) ->
                     },
                     params: BTreeMap::from([(param, value)]),
                     state: None,
+                    preset: None,
                 },
             );
         }

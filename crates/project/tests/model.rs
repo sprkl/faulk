@@ -81,6 +81,7 @@ fn fixture() -> Fx {
             },
             params: BTreeMap::from([("attack".into(), 0.01), ("waveform".into(), 2.0)]),
             state: Some(hash(1)),
+            preset: None,
         },
     );
     let filter = DeviceId::generate(&mut ids);
@@ -96,6 +97,7 @@ fn fixture() -> Fx {
             },
             params: BTreeMap::from([("cutoff".into(), 800.0)]),
             state: None,
+            preset: None,
         },
     );
     let midi_clip = ClipId::generate(&mut ids);
@@ -188,6 +190,7 @@ fn fixture() -> Fx {
             },
             params: BTreeMap::new(),
             state: None,
+            preset: None,
         },
     );
     let audio_clip = ClipId::generate(&mut ids);
@@ -519,11 +522,13 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         CountIn => "CountIn",
         MissingInstrument => "MissingInstrument",
         BadSampleRate => "BadSampleRate",
+        BadPreset => "BadPreset",
         TooMany { .. } => "TooMany",
     }
 }
 
-const ALL_KINDS: [&str; 33] = [
+const ALL_KINDS: [&str; 34] = [
+    "BadPreset",
     "MissingInstrument",
     "BadSampleRate",
     "Format",
@@ -567,7 +572,36 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         })
     };
     vec![
-        ("format 4", Box::new(|fx| fx.project.format = 4), "Format"),
+        ("format 5", Box::new(|fx| fx.project.format = 5), "Format"),
+        (
+            "project preset with an untrimmed name",
+            Box::new(|fx| {
+                fx.project.presets.insert(
+                    project::preset::PresetId::parse("01HZY0000000000000000PRSET").unwrap(),
+                    project::preset::Preset {
+                        device: "faulk.filter".into(),
+                        version: 1,
+                        name: " Warm".into(),
+                        category: None,
+                        params: Default::default(),
+                    },
+                );
+            }),
+            "BadPreset",
+        ),
+        (
+            "device preset with a path as its id",
+            Box::new(|fx| {
+                let f = fx.filter.clone();
+                midi_track(fx).devices.get_mut(&f).unwrap().preset =
+                    Some(Box::new(project::preset::DevicePreset {
+                        location: project::preset::PresetLocation::Library,
+                        id: "../escape".into(),
+                        name: "Warm".into(),
+                    }));
+            }),
+            "BadPreset",
+        ),
         (
             "empty project name",
             Box::new(|fx| fx.project.name.clear()),
@@ -1247,7 +1281,7 @@ fn every_kind_has_a_failing_case() {
 #[test]
 fn violations_carry_their_path_and_are_all_reported() {
     let mut fx = fixture();
-    fx.project.format = 4;
+    fx.project.format = 5;
     midi_track(&mut fx).mixer.pan = 2.0;
     let violations = fx.project.validate().unwrap_err();
     assert_eq!(violations.len(), 2, "{violations:?}");

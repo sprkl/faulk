@@ -18,6 +18,7 @@ mod clip_examples;
 mod device_examples;
 mod grid_examples;
 mod marker_examples;
+mod preset_examples;
 mod query_examples;
 mod record_examples;
 mod track_examples;
@@ -194,6 +195,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(query_examples::examples())
     .chain(record_examples::examples())
     .chain(marker_examples::examples())
+    .chain(preset_examples::examples())
     .collect()
 }
 
@@ -228,13 +230,14 @@ fn every_command_has_an_example() {
 }
 
 #[test]
-fn the_sixteen_domains_are_frozen_in_the_spec_order() {
+fn the_domains_are_frozen_in_the_spec_order() {
     assert_eq!(
         Command::DOMAINS,
         [
             "project",
             "track",
             "device",
+            "preset",
             "clip",
             "note",
             "scene",

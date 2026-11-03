@@ -19,7 +19,7 @@ export const DEVICES = [{"kind":"faulk.osc_synth","kind_id":1,"memory_bytes":968
  * A Faulk command, `{"type": "domain.verb", ...}`. One variant per domain; the
  * domain's enum holds its commands.
  */
-export type Command = (ProjectCommand | TrackCommand | DeviceCommand | ClipCommand | NoteCommand | SceneCommand | LaunchCommand | ArrangementCommand | AutomationCommand | TransportCommand | MixerCommand | RecordCommand | MidiCommand | LiveCommand | HistoryCommand | ViewCommand)
+export type Command = (ProjectCommand | TrackCommand | DeviceCommand | PresetCommand | ClipCommand | NoteCommand | SceneCommand | LaunchCommand | ArrangementCommand | AutomationCommand | TransportCommand | MixerCommand | RecordCommand | MidiCommand | LiveCommand | HistoryCommand | ViewCommand)
 /**
  * The commands of this domain, tagged by `type`.
  */
@@ -413,6 +413,84 @@ device?: (string | null)
  */
 kind?: (string | null)
 type: "device.describe"
+})
+/**
+ * The commands of this domain, tagged by `type`.
+ */
+export type PresetCommand = ({
+/**
+ * A category to group it by, such as `Bass`; leave out for none.
+ */
+category?: (string | null)
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+/**
+ * `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+name: string
+type: "preset.save"
+} | {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+preset: PresetRef
+type: "preset.load"
+} | {
+preset: PresetRef
+type: "preset.delete"
+} | {
+name: string
+preset: PresetRef
+type: "preset.rename"
+} | {
+/**
+ * `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+/**
+ * The copy's name; leave out to keep the preset's.
+ */
+name?: (string | null)
+preset: PresetRef
+type: "preset.copy"
+} | {
+/**
+ * A device whose presets to list; leave out to give `kind` or to list all.
+ */
+device?: (string | null)
+/**
+ * A device kind whose presets to list; leave out to give `device` or to list all.
+ */
+kind?: (string | null)
+type: "preset.list"
+} | {
+/**
+ * A device whose shown preset to put back as well.
+ */
+device?: (DeviceRestore | null)
+preset: PresetRef
+/**
+ * The preset to put back; absent or `null` to take it out.
+ */
+snapshot?: (Preset | null)
+type: "preset.restore"
+} | {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+params: {
+[k: string]: number | undefined
+}
+/**
+ * The preset the device shows; absent or `null` for none.
+ */
+preset?: (DevicePreset | null)
+type: "preset.restore_device"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -1125,7 +1203,7 @@ export type Id = string
 /**
  * The output of a command, `{"type": "domain.verb", ...}` with the same name.
  */
-export type CommandOutput = (ProjectOutput | TrackOutput | DeviceOutput | ClipOutput | NoteOutput | SceneOutput | LaunchOutput | ArrangementOutput | AutomationOutput | TransportOutput | MixerOutput | RecordOutput | MidiOutput | LiveOutput | HistoryOutput | ViewOutput)
+export type CommandOutput = (ProjectOutput | TrackOutput | DeviceOutput | PresetOutput | ClipOutput | NoteOutput | SceneOutput | LaunchOutput | ArrangementOutput | AutomationOutput | TransportOutput | MixerOutput | RecordOutput | MidiOutput | LiveOutput | HistoryOutput | ViewOutput)
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
  */
@@ -1470,6 +1548,60 @@ params: {
  */
 track?: (string | null)
 type: "device.describe"
+})
+/**
+ * The outputs of this domain's commands, tagged by the command's `type`.
+ */
+export type PresetOutput = ({
+preset: PresetRef1
+type: "preset.save"
+} | {
+/**
+ * The values that were out of range or between steps: clamped or rounded.
+ */
+clamped: string[]
+/**
+ * The parameters the preset had no value for: set to their default.
+ */
+defaulted: string[]
+/**
+ * The values the device has no parameter for: ignored.
+ */
+ignored: string[]
+/**
+ * The device version the preset was made with, when older than this Faulk's.
+ */
+migrated_from?: (number | null)
+type: "preset.load"
+} | {
+type: "preset.delete"
+} | {
+/**
+ * The name before the command.
+ */
+previous: string
+type: "preset.rename"
+} | {
+preset: PresetRef2
+type: "preset.copy"
+} | {
+/**
+ * The preset `device` shows; `null` without `device` or when it shows none.
+ */
+current?: (DevicePreset | null)
+/**
+ * Whether `device`'s values differ from its preset's; `null` when unknown.
+ */
+modified?: (boolean | null)
+/**
+ * The presets, factory then project then library, each by name.
+ */
+presets: PresetEntry[]
+type: "preset.list"
+} | {
+type: "preset.restore"
+} | {
+type: "preset.restore_device"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -2671,6 +2803,16 @@ can_redo: boolean
 can_undo: boolean
 type: "history_changed"
 } | {
+location: PresetLocation
+preset: string
+type: "preset_changed"
+} | {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+type: "device_preset_changed"
+} | {
 state: TakeState
 take: number
 type: "recording_changed"
@@ -2693,6 +2835,10 @@ export type TrackPart = (("name" | "color") | "height" | "order")
  * Which part of a scene a [`ProjectEvent::SceneChanged`] reports.
  */
 export type ScenePart = ("name" | "order")
+/**
+ * Where a preset lives.
+ */
+export type PresetLocation = ("factory" | "project" | "library")
 /**
  * Where a take of MIDI recording stands ([`ProjectEvent::RecordingChanged`]).
  */
@@ -2899,12 +3045,36 @@ order: OrderKey
 params: {
 [k: string]: number | undefined
 }
+/**
+ * The preset the device was last set from (#191), by `preset.load` or `preset.save`;
+ * absent when none, so that a device without one writes the same file as before.
+ */
+preset?: (DevicePreset | null)
 role: DeviceRole
 source: DeviceSource
 /**
  * Opaque instrument state, stored as a blob.
  */
 state?: (Hash | null)
+}
+/**
+ * The preset a device was last set from, kept on the device so that its panel names it
+ * after a reload and on another computer (where a library preset may be absent).
+ */
+export interface DevicePreset {
+/**
+ * The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a
+ * ULID.
+ */
+id: string
+/**
+ * Where the preset lives: `factory`, `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+/**
+ * The preset's name when the device was set from it.
+ */
+name: string
 }
 /**
  * Gain, pan and mute of a track or of the master. Solo is not here: it is session state
@@ -2934,6 +3104,63 @@ export interface Placement {
 clip: string
 span: Span
 start: Tick
+}
+/**
+ * A preset, by where it lives and its id there.
+ */
+export interface PresetRef {
+/**
+ * A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the
+ * preset's ULID.
+ */
+id: string
+/**
+ * Where it lives: `factory`, `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+}
+/**
+ * The preset a device shows, as `preset.restore` puts it back.
+ */
+export interface DeviceRestore {
+/**
+ * Identifier of a device in a track's chain or in the master's.
+ */
+device: string
+/**
+ * The preset the device shows; absent or `null` for none.
+ */
+preset?: (DevicePreset | null)
+}
+/**
+ * A preset: the values of a device's parameters under a name.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface Preset {
+/**
+ * A category to group it by (such as `Bass`), at most 64 characters; absent when none.
+ */
+category?: (string | null)
+/**
+ * The device kind the values are for, such as `faulk.osc_synth`.
+ */
+device: string
+/**
+ * Its name: trimmed, not empty, at most 200 characters.
+ */
+name: string
+/**
+ * Parameter id -> value, in the unit the device declares.
+ */
+params: {
+[k: string]: number | undefined
+}
+/**
+ * The version of that device kind the values were made with.
+ */
+version: number
 }
 /**
  * A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
@@ -3677,6 +3904,86 @@ unit: (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | 
 values: string[]
 }
 /**
+ * A preset, by where it lives and its id there.
+ */
+export interface PresetRef1 {
+/**
+ * A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the
+ * preset's ULID.
+ */
+id: string
+/**
+ * Where it lives: `factory`, `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+}
+/**
+ * A preset, by where it lives and its id there.
+ */
+export interface PresetRef2 {
+/**
+ * A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the
+ * preset's ULID.
+ */
+id: string
+/**
+ * Where it lives: `factory`, `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+}
+/**
+ * One preset as `preset.list` gives it.
+ */
+export interface PresetEntry {
+/**
+ * Its category, `null` when it has none.
+ */
+category?: (string | null)
+/**
+ * The device kind it is for.
+ */
+kind: string
+/**
+ * Its name.
+ */
+name: string
+/**
+ * Made with a newer version of the device than this Faulk has: it cannot be loaded.
+ */
+newer: boolean
+/**
+ * The values a load would give the device, by parameter key: every parameter of the
+ * device, migrated, clamped and completed with defaults. For a preset that cannot be
+ * loaded (`newer`, or a device kind this Faulk does not have), the values it holds.
+ */
+params: {
+[k: string]: number | undefined
+}
+preset: PresetRef3
+/**
+ * A factory preset: it cannot be renamed nor deleted.
+ */
+read_only: boolean
+/**
+ * The version of the device kind it was made with.
+ */
+version: number
+}
+/**
+ * A preset, by where it lives and its id there.
+ */
+export interface PresetRef3 {
+/**
+ * A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the
+ * preset's ULID.
+ */
+id: string
+/**
+ * Where it lives: `factory`, `project` or `library`.
+ */
+location: ("factory" | "project" | "library")
+}
+/**
  * An audio file referenced by its blob, with its metadata in clear so the project reads,
  * validates and merges without decoding the audio (§ 2.2).
  */
@@ -4182,6 +4489,9 @@ meter: MeterPoint[]
  * Display name: trimmed, not empty.
  */
 name: string
+presets?: {
+[k: string]: Preset | undefined
+}
 /**
  * The rows of the launch grid.
  */
