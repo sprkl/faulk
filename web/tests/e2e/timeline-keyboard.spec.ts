@@ -78,14 +78,17 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   mkdirSync(SHOTS, { recursive: true })
   await page.screenshot({ path: `${SHOTS}/timeline-keyboard-focus.png` })
 
-  // Alt+Up has no command (a clip stays on its track): it says so, and again on a second press (the text changes, so it is read again).
+  // Alt+Up on a selection whose first clip is on the first track goes nowhere (all or none): it says so, and again on a second press
+  // (the text changes, so it is read again). Nothing changes in the project.
+  const atRest = await done(page)
   await page.keyboard.press('Alt+ArrowUp')
   const said = page.getByTestId('arr-said')
-  await expect(said).toHaveText(/stays on its track/)
+  await expect(said).toHaveText(/No track there/)
   const first = await said.evaluate((e) => e.textContent)
   await page.keyboard.press('Alt+ArrowUp')
   await expect.poll(() => said.evaluate((e) => e.textContent)).not.toBe(first)
-  await expect(said).toHaveText(/stays on its track/)
+  await expect(said).toHaveText(/No track there/)
+  expect(await done(page)).toBe(atRest)
 
   // Ctrl+= and Ctrl+- on a cell zoom the timeline, not the page, and the focus stays on the clip.
   const grid = page.getByTestId('arr-stage').getByTestId('timegrid')
@@ -276,5 +279,68 @@ test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from 
   expect(viaPointer).not.toContain(clicked[0])
   const fromPointer = (await blocks(page)).find((x) => x.id === viaPointer[0])
   expect(fromPointer?.start).toBe(target.start + 3840)
+  expect(errors).toEqual([])
+})
+
+test('a clip moves to the track below and back from the keyboard, the menu and the mouse, each as one history entry', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the history is counted through the hook of the dev server')
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await clipAt(page, 0, 0)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
+  const cells = page.getByTestId('arr-item')
+  const focused = page.locator('[data-testid=arr-item]:focus')
+  const rowOf = async () => (await blocks(page)).map((b) => b.row)
+  expect(await rowOf()).toEqual([0])
+
+  // Alt+Down: the clip goes to the track below (a copy of the clip comes with it), as one entry, and says so; the focus follows it.
+  await cells.first().focus()
+  let entries = await done(page)
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect.poll(rowOf).toEqual([1])
+  expect(await done(page)).toBe(entries + 1)
+  await expect(page.getByTestId('arr-said')).toHaveText(/Moved to .*, bar 1/)
+  await expect(focused).toHaveCount(1)
+  // One undo brings it back.
+  await page.keyboard.press('Control+z')
+  await expect.poll(rowOf).toEqual([0])
+
+  // The right-click menu: the entry above is disabled on the first track, the one below moves the clip.
+  const area = page.getByTestId('arr-stage')
+  const at = (await area.boundingBox())!
+  const scale = Number(await area.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.click(at.x + (3840 / 2) * scale, at.y + RULER + LANE / 2, { button: 'right' })
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: /Move to the track above/ })).toBeDisabled()
+  entries = await done(page)
+  await menu.getByRole('menuitem', { name: /Move to the track below/ }).click()
+  await expect.poll(rowOf).toEqual([1])
+  expect(await done(page)).toBe(entries + 1)
+
+  // The mouse: dragging the clip up to the first row moves it there (one command), and in time with it.
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  const x = box.x + (3840 / 2) * ppt
+  entries = await done(page)
+  await page.mouse.move(x, box.y + RULER + LANE + LANE / 2)
+  await page.mouse.down()
+  await page.mouse.move(x + 20, box.y + RULER + LANE / 2 + 12, { steps: 6 })
+  await page.mouse.move(x + 40, box.y + RULER + LANE / 2, { steps: 6 })
+  await page.mouse.up()
+  await expect.poll(rowOf).toEqual([0])
+  expect(await done(page)).toBe(entries + 1)
+
+  // Down past the last track is refused out loud and changes nothing.
+  await cells.first().focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect.poll(rowOf).toEqual([2])
+  entries = await done(page)
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(page.getByTestId('arr-said')).toHaveText(/No track there/)
+  expect(await done(page)).toBe(entries)
   expect(errors).toEqual([])
 })
