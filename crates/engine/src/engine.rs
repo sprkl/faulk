@@ -39,7 +39,7 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use crate::arrangement;
 use crate::automation::TrackLanes;
 use crate::clip_player::{ClipNotes, ClipPlayer};
-use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
+use crate::device::{Device, DeviceDescriptor, DeviceRole, DeviceSetup, EventBuffer, Factory};
 use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
 use crate::launcher;
 use crate::limiter::Limiter;
@@ -47,9 +47,9 @@ use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
     Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
-    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg,
-    SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
-    TransportState, limits, state_pairs, try_box,
+    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, ParamId, Placement, Put,
+    RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot,
+    TransportMsg, TransportState, limits, state_pairs, try_box,
 };
 use crate::recorder::{RecordClock, Recorder};
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
@@ -67,6 +67,9 @@ pub mod initial {
     pub const DEVICES_PER_TRACK: usize = 4;
     pub const SCENES_PER_TRACK: usize = 8;
 }
+
+/// The lowest sample rate the devices build for (#236): below it they fall back to 48 kHz.
+pub const MIN_DEVICE_RATE: u32 = 8_000;
 
 /// Resolves a device kind to the factory that builds it (the registry the host gives).
 pub type Resolver = fn(DeviceKind) -> Option<Factory>;
@@ -563,8 +566,36 @@ struct TrackShadow {
     /// One entry per slot of the track's device table: `None` when empty, otherwise the
     /// capacity of the device's MIDI output (0 for a device that writes no notes), from
     /// which a MIDI effect inserted after it is sized.
-    devices: Vec<Option<usize>>,
+    devices: Vec<Option<DeviceShadow>>,
     scenes_capacity: usize,
+}
+
+/// What the prepare side keeps of a device to build it again at another sample rate (#236):
+/// its kind, the parameter values it was given (by its insert, then by `ParamSet`; only the
+/// ids its descriptor declares, each once, in the order first given), whether it is enabled,
+/// and the capacity of its MIDI output.
+#[derive(Clone, Debug)]
+struct DeviceShadow {
+    midi_out: usize,
+    kind: DeviceKind,
+    descriptor: &'static DeviceDescriptor,
+    params: Vec<(ParamId, f32)>,
+    enabled: bool,
+}
+
+impl DeviceShadow {
+    /// Sets a parameter's value: in place, or in the room the insert reserved for every
+    /// declared id (no allocation). An id the device does not declare changes nothing.
+    fn set(&mut self, id: ParamId, value: f32) {
+        let Some(value) = self.descriptor.param(id).and_then(|p| p.sanitize(value)) else {
+            return;
+        };
+        if let Some(entry) = self.params.iter_mut().find(|(i, _)| *i == id) {
+            entry.1 = value;
+        } else if self.params.len() < self.params.capacity() {
+            self.params.push((id, value));
+        }
+    }
 }
 
 impl TrackShadow {
@@ -1012,6 +1043,9 @@ impl Preparer {
                 enabled,
             } => {
                 self.existing_device(track, device)?;
+                if let Some(kept) = self.device_shadow(track, device) {
+                    kept.enabled = enabled;
+                }
                 RtMsg::DeviceSetEnabled {
                     track,
                     device,
@@ -1025,6 +1059,9 @@ impl Preparer {
                 value,
             } => {
                 self.existing_device(track, device)?;
+                if let Some(kept) = self.device_shadow(track, device) {
+                    kept.set(param, value);
+                }
                 RtMsg::ParamSet {
                     track,
                     device,
@@ -1285,6 +1322,15 @@ impl Preparer {
         }
     }
 
+    /// What the prepare side keeps of a device (#236).
+    fn device_shadow(&mut self, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceShadow> {
+        self.shadow
+            .chain_mut(track)?
+            .devices
+            .get_mut(device.0 as usize)?
+            .as_mut()
+    }
+
     fn remove_device(&mut self, track: TrackSlot, device: DeviceSlot) {
         if let Some(t) = self.shadow.chain_mut(track)
             && let Some(flag) = t.devices.get_mut(device.0 as usize)
@@ -1349,11 +1395,69 @@ impl Preparer {
             .iter()
             .take(device.0 as usize)
             .flatten()
-            .copied()
+            .map(|d| d.midi_out)
             .fold(TRACK_INPUT_EVENTS, usize::max);
+        let (value, descriptor) =
+            self.build_device(&self.setup, track, kind, input_events, state_pairs(state))?;
+        let midi_out = value.events_out.as_ref().map_or(0, EventBuffer::capacity);
+        // What a rebuild needs (#236): every declared id has room, so a later `ParamSet`
+        // never allocates.
+        let mut params = Vec::new();
+        params
+            .try_reserve_exact(descriptor.params.len())
+            .map_err(|_| oom::<(ParamId, f32)>(descriptor.params.len()))?;
+        let mut kept = DeviceShadow {
+            midi_out,
+            kind,
+            descriptor,
+            params,
+            enabled: true,
+        };
+        for (id, v) in state_pairs(state) {
+            kept.set(id, v);
+        }
+        let slot = device.0 as usize;
+        let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
+        let mut flags = None;
+        if let Some(g) = &grown {
+            flags = Some(try_vec(g.capacity(), None)?);
+        }
+        // Commit.
+        if let Some(t) = self.shadow.chain_mut(track) {
+            if let Some(mut flags) = flags {
+                for (to, from) in flags.iter_mut().zip(t.devices.iter_mut()) {
+                    *to = from.take();
+                }
+                t.devices = flags;
+            }
+            if let Some(flag) = t.devices.get_mut(slot) {
+                *flag = Some(kept);
+            }
+        }
+        Ok(RtMsg::DevicePut {
+            track,
+            put: Put {
+                slot: device.0.into(),
+                value,
+                grown,
+            },
+        })
+    }
+
+    /// Builds a device of `kind` for `setup` with `params`, reset, its MIDI output sized
+    /// from `input_events`, enabled: the device of a `DeviceInsert`, or one built again at a
+    /// new sample rate (#236). Allocates fallibly, changes nothing.
+    fn build_device(
+        &self,
+        setup: &DeviceSetup,
+        track: TrackSlot,
+        kind: DeviceKind,
+        input_events: usize,
+        params: impl Iterator<Item = (ParamId, f32)>,
+    ) -> Result<(Box<DeviceEntry>, &'static DeviceDescriptor), MsgError> {
         let factory = (self.factories)(kind).ok_or(MsgError::UnknownDevice(kind))?;
-        let mut built = factory(&self.setup)?;
-        for (id, value) in state_pairs(state) {
+        let mut built = factory(setup)?;
+        for (id, value) in params {
             built.set_param(id, value);
         }
         built.reset();
@@ -1369,36 +1473,103 @@ impl Preparer {
             )?),
             _ => None,
         };
-        let midi_out = events_out.as_ref().map_or(0, EventBuffer::capacity);
         let value = try_box(DeviceEntry {
             device: built,
             enabled: true,
             events_out,
         })?;
-        let slot = device.0 as usize;
-        let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
-        let mut flags = None;
-        if let Some(g) = &grown {
-            flags = Some(try_vec(g.capacity(), None)?);
+        Ok((value, descriptor))
+    }
+
+    /// The sample rate the devices are built for.
+    pub fn sample_rate(&self) -> f32 {
+        self.setup.sample_rate
+    }
+
+    /// Changes the sample rate (#236), off the audio thread, keeping the playhead: every
+    /// device of every track and of the master is built again for `rate` with the
+    /// parameters it was given and its enabled state, then the audio side receives the new
+    /// rate (`Engine::set_sample_rate`: clock, metronome, limiter, fades) followed by each
+    /// device on its own slot (a `DevicePut`, the path of an insert on an occupied slot:
+    /// the old device goes, an instrument's notes are released). The automation lanes give a
+    /// rebuilt device their values again (AM-2).
+    ///
+    /// Atomic: every device is built before anything changes, so an `OutOfMemory`, an
+    /// `EngineBusy` when the queue has no room for `1 +` the devices, or a `LimitExceeded`
+    /// for a rate outside 8 kHz to `MAX_SAMPLE_RATE`, leaves the prepare side as it was and
+    /// sends nothing: the engine keeps its old rate, and the host calls again (once the
+    /// engine drained, or the memory is back) until it goes through. A project with more
+    /// devices than the prepare side's queue holds (`PENDING_QUEUE_CAPACITY − 1`, 4 095)
+    /// cannot change rate this way. The
+    /// engine applies at most `MAX_APPLY_PER_BLOCK` messages a block: a device whose put
+    /// lands a few blocks later runs at its old rate until then.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        // The devices build for 8 kHz to `MAX_SAMPLE_RATE` (below, they fall back to 48 kHz;
+        // above, their lines are capped): a rate outside would leave them out of tune.
+        let hz = rate.hz();
+        if !(MIN_DEVICE_RATE..=crate::device::MAX_SAMPLE_RATE as u32).contains(&hz) {
+            return Err(MsgError::LimitExceeded {
+                what: "sample rate (8 000 to 192 000 Hz)",
+                limit: crate::device::MAX_SAMPLE_RATE as u64,
+                requested: u64::from(hz),
+            });
         }
-        // Commit.
-        if let Some(t) = self.shadow.chain_mut(track) {
-            if let Some(mut flags) = flags {
-                flags[..t.devices.len()].copy_from_slice(&t.devices);
-                t.devices = flags;
-            }
-            if let Some(flag) = t.devices.get_mut(slot) {
-                *flag = Some(midi_out);
+        self.flush();
+        // Every chain, tracks in slot order then the master (no allocation: an infallible
+        // one here would abort on a refusal).
+        let tracks = self.shadow.tracks.len();
+        let chains = || {
+            (0..tracks)
+                .map(|i| TrackSlot(i as u32))
+                .chain(core::iter::once(TrackSlot::MASTER))
+        };
+        let count: usize = chains()
+            .filter_map(|t| self.shadow.chain(t))
+            .map(|t| t.devices.iter().flatten().count())
+            .sum();
+        if self.pending.len() + 1 + count > self.pending_capacity {
+            return Err(MsgError::EngineBusy);
+        }
+        let setup = DeviceSetup {
+            sample_rate: rate.hz() as f32,
+            ..self.setup
+        };
+        let mut msgs = Vec::new();
+        msgs.try_reserve_exact(1 + count)
+            .map_err(|_| oom::<RtMsg>(1 + count))?;
+        msgs.push(RtMsg::SetSampleRate(rate));
+        for track in chains() {
+            let Some(chain) = self.shadow.chain(track) else {
+                continue;
+            };
+            let mut input_events = TRACK_INPUT_EVENTS;
+            for (slot, kept) in chain.devices.iter().enumerate() {
+                let Some(kept) = kept else { continue };
+                let (mut value, _) = self.build_device(
+                    &setup,
+                    track,
+                    kept.kind,
+                    input_events,
+                    kept.params.iter().copied(),
+                )?;
+                value.enabled = kept.enabled;
+                input_events = input_events.max(kept.midi_out);
+                msgs.push(RtMsg::DevicePut {
+                    track,
+                    put: Put {
+                        slot: slot as u32,
+                        value,
+                        grown: None,
+                    },
+                });
             }
         }
-        Ok(RtMsg::DevicePut {
-            track,
-            put: Put {
-                slot: device.0.into(),
-                value,
-                grown,
-            },
-        })
+        // Commit: the room was checked, the queue was reserved at its capacity.
+        self.setup = setup;
+        for msg in msgs {
+            self.send(msg);
+        }
+        Ok(())
     }
 
     /// Allocates what a clip put needs (its box, the growth of the clip table, the room
@@ -2022,11 +2193,11 @@ impl Engine {
         self.graph.take_meters(&mut self.state, frames, out)
     }
 
-    /// Changes the sample rate of the engine's own processing (clock, metronome, graph
-    /// fades) and keeps the playhead. The devices were built for the old rate by
-    /// `prepare` (and the preparer keeps its setup): a host that changes the device rate
-    /// builds a new channel; this keeps the clock, the metronome and the fades coherent
-    /// with a rate the host switched to while it keeps the same engine.
+    /// Changes the sample rate of the engine's own processing (clock, metronome, limiter,
+    /// graph fades) and keeps the playhead. No allocation. The devices are not touched: a
+    /// host changes the rate with `Preparer::set_sample_rate` (#236), which builds every
+    /// device again for the new rate off the audio thread and sends this change first
+    /// (`RtMsg::SetSampleRate`), then the devices.
     pub fn set_sample_rate(&mut self, rate: SampleRate) {
         self.transport.set_sample_rate(rate);
         self.clicker.set_sample_rate(rate);
@@ -2186,6 +2357,10 @@ impl Engine {
                 // one was hot does not produce a gain jump. The release (80 ms) decays the
                 // deficit naturally; the new project's overs are caught on the first sample.
                 Some(Garbage::State(old))
+            }
+            RtMsg::SetSampleRate(rate) => {
+                self.set_sample_rate(rate);
+                None
             }
             RtMsg::SetTransport {
                 tempo,

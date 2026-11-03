@@ -54,6 +54,7 @@ fn cycle(p: &mut Preparer, e: &mut Engine, msg: M) -> &'static str {
 fn variant(rt: &RtMsg) -> &'static str {
     match rt {
         RtMsg::Reset(_) => "Reset",
+        RtMsg::SetSampleRate(_) => "SetSampleRate",
         RtMsg::SetTransport { .. } => "SetTransport",
         RtMsg::SetMetronome { .. } => "SetMetronome",
         RtMsg::SetMaster { .. } => "SetMaster",

@@ -35,6 +35,7 @@ use crate::msg::{
     Feedback, MAX_RECORDED_PER_REPORT, MsgError, Note, RECORDED_NOTE_WIRE_BYTES, RecordedNote,
     TRACK_METER_BYTES, TrackMeter, TrackSlot, TransportState, limits,
 };
+use crate::time::SampleRate;
 
 /// The device kinds the shipping hosts build: the registry of the built-in devices
 /// ([`crate::devices`], DV-1).
@@ -74,6 +75,16 @@ impl Prepare {
     pub fn flush(&mut self) {
         self.preparer.flush();
         self.publish();
+    }
+
+    /// Changes the sample rate, keeping the playhead: every device is built again for
+    /// `rate` here, off the audio thread ([`Preparer::set_sample_rate`], #236), then what
+    /// waited is pushed. Nothing changes on an error.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        let result = self.preparer.set_sample_rate(rate);
+        self.preparer.flush();
+        self.publish();
+        result
     }
 
     /// The prepare/apply cycle's prepare side.
@@ -156,7 +167,7 @@ fn try_slice<T: Clone>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
 }
 
 /// Builds the two sides for `sample_rate`, blocks up to [`limits::MAX_BLOCK_FRAMES`], the
-/// devices of [`factory`]. A new sample rate is a new channel (MO-1).
+/// devices of [`factory`]. A later rate change keeps the channel: [`Prepare::set_sample_rate`].
 pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
     let setup = DeviceSetup {
         sample_rate,
@@ -248,6 +259,12 @@ impl Host {
     /// is due. Returns the frames rendered.
     pub fn render_block(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
+        // A new sample rate (#236, applied by the last pump): the report period follows it.
+        let hz = self.engine.clock().sample_rate().hz() as f32;
+        if hz != self.sample_rate {
+            self.sample_rate = hz;
+            self.report_frames = report_frames(hz);
+        }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         self.engine.render(left, right);
         self.voices = self.engine.voices();
