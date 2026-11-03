@@ -10,6 +10,7 @@ import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
 import type { FeatureMessages } from './feature'
+import { gesture } from './gesture'
 import { grid } from './grid'
 import { helper } from './helper'
 import { history } from './history'
@@ -56,6 +57,7 @@ export const features = {
   keys,
   pianoRoll,
   grid,
+  gesture,
   project,
   mixer,
   controls,

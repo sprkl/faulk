@@ -118,6 +118,32 @@ describe('hit test', () => {
     expect(hitBlock(blocks, plain(3), 383, y, view, 0)?.zone).toBe('end')
   })
 
+  it('gives a short clip a comfortable grab zone at each end, and keeps its middle for moving (#612)', () => {
+    // A 40 px clip (x 400..440 at 0.1 px/tick): 10 px zones, and the middle 20 px still moves.
+    const short = [{ ...blocks[0]!, id: 's1', start: 4000, end: 4400, length: 400 }]
+    const zoneAt = (x: number) => hitBlock(short, plain(3), x, y, view, 0)?.zone
+    expect(zoneAt(401)).toBe('start')
+    expect(zoneAt(409)).toBe('start')
+    expect(zoneAt(420)).toBe('body')
+    expect(zoneAt(431)).toBe('end')
+    expect(zoneAt(439)).toBe('end')
+    // Outside the clip is not the clip: a double-click there makes a new one.
+    expect(zoneAt(397)).toBeUndefined()
+    expect(zoneAt(443)).toBeUndefined()
+    // A narrow clip keeps at least 6 px at each end, and a middle while it has room for one.
+    const narrow = [{ ...blocks[0]!, id: 't1', start: 4000, end: 4150, length: 150 }]
+    const narrowAt = (x: number) => hitBlock(narrow, plain(3), x, y, view, 0)?.zone
+    expect(narrowAt(405)).toBe('start')
+    expect(narrowAt(406)).toBe('start')
+    expect(narrowAt(407)).toBe('body')
+    expect(narrowAt(408)).toBe('body')
+    expect(narrowAt(409)).toBe('end')
+    // Under 12 px a clip is all edges.
+    const tiny = [{ ...blocks[0]!, id: 't2', start: 4000, end: 4100, length: 100 }]
+    expect(hitBlock(tiny, plain(3), 404, y, view, 0)?.zone).toBe('start')
+    expect(hitBlock(tiny, plain(3), 407, y, view, 0)?.zone).toBe('end')
+  })
+
   it('finds a block in the second lane and nothing between blocks, on the ruler or in the inset', () => {
     expect(hitBlock(blocks, plain(3), 150, y + LANE_HEIGHT, view, 0)?.block.id).toBe('q1')
     expect(hitBlock(blocks, plain(3), 780, y, view, 0)).toBeNull()

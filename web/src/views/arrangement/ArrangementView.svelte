@@ -26,6 +26,8 @@
   import { chordText } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
+  import GestureLabel from '../../lib/components/GestureLabel.svelte'
+  import { lengthText, positionText, snapText } from '../../lib/gesture-label'
   import { deviceText, labelKey } from '../../lib/devices'
   import {
     DEFAULT_PX_PER_TICK,
@@ -249,6 +251,10 @@
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'default' | 'move' | 'resize' | 'add'>('default')
+  /** The clip under the pointer (no gesture) and the part of it, for its resize handles (#612); `null` zone: on the body. */
+  let edgeHover = $state.raw<{ id: string; zone: 'start' | 'end' | null } | null>(null)
+  /** The pointer during a move or a resize, with whether the snap was set aside by the key at the last move (#612). */
+  let pointer = $state.raw<{ x: number; y: number; free: boolean } | null>(null)
   /** Whether the view follows the play position while the transport runs. A hand scroll ends it; Follow or the next Play restores it. */
   let follow = $state(true)
 
@@ -412,6 +418,29 @@
     if (g.kind === 'move') return new Set(g.ids)
     if (g.kind === 'resize' && g.to !== null) return new Set([g.grabbed.id])
     return new Set()
+  })
+  /** The label near the pointer during a move or a resize (#612): the position or the length, the snap, the key that frees it. */
+  const gestureLines = $derived.by<string[] | null>(() => {
+    const g = gesture
+    const names = {
+      bar: t('pianoRoll.snap.bar'),
+      beat: t('pianoRoll.snap.beat'),
+    }
+    // A clip being drawn (#615): its length, the snap, the key that frees it.
+    if (g?.kind === 'draw' && g.moved && pointer && drawnNow) {
+      const lines = [lengthText(t, signature, drawnNow.span.length), snapText(t, signature, g.free ? null : step, names)]
+      if (!g.free) lines.push(t('gesture.ctrlFree', { key: chordText(['Mod']) }))
+      return lines
+    }
+    if (!g || !g.moved || !pointer || (g.kind !== 'resize' && g.kind !== 'move' && g.kind !== 'copy')) return null
+    const first = g.kind === 'resize' ? ghosts[0] : ghosts.find((b) => b.id === g.grabbed.id)
+    if (!first) return null
+    const lines = [
+      g.kind === 'resize' ? lengthText(t, signature, first.end - first.start) : positionText(t, signature, first.start),
+      snapText(t, signature, pointer.free ? null : step, names),
+    ]
+    if (!pointer.free) lines.push(t('gesture.ctrlFree', { key: chordText(['Mod']) }))
+    return lines
   })
   const loopNow = $derived.by(() => {
     const g = gesture
@@ -710,6 +739,17 @@
   const geoOf = (row: Row) => ({ top: RULER_HEIGHT + row.top - y0, height: row.height })
   const NO_TICKS: ReadonlySet<number> = new Set()
 
+  /** The block whose resize handles are drawn: the hovered one, or the one being resized (as it would be), with the end that is in use. */
+  const handlesNow = $derived.by(() => {
+    const g = gesture
+    if (g) {
+      if (g.kind !== 'resize') return null
+      return { block: ghosts[0] ?? g.grabbed, strong: g.edge }
+    }
+    const over = edgeHover ? blocks.find((b) => b.id === edgeHover!.id) : undefined
+    return over && edgeHover ? { block: over, strong: edgeHover.zone } : null
+  })
+
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) => {
     drawArrangement(ctx, frame, {
       layout,
@@ -724,6 +764,7 @@
       fallbackName: t('arrangement.clipDefault'),
       silent,
       markers,
+      handles: handlesNow,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -756,7 +797,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
+    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture, handlesNow]
     grid?.invalidate()
   })
 
@@ -777,7 +818,10 @@
     run(endGroup())
   }
 
-  const cancel = () => (gesture = null)
+  const cancel = () => {
+    gesture = null
+    pointer = null
+  }
 
   /** The blocks of the project that the id names, as they are now. */
   const current = (id: string) => blocks.find((b) => b.id === id)
@@ -872,6 +916,8 @@
       const hit = y >= RULER_HEIGHT ? hitBlock(blocks, layout, x, y, shown, y0) : null
       const free = !hit && mode === 'draw' && where?.kind === 'track' && entries[where.track] && isMidi(entries[where.track]!.track)
       cursor = hit ? (hit.zone === 'body' ? 'move' : 'resize') : free ? 'add' : 'default'
+      const next = hit ? { id: hit.block.id, zone: hit.zone === 'body' ? null : hit.zone } : null
+      if (next?.id !== edgeHover?.id || next?.zone !== edgeHover?.zone) edgeHover = next
       return
     }
     if (g.kind === 'ruler') {
@@ -880,6 +926,7 @@
       return
     }
     if (g.kind === 'draw') {
+      pointer = { x, y, free: fineKey(event) }
       gesture = { ...g, to: xToTick(x, shown), free: fineKey(event), moved: g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX }
       return
     }
@@ -904,6 +951,7 @@
       return
     }
     // The blocks are read again at each move: a change of the arrangement under the drag (undo, an agent) ends it.
+    pointer = { x, y, free: fineKey(event) }
     if (!unchanged(g.grabbed) || (g.kind !== 'resize' && !g.snapshot.every(unchanged))) return cancel()
     const dragged = g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX || (g.kind !== 'resize' && Math.abs(y - g.startY) >= DRAG_SLOP_PX)
     if (!dragged) return
@@ -926,6 +974,8 @@
   function finish(commit: boolean, event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
     const g = gesture
     gesture = null
+    pointer = null
+    edgeHover = null
     if (!g || !commit) return
     if (g.kind === 'ruler') {
       if (g.select) {
@@ -1664,6 +1714,21 @@
         return
       }
       const sign = key.direction === 'left' ? -1 : 1
+      // Alt+Shift+Left and Right (#612): the end of the clips, earlier or later, to the next step of the snap (a bar with the snap off).
+      if (event.shiftKey) {
+        const ends = chosen.flatMap((b) => {
+          const wanted = sign > 0 ? (Math.floor(b.end / nudge) + 1) * nudge : (Math.ceil(b.end / nudge) - 1) * nudge
+          const to = resizeTo(b, 'end', wanted, null)
+          return to === null ? [] : [{ id: b.id, to }]
+        })
+        if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
+        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // The length of the focused clip when it moved, else of the first that did.
+        const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
+        if (said) announce(lengthText(t, signature, said.length))
+        void focusItem(current.id)
+        return
+      }
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
       // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
@@ -2184,11 +2249,15 @@
       id="arr-stage-grid"
       data-scroll-y={y0}
       data-cursor={gesture ? undefined : cursor}
+      data-handle={handlesNow ? (handlesNow.strong ?? 'body') : undefined}
       data-gesture={gesture ? gesture.kind + (gesture.moved ? ' moved' : '') : undefined}
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
       onpointercancel={() => finish(false)}
+      onpointerleave={() => {
+        if (!gesture) edgeHover = null
+      }}
       onlostpointercapture={() => gesture && finish(false)}
       ondblclick={onDoubleClick}
       ondragover={onDragOver}
@@ -2199,6 +2268,9 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      {#if gestureLines && pointer}
+        <GestureLabel x={pointer.x} y={pointer.y} width={stageW} height={stageH} lines={gestureLines} />
+      {/if}
       <!-- The section markers on the ruler (#473): named buttons; a click puts the playhead there. -->
       <div class="markers" role="group" aria-label={t('arrangement.markers')} data-testid="arr-markers">
         {#each markers as marker (marker.id)}
