@@ -216,6 +216,15 @@ fn drop_engine(links: &Links) {
     (links.lost)();
 }
 
+/// The kept engine's grace is over with no output for it: dropped, the tray and the session
+/// told.
+fn expire(kept: &mut Option<Kept>, links: &Links, report: &mut impl FnMut(bool)) {
+    crate::log!("no output for the engine in time: it is dropped");
+    *kept = None;
+    report(false);
+    drop_engine(links);
+}
+
 fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()>, timing: Timing) {
     let mut reported = None;
     let mut report = |open: bool| {
@@ -229,6 +238,10 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
     let mut quick: u32 = 0;
     let mut kept: Option<Kept> = None;
     loop {
+        // An engine is never lent past its grace.
+        if kept.as_ref().is_some_and(|k| Instant::now() >= k.until) {
+            expire(&mut kept, links, &mut report);
+        }
         let failed = Arc::new(AtomicBool::new(false));
         let attempt = Instant::now();
         let until = kept.as_ref().map(|k| k.until);
@@ -326,12 +339,20 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                     }
                 }
                 // Try again at once (the default output may have changed), but not faster than
-                // `min_gap`, doubled for each quick failure in a row after the first.
+                // `min_gap`, doubled for each quick failure in a row after the first. A kept
+                // engine whose grace ends meanwhile is dropped then, not after the wait.
                 let gap = timing
                     .min_gap
                     .saturating_mul(1 << quick.saturating_sub(1).min(16))
                     .min(timing.retry.max(timing.min_gap));
-                if stopped(stop, gap.saturating_sub(attempt.elapsed())) {
+                let next = attempt + gap;
+                if let Some(until) = kept.as_ref().map(|k| k.until).filter(|u| *u < next) {
+                    if stopped(stop, until.saturating_duration_since(Instant::now())) {
+                        return;
+                    }
+                    expire(&mut kept, links, &mut report);
+                }
+                if stopped(stop, next.saturating_duration_since(Instant::now())) {
                     return;
                 }
             }
@@ -347,10 +368,7 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                     kept = reuse.take();
                 }
                 if kept.as_ref().is_some_and(|k| Instant::now() >= k.until) {
-                    crate::log!("no output for the engine in time: it is dropped");
-                    kept = None;
-                    report(false);
-                    drop_engine(links);
+                    expire(&mut kept, links, &mut report);
                 }
                 if kept.is_some() {
                     // The meter still shows the kept engine's report.
@@ -587,6 +605,8 @@ mod tests {
         meter: Arc<Meter>,
         /// `Links::lost` and `Links::reopened` calls.
         lost: Arc<AtomicU32>,
+        /// For each `Links::lost` call, the `open` calls made before it.
+        lost_after: Arc<Mutex<Vec<u32>>>,
         reopened: Arc<AtomicU32>,
         supervisor: Supervisor,
     }
@@ -614,6 +634,9 @@ mod tests {
         let error = audio_error.clone();
         let lost = Arc::new(AtomicU32::new(0));
         let lost_count = lost.clone();
+        let lost_after = Arc::new(Mutex::new(Vec::new()));
+        let opens_at_lost = lost_after.clone();
+        let seen = world.clone();
         let reopened = Arc::new(AtomicU32::new(0));
         let reopened_count = reopened.clone();
         let reports = Arc::new(Mutex::new(Vec::new()));
@@ -628,6 +651,8 @@ mod tests {
                 lost: Box::new(move || {
                     error.store(true, Ordering::Relaxed);
                     lost_count.fetch_add(1, Ordering::Relaxed);
+                    let opens = seen.lock().unwrap().opens;
+                    opens_at_lost.lock().unwrap().push(opens);
                 }),
                 reopened: Box::new(move || {
                     reopened_count.fetch_add(1, Ordering::Relaxed);
@@ -644,6 +669,7 @@ mod tests {
             reports,
             meter,
             lost,
+            lost_after,
             reopened,
             supervisor,
         }
@@ -1054,6 +1080,51 @@ mod tests {
         assert_eq!(playhead(&r), 0.0);
         assert_eq!(r.reopened.load(Ordering::Relaxed), 0);
         assert_eq!(r.lost.load(Ordering::Relaxed), 1);
+        r.supervisor.stop();
+    }
+
+    #[test]
+    fn the_grace_ends_on_time_even_when_quick_failures_lengthen_the_wait() {
+        let r = rig(
+            World {
+                available: true,
+                ..World::default()
+            },
+            Timing {
+                min_gap: Duration::from_millis(380),
+                grace: Duration::from_millis(400),
+                ..FAST
+            },
+        );
+        eventually("installed", || r.engine.is_open());
+        play(&r);
+        render(&r, 0.2);
+        // First quick failure: the next attempt is at most 380 ms after the first open, within
+        // the grace.
+        fail_stream(&r);
+        eventually("reopened", || r.reopened.load(Ordering::Relaxed) == 1);
+        assert_eq!(r.lost.load(Ordering::Relaxed), 0);
+        let last = playhead(&r);
+        // Second quick failure (the reopened stream fails within 250 ms of its open, once the
+        // hello was sent): the next attempt is 760 ms after that open, past the 400 ms grace. The
+        // engine is dropped and the session told when the grace ends, before that attempt.
+        let failed_at = Instant::now();
+        fail_stream(&r);
+        eventually("told", || r.lost.load(Ordering::Relaxed) == 1);
+        let told = failed_at.elapsed();
+        assert!(
+            told >= Duration::from_millis(400) && told < Duration::from_millis(480),
+            "told after {told:?}"
+        );
+        assert_eq!(*r.lost_after.lock().unwrap(), [2], "before the third open");
+        assert!(!r.engine.is_open());
+        assert_eq!(*r.reports.lock().unwrap(), [true, false]);
+        // The next output gets a new engine.
+        eventually("open again", || r.engine.is_open());
+        assert_eq!(r.world.lock().unwrap().opens, 3);
+        assert_eq!(r.reopened.load(Ordering::Relaxed), 1);
+        assert!(last > 0.0);
+        assert_eq!(playhead(&r), 0.0, "a new engine");
         r.supervisor.stop();
     }
 

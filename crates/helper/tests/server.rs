@@ -491,10 +491,14 @@ async fn a_reopened_output_says_hello_again_at_its_rate() {
         ServerMessage::Hello { sample_rate, .. } => assert_eq!(sample_rate, 48_000.0),
         other => panic!("expected hello, got {other:?}"),
     }
-    // What the supervisor does: the same engine at the new rate, the new output's first
-    // callback, then the server is told.
+    // What the supervisor does: the old output forgotten (`forget_output`), the same engine at
+    // the new rate, the new output's first callback, then the server is told.
+    h.core.meter().forget_output();
+    assert_eq!(h.core.meter().callback_frames(), None);
     h.engine.set_sample_rate(44_100.0).unwrap();
-    play(&mut h.core, 10);
+    // The new output calls back with 441-frame buffers.
+    let mut out = vec![0.0; 441 * 2];
+    h.core.process(&mut out, 2);
     h.shared.output_reopened();
     loop {
         match next(&mut ws).await {
@@ -505,7 +509,7 @@ async fn a_reopened_output_says_hello_again_at_its_rate() {
                 ..
             } => {
                 assert_eq!(sample_rate, 44_100.0);
-                assert_eq!(buffer_frames, Some(480));
+                assert_eq!(buffer_frames, Some(441));
                 assert!(estimated_latency_ms.is_some());
                 break;
             }
