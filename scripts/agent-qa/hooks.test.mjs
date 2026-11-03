@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { changeFingerprint, codeState } from "./fingerprint.mjs";
+import { changeFingerprint, codeState, squashedIntoDevelop } from "./fingerprint.mjs";
 import { sessionState } from "./session.mjs";
 import { RECORD_LIMIT } from "./stop-core.mjs";
 
@@ -63,10 +63,29 @@ const rootIdOf = (dir) => {
 const LIB = ["crates", "engine", "src", "lib.rs"];
 const writeCode = (root, content = "pub fn gain() -> f32 { 0.5 }\n") => writeFileSync(join(root, ...LIB), content);
 
+/**
+ * A stand-in for `gh` (FAULK_QA_GH, #590), so that no test asks GitHub: it logs its arguments to
+ * FAULK_QA_GH_LOG, fails with FAULK_QA_GH_FAIL, and prints FAULK_QA_GH_OUT (default: no merged PR).
+ * `ghEnv`: the settings of the test that runs, reset by it.
+ */
+const GH_STUB = join(mkdtempSync(join(tmpdir(), "faulk-gh-")), "gh.mjs");
+writeFileSync(
+  GH_STUB,
+  `import { appendFileSync } from "node:fs";
+if (process.env.FAULK_QA_GH_LOG) appendFileSync(process.env.FAULK_QA_GH_LOG, process.argv.slice(2).join(" ") + "\\n");
+if (process.env.FAULK_QA_GH_FAIL) process.exit(1);
+process.stdout.write(process.env.FAULK_QA_GH_OUT ?? "[]");
+`,
+);
+let ghEnv = {};
+
 const cleanEnv = () => {
   const env = { ...process.env, ...GIT_ENV };
   delete env.CLAUDE_PROJECT_DIR;
-  return env;
+  for (const key of Object.keys(env).filter((name) => name.startsWith("FAULK_QA_GH"))) {
+    delete env[key];
+  }
+  return { ...env, FAULK_QA_GH: GH_STUB, ...ghEnv };
 };
 
 /** Runs a hook as Claude Code does: JSON on stdin, project directory in the environment. */
@@ -542,6 +561,218 @@ describe("Stop hook: what blocks", () => {
       git(root, "branch", "-d", "feat/6-x");
       assert.match(stop(root).systemMessage, WARNING);
       assert.equal(markerFiles(root).length, 1);
+    });
+
+    describe("squash-merged into develop (#590)", () => {
+      /** Runs `fn` with the gh stub's settings, its call log at `log`. */
+      function withGh(settings, fn) {
+        const log = join(mkdtempSync(join(tmpdir(), "faulk-ghlog-")), "calls.txt");
+        writeFileSync(log, "");
+        ghEnv = { FAULK_QA_GH_LOG: log, ...settings };
+        try {
+          return fn(() => readFileSync(log, "utf8").split("\n").filter(Boolean));
+        } finally {
+          ghEnv = {};
+        }
+      }
+      /** Squash-merges feat/6-x into develop (on top of what develop holds), publishes it as origin/develop, deletes the branch. */
+      function squashAndDelete(root) {
+        git(root, "merge", "-q", "--squash", "feat/6-x");
+        git(root, "commit", "-q", "-m", "work (#7)");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        git(root, "branch", "-D", "feat/6-x");
+      }
+      const markerPath = (root) => qa(root, "sessions", "s1", markerFiles(root)[0]);
+
+      it("is settled silently when develop holds a commit with the branch's tree, without asking GitHub", () => {
+        const root = wroteAndLeft();
+        withGh({}, (calls) => {
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("is settled silently when develop moved before the squash (same hunks, other tree)", () => {
+        const root = wroteAndLeft();
+        withGh({}, (calls) => {
+          writeFileSync(join(root, "README.md"), "# test\nmore\n");
+          git(root, "commit", "-q", "-am", "other work on develop");
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("still warns when develop changed the same file differently", () => {
+        const root = wroteAndLeft();
+        withGh({}, () => {
+          writeCode(root, "pub fn gain() -> f32 { 0.25 }\n");
+          git(root, "commit", "-q", "-am", "other change");
+          git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      const later = () => new Date(Date.now() + 60000).toISOString();
+      const tipOf = (root) => git(root, "rev-parse", "feat/6-x").trim();
+
+      it("is settled when GitHub reports its pull request merged after the session wrote on it, with its tip as head", () => {
+        const root = wroteAndLeft();
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tipOf(root) }]) }, (calls) => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), ["pr list --head feat/6-x --base develop --state merged --json number,mergedAt,headRefOid --limit 20"]);
+        });
+      });
+
+      it("is settled when the merged pull request's head descends from its tip (updated on GitHub)", () => {
+        const root = wroteAndLeft();
+        const tip = tipOf(root);
+        git(root, "switch", "-q", "feat/6-x");
+        git(root, "commit", "-q", "--allow-empty", "-m", "update on GitHub");
+        const head = git(root, "rev-parse", "HEAD").trim();
+        git(root, "switch", "-q", "develop");
+        git(root, "branch", "-f", "feat/6-x", tip); // the session never saw the update
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: head }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("still warns when the merged pull request does not hold its tip (commits made after the merge)", () => {
+        const root = wroteAndLeft();
+        const merged = tipOf(root);
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => {
+          writeCode(root, "pub fn gain() -> f32 { 0.7 }\n");
+          git(root, "commit", "-q", "-am", "after the merge");
+        });
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: merged }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      it("skips the squash scan while origin/develop and the tip have not moved since it failed", () => {
+        const root = wroteAndLeft();
+        git(root, "update-ref", "refs/remotes/origin/develop", "develop");
+        withGh({}, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+        });
+        const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
+        assert.equal(marker.scannedDevelop, git(root, "rev-parse", "develop").trim());
+        assert.equal(marker.scannedTip, marker.tip);
+        // develop now holds the squash, but the marker says the scan already failed against this develop: skipped.
+        git(root, "branch", "feat/6-x", marker.tip);
+        squashAndDelete(root);
+        writeFileSync(markerPath(root), JSON.stringify({ ...marker, scannedDevelop: git(root, "rev-parse", "origin/develop").trim() }));
+        withGh({}, () => {
+          assert.equal(stop(root), null); // warned already, not settled
+          assert.equal(markerFiles(root).length, 1);
+        });
+        // develop moves: scanned again, the squash is found.
+        writeFileSync(join(root, "README.md"), "# test\nlater\n");
+        git(root, "commit", "-q", "-am", "later");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        withGh({}, () => {
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("is settled when the branch merged develop before its squash", () => {
+        const root = wroteAndLeft();
+        writeFileSync(join(root, "README.md"), "# test\nmore\n");
+        git(root, "commit", "-q", "-am", "other work on develop");
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => git(root, "merge", "-q", "--no-ff", "--no-edit", "develop"));
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({}, (calls) => {
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("still warns when the only merged pull request of that name predates the session's work", () => {
+        const root = wroteAndLeft();
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 3, mergedAt: "2000-01-01T00:00:00Z", headRefOid: tipOf(root) }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      it("asks GitHub again for a marker only after ten minutes, and settles it then", () => {
+        const root = wroteAndLeft();
+        const tip = tipOf(root);
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({}, (calls) => {
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(stop(root), null);
+          assert.equal(calls().length, 1, "not asked again within ten minutes");
+        });
+        const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
+        assert.match(marker.prCheckedAt, /^\d{4}-/);
+        writeFileSync(markerPath(root), JSON.stringify({ ...marker, prCheckedAt: new Date(Date.now() - 11 * 60000).toISOString() }));
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tip }]) }, (calls) => {
+          assert.equal(stop(root), null);
+          assert.equal(calls().length, 1);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("asks GitHub once per stop, whatever the number of markers", () => {
+        const root = wroteAndLeft();
+        sessionOf(root, "s1").markWriter(toplevel(root), "Edit", "feat/6-x", "a1");
+        sessionOf(root, "s1").noteTip(toplevel(root), "feat/6-x", "a1", git(root, "rev-parse", "feat/6-x").trim());
+        sessionOf(root, "s1").endAgent("a1");
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({}, (calls) => {
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(calls().length, 1);
+          assert.equal(markerFiles(root).length, 2);
+        });
+      });
+
+      it("warns when gh fails, or when the known commit is missing from the repository", () => {
+        const root = wroteAndLeft();
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({ FAULK_QA_GH_FAIL: "1" }, () => {
+          assert.match(stop(root).systemMessage, WARNING);
+        });
+        const other = wroteAndLeft();
+        const marker = JSON.parse(readFileSync(markerPath(other), "utf8"));
+        writeFileSync(markerPath(other), JSON.stringify({ ...marker, tip: "f".repeat(40) }));
+        git(other, "branch", "-D", "feat/6-x");
+        withGh({}, () => {
+          assert.match(stop(other).systemMessage, WARNING);
+          assert.equal(markerFiles(other).length, 1);
+        });
+      });
+
+      it("squashedIntoDevelop: a commit without a change of its own never matches", () => {
+        const root = makeRepo();
+        git(root, "commit", "-q", "--allow-empty", "-m", "nothing");
+        const tip = git(root, "rev-parse", "HEAD").trim();
+        git(root, "switch", "-q", "develop");
+        git(root, "commit", "-q", "--allow-empty", "-m", "nothing either");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        assert.equal(squashedIntoDevelop(root, tip), false);
+        assert.equal(squashedIntoDevelop(root, undefined), false);
+        assert.equal(squashedIntoDevelop(root, "e".repeat(40)), false);
+      });
     });
 
     it("follows the branch: a commit made after the last stop is the known tip", () => {
