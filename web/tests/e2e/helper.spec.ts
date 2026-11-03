@@ -108,9 +108,27 @@ test.beforeAll(async () => {
           onStream?.(stream)
         } else messages.push(JSON.parse(text(data)))
       })
+    } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) {
+      // The page's control link (#608): agents' calls out, their answers in.
+      controlSocket = ws
+      ws.on('message', (data) => controlMessages.push(JSON.parse(text(data))))
     } else ws.close()
   })
 })
+
+/** The page's control link to the stand-in (#608), and what the page sent on it. */
+let controlSocket: WebSocket | null = null
+const controlMessages: unknown[] = []
+
+/** Sends an agent's call on the control link and waits for the page's answer. */
+async function agentCall(id: number, command: object): Promise<unknown> {
+  controlSocket!.send(JSON.stringify({ type: 'agent.call', id, agent: 'e2e-agent', command }))
+  let answer: unknown
+  await expect
+    .poll(() => (answer = controlMessages.find((m) => (m as { type?: string; id?: number }).type === 'agent.result' && (m as { id: number }).id === id)))
+    .toBeTruthy()
+  return (answer as { result: unknown }).result
+}
 
 test.afterAll(async () => {
   for (const client of server.clients) client.terminate()
@@ -122,8 +140,49 @@ test.beforeEach(() => {
   messages.length = 0
   streams.length = 0
   sessionSocket = null
+  controlSocket = null
+  controlMessages.length = 0
   onStream = null
   hasOutput = true
+})
+
+test("a paired page in Web mode runs an agent's call on its control link, with or without the helper's output (#608)", async ({ page }) => {
+  const { errors } = watch(page)
+  hasOutput = false
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+  await expect(page.getByTestId('helper-no-output')).toBeVisible()
+  await page.getByRole('button', { name: 'Stay in Web' }).click()
+  await page.keyboard.press('Escape')
+  await engineUp(page, 'Web')
+
+  // No output, the page plays itself: an agent's call still reaches it and runs like the user's action.
+  await expect.poll(() => controlSocket !== null).toBe(true)
+  const tracks = await page.getByTestId('grid-track').count()
+  expect(await agentCall(1, { type: 'track.create', kind: 'midi' })).toMatchObject({ status: 'applied' })
+  await expect(page.getByTestId('grid-track')).toHaveCount(tracks + 1)
+  // Its undo is the user's; a command that needs a click is refused without running.
+  expect(await agentCall(2, { type: 'history.undo' })).toMatchObject({ status: 'applied' })
+  await expect(page.getByTestId('grid-track')).toHaveCount(tracks)
+  expect(await agentCall(3, { type: 'project.save_as' })).toMatchObject({ status: 'unavailable' })
+  // The page coming to the front says so on its link.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect.poll(() => controlMessages).toContainEqual({ type: 'control.front' })
+
+  // A reload with the output there: Web mode still (Boost is the user's choice), and the link serves again.
+  hasOutput = true
+  controlSocket = null
+  await page.reload()
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await expect.poll(() => controlSocket !== null).toBe(true)
+  const reloaded = await page.getByTestId('grid-track').count()
+  expect(await agentCall(4, { type: 'track.create', kind: 'midi' })).toMatchObject({ status: 'applied' })
+  await expect(page.getByTestId('grid-track')).toHaveCount(reloaded + 1)
+  expect(errors).toEqual([])
 })
 
 test('probes, pairs and plays through the helper from the isolated page', async ({ page, baseURL }) => {
