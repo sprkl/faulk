@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { ACTIVE_CLIP_BYTES, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES, decodeFeedback, peakOf, readFeedback } from './feedback'
+import {
+  ACTIVE_CLIP_BYTES,
+  FEEDBACK_HEADER_BYTES,
+  FEEDBACK_VERSION,
+  MAX_RECORDED_PER_REPORT,
+  RECORDED_NOTE_BYTES,
+  TRACK_METER_BYTES,
+  decodeFeedback,
+  peakOf,
+  readFeedback,
+} from './feedback'
 
 /** An active clip as the engine writes it: track u32, scene u16, state u8, padding, anchor i64. */
 type Cell = [track: number, scene: number, state: number, anchor?: number]
@@ -32,7 +42,62 @@ function report(tracks: number, edit?: (view: DataView) => void, cells: Cell[] =
   return buffer
 }
 
+/** A note as the engine writes it after the clips: track, start, length, pitch, velocity. */
+type Played = [track: number, start: number, length: number, pitch: number, velocity: number]
+
+/** `report` with the take's notes after the cells, and its number, count and capture flag. */
+function withNotes(tracks: number, cells: Cell[], notes: Played[], take: number, total: number, capturing: boolean): ArrayBuffer {
+  const base = new Uint8Array(report(tracks, undefined, cells))
+  const buffer = new ArrayBuffer(base.length + notes.length * RECORDED_NOTE_BYTES)
+  new Uint8Array(buffer).set(base)
+  const view = new DataView(buffer)
+  view.setUint32(48, notes.length, true)
+  view.setUint32(56, take, true)
+  view.setUint32(60, total, true)
+  view.setUint32(64, 2, true)
+  view.setUint32(68, capturing ? 1 : 0, true)
+  notes.forEach(([track, start, length, pitch, velocity], i) => {
+    const at = base.length + i * RECORDED_NOTE_BYTES
+    view.setUint32(at, track, true)
+    view.setBigInt64(at + 8, BigInt(start), true)
+    view.setBigInt64(at + 16, BigInt(length), true)
+    view.setUint8(at + 24, pitch)
+    view.setUint8(at + 25, velocity)
+  })
+  return buffer
+}
+
 describe('decodeFeedback', () => {
+  it('reads the take: its number, its count, the lost notes, the capture and its last notes numbered from the count', () => {
+    const r = decodeFeedback(
+      withNotes(
+        2,
+        [[0, 1, 2, 3840]],
+        [
+          [1, -20, 480, 60, 100],
+          [0, 7680, 1, 127, 1],
+        ],
+        3,
+        9,
+        true,
+      ),
+    )!
+    expect(r).toMatchObject({ recordTake: 3, recordTotal: 9, recordDropped: 2, recordCapturing: true })
+    expect(r.clips).toEqual([{ track: 0, scene: 1, state: 'playing', anchor: 3840 }])
+    expect(r.recorded).toEqual([
+      { index: 7, track: 1, start: -20, length: 480, pitch: 60, velocity: 100 },
+      { index: 8, track: 0, start: 7680, length: 1, pitch: 127, velocity: 1 },
+    ])
+    // A count beyond the bytes, or beyond what a report carries, is refused.
+    const short = withNotes(0, [], [[0, 0, 1, 60, 90]], 1, 1, false)
+    new DataView(short).setUint32(48, 2, true)
+    expect(decodeFeedback(short)).toBeNull()
+    const many = withNotes(0, [], [], 1, 1, false)
+    new DataView(many).setUint32(48, MAX_RECORDED_PER_REPORT + 1, true)
+    expect(decodeFeedback(many)).toBeNull()
+    expect(decodeFeedback(report(0))!.recorded).toEqual([])
+  })
+
   it('reads the header, every track meter and the output meter after them', () => {
     const r = decodeFeedback(
       report(3, (v) => {
@@ -76,7 +141,8 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layout (version 3, 16 bytes a meter)', () => {
+  it('refuses a report of the previous layouts (version 4: a 56-byte header; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 4)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 3)))).toBeNull()
   })
 

@@ -15,6 +15,7 @@ import type { MessageKey } from '../i18n'
 import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
 import type { PackExport, PackImport } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
+import { checkOpenUrl, downloadPack, packNameOf } from './open-url'
 import {
   StoreError,
   type BrowserProject,
@@ -80,6 +81,10 @@ export interface StorageDeps {
   pickPack(): Promise<File | null>
   /** Hands a file to the user (a download). */
   download(name: string, blob: Blob): void
+  /** The browser's `fetch`, for a pack opened by its link (`project.open_url`). */
+  fetch: typeof fetch
+  /** Where the page itself is served from (`location.hostname`): plain http links are for a page on this computer only. */
+  pageHostname(): string
 }
 
 /** The biggest `.faulkpack` the page reads: the core holds the pack and its files in memory (`crates/project-wasm` `pack.rs`). */
@@ -185,9 +190,26 @@ export class ProjectStorage {
   /** The warning "your projects are in the browser; export them" was read this session. */
   private browserWarned = $state(false)
   /** Something the user should read: why a folder was not taken, why a save did not happen. */
-  notice = $state<MessageKey | null>(null)
+  private shownNotice = $state<MessageKey | null>(null)
+  /** What the notice names (a project), and the project of the browser it can open for the user (#474). Cleared with every new notice. */
+  noticeVars = $state.raw<{ name: string } | null>(null)
+  noticeOpen = $state.raw<string | null>(null)
+  get notice(): MessageKey | null {
+    return this.shownNotice
+  }
+  set notice(key: MessageKey | null) {
+    this.shownNotice = key
+    this.noticeVars = null
+    this.noticeOpen = null
+  }
   /** A question the interface is asking (New or Open on a project whose changes cannot be kept). */
   confirm = $state.raw<{ action: Discard; name: string | null } | null>(null)
+  /** The host a pack is being downloaded from (`project.open_url`), while it is. */
+  downloading = $state<string | null>(null)
+  /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
+  downloadFailed = $state<string | null>(null)
+  /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
+  linkOffer = $state.raw<{ url: string; host: string } | null>(null)
 
   /**
    * What the last write cost: `coreMs` is time on the page's main thread (the core computing the
@@ -197,6 +219,8 @@ export class ProjectStorage {
 
   private current: Attached | null = null
   private queue: Promise<unknown> = Promise.resolve()
+  /** The downloads of `openUrl`, one at a time, outside `queue` so a slow host never holds a save back. */
+  private downloads: Promise<unknown> = Promise.resolve()
   /** Set while a project is being put in its place (see `attach`); `current` has a gap meanwhile. */
   private attaching: Promise<void> | null = null
   private debounce: ReturnType<typeof setTimeout> | null = null
@@ -947,7 +971,11 @@ export class ProjectStorage {
       // The folder may have been replaced while the permission was asked.
       if (this.current !== current) return false
     }
-    if (this.block === 'permission') this.block = null
+    if (this.block === 'permission') {
+      this.block = null
+      // The notice that told an agent to click is answered by the click.
+      this.notice = null
+    }
     return this.autosave().then(() => !this.dirty)
   }
 
@@ -1063,6 +1091,22 @@ export class ProjectStorage {
     return this.write('rewrite')
   }
 
+  /**
+   * The one banner the page shows (#474): banners never stack. What stops the work comes first (a write
+   * that cannot happen, a folder edited from outside): a notice nobody dismissed must never hide it. Then
+   * a notice, which answers what the user just did and goes with its Dismiss, the project of last time,
+   * and the advice about the browser's storage. The others wait: they show when this one is gone.
+   */
+  get banner(): 'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'downloading' | 'downloadFailed' | null {
+    if (this.block) return this.block
+    // A pack opened by its link (#497): the download under way, then why it failed.
+    if (this.downloading) return 'downloading'
+    if (this.downloadFailed) return 'downloadFailed'
+    if (this.notice) return 'notice'
+    if (this.reopen) return 'reopen'
+    return this.browserWarning ? 'warning' : null
+  }
+
   /** The user does not want the project of last time back. */
   dismissReopen() {
     this.reopen = null
@@ -1073,12 +1117,37 @@ export class ProjectStorage {
     this.notice = null
   }
 
+  /**
+   * A link from the address (`?open=`): it comes from anywhere, so nothing is downloaded before the user says
+   * yes. A link the page would not fetch is refused at once with a notice, and no question is asked.
+   */
+  offerLink(url: string) {
+    const checked = checkOpenUrl(url, this.deps.pageHostname())
+    if (checked.status !== 'ok') {
+      this.notice = 'openUrl.refused'
+      return
+    }
+    this.linkOffer = { url, host: checked.host }
+  }
+
+  /** The user's answer to `linkOffer`: the link to open (the caller runs `project.open_url`), or `null`. */
+  answerLink(open: boolean): string | null {
+    const offer = this.linkOffer
+    this.linkOffer = null
+    return open && offer ? offer.url : null
+  }
+
+  /** Says the banner for a failed download was read. */
+  dismissDownloadFailed() {
+    this.downloadFailed = null
+  }
+
   // ------------------------------------------------------------------ the start of a page
 
   /**
-   * On a fresh page: the project that was open last time comes back. With the permission still
-   * granted it opens at once; otherwise a banner offers it, because the browser wants a click
-   * before it gives the folder back.
+   * On a fresh page: the project that was open last time comes back. A project kept in the browser opens
+   * at once; so does a folder whose permission is still granted. Otherwise a banner offers the folder,
+   * because the browser wants a click before it gives it back.
    */
   async restore() {
     // The core is made now, not at the first click: a click on Open must reach the chooser while it still has its activation.
@@ -1096,10 +1165,8 @@ export class ProjectStorage {
     // The project the musician worked on last wins: a folder is dated by when it was opened or saved
     // into, a project in the browser by its newest file.
     if (draft && (!last || draft.modified > last.at)) {
-      // Where the browser has no folder, its storage is the home and the project reopens by itself;
-      // otherwise it is a draft, offered with a click.
-      if (!this.supported) await this.openBrowserProject(draft.dir)
-      else this.offer({ id: draft.dir, name: draft.name, kind: 'browser' })
+      // A project kept in the browser needs no permission: it opens by itself, in every browser (#474).
+      await this.openBrowserProject(draft.dir)
       return
     }
     if (!last) return
@@ -1250,10 +1317,55 @@ export class ProjectStorage {
       this.notice = 'pack.tooBig'
       return false
     }
+    return this.importBytes(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.faulkpack$/i, '') || 'pack')
+  }
+
+  /**
+   * Open a `.faulkpack` hosted at `url` (`project.open_url`): the page checks the link (see `checkOpenUrl`),
+   * downloads it without credentials and with the size guard, then it goes the way of an imported file. A pack
+   * whose project the browser keeps already opens that copy instead of a second one (the same link clicked
+   * twice). The current project is never touched before the pack is whole and valid. Downloads run one after
+   * the other, outside the storage's queue; the import itself joins the queue.
+   */
+  openUrl(url: string): Promise<boolean> {
+    const run = this.downloads.then(() => this.fetchAndOpen(url))
+    this.downloads = run.catch(() => undefined)
+    return run
+  }
+
+  private async fetchAndOpen(raw: string): Promise<boolean> {
+    const checked = checkOpenUrl(raw, this.deps.pageHostname())
+    if (checked.status !== 'ok') {
+      this.notice = 'openUrl.refused'
+      return false
+    }
+    this.downloadFailed = null
+    this.downloading = checked.host
+    let download: Awaited<ReturnType<typeof downloadPack>>
+    try {
+      download = await downloadPack(checked.url, { fetch: this.deps.fetch, max: MAX_PACK_BYTES, pageHostname: this.deps.pageHostname() })
+    } finally {
+      this.downloading = null
+    }
+    if (download.status === 'unreachable') {
+      this.errorDetail = download.detail
+      this.downloadFailed = checked.host
+      return false
+    }
+    if (download.status === 'tooBig') {
+      this.notice = 'pack.tooBig'
+      return false
+    }
+    const bytes = download.bytes
+    return this.enqueue(() => this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true }))
+  }
+
+  /** The pack's bytes, checked by the core, kept in a new directory of the browser's storage and opened. */
+  private async importBytes(bytes: Uint8Array, name: string, options: { reuseKept?: boolean } = {}): Promise<boolean> {
     // Read and checked before anything is touched: a file that is no pack changes nothing.
     let unpacked: PackImport
     try {
-      unpacked = await this.host.packImport(new Uint8Array(await file.arrayBuffer()))
+      unpacked = await this.host.packImport(bytes)
     } catch (error) {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.invalid'
@@ -1266,13 +1378,21 @@ export class ProjectStorage {
     }
     const files = unpacked.files
     const id = projectIdOf(files)
-    const name = file.name.replace(/\.faulkpack$/i, '') || 'pack'
     // The pack keeps its identity, so what it gives back is the project it was made from. A project
     // of that identity that is already here (open, or kept in the browser) is never overwritten by it.
     if (id) {
-      const known = this.deps.browser.available ? (await this.deps.browser.list()).projects.some((p) => p.id === id) : false
-      if (known || this.host.projectId() === id) {
-        this.notice = 'pack.alreadyHere'
+      const kept = this.deps.browser.available ? (await this.deps.browser.list()).projects.find((p) => p.id === id) : undefined
+      if (options.reuseKept && this.host.projectId() === id) {
+        this.notice = 'openUrl.alreadyOpen'
+        return true
+      }
+      if (options.reuseKept && kept) return this.openKept(kept.dir)
+      if (kept || this.host.projectId() === id) {
+        // Names the project and, when it is kept in the browser and not the one open, offers to open it.
+        const open = this.host.projectId() === id ? null : (kept?.dir ?? null)
+        this.notice = open === null ? 'pack.alreadyOpen' : 'pack.alreadyHere'
+        this.noticeVars = { name: kept?.name ?? name }
+        this.noticeOpen = open
         return false
       }
     }
@@ -1304,6 +1424,19 @@ export class ProjectStorage {
     // Declined (the question before replacing a project) or refused: the copy made for it goes.
     if (!opened) await this.deps.browser.remove(dir).catch(() => undefined)
     else this.persistOnce()
+    await this.refreshBrowserProjects()
+    return opened
+  }
+
+  /** A link opened again: the copy the browser keeps (with whatever was changed in it since) opens, and the page says so. */
+  private async openKept(dir: string): Promise<boolean> {
+    const handle = await this.deps.browser.open(dir)
+    if (!handle) {
+      this.notice = 'storage.browserGone'
+      return false
+    }
+    const opened = await this.openHandle(handle, { kind: 'browser', dir })
+    if (opened) this.notice = 'openUrl.keptCopy'
     await this.refreshBrowserProjects()
     return opened
   }

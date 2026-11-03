@@ -431,8 +431,10 @@ fn the_playhead_reaches_the_cue_when_the_count_in_ends() {
 }
 
 #[test]
-fn no_count_in_when_disabled_not_recording_or_already_playing() {
-    // Disabled: silent and the playhead starts at the cue (64 frames are 2 ticks).
+fn a_count_in_clicks_with_the_metronome_off_and_stops_at_the_cue() {
+    // The spec of recording, § 5: the count-in clicks whatever the metronome's setting, and
+    // the take then follows the setting (off: silent). Two bars at 120 BPM are 4 s before
+    // the cue at tick 0: eight clicks, the accents on the bars, then nothing.
     let mut rig = Rig::new(48_000);
     rig.setup(120.0, (4, 4), 1.0);
     rig.send(&[
@@ -444,8 +446,16 @@ fn no_count_in_when_disabled_not_recording_or_already_playing() {
         M::SetRecording { recording: true },
         M::Play { from: Tick(0) },
     ]);
-    rig.render(64);
-    assert_eq!(rig.e.clock().playhead_tick(), Tick(2));
+    let count_in = rig.seconds(4.0);
+    let clicks = onsets(&count_in);
+    assert_eq!(clicks.len(), 8, "{clicks:?}");
+    assert_eq!(rig.e.clock().playhead_tick(), Tick(0));
+    let take = rig.seconds(2.0);
+    assert!(take.iter().all(|s| *s == 0.0), "no click after the cue");
+}
+
+#[test]
+fn no_count_in_when_not_recording_or_already_playing() {
     // Not recording: no pre-roll.
     let mut rig = Rig::new(48_000);
     rig.setup(120.0, (4, 4), 1.0);

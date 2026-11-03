@@ -28,6 +28,7 @@ import { pianoRoll } from './piano-roll'
 import { project } from './project'
 import { refusal } from './refusal'
 import { shell } from './shell'
+import { shortcuts } from './shortcuts'
 import { synth } from './synth'
 import { tracks } from './tracks'
 import { transport } from './transport'
@@ -37,6 +38,7 @@ export { DEVICE_NAME_KEYS } from './synth'
 /** Every feature of the DAW, in the order of the screen. One line per feature. */
 export const features = {
   shell,
+  shortcuts,
   layout,
   tracks,
   transport,

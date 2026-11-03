@@ -1,16 +1,20 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 4). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 5). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 56
+export const FEEDBACK_HEADER_BYTES = 72
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
 export const ACTIVE_CLIP_BYTES = 16
+/** Size of one recorded note (track u32, pad u32, start i64, length i64, pitch u8, velocity u8, pad). */
+export const RECORDED_NOTE_BYTES = 32
+/** Most recorded notes one report carries (`MAX_RECORDED_PER_REPORT`). */
+export const MAX_RECORDED_PER_REPORT = 256
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 4
+export const FEEDBACK_VERSION = 5
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -45,6 +49,17 @@ export interface ActiveClip {
   anchor: number
 }
 
+/** A note the engine recorded (RE-2): its track slot, its start in transport ticks, how long it was held. */
+export interface RecordedNote {
+  /** Its number in the take, from 0. */
+  index: number
+  track: number
+  start: number
+  length: number
+  pitch: number
+  velocity: number
+}
+
 export interface FeedbackReport {
   seq: number
   epoch: number
@@ -72,6 +87,16 @@ export interface FeedbackReport {
    * clip is held too, and shows it in `clips`.
    */
   held: number[]
+  /** The engine's number of the current or last take of recording, 0 before the first. */
+  recordTake: number
+  /** Notes finished in that take. */
+  recordTotal: number
+  /** Notes of that take the engine could not record (too many keys held at once). */
+  recordDropped: number
+  /** The engine captures: the take may still grow. Once false for `recordTake`, all its notes are in. */
+  recordCapturing: boolean
+  /** The last notes of the take (at most 256), oldest first, numbered `recordTotal - recorded.length` on. */
+  recorded: RecordedNote[]
 }
 
 const TRANSPORT: TransportState[] = ['stopped', 'playing', 'recording']
@@ -123,6 +148,23 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     if (state === undefined) return null
     clips.push({ track: view.getUint32(at, true), scene: view.getUint16(at + 4, true), state, anchor: Number(view.getBigInt64(at + 8, true)) })
   }
+  // Then the take's last notes, all inside the bytes.
+  const recordedCount = view.getUint32(48, true)
+  const notesAt = clipsAt + count * ACTIVE_CLIP_BYTES
+  if (recordedCount > MAX_RECORDED_PER_REPORT || notesAt + recordedCount * RECORDED_NOTE_BYTES > len) return null
+  const recordTotal = view.getUint32(60, true)
+  const recorded: RecordedNote[] = []
+  for (let i = 0; i < recordedCount; i++) {
+    const at = notesAt + i * RECORDED_NOTE_BYTES
+    recorded.push({
+      index: recordTotal - recordedCount + i,
+      track: view.getUint32(at, true),
+      start: Number(view.getBigInt64(at + 8, true)),
+      length: Number(view.getBigInt64(at + 16, true)),
+      pitch: view.getUint8(at + 24),
+      velocity: view.getUint8(at + 25),
+    })
+  }
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))
   const load = view.getFloat32(24, true)
@@ -141,6 +183,11 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),
     clips,
     held,
+    recordTake: view.getUint32(56, true),
+    recordTotal,
+    recordDropped: view.getUint32(64, true),
+    recordCapturing: (view.getUint32(68, true) & 1) === 1,
+    recorded,
   }
 }
 
@@ -159,7 +206,9 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
   const tracks = header.getUint32(40, true)
   // The meters, then the active clips (at most two per track: a larger count is refused by the decoder).
   const clips = Math.min(header.getUint32(44, true), 2 * tracks)
-  const used = Math.min(len, FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES)
+  // Then the take's last notes (a larger count is refused by the decoder).
+  const notes = Math.min(header.getUint32(48, true), MAX_RECORDED_PER_REPORT)
+  const used = Math.min(len, FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES + notes * RECORDED_NOTE_BYTES)
   const copy = new Uint8Array(used)
   copy.set(new Uint8Array(buffer, at, used))
   const report = decodeFeedback(copy.buffer)

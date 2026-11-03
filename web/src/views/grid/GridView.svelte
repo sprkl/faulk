@@ -122,6 +122,8 @@
     if (!cell) return
     focusTrack = cell.dataset.track ?? null
     focusScene = cell.dataset.scene ?? null
+    // The grid's target for recording (#470): the scene of the cell the user is on.
+    ui.recordScene = focusScene
   }
 
   /**
@@ -189,7 +191,7 @@
   /** Points the piano roll at a clip of a track; `show` also brings the roll forward. */
   function open(track: string, clip: string, show: boolean) {
     select(track)
-    ui.editedClip = clip
+    ui.editClip(clip)
     if (show) ui.showPanel('piano-roll')
   }
 

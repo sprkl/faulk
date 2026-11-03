@@ -8,14 +8,18 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { takeOpenLink } from '../../lib/open-link'
+  import { isPairHash } from '../../lib/pair-link'
+  import { helpShortcut } from '../../lib/shortcuts'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
-  import { redo, undo } from '../../lib/track-commands'
+  import { runHistory } from '../../lib/history-said'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn } from '../registry'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
@@ -55,7 +59,14 @@
     // `url` is the current path and query, already resolved against the base path.
     // eslint-disable-next-line svelte/no-navigation-without-resolve
     const clearAddress = (url: string) => void goto(url, { shallow: true, replace: true })
-    dispatcher.takePairLink(location, clearAddress)
+    // A project link (`?open=`, #497): asked about first, then opened by `project.open_url`. The address
+    // is rewritten once, whether it held a project link, a pairing link or both.
+    let withoutLink = null as string | null
+    const link = takeOpenLink(location, (url) => (withoutLink = url))
+    const address = withoutLink === null ? location : new URL(withoutLink, location.href)
+    dispatcher.takePairLink(address, clearAddress)
+    if (withoutLink !== null && !isPairHash(address.hash)) clearAddress(withoutLink)
+    if (link !== null) storage.offerLink(link)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
     return () => {
@@ -85,6 +96,17 @@
       }
       return
     }
+    // `?` opens the shortcut list, and closes it again; no other dialog or menu has to be open (#474).
+    if (helpShortcut(event)) {
+      const other = document.querySelector('[aria-modal="true"]:not([data-testid="shortcuts-dialog"])')
+      if (ui.helpOpen || (!other && !(event.target as Element | null)?.closest?.('[role="menu"]'))) {
+        event.preventDefault()
+        ui.helpOpen = !ui.helpOpen
+        return
+      }
+    }
+    // The open list holds the keyboard: no undo, redo or note behind it (the dialog keeps Escape and Tab itself).
+    if (ui.helpOpen) return
     const action = historyShortcut(event)
     if (!action) {
       // The computer keyboard plays in every view; what is no shortcut of the shell goes to the notes.
@@ -93,7 +115,7 @@
     }
     event.preventDefault()
     // Undo pressed during a fader drag (a history group is open) does nothing, and says nothing.
-    dispatcher.run(action === 'undo' ? undo() : redo(), { quiet: true })
+    runHistory(dispatcher, ui, action, { quiet: true })
   }
 
   onMount(() => {
@@ -144,6 +166,7 @@
   <StorageBanners />
   <ExportDialog />
   <EngineDialog />
+  <ShortcutsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}

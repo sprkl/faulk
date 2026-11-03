@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Clip, Track } from '../../lib/generated/protocol'
-import { clipLabel, clipOrigin, editedClip, ghostNotes, midiClips } from './clips'
+import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips } from './clips'
 
 const midi = (name = ''): Clip => ({ name, content: { midi: { length: 3840, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] } } })
 const audio = (): Clip => ({ name: 'a', content: { audio: { frames: 10, media: 'm', source_start: 0 } } }) as unknown as Clip
@@ -46,6 +46,31 @@ describe('the clips the roll offers', () => {
     expect(clipOrigin(by.p!, labels)).toBe('Arrangement · 0')
     expect(clipOrigin(by.both!, labels)).toBe('Grid · Scene 1, Arrangement · 0')
     expect(clipOrigin(by.none!, labels)).toBe('')
+    // The placement shown names its own bar (#494).
+    expect(clipOrigin(by.both!, labels, 7680)).toBe('Grid · Scene 1, Arrangement · 7680')
+  })
+
+  it('lists a clip once per placement, earliest first, and keeps the chosen placement while it places the clip (#494)', () => {
+    const t = track({ a: midi(), b: midi(), c: midi() }, { p9: ['a', 7680], p1: ['a', 0], q: ['b', 3840] })
+    const clips = midiClips(t)
+    expect(clips[0]!.placements).toEqual([
+      { id: 'p1', start: 0 },
+      { id: 'p9', start: 7680 },
+    ])
+    expect(clipEntries(clips).map((e) => e.key)).toEqual(['placement:p1', 'placement:p9', 'placement:q', 'clip:c'])
+    const a = clips.find((c) => c.id === 'a')!
+    expect(editedPlacement(a, 'p9')).toEqual({ id: 'p9', start: 7680 })
+    // None chosen, or one of another clip, or one that is gone: the first placement.
+    expect(editedPlacement(a, null)?.id).toBe('p1')
+    expect(editedPlacement(a, 'q')?.id).toBe('p1')
+    expect(editedPlacement(a, 'gone')?.id).toBe('p1')
+    expect(
+      editedPlacement(
+        clips.find((c) => c.id === 'c')!,
+        'p1',
+      ),
+    ).toBeNull()
+    expect(editedPlacement(null, 'p1')).toBeNull()
   })
 })
 
@@ -75,6 +100,20 @@ describe('ghost notes of the other tracks (#470)', () => {
       mine,
     )
     expect(ghosts).toEqual([{ start: 480, length: 100, pitch: 40 }])
+  })
+
+  it('reads the other tracks at the time of the placement shown, when one is (#494)', () => {
+    const mine = placed({ a: clipOf([note(0)]) }, { p: ['a', 3840, 0, 3840], p2: ['a', 0, 0, 3840] })
+    const other = placed({ b: clipOf([note(0, 40), note(3000, 41)]) }, { r: ['b', 0, 0, 3840] })
+    const edited = midiClips(mine)[0]!
+    const tracks = [
+      { id: 'me', track: mine },
+      { id: 'o', track: other },
+    ]
+    // The first placement (p2, at 0) by default; p at 3840 overlaps nothing of the other track.
+    expect(ghostNotes(tracks, 'me', edited, mine).map((g) => g.pitch)).toEqual([40, 41])
+    expect(ghostNotes(tracks, 'me', edited, mine, 'p')).toEqual([])
+    expect(ghostNotes(tracks, 'me', edited, mine, 'gone').map((g) => g.pitch)).toEqual([40, 41])
   })
 
   it('never ghosts the edited track or an audio track, and uses the scene for a clip that is only in the grid', () => {

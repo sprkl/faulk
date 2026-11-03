@@ -23,5 +23,6 @@ pub mod mixer;
 pub mod msg;
 pub mod offline;
 pub mod param;
+pub mod recorder;
 pub mod transport;
 pub mod warm;

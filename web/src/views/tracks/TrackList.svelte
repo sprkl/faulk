@@ -7,7 +7,9 @@
    */
   import { INSTRUMENTS, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
-  import { createTrack, redo, selectTrack, undo } from '../../lib/track-commands'
+  import { createTrack, selectTrack } from '../../lib/track-commands'
+  import { runHistory } from '../../lib/history-said'
+  import { withShortcut } from '../../lib/shortcuts'
   import TrackInspector from './TrackInspector.svelte'
 
   const { project, engine, ui, dispatcher, keys } = useStores()
@@ -52,8 +54,20 @@
 <aside class="tracks" aria-labelledby="fk-tracks-title" data-testid="track-list" data-track-count={project.view ? project.tracks.length : undefined}>
   <div class="head">
     <h2 id="fk-tracks-title" class="label">{t('tracks.title')}</h2>
-    <button class="ghost" type="button" disabled={!project.canUndo} onclick={() => dispatcher.run(undo())}>{t('tracks.undo')}</button>
-    <button class="ghost" type="button" disabled={!project.canRedo} onclick={() => dispatcher.run(redo())}>{t('tracks.redo')}</button>
+    <button
+      class="ghost"
+      type="button"
+      disabled={!project.canUndo}
+      title={withShortcut(t('tracks.undo'), ['Mod', 'Z'])}
+      onclick={() => runHistory(dispatcher, ui, 'undo')}>{t('tracks.undo')}</button
+    >
+    <button
+      class="ghost"
+      type="button"
+      disabled={!project.canRedo}
+      title={withShortcut(t('tracks.redo'), ['Mod', 'Shift', 'Z'])}
+      onclick={() => runHistory(dispatcher, ui, 'redo')}>{t('tracks.redo')}</button
+    >
   </div>
   <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
   <button
@@ -70,7 +84,8 @@
   {:else}
     <div class="add" role="presentation" onkeydown={onMenuKey} onfocusout={onFocusOut}>
       <button
-        class="primary"
+        class="wide"
+        class:primary={engine.started}
         type="button"
         bind:this={addButton}
         disabled={!engine.started}
@@ -161,6 +176,9 @@
   button.ghost {
     min-height: var(--fk-row);
     font-size: 12px;
+  }
+  button.wide {
+    width: 100%;
   }
   button.primary {
     width: 100%;

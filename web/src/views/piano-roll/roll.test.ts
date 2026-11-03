@@ -22,6 +22,7 @@ import {
   rectBetween,
   resizeNotes,
   shiftVelocity,
+  stepVelocity,
   stillApplies,
   resetVelocities,
   velocityAt,
@@ -220,6 +221,23 @@ describe('move and resize', () => {
     const close = [note(0, 60, 480, 120), note(0, 60, 480, 125)]
     expect(acceptable(close, shiftVelocity(close, 30))).not.toBeNull()
     expect(shiftVelocity([], 5)).toEqual([])
+  })
+
+  it('steps each velocity by the keys inside 1 to 127, and together when clamping alone would merge two notes (#494)', () => {
+    const pair = [note(0, 60, 480, 120), note(0, 61, 480, 40)]
+    expect(stepVelocity(pair, pair, 10).map((c) => c.to.velocity)).toEqual([127, 50])
+    expect(stepVelocity(pair, pair, -1).map((c) => c.to.velocity)).toEqual([119, 39])
+    // Only the notes that change: one at the top stays out of a step up.
+    const top = [note(0, 60, 480, 127), note(0, 61, 480, 100)]
+    expect(stepVelocity(top, top, 10).map((c) => c.to.velocity)).toEqual([110])
+    expect(stepVelocity(top, [top[0]!], 10)).toEqual([])
+    // 120 and 125 on one key would both clamp to 127: they move together by what fits.
+    const close = [note(0, 60, 480, 120), note(0, 60, 480, 125)]
+    expect(stepVelocity(close, close, 10).map((c) => c.to.velocity)).toEqual([122, 127])
+    expect(stepVelocity([], [], 10)).toEqual([])
+    // A note that stays, unselected, at the value the step would give: refused as a whole, nothing sent.
+    const blocked = [note(0, 60, 480, 100), note(0, 60, 480, 110)]
+    expect(stepVelocity(blocked, [blocked[0]!], 10)).toEqual([])
   })
 
   it('reads a velocity from a position, the top being the loudest', () => {

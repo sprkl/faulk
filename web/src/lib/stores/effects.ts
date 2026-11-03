@@ -25,6 +25,8 @@ export interface EffectPorts {
   exportPack(): void
   /** `project.import_pack`: the user picks a `.faulkpack` and its project replaces the current one. */
   importPack(): void
+  /** `project.open_url`: the page downloads the `.faulkpack` at `url` and opens it as a new project. */
+  openUrl(url: string): void
   /** `project.reopen_last`: the project the banner offers (a folder, or a draft). */
   reopenLast(): void
   /** `project.open_folder`: the user picks a folder and it opens. */
@@ -85,6 +87,9 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.import_pack':
       ports.importPack()
+      return
+    case 'project.open_url':
+      ports.openUrl(command.url)
       return
     case 'project.reopen_last':
       ports.reopenLast()

@@ -42,8 +42,8 @@ use project::{
     ProjectId, SessionState, Shape, Span, Track, TrackId, TrackSlots,
 };
 
-use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State};
-use crate::{Author, Command, launch, live, transport};
+use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State, TakeState};
+use crate::{Author, Command, launch, live, record, transport};
 
 /// Items (notes, placements, points) per upload message: at most 2.2 MB of payload, well
 /// under the 16 MiB a message may carry.
@@ -171,6 +171,35 @@ pub fn compile(
                 out.push(ControlMsg::StopTrack { track });
             }
         }
+        Command::Record(record::Command::Start { target, .. }) => {
+            // From a stopped transport with a scene target, the scene's clip of each
+            // recording track is launched first (the take is played over it), then the
+            // capture is asked, then the play: the engine counts in from the stopped clock.
+            if !sync.playing
+                && let Some(record::RecordTarget::Scene { scene }) = target
+                && let Some(scene_slot) = sync.scenes.get(scene)
+            {
+                for track in record::recording_tracks(state) {
+                    let has_clip = state.project.tracks.get(&track).is_some_and(|t| {
+                        t.clips.iter().any(|(id, c)| {
+                            c.slot.as_ref() == Some(scene)
+                                && sync
+                                    .track
+                                    .get(&track)
+                                    .is_some_and(|s| s.clips.contains_key(id))
+                        })
+                    });
+                    if has_clip && let Some(slot) = track_slot(sync, &track) {
+                        out.push(ControlMsg::LaunchClip {
+                            track: slot,
+                            scene: SceneSlot(scene_slot as u16),
+                        });
+                    }
+                }
+            }
+            out.push(ControlMsg::SetRecording { recording: true });
+            start_playback(sync, &mut out);
+        }
         Command::Launch(launch::Command::StopAll {}) => out.push(ControlMsg::StopAll),
         Command::Launch(launch::Command::BackTrackToArrangement { track }) => {
             if let Some(track) = track_slot(sync, track) {
@@ -262,6 +291,12 @@ fn compile_event(
 ) {
     let project = &state.project;
     match event {
+        // The end of a capture (record.stop, record.discard_take, a transport stop or
+        // pause during a take): the engine cuts the held notes there.
+        ProjectEvent::RecordingChanged {
+            state: TakeState::Stopped | TakeState::Discarded,
+            ..
+        } => out.push(ControlMsg::SetRecording { recording: false }),
         ProjectEvent::TrackCreated { track } => {
             if let Some(t) = project.tracks.get(track) {
                 remove_track(track, sync, out);
@@ -571,7 +606,9 @@ fn compile_event(
         | ProjectEvent::TrackChanged { .. }
         | ProjectEvent::SceneChanged { .. }
         | ProjectEvent::MidiInputSelected { .. }
-        | ProjectEvent::HistoryChanged { .. } => {}
+        | ProjectEvent::HistoryChanged { .. }
+        | ProjectEvent::RecordingChanged { .. }
+        | ProjectEvent::RecordSettingsChanged { .. } => {}
     }
 }
 

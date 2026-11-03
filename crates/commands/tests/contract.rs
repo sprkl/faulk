@@ -18,6 +18,7 @@ mod clip_examples;
 mod device_examples;
 mod grid_examples;
 mod query_examples;
+mod record_examples;
 mod track_examples;
 mod transport_examples;
 
@@ -56,6 +57,9 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::SaveAs {})),
         on(Command::Project(project::Command::ExportPack {})),
         on(Command::Project(project::Command::ImportPack {})),
+        on(Command::Project(project::Command::OpenUrl {
+            url: "https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/2026-11-02-neon-sur-la-rocade/project.faulkpack".into(),
+        })),
         on(Command::Project(project::Command::ListStored {})),
         on(Command::Project(project::Command::ReopenLast {})),
         on(Command::Project(project::Command::OpenFolder {})),
@@ -183,6 +187,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(device_examples::examples())
     .chain(automation_examples::examples())
     .chain(query_examples::examples())
+    .chain(record_examples::examples())
     .collect()
 }
 
@@ -852,6 +857,66 @@ fn stored_project_commands_name_something_the_page_can_look_up() {
     let dir = Command::Project(project::Command::OpenBrowserProject { dir: String::new() });
     let err = check_refusal(&dir, &state(), &context()).unwrap();
     assert!(matches!(err, CommandError::Invalid { ref field, .. } if field == "dir"));
+}
+
+#[test]
+fn open_url_takes_https_or_this_computer_and_refuses_everything_else() {
+    let open = |url: &str| {
+        Command::Project(project::Command::OpenUrl {
+            url: url.to_owned(),
+        })
+    };
+    for url in [
+        "https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/a/project.faulkpack",
+        "HTTPS://Example.org/song.faulkpack?v=2#top",
+        "https://example.org:8443/a.faulkpack",
+        "https://xn--bcher-kva.example/a.faulkpack",
+        "http://localhost:5497/song.faulkpack",
+        "http://LOCALHOST/song.faulkpack",
+        "http://127.0.0.1:9/x",
+        "http://[::1]:1/x",
+        "http://localhost",
+    ] {
+        check(&open(url), &state(), &context()).unwrap_or_else(|e| panic!("{url}: {e}"));
+    }
+    let long = format!("https://example.org/{}", "a".repeat(2048));
+    for url in [
+        "",
+        long.as_str(),
+        "example.org/song.faulkpack",
+        "//example.org/song.faulkpack",
+        "ftp://example.org/song.faulkpack",
+        "file:///C:/song.faulkpack",
+        "javascript:alert(1)//://",
+        "data:application/zip;base64,UEsDBA==",
+        "blob:https://faulk.app/1234",
+        "http://example.org/song.faulkpack",
+        "http://localhost.example.org/song.faulkpack",
+        "http://127.0.0.1.nip.io/song.faulkpack",
+        "http://localhost@example.org/song.faulkpack",
+        "https://user:secret@example.org/song.faulkpack",
+        "http://example.org\\@localhost/song.faulkpack",
+        "http://example.org#@localhost",
+        "https:///song.faulkpack",
+        "https://:443/song.faulkpack",
+        "https://example.org:80a/song.faulkpack",
+        "http://[::1/song.faulkpack",
+        "http://[::1]x/song.faulkpack",
+        "https://example.org/a song.faulkpack",
+        " https://example.org/song.faulkpack",
+        "https://example.org/song.faulkpack\n",
+    ] {
+        let err = check_refusal(&open(url), &state(), &context())
+            .unwrap_or_else(|e| panic!("{url:?}: {e}"));
+        assert!(
+            matches!(err, CommandError::Invalid { ref field, .. } if field == "url"),
+            "{url:?}: {err}"
+        );
+    }
+    // The longest link accepted passes.
+    let longest = format!("https://example.org/{}", "a".repeat(2048 - 20));
+    assert_eq!(longest.chars().count(), 2048);
+    check(&open(&longest), &state(), &context()).unwrap();
 }
 
 #[test]

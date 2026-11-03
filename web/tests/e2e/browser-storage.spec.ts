@@ -94,7 +94,7 @@ const saveAs = async (page: Page) => {
 }
 
 test.describe('a draft before a folder is chosen', () => {
-  test('a changed project is kept in the browser, the tab can go, and the draft is offered after a reload', async ({ page, context }) => {
+  test('a changed project is kept in the browser, the tab can go, and the draft comes back by itself after a reload (#474)', async ({ page, context }) => {
     const { errors } = watch(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await simulatePicker(page, 'song-draft')
@@ -115,10 +115,8 @@ test.describe('a draft before a folder is chosen', () => {
     await expect(state(probe)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
     expect(await leaveAsks(probe)).toBe(false)
 
+    // No banner, no click: the project of last time is already there, before the audio starts.
     await page.reload()
-    await expect(page.getByTestId('reopen-banner')).toContainText('Reopen the draft')
-    await expect(tracks(page)).toHaveCount(0)
-    await page.getByTestId('reopen').click()
     await expect(tracks(page)).toHaveCount(2)
     await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
     await expect(state(page)).toHaveText(/^Saved/)
@@ -154,20 +152,26 @@ test.describe('a draft before a folder is chosen', () => {
     expect(errors).toEqual([])
   })
 
-  test('the banner can delete the draft, after asking; Cancel keeps it', async ({ page }) => {
+  test('a draft that is not the open project is deleted from the menu, after asking; Cancel keeps it', async ({ page }) => {
     await simulatePicker(page, 'song-del')
     await page.goto('/app')
     await start(page)
     await addTrack(page, 'Drums')
     await expect(state(page)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
     await page.reload()
-    await page.getByTestId('delete-draft').click()
+    await expect(tracks(page)).toHaveCount(2)
+    // Move to a new project: the draft is now one of the list.
+    await page.getByTestId('project-menu').click()
+    await page.getByTestId('menu-new').click()
+    await expect(tracks(page)).toHaveCount(1)
+    await page.getByTestId('project-menu').click()
+    await page.getByTestId('menu-delete-browser-project').click()
     await expect(page.getByTestId('confirm')).toContainText('Delete this project?')
     await page.getByTestId('confirm-cancel').click()
     expect(await browserDirs(page)).toHaveLength(1)
-    await page.getByTestId('delete-draft').click()
+    await page.getByTestId('project-menu').click()
+    await page.getByTestId('menu-delete-browser-project').click()
     await page.getByTestId('confirm-discard').click()
-    await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
     await expect.poll(() => browserDirs(page)).toEqual([])
     await page.reload()
     await expect(page.getByTestId('reopen-banner')).toHaveCount(0)
@@ -180,7 +184,6 @@ test.describe('a draft before a folder is chosen', () => {
     await addTrack(page, 'Drums')
     await expect(state(page)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
     await page.reload()
-    await page.getByTestId('reopen').click()
     await expect(tracks(page)).toHaveCount(2)
     await page.getByTestId('project-menu').click()
     await expect(page.getByTestId('menu-browser-project')).toHaveCount(1)
@@ -189,7 +192,7 @@ test.describe('a draft before a folder is chosen', () => {
     await expect(page.getByTestId('storage-notice')).toContainText('is open')
   })
 
-  test('French: the state and the banner are in French', async ({ page }) => {
+  test('French: the state is in French', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
     await page.setViewportSize({ width: 1440, height: 900 })
     await simulatePicker(page, 'song-fr-draft')
@@ -198,7 +201,8 @@ test.describe('a draft before a folder is chosen', () => {
     await addTrack(page, 'Drums')
     await expect(state(page)).toHaveText(/^Brouillon enregistré à/, { timeout: 20_000 })
     await page.reload()
-    await expect(page.getByTestId('reopen-banner')).toContainText('Rouvrir le brouillon')
+    await expect(tracks(page)).toHaveCount(2)
+    await expect(state(page)).toHaveText(/^Enregistré/)
   })
 })
 
@@ -344,7 +348,6 @@ test.describe('a full storage', () => {
     // The tab goes away with the last edit unwritten (the browser asks first); what is there opens.
     await cdp.send('Storage.overrideQuotaForOrigin', { origin })
     await page.reload()
-    await page.getByTestId('reopen').click()
     await expect.poll(() => tracks(page).count()).toBeGreaterThanOrEqual(2)
     expect(await tracks(page).count()).toBeLessThanOrEqual(3)
     await expect(page.getByTestId('storage-notice')).toHaveCount(0)
