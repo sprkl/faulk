@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#590): task pull requests are squash-merged into `develop`, one commit per task (founder's decision); the release to `main` stays a merge commit. `docs/agents/issue-tracker.md` asks for an English `## Commit message` section in each pull request, which `.claude/tools/merge-queue.sh` turns into the squash commit; `docs/agents/verification.md` > Limits says how the Stop guard recognizes a deleted task branch merged by squash.
