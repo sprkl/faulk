@@ -1421,7 +1421,16 @@
       return
     }
     const target = stepItem(items, current, key.direction as Direction)
-    if (!target) return
+    if (!target) {
+      // Shift+arrow with no neighbour that way still selects the focused clip, so a lone clip is reachable (#553).
+      if (key.kind === 'extend' && !selectedIds.has(current.id)) {
+        picked = new Set([current.id])
+        select(current.track)
+        ui.editClip(current.clip, current.id)
+        announce(t('arrangement.saidSelected', { name: current.name || t('arrangement.clipDefault') }))
+      }
+      return
+    }
     const block = blocks.find((b) => b.id === target.id)!
     // Shift+arrow extends the selection the focused clip is in; from a clip outside it (after a copy, a click elsewhere) it
     // starts a new one from that clip, so the old selection is never added to (#528).

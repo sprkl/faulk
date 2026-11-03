@@ -354,3 +354,25 @@ test('a clip moves to the track below and back from the keyboard, the menu and t
   expect(await rowOf()).toEqual([2])
   expect(errors).toEqual([])
 })
+
+test('a lone clip is selected from the keyboard by Shift+arrow, then Ctrl+D copies it (#553)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  await clipAt(page, 0, 0)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  const [only] = await blocks(page)
+  const cell = page.locator(`[data-testid=arr-item][data-block="${only!.id}"]`)
+
+  // Focused by the keyboard, the clip is not selected; a Shift+arrow with no neighbour selects it.
+  await page.mouse.click(5, 5)
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await cell.focus()
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '1')
+  await expect(page.getByTestId('arr-said')).toHaveText(/selected/)
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
+  expect(errors).toEqual([])
+})
