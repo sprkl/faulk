@@ -348,6 +348,20 @@ describe("Stop hook: what blocks", () => {
     assert.equal(stop(root), null);
   });
 
+  it("a list record.mjs cannot write records nothing and leaves no temporary file", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    mkdirSync(qa(root, "verifications.json", "blocker"), { recursive: true }); // a directory where the list goes
+    const result = script("agent-qa/record.mjs", root, "verified", ...RUST);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /\[agent-qa\] could not write .*verifications\.json .*nothing was recorded/);
+    assert.deepEqual(readdirSync(qa(root)).filter((name) => name.endsWith(".tmp")), []);
+    assert.equal(existsSync(qa(root, "last-run.json")), false);
+    assert.equal(existsSync(qa(root, "history.jsonl")), false);
+    assert.equal(stop(root).decision, "block");
+  });
+
   it("record.mjs keeps at most RECORD_LIMIT entries; a state whose record went is asked for it again", () => {
     const root = makeRepo();
     startSession(root);

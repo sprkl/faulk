@@ -23,7 +23,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { answerIsComplete, briefHeader } from "../agent-review/brief-core.mjs";
@@ -186,8 +186,14 @@ if (listPath) {
   // The legacy single record is folded in, so a record made before the lists is kept.
   // Written whole to a temporary file, then renamed: a reader never sees half a list.
   const temporary = `${listPath}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(addRecord(readRecords(listPath, path), entry), null, 2)}\n`);
-  renameSync(temporary, listPath);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(addRecord(readRecords(listPath, path), entry), null, 2)}\n`);
+    renameSync(temporary, listPath);
+  } catch (error) {
+    // Nothing recorded (no list, no single record, no history): leave no stray file and say so.
+    rmSync(temporary, { force: true });
+    fail(`could not write ${listPath} (${error instanceof Error ? error.message.split("\n")[0] : error}): nothing was recorded, run the command again.`);
+  }
 }
 writeFileSync(path, `${JSON.stringify(entry, null, 2)}\n`);
 appendFileSync(historyPath(root), `${JSON.stringify(entry)}\n`);
