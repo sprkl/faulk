@@ -279,6 +279,48 @@ fn switching_removing_and_replacing_the_instrument_fades_to_silence() {
     );
 }
 
+/// A MIDI effect has no sound of its own and does not fade: switching it off releases the
+/// notes it fed, which the synth ends with its release envelope (its default, 0.3 s), so the
+/// output stays within the same slope bound.
+#[test]
+fn a_midi_effect_switched_off_ends_its_notes_through_the_release() {
+    use engine::OSC_SYNTH;
+    use engine::device::testing::{TRANSPOSE, transpose};
+    let setup = vec![
+        M::TrackCreate {
+            track: t(0),
+            kind: TrackKind::Midi,
+        },
+        insert(t(0), 0, TRANSPOSE.kind_id, &[(transpose::SEMITONES, 0.0)]),
+        insert(t(0), 1, OSC_SYNTH.kind_id, &[(ParamId(0), 0.0)]),
+        M::NoteOn {
+            track: t(0),
+            pitch: LOW,
+            velocity: 127,
+            at: None,
+        },
+    ];
+    let mut r = Rig::new();
+    r.send(&setup);
+    let before = r.run(blocks_at_crest(60));
+    r.send(&[enabled(t(0), 0, false)]);
+    let after = r.run(AFTER);
+    let n = fade_frames(RATE) as usize;
+    let steady = &before[before.len() - 2 * BLOCK..];
+    let bound = max_step(steady) * 1.05 + 2.0 * peak(steady) / n as f32;
+    let mut joined = before[before.len() - BLOCK..].to_vec();
+    joined.extend_from_slice(&after);
+    assert!(
+        max_step(&joined) <= bound,
+        "{} vs {bound}",
+        max_step(&joined)
+    );
+    assert!(
+        peak(&after[after.len() - BLOCK..]) < peak(steady),
+        "released"
+    );
+}
+
 #[test]
 fn the_masters_chain_fades_too() {
     let mastered = with(playing(), &[gain_fx(MASTER, 0, 0.25)]);
