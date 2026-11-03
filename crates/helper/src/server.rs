@@ -7,6 +7,7 @@ use crate::audio::{EventSender, Meter};
 use crate::midi::MidiManager;
 use crate::midi::all_notes_off;
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
+use crate::updater::UpdateWatch;
 use commands::Command;
 use futures_util::{SinkExt, StreamExt};
 use protocol::{ClientMessage, HELPER_NAME, PROTOCOL_VERSION, ServerMessage};
@@ -56,6 +57,8 @@ pub struct Shared {
     pub audio_error: Arc<AtomicBool>,
     /// Told about new pairing codes, sessions and audio errors.
     pub notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
+    /// The helper's updater, reported to the session (`update.status`); `None` in tests.
+    updates: Option<UpdateWatch>,
     session: Mutex<Option<Session>>,
     next_id: AtomicU64,
 }
@@ -84,9 +87,20 @@ impl Shared {
             sample_rate,
             audio_error,
             notify,
+            updates: None,
             session: Mutex::new(None),
             next_id: AtomicU64::new(1),
         }
+    }
+
+    /// Reports `updates` to every session: after `midi.inputs` at its start, then on change.
+    pub fn with_updates(mut self, updates: UpdateWatch) -> Self {
+        self.updates = Some(updates);
+        self
+    }
+
+    fn update_status(&self) -> Option<ServerMessage> {
+        self.updates.as_ref().map(UpdateWatch::message)
     }
 
     fn notify_code(&self) {
@@ -174,12 +188,13 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
     }
 }
 
-/// Periodic work: meter, MIDI activity, hot-plug polling, audio errors.
+/// Periodic work: meter, MIDI activity, hot-plug polling, update status, audio errors.
 async fn ticker(shared: Arc<Shared>) {
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     let mut ticks: u64 = 0;
     let mut report = Vec::new();
     let mut last_report = None;
+    let mut last_update = shared.update_status();
     loop {
         interval.tick().await;
         ticks += 1;
@@ -211,6 +226,14 @@ async fn ticker(shared: Arc<Shared>) {
             let changed = shared.midi.lock().is_ok_and(|mut m| m.refresh());
             if changed {
                 shared.to_session(shared.midi_inputs());
+            }
+            // About once a second: a download's progress is not sent at every step.
+            let update = shared.update_status();
+            if update != last_update {
+                if let Some(message) = &update {
+                    shared.to_session(message.clone());
+                }
+                last_update = update;
             }
         }
         if shared.audio_error.swap(false, Ordering::Relaxed) {
@@ -356,6 +379,9 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
     let _ = tx.send(Out::Msg(shared.hello()));
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
     let _ = tx.send(Out::Msg(shared.midi_inputs()));
+    if let Some(update) = shared.update_status() {
+        let _ = tx.send(Out::Msg(update));
+    }
 
     let writer = tokio::spawn(async move {
         while let Some(out) = rx.recv().await {
