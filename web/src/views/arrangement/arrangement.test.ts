@@ -116,6 +116,23 @@ describe('hit test', () => {
     expect(hitBlock(blocks, plain(3), 383, y, view, 0)?.zone).toBe('end')
   })
 
+  it('gives a short clip a comfortable grab zone at each end, and keeps its middle for moving (#612)', () => {
+    // A 40 px clip (x 400..440 at 0.1 px/tick): 10 px zones, and the middle 20 px still moves.
+    const short = [{ ...blocks[0]!, id: 's1', start: 4000, end: 4400, length: 400 }]
+    const zoneAt = (x: number) => hitBlock(short, plain(3), x, y, view, 0)?.zone
+    expect(zoneAt(401)).toBe('start')
+    expect(zoneAt(409)).toBe('start')
+    expect(zoneAt(420)).toBe('body')
+    expect(zoneAt(431)).toBe('end')
+    expect(zoneAt(439)).toBe('end')
+    // Outside the clip is not the clip: a double-click there makes a new one.
+    expect(zoneAt(397)).toBeUndefined()
+    expect(zoneAt(443)).toBeUndefined()
+    // A clip too narrow for three zones keeps a third for its middle.
+    const tiny = [{ ...blocks[0]!, id: 't1', start: 4000, end: 4150, length: 150 }]
+    expect(hitBlock(tiny, plain(3), 407, y, view, 0)?.zone).toBe('body')
+  })
+
   it('finds a block in the second lane and nothing between blocks, on the ruler or in the inset', () => {
     expect(hitBlock(blocks, plain(3), 150, y + LANE_HEIGHT, view, 0)?.block.id).toBe('q1')
     expect(hitBlock(blocks, plain(3), 780, y, view, 0)).toBeNull()

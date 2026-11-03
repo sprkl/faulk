@@ -7,7 +7,8 @@
 import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
-import { BLOCK_INSET, cycleOf, laneHeight, laneTop, passCount, passesOf, type Block } from './arrangement'
+import { drawHandles, type HandleSide } from '../../lib/components/timegrid/handles'
+import { BLOCK_INSET, cycleOf, edgeZone, laneHeight, laneTop, passCount, passesOf, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
@@ -31,6 +32,8 @@ export interface ArrangementFrame {
   silent: ReadonlySet<string>
   /** The section markers (#473): a line down the arrangement at each; their names are buttons on the ruler. */
   markers: readonly { tick: number }[]
+  /** The block whose ends are drawn as resize handles (#612): the hovered or the resized one, and the end in use (`null`: the pointer is on its body). */
+  handles?: { block: Block; strong: HandleSide | null } | null
 }
 
 /** How much of its colour a clip of a silent track keeps. */
@@ -182,6 +185,17 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     drawBlock(block, scene.selected.has(block.id), false)
   }
   for (const ghost of scene.ghosts) drawBlock(ghost, true, true)
+  if (scene.handles) {
+    const { block, strong } = scene.handles
+    const x0 = tickToX(block.start, view)
+    const x1 = tickToX(block.end, view)
+    const y = laneTop(scene.layout, block.row, scene.scrollY) + BLOCK_INSET
+    const h = laneHeight(scene.layout, block.row) - 2 * BLOCK_INSET
+    if (x1 >= 0 && x0 <= width && y + h >= RULER_HEIGHT && y <= height) {
+      const w = Math.max(2, x1 - x0)
+      drawHandles(ctx, colors.accent, { x0, x1: x0 + w, y, height: h, zone: edgeZone(w), strong })
+    }
+  }
   ctx.restore()
 
   // The section markers: a thin line from the ruler down.

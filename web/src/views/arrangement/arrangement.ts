@@ -15,8 +15,10 @@ import { CLIP_ROW, rowAtY, type Layout, type Row } from './automation/layout'
 export const LANE_HEIGHT = CLIP_ROW
 /** The inset of a block inside its lane. */
 export const BLOCK_INSET = 4
-/** The width of the grab zone at each end of a block, in CSS pixels. */
-export const EDGE_PX = 7
+/** The width of the grab zone at each end of a block, in CSS pixels (#612: wide enough to catch without aiming). */
+export const EDGE_PX = 10
+/** The grab zone at each end of a block `width` pixels wide: `EDGE_PX`, at most a third of the block so that its middle still moves. */
+export const edgeZone = (width: number): number => Math.min(EDGE_PX, Math.max(0, width) / 3)
 /** The last tick of the timeline (`project::limits::MAX_TICK`, 2^40). */
 export const MAX_TICK = 2 ** 40
 
@@ -136,7 +138,7 @@ export function hitBlock(blocks: readonly Block[], layout: Layout, x: number, y:
     const left = tickToX(block.start, view)
     const right = tickToX(block.end, view)
     if (x < left || x > right) continue
-    const edge = Math.min(EDGE_PX, (right - left) / 3)
+    const edge = edgeZone(right - left)
     return { block, zone: x - left <= edge ? 'start' : right - x <= edge ? 'end' : 'body' }
   }
   return null
