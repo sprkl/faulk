@@ -86,15 +86,16 @@ const en = {
   'library.echo': 'ECHO',
 
   'boost.metaLeft': 'FLK-BOOST · IN DEVELOPMENT',
-  'boost.metaRight': 'Downloads coming',
+  'boost.metaRight': 'Windows now, macOS soon',
   'boost.title': 'BOOST',
   'boost.body':
     'Same tab, same project: a small native helper takes over the sound, and the indicator turns purple. It brings low-latency audio and direct MIDI.',
   'boost.figure': '— ms',
   'boost.figureCaption': 'Round-trip latency: published once measured',
   'boost.downloads': 'Boost downloads',
-  'boost.windows': 'Windows · coming soon',
+  'boost.windows': 'Download for Windows',
   'boost.macos': 'macOS · coming soon',
+  'boost.next': 'Run the installer, then choose “Open Faulk” from the tray icon.',
 
   'footer.label': 'Footer',
   'footer.site': 'faulk.app · in development',
@@ -181,15 +182,16 @@ const fr: Record<LandingKey, string> = {
   'library.echo': 'ECHO',
 
   'boost.metaLeft': 'FLK-BOOST · EN DÉVELOPPEMENT',
-  'boost.metaRight': 'Téléchargements à venir',
+  'boost.metaRight': 'Windows maintenant, macOS bientôt',
   'boost.title': 'BOOST',
   'boost.body':
     'Même onglet, même projet : un petit helper natif prend le son en charge, et l’indicateur passe au violet. Il apporte l’audio basse latence et le MIDI direct.',
   'boost.figure': '— ms',
   'boost.figureCaption': 'Latence aller-retour : publiée une fois mesurée',
   'boost.downloads': 'Téléchargements de Boost',
-  'boost.windows': 'Windows · bientôt',
+  'boost.windows': 'Télécharger pour Windows',
   'boost.macos': 'macOS · bientôt',
+  'boost.next': 'Lance l’installateur, puis choisis « Open Faulk » dans l’icône de la zone de notification (le menu du helper est en anglais).',
 
   'footer.label': 'Pied de page',
   'footer.site': 'faulk.app · en développement',

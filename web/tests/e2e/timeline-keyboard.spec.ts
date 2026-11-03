@@ -410,6 +410,7 @@ test('the free cursor reaches the ruler row with Up; Enter there and Shift+Enter
 test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the keyboard and the menu, one undo each (#555)', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the clip is resized and the history counted through the hooks of the dev server')
   await page.getByTestId('arr-zoom-out').click()
   await page.getByTestId('arr-zoom-out').click()
   await clipAt(page, 0, 0)

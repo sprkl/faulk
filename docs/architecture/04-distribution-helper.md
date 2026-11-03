@@ -79,12 +79,12 @@ Elles vivent dans `web/vercel.json`, lu par le projet Vercel qui déploie `web/`
 |---|---|---|
 | `/helper/<canal>/releases.<os>.json` (`stable` ou `beta` ; `win`, `linux`, `osx`) | `helper/<os>/<canal>/releases.<os>.json` | le flux du canal ; une bêta n'est jamais publiée dans le dossier `stable`. |
 | `/helper/packages/FaulkHelper-<version>-<full\|delta>.nupkg` | `helper/win/packages/<fichier>` | tous les paquets au même endroit : le flux d'une version cite aussi le paquet complet de la précédente. L'URL du client ne porte pas le système : macOS et Linux demanderont un chemin de paquets par système côté helper. |
-| `/helper/windows` | `helper/win/stable/FaulkHelper-win-Setup.exe` | le lien de téléchargement à donner (le message de la page pour un helper trop ancien le cite). |
-| tout le reste, racine comprise | le même installeur | **décision du lead** : `get.faulk.app` sert à télécharger le helper. |
+| `/helper/windows`, `/helper/win/stable` | `helper/win/stable/FaulkHelper-win-Setup.exe` | les liens de téléchargement : le second est celui du bouton « Télécharger pour Windows » de la page d'accueil, le premier est cité par le message de la page pour un helper trop ancien. |
+| tout le reste, racine comprise | `https://www.faulk.app/` (le site, seule destination hors du magasin) | #587 : la racine ne sert plus un `.exe` à qui ouvre l'adresse, et aucune adresse macOS ne répond tant qu'aucun build macOS n'existe. |
 
 Deux tests lisent `web/vercel.json`, seul endroit où figure l'adresse du magasin :
 
-- `crates/helper/src/updater/tests.rs` vérifie que chaque URL construite par le helper aboutit au bon chemin du magasin, que toutes les règles mènent à une seule origine `https://<id>.public.blob.vercel-storage.com`, et que l'adresse de téléchargement citée par les textes de la page (`web/src/lib/i18n/app.ts`) mène à l'installeur par une règle à elle, sans compter sur la règle « tout le reste » ;
+- `crates/helper/src/updater/tests.rs` vérifie que chaque URL construite par le helper aboutit au bon chemin du magasin, que toutes les règles, hors celles qui mènent au site, mènent à une seule origine `https://<id>.public.blob.vercel-storage.com`, et que l'adresse de téléchargement citée par les textes de la page (`web/src/lib/i18n/app.ts`) mène à l'installeur par une règle à elle, sans compter sur la règle « tout le reste » ;
 - `scripts/helper-release/publish-core.test.mjs` vérifie que ces mêmes URL aboutissent aux chemins où le script écrit.
 
 Leur limite : ils traduisent eux-mêmes la syntaxe des sources (sous-ensemble de path-to-regexp). Le compilateur de routes de Vercel (`@vercel/routing-utils`, `getTransformedRoutes`) a accepté le fichier et donné les mêmes destinations le 14 octobre 2026 ; il ne remplace pas la vérification après déploiement (voir [Ce que le lead doit faire](#ce-que-le-lead-doit-faire)).
