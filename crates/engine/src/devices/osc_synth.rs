@@ -19,7 +19,7 @@
 //! fixed slope (the whole range in 5 ms). DV-1 chose the declared ramps: with constant gain
 //! and sustain the render is the same sample for sample, and while they move both curves
 //! are click-free and settle within the same few milliseconds (the reference render test,
-//! `tests/osc_synth.rs`, bounds the difference).
+//! `tests/it/osc_synth.rs`, bounds the difference).
 //!
 //! # The legacy calls
 //!

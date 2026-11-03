@@ -2,7 +2,7 @@
 //!
 //! Everything comes from one seed through SplitMix64 and one `IdGenerator` with a fixed
 //! clock: the same profile and the same seed give the same project and, through the
-//! writer, the same bytes (tested in `tests/load_bench.rs`). No clock, no `HashMap`
+//! writer, the same bytes (tested in `tests/it/load_bench.rs`). No clock, no `HashMap`
 //! iteration, no entropy.
 
 use project::*;

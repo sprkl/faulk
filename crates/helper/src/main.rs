@@ -28,8 +28,9 @@
 
 use helper::audio::{EngineSlot, Meter, spawn_flusher};
 use helper::instance::{self, Startup};
+use helper::live::LiveInput;
 use helper::log;
-use helper::midi::MidiManager;
+use helper::midi::{MidiManager, MidiSink};
 use helper::output::{self, Supervisor};
 use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
@@ -344,7 +345,9 @@ fn main() {
     // The control thread: pushes what waited on the engine's ring and drops its garbage.
     let _flusher = spawn_flusher(&engine);
     let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
-    let mut midi = MidiManager::new(midi_out);
+    // The input's notes play on the engine at once, with the page's table (#598).
+    let live = Arc::new(LiveInput::new(engine.clone()));
+    let mut midi = MidiManager::new(MidiSink::new(live, midi_out));
     midi.refresh();
 
     log!("Faulk helper on 127.0.0.1:{}", args.port);

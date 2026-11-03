@@ -103,11 +103,12 @@ export class Dispatcher {
         this.state.inputs = inputs
         this.state.selectedInput = selected
       },
-      onMidiMessage: (data) => {
-        // The helper's input plays through the page's project, as a Web MIDI message (BO-1).
+      onMidiMessage: (data, played) => {
+        // The helper's input runs in the page's project, as a Web MIDI message (BO-1); a note the helper
+        // already played with the page's table (#598) sends no engine bytes, so it never sounds twice.
         if (kind !== 'native' || !current()) return
         const command = decodeMidi(data)
-        if (command) this.runPlayed(command)
+        if (command) this.runPlayed(command, undefined, played)
       },
       onHelperUpdate: (update) => {
         if (kind === 'native' && current()) this.state.helperUpdate = update
@@ -271,7 +272,10 @@ export class Dispatcher {
       // The helper plays the opened project (BO-1): the snapshot of the new project, in the core's next
       // epoch (newer than the helper's), starts its engine over. The Web engine catches up when it plays again.
       if ('streamError' in step) this.resyncNative(step.streamError)
-      else this.native.push(step.push)
+      else {
+        this.native.push(step.push)
+        this.routeNative(this.native)
+      }
     } else if ('streamError' in step) {
       // Applied, but the snapshot did not encode: the Web engine, if any, is behind the project.
       if (this.web) {
@@ -404,6 +408,8 @@ export class Dispatcher {
       this.recorder?.engineReplaced()
       if (report.status !== 'encoded') return false
       native.push(engine)
+      // The table of the helper's MIDI input in the new epoch (#598), right behind the snapshot.
+      this.routeNative(native)
       // The snapshot gave the engine its slots again (a new epoch): the view carries them for the launch grid.
       this.refresh()
       return true
@@ -476,10 +482,27 @@ export class Dispatcher {
    * page's performance clock): while the Web engine plays it is stamped with the audio context's
    * frame of that instant (`frame`), so a recording places it where it was played (#499). In Boost
    * the page's clock means nothing to the helper's engine: the note goes unstamped.
+   * `playedByHelper`: a note of the helper's input that the helper already played (#598): it runs in
+   * the project (keys shown, recording, held notes) but its engine bytes are not sent.
    */
-  runPlayed(command: Command, timeStamp?: number): boolean {
+  runPlayed(command: Command, timeStamp?: number, playedByHelper = false): boolean {
     const frame = !this.native && this.web ? this.web.frameAt(timeStamp) : null
-    return this.run(withFrame(command, frame))
+    return this.run(withFrame(command, frame), { playedByHelper })
+  }
+
+  /**
+   * Tells the helper where its MIDI input plays now (#598): the core's table (the selected and armed MIDI
+   * tracks, by slot, in the core's epoch). `NativeEngine.route` sends it only when it changed.
+   */
+  private routeNative(native: NativeEngine) {
+    const core = this.core
+    if (!core) return
+    try {
+      native.route(core.liveRouting())
+    } catch (error) {
+      // No table: the helper keeps the one it has, or plays nothing and the page plays the notes.
+      console.error(error)
+    }
   }
 
   /**
@@ -487,7 +510,7 @@ export class Dispatcher {
    * engine gets what it means for it; the project store gets the events; the page-local
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
-  run(command: Command, options: { quiet?: boolean; author?: string } = {}): boolean {
+  run(command: Command, options: { quiet?: boolean; author?: string; playedByHelper?: boolean } = {}): boolean {
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
@@ -543,7 +566,10 @@ export class Dispatcher {
         console.error(`engine stream: error ${step.streamError}`)
         void this.stopWeb(step.streamError, 0)
       }
-    } else this.engine?.send(command, step.push)
+    } else if (!options.playedByHelper) this.engine?.send(command, step.push)
+    // Any command may change where the live input goes (selection, arming, a track created or deleted, an
+    // undo): the helper gets the table again when it changed (#598).
+    if (this.native) this.routeNative(this.native)
     applyEffects(command, {
       mode: this.state.mode,
       midi: this.midi,

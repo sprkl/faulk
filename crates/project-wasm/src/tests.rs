@@ -801,6 +801,36 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     assert_eq!(h.view()["slots"]["tracks"].as_object().unwrap().len(), 2);
 }
 
+#[test]
+fn the_live_routing_names_the_slots_of_the_selected_and_armed_tracks_in_the_epoch() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    let routing = || {
+        let (json, bytes) = h.call0(pw_live_routing);
+        assert!(bytes.is_empty(), "no engine bytes");
+        json
+    };
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": []}));
+    let first = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
+    let second = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
+    h.apply(json!({"type": "view.select_track", "track": second}));
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": [1]}));
+    h.apply(json!({"type": "track.arm", "track": first, "armed": true}));
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": [0, 1]}));
+    h.call0(pw_snapshot);
+    assert_eq!(routing()["epoch"], 2);
+    assert_eq!(
+        pw_live_routing_null(),
+        ERR_NO_CORE,
+        "a null core is refused"
+    );
+}
+
+fn pw_live_routing_null() -> i32 {
+    // SAFETY: null is allowed.
+    unsafe { pw_live_routing(core::ptr::null_mut()) }
+}
+
 /// A project with one lane dense enough to be a blob in the folder.
 fn project_with_a_blob_lane() -> project::Project {
     use project::*;

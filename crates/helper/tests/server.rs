@@ -3,7 +3,8 @@
 
 use futures_util::{SinkExt, StreamExt};
 use helper::audio::{AudioCore, EngineSlot, Meter, audio_core};
-use helper::midi::MidiManager;
+use helper::live::LiveInput;
+use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{HelperEvent, NO_OUTPUT, Shared, serve};
 use helper::updater::{Backend, UpdateStatus, UpdateWatch, Updater};
@@ -29,8 +30,8 @@ struct Harness {
     core: AudioCore,
     /// The engine of the output; `remove` stands for an output that went away.
     engine: Arc<EngineSlot>,
-    /// What the selected MIDI input forwards (a key played on it).
-    midi_out: helper::midi::MidiOut,
+    /// The selected MIDI input: `receive` stands for a key played on it.
+    midi: MidiSink,
 }
 
 async fn start() -> Harness {
@@ -45,7 +46,8 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
     let engine = Arc::new(EngineSlot::default());
     engine.install(sender, 48_000.0);
     let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
-    let midi = MidiManager::new(midi_out.clone());
+    let sink = MidiSink::new(Arc::new(LiveInput::new(engine.clone())), midi_out);
+    let midi = MidiManager::new(sink.clone());
     let code = Arc::new(Mutex::new(String::new()));
     let events = Arc::new(Mutex::new(Vec::new()));
     let (shown, seen) = (code.clone(), events.clone());
@@ -78,7 +80,7 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
         shared,
         core,
         engine,
-        midi_out,
+        midi: sink,
     }
 }
 
@@ -88,6 +90,17 @@ struct Page(commands::engine_msgs::Synced);
 impl Page {
     fn new() -> Page {
         Page(commands::engine_msgs::Synced::single_synth(1))
+    }
+
+    /// A page whose one synth is selected: the live input plays it.
+    fn selected() -> Page {
+        let mut page = Page::new();
+        let command = serde_json::json!({
+            "type": "view.select_track",
+            "track": protocol::single_synth::TRACK,
+        });
+        page.run(serde_json::from_value(command).unwrap());
+        page
     }
 
     /// The snapshot that starts the helper's engine over, newer than the epoch of its hello.
@@ -874,17 +887,42 @@ async fn a_refusal_found_at_a_flush_is_told_by_the_ticker() {
     assert_eq!(next_refusal(&mut ws).await, (truncated, 0, page.0.epoch()));
 }
 
+/// The next `midi.message`, skipping the others.
+async fn next_midi(ws: &mut Ws) -> (Vec<u8>, bool) {
+    loop {
+        if let ServerMessage::MidiMessage { data, played } = next(ws).await {
+            return (data, played);
+        }
+    }
+}
+
+/// Sends the page's table and waits until the session's reader took it (the reader answers
+/// the messages of a session in order).
+async fn route(ws: &mut Ws, epoch: u16, tracks: Vec<u32>) {
+    send(ws, &ClientMessage::LiveRouting { epoch, tracks }).await;
+    send(ws, &ClientMessage::MidiListInputs).await;
+    loop {
+        if let ServerMessage::MidiInputs { .. } = next(ws).await {
+            return;
+        }
+    }
+}
+
+/// The page's table now.
+fn routing(page: &Page) -> commands::host::LiveRouting {
+    commands::host::LiveRouting::of(&page.0.state, &page.0.ctx.engine, page.0.epoch())
+}
+
 #[tokio::test]
 async fn the_selected_inputs_messages_reach_the_session_as_they_come() {
     let h = start().await;
     let (mut ws, _) = open_session(&h).await;
-    h.midi_out.send(vec![0x90, 60, 100]).unwrap();
-    loop {
-        if let ServerMessage::MidiMessage { data } = next(&mut ws).await {
-            assert_eq!(data, [0x90, 60, 100]);
-            break;
-        }
-    }
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], false));
+    // System messages are not forwarded; the next channel message is.
+    h.midi.receive(&[0xF8]);
+    h.midi.receive(&[0xB0, 1, 64]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0xB0, 1, 64], false));
     // The helper's inputs are listed and selected by messages for its devices.
     send(&mut ws, &ClientMessage::MidiListInputs).await;
     assert!(matches!(
@@ -896,6 +934,157 @@ async fn the_selected_inputs_messages_reach_the_session_as_they_come() {
         next(&mut ws).await,
         ServerMessage::MidiInputs { selected: None, .. }
     ));
+}
+
+#[tokio::test]
+async fn the_inputs_notes_play_on_the_engine_with_the_pages_table_and_still_reach_the_page() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+
+    // Before any table the helper plays nothing: the page plays the key (its bytes).
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], false));
+    assert_eq!(play(&mut h.core, 50), 0);
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut ws).await.1);
+
+    // With the page's table, a key sounds at once, without a stream of the page.
+    let table = routing(&page);
+    assert_eq!(table.epoch, page.0.epoch());
+    assert_eq!(table.tracks.len(), 1);
+    route(&mut ws, table.epoch, table.tracks).await;
+    // The page reads nothing meanwhile (a long task): the note sounds all the same.
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(
+        play(&mut h.core, 50),
+        1,
+        "the note plays before the page read anything"
+    );
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], true));
+    assert_eq!(h.engine.with(|s| s.received()), Some(1), "no page stream");
+
+    // The page's table changes while the key is held (nothing selected): the release still
+    // reaches the track the note went to.
+    route(&mut ws, page.0.epoch(), vec![]).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x80, 60, 0], true));
+    assert_eq!(play(&mut h.core, 1_000), 0, "released, nothing stuck");
+
+    // A table of another epoch is ignored: the previous one (no track) stays.
+    route(&mut ws, page.0.epoch().wrapping_add(1), vec![0]).await;
+    h.midi.receive(&[0x90, 62, 100]);
+    assert!(next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 50), 0, "the ignored table played nothing");
+    h.midi.receive(&[0x80, 62, 0]);
+    // A control change is the page's.
+    h.midi.receive(&[0xB0, 7, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x80, 62, 0], true));
+    assert_eq!(next_midi(&mut ws).await, (vec![0xB0, 7, 100], false));
+}
+
+#[tokio::test]
+async fn a_snapshot_into_a_newer_epoch_ends_the_table_until_the_pages_next_one() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    let table = routing(&page);
+    route(&mut ws, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(play(&mut h.core, 50), 1);
+    assert!(next_midi(&mut ws).await.1);
+
+    // The page resyncs (a refused stream, a project opened): the `Reset` ends the held note.
+    send_bytes(&mut ws, page.snapshot_after(page.0.epoch())).await;
+    received(&h, 2).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(
+        !next_midi(&mut ws).await.1,
+        "its note went with the old epoch"
+    );
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(!next_midi(&mut ws).await.1, "the old table plays nothing");
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 1_000), 0);
+    assert_eq!(
+        h.engine.with(|s| s.rejected()),
+        Some(0),
+        "nothing sent in the old epoch"
+    );
+
+    let table = routing(&page);
+    route(&mut ws, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+}
+
+#[tokio::test]
+async fn a_replaced_or_ended_sessions_table_goes_with_it() {
+    let mut h = start().await;
+    let (mut first, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut first, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    let table = routing(&page);
+    route(&mut first, table.epoch, table.tracks.clone()).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(next_midi(&mut first).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+
+    // Another page opens a session: the first page's notes end and its table goes.
+    let (mut second, _) = open_session(&h).await;
+    assert_eq!(play(&mut h.core, 1_000), 0);
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut second).await, (vec![0x90, 60, 100], false));
+    assert_eq!(
+        play(&mut h.core, 50),
+        0,
+        "the first page's table plays nothing"
+    );
+    // The first page's late table is not taken either (its socket may be closed by now).
+    let late = ClientMessage::LiveRouting {
+        epoch: table.epoch,
+        tracks: table.tracks,
+    };
+    let _ = first
+        .send(Message::text(serde_json::to_string(&late).unwrap()))
+        .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut second).await.1);
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(!next_midi(&mut second).await.1);
+    assert_eq!(play(&mut h.core, 50), 0);
+
+    // The second page's own table, then it goes away: its table goes with it.
+    let mut page = Page::selected();
+    let epoch = h.engine.current().unwrap().1;
+    send_bytes(&mut second, page.snapshot_after(epoch)).await;
+    received(&h, 2).await;
+    let table = routing(&page);
+    route(&mut second, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    h.midi.receive(&[0x90, 64, 100]);
+    assert!(!next_midi(&mut second).await.1);
+    assert!(next_midi(&mut second).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+    second.close(None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        play(&mut h.core, 1_000),
+        0,
+        "the page left: its notes ended"
+    );
+    assert!(
+        !h.midi.live().receive(&[0x90, 64, 100]),
+        "and its table went"
+    );
 }
 
 /// An update found at start whose download waits for the test.

@@ -12,9 +12,10 @@
 //!
 //! A stream the engine stops (corrupt, out of memory, past the waiting bound) is recorded as a
 //! [`Refusal`] and told to the page, which starts the engine over from a snapshot: the helper
-//! cannot, it has no project. The helper writes only one stream of its own, when a page
-//! leaves or the helper quits: the transport stops and every track the engine holds releases
-//! its notes ([`EventSender::release_all`]).
+//! cannot, it has no project. The helper writes two streams of its own: when a page leaves or
+//! the helper quits, the transport stops and every track the engine holds releases its notes
+//! ([`EventSender::release_all`]); and the notes of its MIDI input, on the tracks the page's
+//! table names ([`EventSender::submit_live`], `crate::live`, #598).
 //!
 //! Everything in [`AudioCore::process`] runs on the audio thread: it never allocates,
 //! locks or blocks. A full live queue releases every note (the engine's live overflow), so
@@ -169,6 +170,17 @@ impl EventSender {
         sent.map_err(|error| self.refuse(error))
     }
 
+    /// Submits a stream the helper encoded for a note of its own MIDI input (#598,
+    /// `crate::live`): behind what waits, like a page's stream, but not counted as one. An
+    /// error is kept for the ticker to tell the page, like one found at a flush: it may be a
+    /// waiting page stream's, which this call drained.
+    pub fn submit_live(&mut self, bytes: &[u8]) {
+        if let Err(error) = self.queue.send(bytes) {
+            let refusal = self.refuse(error);
+            self.refused.get_or_insert(refusal);
+        }
+    }
+
     /// Pushes what waited on the rt ring, then the streams that waited for the engine, and
     /// drops the garbage. A waiting stream stopped for another reason than a busy engine is
     /// recorded as a refusal.
@@ -206,8 +218,9 @@ impl EventSender {
 
     /// The page is gone (or the helper quits): what waits is dropped, then the transport
     /// stops and every track the engine holds releases its notes, in the engine's current
-    /// epoch. The project stays loaded until the next page's snapshot replaces it. The only
-    /// stream the helper writes itself.
+    /// epoch. The project stays loaded until the next page's snapshot replaces it. With the
+    /// notes of its MIDI input ([`EventSender::submit_live`]), the only stream the helper
+    /// writes itself.
     pub fn release_all(&mut self) {
         self.queue.clear();
         self.refused = None;
@@ -291,6 +304,20 @@ impl EngineSlot {
     pub fn with<R>(&self, f: impl FnOnce(&mut EventSender) -> R) -> Option<R> {
         let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
         running.as_mut().map(|r| f(&mut r.sender))
+    }
+
+    /// Runs `f` on the sender of the open output when its engine is of `generation`; `None`
+    /// otherwise.
+    pub fn with_generation<R>(
+        &self,
+        generation: u64,
+        f: impl FnOnce(&mut EventSender) -> R,
+    ) -> Option<R> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running
+            .as_mut()
+            .filter(|r| r.generation == generation)
+            .map(|r| f(&mut r.sender))
     }
 
     /// The generation and the epoch of the open output's engine; `None` when there is none.

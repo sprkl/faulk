@@ -3,7 +3,8 @@
 
 use helper::audio::{EngineSlot, Meter, audio_core};
 use helper::instance::{Startup, claim};
-use helper::midi::MidiManager;
+use helper::live::LiveInput;
+use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{Shared, serve};
 use std::sync::Arc;
@@ -31,7 +32,10 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
             let engine = Arc::new(EngineSlot::default());
             engine.install(sender, 48_000.0);
             let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
-            let midi = MidiManager::new(midi_out);
+            let midi = MidiManager::new(MidiSink::new(
+                Arc::new(LiveInput::new(engine.clone())),
+                midi_out,
+            ));
             let shared = Arc::new(Shared::new(
                 Policy {
                     port,

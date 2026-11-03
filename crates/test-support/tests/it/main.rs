@@ -1,0 +1,26 @@
+//! One integration-test binary for the crate (#599): every former `tests/<name>.rs` is the module `<name>`.
+
+mod all_sound_off;
+mod arrangement_commands;
+mod big_project;
+mod clip_edit_playback;
+mod compiler;
+mod compressor;
+mod device_commands;
+mod device_fade;
+mod drums;
+mod echo;
+mod export;
+mod filter;
+mod harness;
+mod journey_pack;
+mod live_input;
+mod master_automation;
+mod master_chain;
+mod master_export;
+mod master_pan;
+mod open;
+mod output_limiter;
+mod presets;
+mod reverb;
+mod scenes;

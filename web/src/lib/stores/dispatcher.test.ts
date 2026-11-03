@@ -62,6 +62,8 @@ let nativeEngine: {
   epoch: number
   send: ReturnType<typeof vi.fn>
   push: ReturnType<typeof vi.fn>
+  /** `live.routing` (#598); a test that leaves it out gets a stub. */
+  route?: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } | null = null
 /** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
@@ -71,6 +73,7 @@ vi.mock('../engine/native-engine', () => ({
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
       nativeEvents = events
+      if (nativeEngine) nativeEngine.route ??= vi.fn()
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
   },
@@ -724,7 +727,7 @@ describe('running commands through the project core', () => {
       await session.dispatcher.enterBoost()
       const closed = nativeEvents!
       await session.dispatcher.enterWeb()
-      closed.onMidiMessage?.([0x90, 60, 100])
+      closed.onMidiMessage?.([0x90, 60, 100], false)
       expect(session.engine.activeNotes).toEqual([])
     })
 
@@ -1098,26 +1101,84 @@ describe('running commands through the project core', () => {
     const session = newSession()
     await session.dispatcher.start()
     await session.dispatcher.enterBoost()
-    // The live input plays the selected track: the page routes it, the helper knows no track.
+    // The live input plays the selected track: the page routes it.
     session.dispatcher.run({ type: 'view.select_track', track: SINGLE_SYNTH.track })
     const events = nativeEvents!
-    events.onMidiMessage?.([0x90, 60, 100])
+    // A note the helper did not play (no table yet): the page sends its bytes.
+    events.onMidiMessage?.([0x90, 60, 100], false)
     const [command, bytes] = nativeEngine.send.mock.calls.at(-1)! as [Command, Uint8Array]
     expect(command).toEqual({ type: 'live.input_note_on', note: 60, velocity: 100 })
     expect(bytes.length).toBeGreaterThan(0)
     expect(session.engine.activeNotes).toEqual([60])
-    events.onMidiMessage?.([0x80, 60, 0])
+    events.onMidiMessage?.([0x80, 60, 0], false)
     expect(nativeEngine.send.mock.calls.at(-1)![0]).toEqual({ type: 'live.input_note_off', note: 60 })
     expect(session.engine.activeNotes).toEqual([])
+    // A note the helper played (#598): it runs in the project (the key shown) but no bytes leave.
+    const before = nativeEngine.send.mock.calls.length
+    const ran = vi.spyOn(session.dispatcher.recorder!, 'ran')
+    events.onMidiMessage?.([0x90, 64, 100], true)
+    expect(session.engine.activeNotes).toEqual([64])
+    // The recorder is told of it, as of any note played (#501 records them in Boost).
+    expect(ran.mock.lastCall?.[0]).toEqual({ type: 'live.input_note_on', note: 64, velocity: 100 })
+    events.onMidiMessage?.([0x80, 64, 0], true)
+    expect(session.engine.activeNotes).toEqual([])
+    expect(nativeEngine.send.mock.calls.length).toBe(before)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(1)
+    // A control change is the page's: its bytes go (all notes off releases every track).
+    events.onMidiMessage?.([0xb0, 123, 0], false)
+    expect(nativeEngine.send.mock.calls.at(-1)![0]).toEqual({ type: 'live.all_notes_off' })
     // A system message, nothing to play.
     const sent = nativeEngine.send.mock.calls.length
-    events.onMidiMessage?.([0xf8])
+    events.onMidiMessage?.([0xf8], false)
     expect(nativeEngine.send.mock.calls.length).toBe(sent)
     // Once the page is back in Web, a late message of the closed session plays nothing.
     await session.dispatcher.enterWeb()
-    events.onMidiMessage?.([0x90, 62, 100])
+    events.onMidiMessage?.([0x90, 62, 100], false)
     expect(nativeEngine.send.mock.calls.length).toBe(sent)
     expect(session.engine.activeNotes).toEqual([])
+  })
+
+  it('tells the helper where its MIDI input plays, after each snapshot and whenever the table changes (#598)', async () => {
+    const route = vi.fn()
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      route,
+      epoch: 40,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    // In Web nothing is routed to a helper.
+    session.dispatcher.run({ type: 'view.select_track', track: SINGLE_SYNTH.track })
+    await session.dispatcher.enterBoost()
+    // Right behind the snapshot, in its epoch (newer than the helper's 40), with the synth's slot.
+    const snapshot = nativeEngine.push.mock.calls[0][0] as Uint8Array
+    const epoch = snapshot[4] | (snapshot[5] << 8)
+    expect(epoch).toBe(41)
+    const slot = session.project.view!.slots.tracks[SINGLE_SYNTH.track]
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [slot] })
+    expect(route.mock.invocationCallOrder[0]).toBeGreaterThan(nativeEngine.push.mock.invocationCallOrder[0])
+    // After every command, the table as it stands (the engine dedupes): nothing selected, then a new
+    // track armed.
+    session.dispatcher.run({ type: 'view.select_track', track: null })
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [] })
+    session.dispatcher.run({ type: 'track.create', kind: 'midi' })
+    const created = Object.keys(session.project.view!.project.tracks).find((id) => id !== SINGLE_SYNTH.track)!
+    session.dispatcher.run({ type: 'track.arm', track: created, armed: true })
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [session.project.view!.slots.tracks[created]] })
+    // A refused stream: the new snapshot's epoch, the table again.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    nativeEvents!.onStreamRefused?.(-8, 0, epoch)
+    expect(route.mock.lastCall![0].epoch).toBe(epoch + 1)
+    // A note the helper played reaches the table step too, unchanged.
+    const calls = route.mock.calls.length
+    nativeEvents!.onMidiMessage?.([0x90, 60, 100], true)
+    expect(route.mock.calls.length).toBe(calls + 1)
+    expect(route.mock.lastCall![0]).toEqual(route.mock.calls[calls - 1][0])
   })
 
   it('reads the project again when the report of an applied command was lost', async () => {

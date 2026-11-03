@@ -122,7 +122,7 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 /// device after it, `commands::engine_msgs`), so the room covers a chain of 32 devices
 /// changed at once (beyond, the last ones cut). It bounds the extra device runs of a chain
 /// to 32 per block for one fade, and its cost in the worst case of the engine's tables
-/// (`tests/msg.rs`: 256 bytes a track, 2 MiB for 4 096 tracks counted twice) fits the budget.
+/// (`tests/it/msg.rs`: 256 bytes a track, 2 MiB for 4 096 tracks counted twice) fits the budget.
 pub const OUTGOING_ROOM: usize = 32;
 
 /// What the audio side hands back through the retire ring once its fade is over: a track
@@ -137,7 +137,7 @@ pub enum Retired {
 /// the chain was heard, each fading out at the slot it held. A fixed array of at most
 /// [`OUTGOING_ROOM`] boxes, packed at its start (moving a `Box`: no allocation). An array in
 /// the chain rather than a link in every [`DeviceEntry`]: the worst case of the engine's
-/// tables counts every device slot of every track (`tests/msg.rs`), where a link would cost
+/// tables counts every device slot of every track (`tests/it/msg.rs`), where a link would cost
 /// more than the room does.
 #[derive(Debug)]
 pub struct Outgoing {
