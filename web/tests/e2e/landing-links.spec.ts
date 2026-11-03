@@ -20,8 +20,8 @@ const SECTIONS = ['modes', 'boost', 'modules'] as const
 const links = (page: Page, bar: 'header' | 'footer') => page.locator(`${bar} a`)
 
 /** Every point of a grid over the link's box (corners and edges included, a pixel inside) must belong to the link. */
-async function wholeSurfaceIsTheLinks(link: Locator) {
-  await link.scrollIntoViewIfNeeded()
+async function wholeSurfaceIsTheLinks(link: Locator, scroll = true) {
+  if (scroll) await link.scrollIntoViewIfNeeded()
   const stolen = await link.evaluate((a) => {
     // Three pixels in: the language switch's rounded border and padding are the list's, not the link's.
     const box = a.getBoundingClientRect()
@@ -43,19 +43,33 @@ async function wholeSurfaceIsTheLinks(link: Locator) {
 
 for (const lang of LANGS) {
   for (const [width, height] of WIDTHS) {
-    test(`landing, ${lang}, ${width} px: the whole surface of every footer and top-bar link is the link's, before and after the reveal`, async ({ page }) => {
+    test(`landing, ${lang}, ${width} px: the whole surface of every footer and top-bar link is the link's, while scrolling in and once revealed`, async ({
+      page,
+    }) => {
       await page.setViewportSize({ width, height })
       await page.goto(`/${lang}`)
       for (const bar of ['header', 'footer'] as const) {
         const all = links(page, bar)
         const count = await all.count()
         expect(count).toBeGreaterThanOrEqual(7)
-        for (const when of ['during', 'after']) {
-          // The footer reveals as it scrolls into view: sample at once, then once the animation has had time to end.
-          if (bar === 'footer') await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-          if (when === 'after') await page.waitForTimeout(1500)
-          for (let i = 0; i < count; i++) await wholeSurfaceIsTheLinks(all.nth(i))
+        if (bar === 'footer') {
+          // The reveal follows the scroll (`animation-timeline: view()`): sample the links where they are on screen at
+          // several scroll positions on the way down, so the wordmark is hit-tested while it is still moving into place.
+          for (const fromBottom of [1000, 700, 400, 200, 0]) {
+            await page.evaluate((offset) => window.scrollTo(0, Math.max(0, document.body.scrollHeight - innerHeight - offset)), fromBottom)
+            for (let i = 0; i < count; i++) {
+              const onScreen = await all.nth(i).evaluate((a) => {
+                const box = a.getBoundingClientRect()
+                return box.top >= 0 && box.bottom <= innerHeight
+              })
+              if (onScreen) await wholeSurfaceIsTheLinks(all.nth(i), false)
+            }
+          }
+          await page.waitForTimeout(1000)
         }
+        for (let i = 0; i < count; i++) await wholeSurfaceIsTheLinks(all.nth(i))
+        if (bar === 'footer') await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+        for (let i = 0; i < count; i++) await wholeSurfaceIsTheLinks(all.nth(i))
       }
     })
   }
@@ -111,10 +125,14 @@ for (const lang of LANGS) {
     }
   }
 
-  test(`landing, ${lang}: the brand link in the bar goes home from the Journey page`, async ({ page }) => {
+  test(`landing, ${lang}: the brand link in the bar goes home, from the Journey page and from the landing page`, async ({ page }) => {
     await page.goto(`/${lang}/journey`)
     await page.locator('header a.brand').click()
     await page.waitForURL(new RegExp(`/${lang}/?$`))
+    await page.goto(`/${lang}#boost`)
+    await page.locator('header a.brand').click()
+    await page.waitForURL(new RegExp(`/${lang}/?$`))
+    await expect(page.locator('html')).toHaveAttribute('lang', lang)
   })
 
   test(`landing, ${lang}: Boost offers the Windows installer as a link and macOS as not available yet`, async ({ page }) => {
