@@ -364,3 +364,35 @@ test('piano roll: on an AZERTY layout the quantize key is labelled with the char
   await expect(line.locator('kbd')).toHaveText('A')
   expect(seen.errors).toEqual([])
 })
+
+// #527: a drawn note takes the draw velocity of the toolbar, whatever velocity the notes touched before had.
+test('piano roll: a drawn note takes the draw velocity, not the velocity of the last touched note', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  const draw = page.getByTestId('roll-draw-velocity')
+  await expect(draw).toHaveValue('100')
+  const g = await spot(page)
+
+  await page.mouse.click(g.x(100), g.y(60))
+  await page.getByTestId('roll-tool-select').click()
+  await page.mouse.click(g.x(100), g.y(60))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  // The selection goes down to 1 (Page Down, again and again, to the floor); the draw velocity stays.
+  for (let i = 0; i < 12; i++) await page.keyboard.press('PageDown')
+  expect((await notes(page)).map((n) => n.velocity)).toEqual([1])
+  await expect(draw).toHaveValue('100')
+
+  await page.getByTestId('roll-tool-draw').click()
+  await page.mouse.click(g.x(1000), g.y(62))
+  expect((await notes(page)).find((n) => n.pitch === 62)!.velocity).toBe(100)
+
+  // The draw velocity is its own setting: typed, kept between 1 and 127, used by the next note.
+  await draw.fill('64')
+  await draw.blur()
+  await page.mouse.click(g.x(2000), g.y(64))
+  expect((await notes(page)).find((n) => n.pitch === 64)!.velocity).toBe(64)
+  await draw.fill('500')
+  await draw.blur()
+  await expect(draw).toHaveValue('127')
+  expect(seen.errors).toEqual([])
+})
