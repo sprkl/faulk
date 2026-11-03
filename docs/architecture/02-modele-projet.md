@@ -254,7 +254,7 @@ Le même projet produit toujours **exactement les mêmes octets**. Règles, tout
 
 ### 2.6 Versions du format et migrations
 
-`project.json` porte `"format": 1`. Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
+`project.json` porte `"format": 2` (format 1 jusqu'à #473 ; la migration de 1 à 2 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, qui se taisait au-delà et se répète désormais, pour que les morceaux enregistrés avant sonnent pareil). Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
 
 ### 2.7 Lecture, écriture et limites (SV-1)
 

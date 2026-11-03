@@ -53,7 +53,7 @@ test('opening a project folder stops the old project, shows the new one and its 
   // A folder that is not a project: a notice, the old project and its note stay.
   const song = readFolder(SONG)
   const newer = song.map((f) =>
-    f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 1', '"format": 99')) } : f,
+    f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 2', '"format": 99')) } : f,
   )
   expect(await open(page, 'newer', newer)).toEqual({ status: 'refused', reason: 'newer_format' })
   await expect(page.getByRole('status').filter({ hasText: 'newer version' })).toBeVisible()

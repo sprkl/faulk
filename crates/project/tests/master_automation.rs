@@ -174,7 +174,7 @@ fn a_project_without_master_lanes_writes_what_it_always_wrote_and_an_older_folde
     let opened = open_default(&fs);
     assert!(opened.project.master_automation.is_empty());
     assert_eq!(opened.project, s.project);
-    assert_eq!(opened.project.format, 1);
+    assert_eq!(opened.project.format, FORMAT_VERSION);
 }
 
 #[test]

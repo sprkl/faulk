@@ -62,19 +62,19 @@ fn project_json_that_is_not_json_is_corrupt_and_names_the_file() {
 fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_know() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 1", "\"format\": 2,\n  \"swing\": 0.5", 1)
+        s.replacen("\"format\": 2", "\"format\": 3,\n  \"swing\": 0.5", 1)
     });
     assert_eq!(
         refused(&fs),
         FileError::NewerFormat {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2
         }
     );
     // Never rewritten: the refusal comes before anything else is read.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 1", "\"format\": 4000000000", 1)
+        s.replacen("\"format\": 2", "\"format\": 4000000000", 1)
     });
     assert!(matches!(
         refused(&fs),
@@ -89,7 +89,7 @@ fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_
 fn format_zero_and_older_formats_without_a_migration_are_unsupported() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 1", "\"format\": 0", 1)
+        s.replacen("\"format\": 2", "\"format\": 0", 1)
     });
     assert_eq!(refused(&fs), FileError::UnsupportedFormat { found: 0 });
 }
@@ -402,7 +402,7 @@ fn v0_folder() -> MemFs {
     // a project name under `title`.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 1", "\"format\": 0", 1)
+        s.replacen("\"format\": 2", "\"format\": 0", 1)
             .replacen("\"name\"", "\"title\"", 1)
     });
     for path in fs
@@ -417,6 +417,17 @@ fn v0_folder() -> MemFs {
         });
     }
     fs
+}
+
+/// A stand-in for the real step from format 1 (which cuts placements): the format only.
+fn one_to_two(fs: &mut MemFs) -> Result<(), String> {
+    let text = String::from_utf8(fs.read("project.json").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    fs.insert(
+        "project.json",
+        text.replacen("\"format\": 1", "\"format\": 2", 1),
+    );
+    Ok(())
 }
 
 fn zero_to_one(fs: &mut MemFs) -> Result<(), String> {
@@ -439,10 +450,16 @@ fn zero_to_one(fs: &mut MemFs) -> Result<(), String> {
 
 #[test]
 fn an_older_project_is_migrated_in_memory_and_saving_rewrites_what_the_migration_changed() {
-    let table = [Migration {
-        from: 0,
-        apply: zero_to_one,
-    }];
+    let table = [
+        Migration {
+            from: 0,
+            apply: zero_to_one,
+        },
+        Migration {
+            from: 1,
+            apply: one_to_two,
+        },
+    ];
     let mut fs = v0_folder();
     let before = fs.clone();
     let opened = open_with(&fs, &OpenOptions::default(), &table).unwrap();
@@ -466,7 +483,7 @@ fn an_older_project_is_migrated_in_memory_and_saving_rewrites_what_the_migration
     assert_eq!(changed, expected);
     assert!(changed.len() >= 3);
     assert_eq!(fs.files(), song_fs().files());
-    // And the folder now opens as a format-1 project, without a table.
+    // And the folder now opens as a current project, without a table.
     let again = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(again.report.migrated_from, None);
     assert_eq!(again.project, song());
@@ -500,10 +517,16 @@ fn a_migration_that_fails_or_leaves_the_wrong_format_is_a_typed_error() {
     let err = open_with(
         &fs,
         &OpenOptions::default(),
-        &[Migration {
-            from: 0,
-            apply: forgets,
-        }],
+        &[
+            Migration {
+                from: 0,
+                apply: forgets,
+            },
+            Migration {
+                from: 1,
+                apply: one_to_two,
+            },
+        ],
     )
     .unwrap_err();
     assert!(

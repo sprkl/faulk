@@ -17,9 +17,90 @@ pub struct Migration {
     pub apply: fn(&mut MemFs) -> Result<(), String>,
 }
 
-/// The migrations of this build, one per format below [`crate::FORMAT_VERSION`]. Format 1
-/// is the first: there is nothing to migrate from.
-pub const MIGRATIONS: &[Migration] = &[];
+/// The migrations of this build, one per format below [`crate::FORMAT_VERSION`].
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    from: 1,
+    apply: v1_to_v2,
+}];
+
+/// Format 2 (#473): in the arrangement, a placement longer than its MIDI clip repeats the
+/// clip, even one without a loop; in format 1 such a clip was silent after its end. So that
+/// a song written before sounds the same, a placement of a MIDI clip without a loop is cut
+/// at the clip's end (what lay past it was silence), and one that starts past it (silent
+/// whole) is removed. A clip with a loop repeated it already and is left alone.
+fn v1_to_v2(mem: &mut MemFs) -> Result<(), String> {
+    use serde_json::Value;
+    let mut project: Value = serde_json::from_slice(
+        mem.files()
+            .get("project.json")
+            .ok_or("project.json is missing")?,
+    )
+    .map_err(|e| format!("project.json: {e}"))?;
+    project["format"] = Value::from(2);
+    let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+    mem.insert("project.json", bytes);
+
+    let arrangements: Vec<String> = mem
+        .files()
+        .keys()
+        .filter(|p| p.starts_with("tracks/") && p.ends_with("/arrangement.tsv"))
+        .cloned()
+        .collect();
+    for path in arrangements {
+        let track_dir = path.trim_end_matches("arrangement.tsv").to_owned();
+        let text = String::from_utf8(mem.files()[&path].clone())
+            .map_err(|_| format!("{path}: not UTF-8"))?;
+        let mut out = String::with_capacity(text.len());
+        let mut changed = false;
+        for line in text.split_inclusive('\n') {
+            let row = line.trim_end_matches(['\n', '\r']);
+            let cols: Vec<&str> = row.split('\t').collect();
+            let cut = if row.starts_with('#') || cols.len() != 5 {
+                None
+            } else {
+                one_shot_length(mem, &track_dir, cols[3]).and_then(|clip_len| {
+                    let length: i64 = cols[2].parse().ok()?;
+                    let offset: i64 = cols[4].parse().ok()?;
+                    (offset.checked_add(length)? > clip_len).then_some((clip_len, offset))
+                })
+            };
+            match cut {
+                // Silent whole: the placement goes.
+                Some((clip_len, offset)) if offset >= clip_len => changed = true,
+                Some((clip_len, offset)) => {
+                    changed = true;
+                    let ending = &line[row.len()..];
+                    out.push_str(&format!(
+                        "{}\t{}\t{}\t{}\t{}{ending}",
+                        cols[0],
+                        cols[1],
+                        clip_len - offset,
+                        cols[3],
+                        cols[4]
+                    ));
+                }
+                None => out.push_str(line),
+            }
+        }
+        if changed {
+            mem.insert(path, out.into_bytes());
+        }
+    }
+    Ok(())
+}
+
+/// The length of a MIDI clip of a track that has no loop, from its file; `None` for an
+/// audio clip, a clip with a loop, or a file that does not read (the reader refuses it
+/// with its own error afterwards).
+fn one_shot_length(mem: &MemFs, track_dir: &str, clip: &str) -> Option<i64> {
+    let bytes = mem.files().get(&format!("{track_dir}clips/{clip}.json"))?;
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let midi = value.get("content")?.get("midi")?;
+    if !midi.get("looping").is_none_or(serde_json::Value::is_null) {
+        return None;
+    }
+    midi.get("length")?.as_i64()
+}
 
 /// Applies the steps from `found` up to `target`. A step that is not in `table` is an
 /// unsupported format; a step that fails is a typed error, and `mem` must then be dropped.
