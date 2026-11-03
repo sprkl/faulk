@@ -12,7 +12,7 @@ export type ToPrepare =
 
 export type FromPrepare =
   | { type: 'ready'; channel: number; stackTop: number; tls: number; feedback: number; feedbackLen: number }
-  /** A stream stopped by `code` (`MsgError::code`, not a busy engine: that one is resent) at byte `at`. */
+  /** A stream stopped by `code` (`MsgError::code`) at byte `at`: a busy engine is resent, so -9 here is a stream refused past the queue's bound (`PushQueue`). */
   | { type: 'pushed'; code: number; at: number }
   | { type: 'error'; message: string }
 
