@@ -31,9 +31,9 @@ use helper::midi::all_notes_off;
 use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
-use helper::updater::{self, Config, UpdateStatus, Updater};
+use helper::updater::{self, Config, UpdateStatus, UpdateWatch, Updater};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 #[cfg(debug_assertions)]
@@ -112,9 +112,80 @@ fn ui_lang() -> Lang {
     }
 }
 
-/// Logs why the helper cannot start, tells the user, and exits.
+/// The port a starting helper claimed, until the server takes it: a failed start frees it at
+/// once (`fatal`), so that a helper launched meanwhile is not told the port is taken.
+static CLAIMED: Mutex<Option<std::net::TcpListener>> = Mutex::new(None);
+/// The updater, once started: a failed start lets its first check end (`fatal`).
+static UPDATES: OnceLock<UpdateWatch> = OnceLock::new();
+/// Longest wait of a failed start for the update check and download in progress.
+const FATAL_UPDATE_LIMIT: Duration = Duration::from_secs(120);
+/// A debug build reports no audio output device when this variable is set (startup tests).
+const NO_AUDIO_ENV: &str = "FAULK_HELPER_TEST_NO_AUDIO";
+/// A debug build pauses this many milliseconds where a release build shows its error dialog
+/// (startup tests).
+#[cfg(debug_assertions)]
+const FATAL_PAUSE_ENV: &str = "FAULK_HELPER_TEST_FATAL_PAUSE_MS";
+
+/// Logs why the helper cannot start, tells the user, and exits. A helper that cannot start can
+/// still update itself, and the update may fix what failed: the port is freed first; while the
+/// error is shown, the update check started at launch is let to end (bounded), then the instance
+/// lock is let go, so that the next start applies a downloaded update even if the error is still
+/// on screen; the exit waits for both.
 fn fatal(lang: Lang, detail: &str) -> ! {
     log!("{detail}");
+    drop(
+        CLAIMED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take(),
+    );
+    // While the error is shown: let the update check end, then stop holding the instance lock,
+    // so that the next start can apply what was downloaded even if the error stays on screen.
+    let settle_then_release = || {
+        if let Some(updates) = UPDATES.get() {
+            wait_for_update(updates, FATAL_UPDATE_LIMIT);
+        }
+        updater::release_instance_lock();
+    };
+    let settling = std::thread::Builder::new()
+        .name("faulk-fatal-update".into())
+        .spawn(settle_then_release)
+        .ok();
+    show_fatal(lang, detail);
+    match settling {
+        Some(thread) => {
+            let _ = thread.join();
+        }
+        // No thread: the same, after the error.
+        None => settle_then_release(),
+    }
+    std::process::exit(1);
+}
+
+/// Lets a check or download in progress end, at most `limit`, saying so in the journal.
+fn wait_for_update(updates: &UpdateWatch, limit: Duration) {
+    if updates.settle(Duration::ZERO) {
+        return;
+    }
+    log!(
+        "update: waiting up to {} s for the update check to end before exiting",
+        limit.as_secs()
+    );
+    if !updates.settle(limit) {
+        log!("update: still running, abandoned as the helper exits");
+    }
+}
+
+/// The audio output, or `None` when there is none (or, in a debug build, when a test asks).
+fn default_output(host: &cpal::Host) -> Option<cpal::Device> {
+    if cfg!(debug_assertions) && std::env::var_os(NO_AUDIO_ENV).is_some() {
+        return None;
+    }
+    host.default_output_device()
+}
+
+/// Tells the user why the helper stops: a dialog in a Windows release build (no console).
+fn show_fatal(lang: Lang, detail: &str) {
     #[cfg(all(windows, not(debug_assertions)))]
     {
         let log_line = log::path()
@@ -126,8 +197,16 @@ fn fatal(lang: Lang, detail: &str) -> ! {
         );
     }
     #[cfg(not(all(windows, not(debug_assertions))))]
-    let _ = lang;
-    std::process::exit(1);
+    let _ = (lang, detail);
+    // A debug build stands for the dialog with a pause when a test asks: the startup test checks
+    // that the port is already free while the dialog is up.
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(FATAL_PAUSE_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
 }
 
 /// `scheme://host[:port]` of a URL, as a browser sends it in `Origin`.
@@ -170,9 +249,7 @@ fn main() {
     updater::startup();
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let lang = ui_lang();
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("faulk");
+    let config_dir = helper::config_dir();
     // Only the helper that serves rotates the log: another instance must not move the
     // file the running one writes to.
     let open_log = |rotate: bool| {
@@ -212,6 +289,17 @@ fn main() {
             fatal(lang, &reason)
         }
     };
+    *CLAIMED.lock().unwrap_or_else(|p| p.into_inner()) = Some(std_listener);
+
+    // Updates of the installed helper, on their own thread; disabled when run from cargo.
+    // Started before anything that can stop the start (token, audio output, runtime, tray):
+    // a helper that cannot start still checks, and `fatal` lets that check end (#515).
+    let updates = Updater::start(Config::from_env());
+    if let UpdateStatus::Disabled { reason } = updates.status() {
+        log!("update: disabled ({reason})");
+    }
+    let _ = UPDATES.set(updates.watch());
+
     if !args
         .origins
         .iter()
@@ -221,9 +309,6 @@ fn main() {
             "warning: the page {} is not among the allowed origins; it will not be able to pair",
             args.app_url
         );
-    }
-    if let Err(e) = std_listener.set_nonblocking(true) {
-        fatal(lang, &format!("cannot configure the listener: {e}"));
     }
 
     let token = load_or_create_token(&config_dir).unwrap_or_else(|e| {
@@ -238,9 +323,7 @@ fn main() {
 
     // Audio output.
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .unwrap_or_else(|| fatal(lang, "no audio output device"));
+    let device = default_output(&host).unwrap_or_else(|| fatal(lang, "no audio output device"));
     let supported = device
         .default_output_config()
         .unwrap_or_else(|e| fatal(lang, &format!("cannot read the output configuration: {e}")));
@@ -289,6 +372,12 @@ fn main() {
         .enable_all()
         .build()
         .unwrap_or_else(|e| fatal(lang, &format!("cannot start the async runtime: {e}")));
+    // Taken in its own statement: `fatal` locks `CLAIMED` too.
+    let claimed = CLAIMED.lock().unwrap_or_else(|p| p.into_inner()).take();
+    let std_listener = claimed.unwrap_or_else(|| fatal(lang, "the claimed port was released"));
+    if let Err(e) = std_listener.set_nonblocking(true) {
+        fatal(lang, &format!("cannot configure the listener: {e}"));
+    }
     let listener = {
         let _guard = runtime.enter();
         tokio::net::TcpListener::from_std(std_listener)
@@ -336,27 +425,24 @@ fn main() {
     #[cfg(not(windows))]
     let notify: Box<dyn Fn(HelperEvent) + Send + Sync> = Box::new(move |event| print_code(&event));
 
-    let shared = Arc::new(Shared::new(
-        Policy {
-            port: args.port,
-            allowed_origins: args.origins.clone(),
-            token,
-        },
-        sender.clone(),
-        midi,
-        activity_rx,
-        meter.clone(),
-        sample_rate,
-        audio_error,
-        notify,
-    ));
+    let shared = Arc::new(
+        Shared::new(
+            Policy {
+                port: args.port,
+                allowed_origins: args.origins.clone(),
+                token,
+            },
+            sender.clone(),
+            midi,
+            activity_rx,
+            meter.clone(),
+            sample_rate,
+            audio_error,
+            notify,
+        )
+        .with_updates(updates.watch()),
+    );
     runtime.spawn(serve(listener, shared));
-
-    // Updates of the installed helper, on their own thread; disabled when run from cargo.
-    let updates = Updater::start(Config::from_env());
-    if let UpdateStatus::Disabled { reason } = updates.status() {
-        log!("update: disabled ({reason})");
-    }
 
     #[cfg(windows)]
     {
