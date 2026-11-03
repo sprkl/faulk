@@ -128,7 +128,26 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.noteDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
-      { label: 'shortcut.noteTranspose', chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
+      {
+        label: 'shortcut.noteStep',
+        chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
+      },
+      {
+        label: 'shortcut.noteShift',
+        chords: [
+          ['Alt', '←'],
+          ['Alt', '→'],
+        ],
+      },
+      {
+        label: 'shortcut.noteTranspose',
+        chords: [
+          ['Alt', '↑'],
+          ['Alt', '↓'],
+          ['Alt', 'Shift', '↑'],
+          ['Alt', 'Shift', '↓'],
+        ],
+      },
       { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
       { label: 'shortcut.noteCreate', chords: [['Enter']] },
       {
