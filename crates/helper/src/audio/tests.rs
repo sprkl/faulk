@@ -145,17 +145,15 @@ fn latency_estimate_adds_the_driver_delay_to_one_buffer() {
 /// monotonic clock times it.
 fn load_after(core: &mut AudioCore, callbacks: usize, cost: Option<f64>) -> (f32, f32) {
     let mut out = vec![0.0; 480 * 2];
+    let base = Instant::now();
     let mut t = 0.0f64;
-    let mut starting = true;
     for _ in 0..callbacks {
         match cost {
             Some(cost) => core.process_with(&mut out, 2, &mut || {
-                // Called twice per chunk: at its start, then at its end.
-                if !starting {
-                    t += cost;
-                }
-                starting = !starting;
-                t
+                // Each read of the clock is `cost` after the one before: whatever the number of reads, the time
+                // between the two around a render is `cost`.
+                t += cost;
+                base + Duration::from_secs_f64(t)
             }),
             None => core.process(&mut out, 2),
         }
@@ -199,6 +197,10 @@ fn the_callback_times_its_render_and_a_slower_render_weighs_more() {
         busy > idle,
         "a slower render weighs more: {busy} against {idle}"
     );
+    // 480 frames are 10 ms of audio: a render of 0.5 ms is 5 %, of 4 ms is 40 %. This pins that `process`
+    // times the render itself, and nothing else.
+    assert!((idle - 0.05).abs() < 0.005, "{idle}");
+    assert!((busy - 0.4).abs() < 0.005, "{busy}");
 }
 
 #[test]

@@ -27,7 +27,7 @@ const links = (page: Page, bar: 'header' | 'footer') => page.locator(`${bar} a`)
  */
 async function clickToReach(page: Page, link: Locator, url: RegExp) {
   for (let attempt = 1; ; attempt++) {
-    await link.click()
+    await link.click({ timeout: 15_000 })
     try {
       await page.waitForURL(url, { waitUntil: 'commit', timeout: 15_000 })
       return
@@ -133,6 +133,8 @@ for (const lang of LANGS) {
         // Open Faulk: a full page load of the DAW.
         await open()
         await clickToReach(page, links(page, bar).and(page.locator('a[href$="/app"]')), /\/app\/?$/)
+        // The DAW's boot is part of this step: its errors are read once it has loaded.
+        await page.waitForLoadState('load', { timeout: 60_000 })
 
         expect(errors).toEqual([])
       })
