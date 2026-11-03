@@ -390,6 +390,20 @@ test('the free cursor reaches the ruler row with Up; Enter there and Shift+Enter
   // Down comes back to the first track.
   await page.keyboard.press('ArrowDown')
   await expect(cursor).toHaveAttribute('data-row', '0')
+
+  // Cut at a bar the keyboard reached: a clip of one bar, the playhead put at its beat 3 by Ctrl+G, then Ctrl+E cuts it in two.
+  await clipAt(page, 0, 2)
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  const [clip] = await blocks(page)
+  await page.locator(`[data-testid=arr-item][data-block="${clip!.id}"]`).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '1')
+  await page.keyboard.press('Control+g')
+  await page.keyboard.type('3.3')
+  await page.keyboard.press('Enter')
+  await expect(position).toContainText('3.3')
+  await page.keyboard.press('Control+e')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
   expect(errors).toEqual([])
 })
 

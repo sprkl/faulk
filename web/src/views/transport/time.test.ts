@@ -90,8 +90,12 @@ describe('parseBarBeat', () => {
     expect(parseBarBeat('3.2', four)).toBe(2 * 3840 + 960)
     expect(parseBarBeat('3,4', four)).toBe(2 * 3840 + 3 * 960)
     expect(parseBarBeat('2.1', { numerator: 3, denominator: 8 })).toBe(3 * 480)
+    expect(parseBarBeat('99999', four)).toBe(99998 * 3840)
+    expect(parseBarBeat('1.04', four)).toBe(3 * 960)
+    expect(parseBarBeat('1.3', { numerator: 3, denominator: 8 })).toBe(2 * 480)
   })
   it('refuses what is no position', () => {
     for (const text of ['', 'a', '0', '1.0', '1.5', '2.', '.5', '-1', '1.2.3', '100000', '1e3']) expect(parseBarBeat(text, four), text).toBeNull()
+    expect(parseBarBeat('1.4', { numerator: 3, denominator: 8 })).toBeNull()
   })
 })
